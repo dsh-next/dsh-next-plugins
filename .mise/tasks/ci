@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Run all pre-push gates"
+#MISE depends=["typecheck", "test", "build", "runtime-deps-check", "docs-check"]
+echo "ci depends on: typecheck, test, build, runtime-deps-check, docs-check"

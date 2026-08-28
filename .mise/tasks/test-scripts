@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+#MISE description="Run repository script tests (pnpm test:scripts)"
+pnpm test:scripts

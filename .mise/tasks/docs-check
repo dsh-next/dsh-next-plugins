@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+#MISE description="Verify the documentation contract (pnpm docs:check)"
+pnpm docs:check

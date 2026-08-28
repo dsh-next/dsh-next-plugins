@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+#MISE description="Typecheck every package + shared (pnpm -r typecheck)"
+pnpm typecheck

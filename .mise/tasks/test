@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+#MISE description="Run every package's vitest suite (pnpm -r test)"
+pnpm test

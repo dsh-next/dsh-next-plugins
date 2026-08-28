@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+#MISE description="Install workspace dependencies (pnpm install)"
+pnpm install

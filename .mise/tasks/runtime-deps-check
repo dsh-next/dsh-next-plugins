@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+#MISE description="Guard against runtime imports of undeclared deps"
+pnpm runtime-deps:check

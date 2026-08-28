@@ -36,8 +36,23 @@ export function apply(ctx: Context): void {
 
   const send = (method: string, args?: unknown): Promise<unknown> => rpc(method, args)
 
+  // Shared config ref: the settings card and the drainer both read the
+  // notification auto-dismiss duration from it, so a slider change is honored
+  // by the next drained notification without an extra round-trip.
+  const configRef: { notificationSeconds: number } = { notificationSeconds: 12 }
+  const onConfig = (config: { notificationSeconds?: number } | undefined): void => {
+    if (config && typeof config.notificationSeconds === 'number') {
+      configRef.notificationSeconds = config.notificationSeconds
+    }
+  }
+
   const presence = createPresenceReporter(sessions, timer, (m, a) => rpc(m, a))
-  const drainer = createDrainer(sessions, timer, () => rpc('getPendingNotifications'))
+  const drainer = createDrainer(
+    sessions,
+    timer,
+    () => rpc('getPendingNotifications'),
+    () => configRef.notificationSeconds,
+  )
 
   // Report the web-notification permission up front and on change.
   const perm = webPermission()
@@ -50,7 +65,7 @@ export function apply(ctx: Context): void {
   if (slots && typeof slots.register === 'function') {
     const off = slots.register(
       { name: 'settings.plugin.item', key: 'dsh-next-notifier', registrant: 'dsh-next-notifier' },
-      () => React.createElement(NotifierCard, { rpc: send, sessions, timer, showWebNotification: (e) => showWebNotification(e, sessions) }),
+      () => React.createElement(NotifierCard, { rpc: send, sessions, timer, showWebNotification: (e) => showWebNotification(e, sessions), onConfig }),
     )
     ctx.effect(() => off)
   }

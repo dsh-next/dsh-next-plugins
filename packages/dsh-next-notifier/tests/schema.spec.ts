@@ -15,6 +15,7 @@ describe('notifierSchema', () => {
     expect(resolved.enabled).toBe(true)
     expect(resolved.suppressFocused).toBe(true)
     expect(resolved.volume).toBe(70)
+    expect(resolved.notificationSeconds).toBe(12)
     expect(resolved.finished.soundName).toBe('chime')
     expect(resolved.approval.soundName).toBe('ping')
     expect(resolved.question.soundName).toBe('chirp')
@@ -46,5 +47,11 @@ describe('notifierSchema', () => {
     expect(() => notifierSchema({ volume: -1 })).toThrow()
     expect(() => notifierSchema({ volume: 101 })).toThrow()
     expect(notifierSchema({ volume: 50 }).volume).toBe(50)
+  })
+
+  it('enforces notification-seconds within the declared 3..60 range', () => {
+    expect(() => notifierSchema({ notificationSeconds: 2 })).toThrow()
+    expect(() => notifierSchema({ notificationSeconds: 61 })).toThrow()
+    expect(notifierSchema({ notificationSeconds: 30 }).notificationSeconds).toBe(30)
   })
 })

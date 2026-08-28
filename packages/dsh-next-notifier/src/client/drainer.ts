@@ -20,7 +20,11 @@ export function webPermission(): 'granted' | 'denied' | 'default' | 'unsupported
   try { return Notification.permission } catch { return 'unsupported' }
 }
 
-export function showWebNotification(event: PendingEvent, sessions: ISessions | undefined): void {
+export function showWebNotification(
+  event: PendingEvent,
+  sessions: ISessions | undefined,
+  timeoutMs = 12000,
+): void {
   try {
     if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
     const notification = new Notification(event.title ?? 'DeepSeek Harness', {
@@ -35,7 +39,7 @@ export function showWebNotification(event: PendingEvent, sessions: ISessions | u
       }
       try { notification.close() } catch {}
     }
-    const closeTimer = setTimeout(() => { try { notification.close() } catch {} }, 12000)
+    const closeTimer = setTimeout(() => { try { notification.close() } catch {} }, timeoutMs)
     void closeTimer
   } catch {
     // A failed notification is non-fatal; drop silently.
@@ -50,15 +54,17 @@ export function createDrainer(
   sessions: ISessions | undefined,
   timer: TimerLike | undefined,
   fetchPending: () => Promise<unknown>,
+  getTimeoutSeconds: () => number = () => 12,
 ): Drainer {
   const drain = (): void => {
     void fetchPending().then((list) => {
       if (!Array.isArray(list)) return
       const now = Date.now()
+      const timeoutMs = Math.max(1000, Math.round(getTimeoutSeconds() * 1000))
       for (const item of list as PendingEvent[]) {
         if (!item || typeof item !== 'object') continue
         if (typeof item.at === 'number' && now - item.at > 30000) continue
-        showWebNotification(item, sessions)
+        showWebNotification(item, sessions, timeoutMs)
       }
     }).catch(() => {})
   }

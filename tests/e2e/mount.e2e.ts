@@ -68,6 +68,7 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await expect(page.getByText('DSH Next Notifier').first()).toBeVisible()
     await page.getByText('DSH Next Notifier').first().click()
     await expect(page.getByText('Enable notifications')).toBeVisible()
+    await expect(page.getByText('Notification duration')).toBeVisible()
     await expect(page.getByText('Test browser notification')).toBeVisible()
   },
 }

@@ -31,10 +31,14 @@ export function normalizeConfig(src: unknown): NotifierConfig {
   const volume = typeof s.volume === 'number' && Number.isFinite(s.volume)
     ? Math.max(0, Math.min(100, Math.round(s.volume)))
     : 70
+  const notificationSeconds = typeof s.notificationSeconds === 'number' && Number.isFinite(s.notificationSeconds)
+    ? Math.max(3, Math.min(60, Math.round(s.notificationSeconds)))
+    : 12
   return {
     enabled: asBool(s.enabled),
     suppressFocused: asBool(s.suppressFocused),
     volume,
+    notificationSeconds,
     finished: group(s.finished, DEFAULT_SOUNDS.finished),
     approval: group(s.approval, DEFAULT_SOUNDS.approval),
     question: group(s.question, DEFAULT_SOUNDS.question),
@@ -55,6 +59,9 @@ export function cleanPatch(patch: unknown): Record<string, unknown> {
   if (typeof p.suppressFocused === 'boolean') clean.suppressFocused = p.suppressFocused
   if (typeof p.volume === 'number' && Number.isFinite(p.volume)) {
     clean.volume = Math.max(0, Math.min(100, Math.round(p.volume)))
+  }
+  if (typeof p.notificationSeconds === 'number' && Number.isFinite(p.notificationSeconds)) {
+    clean.notificationSeconds = Math.max(3, Math.min(60, Math.round(p.notificationSeconds)))
   }
   for (const key of ['finished', 'approval', 'question'] as const) {
     const g = p[key]

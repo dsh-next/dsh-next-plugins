@@ -17,6 +17,7 @@ describe('normalizeConfig', () => {
     expect(c.enabled).toBe(true)
     expect(c.suppressFocused).toBe(true)
     expect(c.volume).toBe(70)
+    expect(c.notificationSeconds).toBe(12)
     expect(c.finished.enabled).toBe(true)
     expect(c.finished.goalOnly).toBe(true)
     expect(c.finished.subagent).toBe(false)
@@ -35,6 +36,12 @@ describe('normalizeConfig', () => {
     expect(normalizeConfig({ volume: 999 }).volume).toBe(100)
   })
 
+  it('clamps notification seconds to 3..60', () => {
+    expect(normalizeConfig({ notificationSeconds: 1 }).notificationSeconds).toBe(3)
+    expect(normalizeConfig({ notificationSeconds: 999 }).notificationSeconds).toBe(60)
+    expect(normalizeConfig({ notificationSeconds: 20 }).notificationSeconds).toBe(20)
+  })
+
   it('legacy boolean group shorthand maps enabled only', () => {
     const c = normalizeConfig({ finished: false })
     expect(c.finished.enabled).toBe(false)
@@ -44,11 +51,18 @@ describe('normalizeConfig', () => {
 
 describe('cleanPatch', () => {
   it('keeps only JSON-safe recognized fields', () => {
-    const p = cleanPatch({ enabled: false, volume: 42, finished: { subagent: true }, bogus: 1 })
+    const p = cleanPatch({ enabled: false, volume: 42, notificationSeconds: 20, finished: { subagent: true }, bogus: 1 })
     expect(p.enabled).toBe(false)
     expect(p.volume).toBe(42)
+    expect(p.notificationSeconds).toBe(20)
     expect(p.finished).toEqual({ subagent: true })
     expect('bogus' in p).toBe(false)
+  })
+
+  it('clamps notification seconds in a patch', () => {
+    expect(cleanPatch({ notificationSeconds: 1 }).notificationSeconds).toBe(3)
+    expect(cleanPatch({ notificationSeconds: 100 }).notificationSeconds).toBe(60)
+    expect('notificationSeconds' in cleanPatch({ notificationSeconds: 'nope' })).toBe(false)
   })
 })
 

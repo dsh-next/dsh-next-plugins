@@ -5,7 +5,7 @@ import { createDrainer, showWebNotification, webPermission } from '../src/client
 /**
  * Client web-notification drainer: polls the Host queue and renders browser
  * notifications. These tests pin the permission gating and the drain filter —
- * the behavior that decides whether the whale-icon notification actually shows.
+ * the behavior that decides whether the DeepSeek-icon notification actually shows.
  */
 
 type FakeNotification = {
@@ -73,7 +73,7 @@ describe('showWebNotification', () => {
     expect(fakeCtors).toHaveLength(0)
   })
 
-  it('creates a Notification with the whale icon when granted', () => {
+  it('creates a Notification with the DeepSeek icon when granted', () => {
     installNotification('granted')
     showWebNotification({ id: 7, title: 'Hello', body: 'World' }, undefined)
     expect(fakeCtors).toHaveLength(1)

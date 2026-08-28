@@ -135,7 +135,7 @@ export function NotifierCard({ rpc, sessions, timer, showWebNotification }: Card
   }
 
   function webHint(): string {
-    if (webStatus === 'granted') return 'Whale icon + click opens the session — shown even when minimized or behind another tab'
+    if (webStatus === 'granted') return 'DeepSeek icon + click opens the session — shown even when minimized or behind another tab'
     if (webStatus === 'denied') return 'Blocked by the browser — notifications will not appear'
     if (webStatus === 'unsupported') return 'Not supported by this browser — notifications will not appear'
     return 'Shows the DeepSeek icon and opens the session when clicked'

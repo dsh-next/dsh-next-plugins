@@ -4,7 +4,7 @@
  */
 import type { ISessions } from '@deepseek-ai/dsh-client-runtime/client'
 import type { TimerLike } from '../core/timer.ts'
-import { WHALE_ICON } from './whale-icon.ts'
+import { DEEPSEEK_ICON } from './deepseek-icon.ts'
 
 interface PendingEvent {
   id?: number
@@ -25,7 +25,7 @@ export function showWebNotification(event: PendingEvent, sessions: ISessions | u
     if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
     const notification = new Notification(event.title ?? 'DeepSeek Harness', {
       body: event.body ?? '',
-      icon: WHALE_ICON,
+      icon: DEEPSEEK_ICON,
       tag: 'dsh-next-notifier-' + (typeof event.id === 'number' ? event.id : 'unknown'),
     })
     notification.onclick = () => {

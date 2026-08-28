@@ -65,7 +65,13 @@ export function apply(ctx: Context): void {
   if (slots && typeof slots.register === 'function') {
     const off = slots.register(
       { name: 'settings.plugin.item', key: 'dsh-next-notifier', registrant: 'dsh-next-notifier' },
-      () => React.createElement(NotifierCard, { rpc: send, sessions, timer, showWebNotification: (e) => showWebNotification(e, sessions), onConfig }),
+      () => React.createElement(NotifierCard, {
+        rpc: send,
+        sessions,
+        timer,
+        showWebNotification: (e, timeoutMs) => showWebNotification(e, sessions, timeoutMs),
+        onConfig,
+      }),
     )
     ctx.effect(() => off)
   }

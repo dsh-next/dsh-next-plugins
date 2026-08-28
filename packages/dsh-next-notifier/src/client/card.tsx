@@ -33,7 +33,7 @@ export interface CardDeps {
     title?: string
     body?: string
     sessionId?: string | null
-  }) => void
+  }, timeoutMs?: number) => void
   /** Notified whenever a config snapshot lands, so the host-side drainer
    * honors the latest notification auto-dismiss duration. */
   onConfig?: (config: { notificationSeconds?: number } | undefined) => void
@@ -149,12 +149,13 @@ export function NotifierCard({ rpc, sessions, timer, showWebNotification, onConf
   }
 
   function testWeb(): void {
+    const seconds = config?.notificationSeconds ?? 12
     showWebNotification({
       id: Date.now(),
       title: 'DeepSeek Harness · Test',
       body: 'Web notifications work — click me to open this session.',
       sessionId: currentSessionId(sessions),
-    })
+    }, seconds * 1000)
   }
 
   function webHint(): string {

@@ -25,3 +25,28 @@ showWebNotification custom timeout, createDrainer honoring the supplier, and the
 mount-smoke DOM marker now asserts "Notification duration" renders. 71 tests
 across 7 suites. Verified `pnpm typecheck`, `pnpm test`, `pnpm build`, and
 `bash scripts/e2e-mount.sh` all green; `getState` returns `notificationSeconds`.
+
+## Second bug: Test button dropped the configured duration
+
+After wiring the setting, a live probe showed the "Test browser notification"
+button still closed at the hardcoded 12s. Root cause: `client/index.ts` passed
+`showWebNotification` to the card as a `(e) => showWebNotification(e, sessions)`
+wrapper that dropped the timeout argument, so the card's `testWeb()` timeout was
+never forwarded. Fixed by forwarding the third argument:
+`(e, timeoutMs) => showWebNotification(e, sessions, timeoutMs)`. Verified by a
+Playwright behavioral probe: setting 6s closes at 6002ms (was 12s before).
+
+## Behavioral e2e + onboarding finding
+
+Added a real behavioral check to the mount smoke (not just the label): it spies
+on Notification, sets the duration to a distinct value, clicks Test, and asserts
+the close fires near the configured value (not 12s). It runs inside the mount
+test after the marker opens the card, avoiding a fresh context that re-shows the
+onboarding modal.
+
+Onboarding: DSH has no env var to disable onboarding. The "Add an API key to get
+started" modal is suppressed by seeding the scratch `settings.yaml` with a
+provider whose `apiKeyEnv` resolves via env (`DSH_E2E_FAKE_KEY`); the
+"Internal Testing Notice" is dismissed with its "Continue" button. Env alone
+(`DSH_E2E_FAKE_KEY`) closes the provider-readiness gate; there is no dedicated
+`DSH_*` onboarding toggle.

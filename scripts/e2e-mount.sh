@@ -71,6 +71,34 @@ nodeLinker: hoisted
 autoInstallPeers: false
 EOF
 
+# A fresh home shows first-run onboarding dialogs (an "Internal Testing Notice"
+# and an "Add an API key to get started" modal) whose masks intercept clicks on
+# the sidebar, which would make the Playwright lane flaky. Seed the home
+# settings so the welcome notice is considered seen and a model provider is
+# configured, so no setup modal is required to drive the UI.
+cat > "$DSH_HOME/settings.yaml" <<'EOF'
+ui-onboarding:
+  welcomeNoticeVersion: 2099-01-01.1
+agent-default-model:
+  provider: llm-pi-ai
+  model: glm-5.3-flash
+llm-pi-ai:
+  providers:
+    test:
+      apiKeyEnv: DSH_E2E_FAKE_KEY
+      models:
+        - id: glm-5.3-flash
+          name: GLM-5.3-Flash
+          input: ["text", "image"]
+          output: ["text"]
+dsh-next-notifier:
+  enabled: true
+  suppressFocused: true
+  volume: 70
+  notificationSeconds: 12
+EOF
+
+
 SERVER_PID=""
 cleanup() {
   local code=$?
@@ -111,6 +139,9 @@ done
 # OS-assigned port (or fixed PORT), and never auto-open a browser.
 WEB_LOG="$SCRATCH/web.log"
 say "booting dsh --profile smoke (port=$PORT)"
+# Provide the key the seeded llm-pi-ai provider resolves through (apiKeyEnv), so
+# a model provider is "ready" and no API-key onboarding modal blocks the lane.
+export DSH_E2E_FAKE_KEY="${DSH_E2E_FAKE_KEY:-fake-e2e-key}"
 # shellcheck disable=SC2086
 $DSH_CMD --profile smoke --no-open --port "$PORT" > "$WEB_LOG" 2>&1 &
 SERVER_PID=$!
@@ -132,7 +163,7 @@ say "dsh web ready at $URL (pid $SERVER_PID)"
 
 # Run the headless render lane.
 say "running Playwright headless mount smoke"
-DSH_E2E_URL="$URL" DSH_E2E_PLUGINS="$PLUGIN_IDS" \
+DSH_E2E_URL="$URL" DSH_E2E_PLUGINS="$PLUGIN_IDS" DSH_E2E_FAKE_KEY="fake-e2e-key" \
   pnpm exec playwright test
 
 say "pass: plugin family mounted into a real DSH with no crash markers"

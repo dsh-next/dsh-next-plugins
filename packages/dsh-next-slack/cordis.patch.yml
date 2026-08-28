@@ -1,0 +1,7 @@
+# bundle patch for the slack plugin: inserts its plugin row into the profile
+# roster. Applied as a profile bundle layer (the `dsh.bundle.patch` manifest
+# field); install with
+# `dsh plugin --profile <name> add link:<repo>/packages/dsh-next-slack`.
+- insert:
+    - id: dsh-next-slack
+      name: '@dsh-next/dsh-next-slack'

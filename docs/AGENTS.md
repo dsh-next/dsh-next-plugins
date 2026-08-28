@@ -1,0 +1,22 @@
+# Documentation rules
+
+This file governs the documentation in this repository.
+
+## Conventions
+
+- Documentation is written in English only.
+- Keep each fact in its owning document; do not duplicate facts across files.
+- Update documentation in the same change that changes behavior.
+- Put temporary handoffs, decisions, and validation snapshots in
+  `docs/archive/`.
+
+## Required files
+
+- Every package has a `README.md` describing its purpose, install, and
+  development commands.
+- Repository-level rules live in `AGENTS.md`; contributor guidance in
+  `CONTRIBUTING.md`.
+
+## Validation
+
+Run `pnpm docs:check` before merging to verify the documentation contract.

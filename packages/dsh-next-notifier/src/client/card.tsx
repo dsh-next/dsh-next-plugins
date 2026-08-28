@@ -128,7 +128,7 @@ export function NotifierCard({ rpc, sessions, timer, showWebNotification }: Card
   function testWeb(): void {
     showWebNotification({
       id: Date.now(),
-      title: 'DeepSeek Harness · Test',
+      title: 'Test notification',
       body: 'Web notifications work — click me to open this session.',
       sessionId: currentSessionId(sessions),
     })

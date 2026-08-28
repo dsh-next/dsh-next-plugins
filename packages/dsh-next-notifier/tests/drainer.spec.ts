@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest'
+import type { ISessions } from '@deepseek-ai/dsh-client-runtime/client'
 import type { TimerLike } from '../src/core/timer.ts'
 import { createDrainer, showWebNotification, webPermission } from '../src/client/drainer.ts'
 
@@ -82,6 +83,32 @@ describe('showWebNotification', () => {
     expect(n.body).toBe('World')
     expect(n.icon).toMatch(/^data:image\/png;base64,/)
     expect(n.tag).toBe('dsh-next-notifier-7')
+  })
+
+  it('appends the session title to the headline when the session is listed', () => {
+    installNotification('granted')
+    const sessions = ({ list: { getSnapshot: () => ({ byId: { s5: { id: 's5', displayTitle: 'Design spec' } } }) } }) as unknown as ISessions
+    showWebNotification({ id: 1, sessionId: 's5', title: 'Approval needed' }, sessions)
+    expect(fakeCtors[0].title).toBe('Approval needed \u00b7 Design spec')
+  })
+
+  it('keeps the headline when the session is not in the list', () => {
+    installNotification('granted')
+    const sessions = ({ list: { getSnapshot: () => ({ byId: {} }) } }) as unknown as ISessions
+    showWebNotification({ id: 1, sessionId: 'ghost', title: 'Approval needed' }, sessions)
+    expect(fakeCtors[0].title).toBe('Approval needed')
+  })
+
+  it('keeps the headline when there is no session', () => {
+    installNotification('granted')
+    showWebNotification({ id: 1, title: 'Agent finished' }, undefined)
+    expect(fakeCtors[0].title).toBe('Agent finished')
+  })
+
+  it('falls back to DeepSeek Harness when the type title is empty', () => {
+    installNotification('granted')
+    showWebNotification({ id: 1, title: '' }, undefined)
+    expect(fakeCtors[0].title).toBe('DeepSeek Harness')
   })
 
   it('closes itself on a 12s timer', () => {

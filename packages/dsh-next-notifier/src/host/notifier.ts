@@ -182,11 +182,11 @@ export class Notifier {
       this.finishTimer = timer.timeout(() => {
         this.finishTimer = null
         if (!quietForGoal) {
-          this.notify('finished', 'finished', 'DeepSeek Harness', 'Agent finished its turn.', sessionId, viewingAtIdle)
+          this.notify('finished', 'finished', 'Agent finished', 'Agent finished its turn.', sessionId, viewingAtIdle)
         }
       }, FINISH_SETTLE_MS)
     } else if (!quietForGoal) {
-      this.notify('finished', 'finished', 'DeepSeek Harness', 'Agent finished its turn.', sessionId, viewingAtIdle)
+      this.notify('finished', 'finished', 'Agent finished', 'Agent finished its turn.', sessionId, viewingAtIdle)
     }
   }
 
@@ -207,19 +207,19 @@ export class Notifier {
 
     this.disposers.push(ctx.on('subagent/end', (info: unknown) => {
       const i = (info && typeof info === 'object' ? info : {}) as { id?: string }
-      this.notify('subagent', 'finished', 'DeepSeek Harness', 'A subagent finished its turn.', typeof i.id === 'string' ? i.id : null)
+      this.notify('subagent', 'finished', 'Subagent finished', 'A subagent finished its turn.', typeof i.id === 'string' ? i.id : null)
     }))
 
     this.disposers.push(ctx.on('approval/request', (req: ApprovalRequest, next: () => Promise<ApprovalOutcome>): Promise<ApprovalOutcome> => {
       const tool = typeof req.toolName === 'string' ? req.toolName : 'a tool'
       const reason = typeof req.reason === 'string' && req.reason.length > 0 ? ' - ' + req.reason : ''
-      this.notify('approval', 'approval', 'DeepSeek Harness · Approval needed', 'Waiting for your approval: ' + tool + reason, this.sessionIdOf(req.agent))
+      this.notify('approval', 'approval', 'Approval needed', 'Waiting for your approval: ' + tool + reason, this.sessionIdOf(req.agent))
       return next()
     }))
 
     this.disposers.push(ctx.on('tools/execute', (exec: ToolDispatchExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult> => {
       if (exec.name === 'ask_user_question') {
-        this.notify('question', 'question', 'DeepSeek Harness · Question', 'The agent asked you a question and is waiting for your answer.', this.sessionIdOf((exec as { agent?: unknown }).agent))
+        this.notify('question', 'question', 'Question asked', 'The agent asked you a question and is waiting for your answer.', this.sessionIdOf((exec as { agent?: unknown }).agent))
       }
       return next()
     }))
@@ -233,12 +233,12 @@ export class Notifier {
       if (!change) return
       const sessionId = this.sessionIdOf(p.agent)
       if (change.operation === 'complete') {
-        this.notify('goal-complete', 'finished', 'DeepSeek Harness · Goal completed', 'The session goal completed.', sessionId)
+        this.notify('goal-complete', 'finished', 'Goal completed', 'The session goal completed.', sessionId)
       } else if (change.operation === 'block') {
         const reason = change.goal?.blockedReason?.message && change.goal.blockedReason.message.length > 0
           ? change.goal.blockedReason.message
           : 'No reason given'
-        this.notify('goal-blocked', 'finished', 'DeepSeek Harness · Goal blocked', 'The session goal was blocked: ' + reason, sessionId)
+        this.notify('goal-blocked', 'finished', 'Goal blocked', 'The session goal was blocked: ' + reason, sessionId)
       }
     }))
   }

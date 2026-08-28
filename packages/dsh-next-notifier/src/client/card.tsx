@@ -33,10 +33,7 @@ export interface CardDeps {
     title?: string
     body?: string
     sessionId?: string | null
-  }, timeoutMs?: number) => void
-  /** Notified whenever a config snapshot lands, so the host-side drainer
-   * honors the latest notification auto-dismiss duration. */
-  onConfig?: (config: { notificationSeconds?: number } | undefined) => void
+  }) => void
 }
 
 const GROUPS: { key: 'finished' | 'approval' | 'question'; title: string; hint: string; extras: { field: 'subagent' | 'goalOnly'; label: string; hint: string }[] }[] = [
@@ -58,7 +55,7 @@ function platformName(value: string | null | undefined): string {
   return 'none detected'
 }
 
-export function NotifierCard({ rpc, sessions, timer, showWebNotification, onConfig }: CardDeps): React.ReactElement {
+export function NotifierCard({ rpc, sessions, timer, showWebNotification }: CardDeps): React.ReactElement {
   const [open, setOpen] = React.useState(false)
   const [snap, setSnap] = React.useState<StateSnapshot | null>(null)
   const [error, setError] = React.useState<string | null>(null)
@@ -66,16 +63,9 @@ export function NotifierCard({ rpc, sessions, timer, showWebNotification, onConf
   const [webStatus, setWebStatus] = React.useState<string | null>(null)
   const [advanced, setAdvanced] = React.useState(false)
 
-  // Central apply point: every config snapshot (initial getState or a setConfig
-  // reply) sets the card state and notifies the shared config ref.
-  function applySnapshot(v: StateSnapshot): void {
-    setSnap(v)
-    if (typeof onConfig === 'function') onConfig(v.config)
-  }
-
   React.useEffect(() => {
     let alive = true
-    rpc('getState').then((v) => { if (alive) applySnapshot(v as StateSnapshot) }).catch((e) => { if (alive) setError(String(e)) })
+    rpc('getState').then((v) => { if (alive) setSnap(v as StateSnapshot) }).catch((e) => { if (alive) setError(String(e)) })
     return () => { alive = false }
   }, [rpc])
 
@@ -98,9 +88,9 @@ export function NotifierCard({ rpc, sessions, timer, showWebNotification, onConf
 
   function update(patch: Record<string, unknown>): void {
     setSnap((prev) => (prev && prev.config ? { ...prev, config: { ...prev.config, ...patch } as NotifierConfig } : prev))
-    rpc('setConfig', patch).then((v) => applySnapshot(v as StateSnapshot)).catch((e) => {
+    rpc('setConfig', patch).then((v) => setSnap(v as StateSnapshot)).catch((e) => {
       setError(String(e))
-      rpc('getState').then((v) => applySnapshot(v as StateSnapshot)).catch(() => {})
+      rpc('getState').then((v) => setSnap(v as StateSnapshot)).catch(() => {})
     })
   }
 
@@ -117,25 +107,12 @@ export function NotifierCard({ rpc, sessions, timer, showWebNotification, onConf
     if (volumeTimer) clearTimeout(volumeTimer)
     volumeTimer = setTimeout(() => {
       rpc('setConfig', { volume: v }).then((next) => {
-        applySnapshot(next as StateSnapshot)
+        setSnap(next as StateSnapshot)
         const cfg = (next as StateSnapshot).config
         rpc('preview', { id: cfg?.finished?.soundName || 'chime' }).catch(() => {})
       }).catch((e) => {
         setError(String(e))
-        rpc('getState').then((vv) => applySnapshot(vv as StateSnapshot)).catch(() => {})
-      })
-    }, 600)
-  }
-
-  let secondsTimer: ReturnType<typeof setTimeout> | null = null
-  function setNotificationSeconds(value: string | number): void {
-    const v = Math.max(3, Math.min(60, Math.round(Number(value) || 12)))
-    setSnap((prev) => (prev && prev.config ? { ...prev, config: { ...prev.config, notificationSeconds: v } } : prev))
-    if (secondsTimer) clearTimeout(secondsTimer)
-    secondsTimer = setTimeout(() => {
-      rpc('setConfig', { notificationSeconds: v }).then((next) => applySnapshot(next as StateSnapshot)).catch((e) => {
-        setError(String(e))
-        rpc('getState').then((vv) => applySnapshot(vv as StateSnapshot)).catch(() => {})
+        rpc('getState').then((vv) => setSnap(vv as StateSnapshot)).catch(() => {})
       })
     }, 600)
   }
@@ -149,13 +126,12 @@ export function NotifierCard({ rpc, sessions, timer, showWebNotification, onConf
   }
 
   function testWeb(): void {
-    const seconds = config?.notificationSeconds ?? 12
     showWebNotification({
       id: Date.now(),
       title: 'DeepSeek Harness · Test',
       body: 'Web notifications work — click me to open this session.',
       sessionId: currentSessionId(sessions),
-    }, seconds * 1000)
+    })
   }
 
   function webHint(): string {
@@ -262,16 +238,6 @@ export function NotifierCard({ rpc, sessions, timer, showWebNotification, onConf
           onChange: (e: React.ChangeEvent<HTMLInputElement>) => setVolume(e.target.value),
         }),
         React.createElement('span', { className: styles.hint }, (config.volume ?? 70) + '%')),
-      React.createElement('div', { className: styles.row },
-        React.createElement('span', { className: styles.text },
-          React.createElement('span', { className: styles.label }, 'Notification duration'),
-          React.createElement('span', { className: styles.hint }, 'How long a browser notification stays before it disappears — releases the slider to apply')),
-        React.createElement('input', {
-          type: 'range', className: styles.range, min: 3, max: 60, step: 1,
-          value: config.notificationSeconds ?? 12, disabled: !config.enabled,
-          onChange: (e: React.ChangeEvent<HTMLInputElement>) => setNotificationSeconds(e.target.value),
-        }),
-        React.createElement('span', { className: styles.hint }, (config.notificationSeconds ?? 12) + 's')),
       React.createElement('div', { className: styles.row },
         React.createElement('span', { className: styles.text },
           React.createElement('span', { className: styles.label }, 'Test browser notification'),

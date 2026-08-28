@@ -95,7 +95,6 @@ dsh-next-notifier:
   enabled: true
   suppressFocused: true
   volume: 70
-  notificationSeconds: 12
 EOF
 
 

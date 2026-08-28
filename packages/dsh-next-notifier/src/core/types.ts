@@ -23,8 +23,6 @@ export interface NotifierConfig {
   enabled: boolean
   suppressFocused: boolean
   volume: number
-  /** How many seconds a browser notification stays visible before auto-dismiss. */
-  notificationSeconds: number
   finished: NotifyGroup
   approval: NotifyGroup
   question: NotifyGroup
@@ -35,7 +33,6 @@ export type NotifierConfigPatch = Partial<{
   enabled: boolean
   suppressFocused: boolean
   volume: number
-  notificationSeconds: number
   finished: Partial<NotifyGroup>
   approval: Partial<NotifyGroup>
   question: Partial<NotifyGroup>

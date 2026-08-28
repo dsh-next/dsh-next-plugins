@@ -28,7 +28,6 @@ export const notifierSchema = Schema.object({
   enabled: Schema.boolean().default(true).description('Master switch for all agent notifications'),
   suppressFocused: Schema.boolean().default(true).description('No alert for the session you are actively viewing'),
   volume: Schema.number().min(0).max(100).step(1).default(70).description('Sound loudness for all notifications'),
-  notificationSeconds: Schema.number().min(3).max(60).step(1).default(12).description('How many seconds a browser notification stays before it disappears'),
   finished: group(DEFAULT_SOUNDS.finished),
   approval: group(DEFAULT_SOUNDS.approval),
   question: group(DEFAULT_SOUNDS.question),

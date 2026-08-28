@@ -1,8 +1,14 @@
 # Make browser notification auto-dismiss duration configurable
 
 - date: 2026-08-28
-- status: implemented
+- status: archived
 - scope: packages/dsh-next-notifier
+
+This feature was reverted (the duration setting did not work reliably at
+runtime, and the user chose to remove the logic rather than keep it). The
+duration slider, the `notificationSeconds` config field/schema, the
+`showWebNotification`/`createDrainer` timeout plumbing, and the related
+unit/e2e tests were removed. The auto-dismiss is a fixed 12s again.
 
 The web Notification auto-dismiss was hardcoded to 12s in the drainer. Made it a
 setting the user can adjust from the settings card.

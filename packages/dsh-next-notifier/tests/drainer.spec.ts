@@ -84,23 +84,11 @@ describe('showWebNotification', () => {
     expect(n.tag).toBe('dsh-next-notifier-7')
   })
 
-  it('closes itself on the default 12s timer', () => {
+  it('closes itself on a 12s timer', () => {
     vi.useFakeTimers()
     installNotification('granted')
     showWebNotification({ id: 1, title: 't' }, undefined)
     vi.advanceTimersByTime(12000)
-    expect(fakeCtors[0].close).toHaveBeenCalled()
-    vi.useRealTimers()
-  })
-
-  it('uses a custom timeout when one is supplied', () => {
-    vi.useFakeTimers()
-    installNotification('granted')
-    showWebNotification({ id: 1, title: 't' }, undefined, 5000)
-    // Not yet elapsed at 5s (timer fires at 5s), still open just before.
-    vi.advanceTimersByTime(4999)
-    expect(fakeCtors[0].close).not.toHaveBeenCalled()
-    vi.advanceTimersByTime(1)
     expect(fakeCtors[0].close).toHaveBeenCalled()
     vi.useRealTimers()
   })
@@ -136,21 +124,6 @@ describe('createDrainer', () => {
     await new Promise((r) => setTimeout(r, 10))
     expect(fetchPending).toHaveBeenCalledTimes(1)
     drainer.dispose()
-  })
-
-  it('honors a custom auto-dismiss supplier from the config', async () => {
-    vi.useFakeTimers()
-    installNotification('granted')
-    const fetchPending = vi.fn().mockResolvedValue([
-      { id: 1, at: Date.now() - 1000, title: 'fresh' },
-    ])
-    const drainer = createDrainer(undefined, undefined, fetchPending, () => 30)
-    await Promise.resolve() // let the drain promise settle
-    expect(fakeCtors).toHaveLength(1)
-    vi.advanceTimersByTime(30000)
-    expect(fakeCtors[0].close).toHaveBeenCalled()
-    drainer.dispose()
-    vi.useRealTimers()
   })
 
   it('opens the clicked session', () => {

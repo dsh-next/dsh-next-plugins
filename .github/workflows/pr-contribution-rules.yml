@@ -1,0 +1,86 @@
+name: Enforce PR Contribution Rules
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  enforce:
+    name: Validate PR contribution evidence
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.pull_request.draft }}
+
+    steps:
+      - name: Validate pull request body
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const body = pr.body || '';
+
+            const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const readSection = (label) => {
+              const heading = escapeRegExp(label);
+              const pattern = new RegExp(`(?:^|\\n)##\\s+${heading}\\s*\\n+([\\s\\S]*?)(?=\\n##\\s+|$)`, 'i');
+              const match = body.match(pattern);
+              return match ? match[1].replace(/<!--[\s\S]*?-->/g, '').trim() : '';
+            };
+
+            const isBlank = (value) => {
+              const normalized = value.replace(/\s+/g, ' ').trim().toLowerCase();
+              return normalized === '' || normalized === 'no response' || normalized === '_no response_';
+            };
+
+            const hasCheckedLine = (value, label) => {
+              const pattern = new RegExp(`^-\\s*\\[[xX]\\]\\s*${escapeRegExp(label)}\\s*$`, 'm');
+              return pattern.test(value);
+            };
+
+            const hasAnyCheckedBox = (value) => /^-\s*\[[xX]\]\s+\S+/m.test(value);
+
+            const prType = readSection('PR Type');
+            const latest = readSection('Latest Codebase Confirmation');
+            const localValidation = readSection('Local Validation');
+
+            const errors = [];
+            if (!hasAnyCheckedBox(prType)) {
+              errors.push('Check at least one item in `PR Type`.');
+            }
+            if (!hasCheckedLine(latest, 'I have based this PR on the latest `main` branch, or rebased / merged latest `main` before submitting.')) {
+              errors.push('Confirm `Latest Codebase Confirmation` (based on latest `main`).');
+            }
+            if (isBlank(localValidation)) {
+              errors.push('Fill in `Local Validation` (commands executed and result summary).');
+            }
+
+            if (errors.length === 0) {
+              return;
+            }
+
+            const comment = [
+              'This PR is missing required contribution information.',
+              '',
+              'Update the PR description and keep the template complete:',
+              '',
+              ...errors.map((error) => `- ${error}`),
+            ].join('\n');
+
+            if (context.payload.action !== 'synchronize') {
+              try {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr.number,
+                  body: comment,
+                });
+              } catch (error) {
+                core.warning('failed to post checklist comment: ' + String((error && error.message) || error));
+              }
+            }
+
+            core.setFailed(errors.join('\n'));

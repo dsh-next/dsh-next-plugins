@@ -1,0 +1,29 @@
+# Dependencies and build artifacts
+node_modules/
+
+# Auth tokens live in the user-level ~/.npmrc; the committed .npmrc contains
+# only the @dsh-next scope -> registry mapping (no secrets, tracked).
+
+# Local tool caches
+*.log
+.DS_Store
+.codegraph/
+.zcode/
+
+# GUI test screenshots
+gui-test-screenshots/
+
+# Local debug probes (never committed)
+.dsh/*.js
+.dsh/*.py
+
+# pnpm in-project package store (local dependency cache; never committed)
+.pnpm-store/
+
+# Mount smoke artifacts (scripts/e2e-mount.sh)
+*.tgz
+playwright-report/
+test-results/
+
+# Build output (tsdown)
+packages/*/lib/

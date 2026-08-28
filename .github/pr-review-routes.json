@@ -1,0 +1,87 @@
+{
+  "comment": "PR review routing for the dsh-next plugin family. Routes match changed file paths; the default route is the fallback owner.",
+  "defaultRoute": {
+    "label": "Default owner",
+    "reviewers": ["sitegroove"],
+    "assignees": ["sitegroove"]
+  },
+  "routes": [
+    {
+      "name": "assistant",
+      "label": "packages/dsh-next-assistant",
+      "paths": ["packages/dsh-next-assistant/**"],
+      "reviewers": ["sitegroove"],
+      "assignees": ["sitegroove"]
+    },
+    {
+      "name": "notifier",
+      "label": "packages/dsh-next-notifier",
+      "paths": ["packages/dsh-next-notifier/**"],
+      "reviewers": ["sitegroove"],
+      "assignees": ["sitegroove"]
+    },
+    {
+      "name": "cron",
+      "label": "packages/dsh-next-cron",
+      "paths": ["packages/dsh-next-cron/**"],
+      "reviewers": ["sitegroove"],
+      "assignees": ["sitegroove"]
+    },
+    {
+      "name": "files",
+      "label": "packages/dsh-next-files",
+      "paths": ["packages/dsh-next-files/**"],
+      "reviewers": ["sitegroove"],
+      "assignees": ["sitegroove"]
+    },
+    {
+      "name": "git",
+      "label": "packages/dsh-next-git",
+      "paths": ["packages/dsh-next-git/**"],
+      "reviewers": ["sitegroove"],
+      "assignees": ["sitegroove"]
+    },
+    {
+      "name": "org",
+      "label": "packages/dsh-next-org",
+      "paths": ["packages/dsh-next-org/**"],
+      "reviewers": ["sitegroove"],
+      "assignees": ["sitegroove"]
+    },
+    {
+      "name": "previews",
+      "label": "packages/dsh-next-previews",
+      "paths": ["packages/dsh-next-previews/**"],
+      "reviewers": ["sitegroove"],
+      "assignees": ["sitegroove"]
+    },
+    {
+      "name": "slack",
+      "label": "packages/dsh-next-slack",
+      "paths": ["packages/dsh-next-slack/**"],
+      "reviewers": ["sitegroove"],
+      "assignees": ["sitegroove"]
+    },
+    {
+      "name": "telegram",
+      "label": "packages/dsh-next-telegram",
+      "paths": ["packages/dsh-next-telegram/**"],
+      "reviewers": ["sitegroove"],
+      "assignees": ["sitegroove"]
+    },
+    {
+      "name": "workflows",
+      "label": "packages/dsh-next-workflows",
+      "paths": ["packages/dsh-next-workflows/**"],
+      "reviewers": ["sitegroove"],
+      "assignees": ["sitegroove"]
+    },
+    {
+      "name": "shared",
+      "label": "shared build infrastructure",
+      "paths": ["shared/**", "scripts/**"],
+      "reviewers": ["sitegroove"],
+      "assignees": ["sitegroove"]
+    }
+  ]
+}

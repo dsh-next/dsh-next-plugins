@@ -1,0 +1,77 @@
+name: Reject PRs outside accepted content scope
+
+on:
+  pull_request_target:
+    types: [opened, reopened, edited, ready_for_review]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  reject:
+    name: Close PRs outside accepted content scope
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.pull_request.draft }}
+
+    steps:
+      - name: Auto-close PRs outside the accepted content scope
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const body = pr.body || '';
+
+            const hasCheckedLine = (value, label) => {
+              const pattern = new RegExp(`^-\\s*\\[[xX]\\]\\s*${label}\\s*$`, 'm');
+              return pattern.test(value);
+            };
+
+            // Accepted PR classes are declared in the PR template; keep the
+            // owner, bots, and write-access collaborators exempt (fail-open).
+            const isOwner = pr.user.login === context.repo.owner
+              || pr.user.login === 'github-actions[bot]' || pr.user.type === 'Bot';
+            if (isOwner) {
+              console.log('PR #' + pr.number + ': authored by repository owner or bot, keeping open.');
+              return;
+            }
+
+            let hasWriteAccess = false;
+            try {
+              const perms = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                username: pr.user.login,
+              });
+              hasWriteAccess = ['admin', 'write', 'maintain'].includes(perms.data.permission);
+            } catch (error) {
+              hasWriteAccess = true;
+              core.warning('collaborator permission lookup failed, keeping PR open: ' + String((error && error.message) || error));
+            }
+            if (hasWriteAccess) {
+              console.log('PR #' + pr.number + ': authored by write-access collaborator, keeping open.');
+              return;
+            }
+
+            const comment = [
+              'This repository accepts only issue-first contributions from external authors.',
+              '',
+              'Please open an Issue to discuss the change first; confirmed changes are handled by maintainers.',
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              body: comment,
+            });
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              state: 'closed',
+              state_reason: 'not_planned',
+            });
+
+            core.setFailed('PR #' + pr.number + ' is outside the accepted content scope and was auto-closed.');

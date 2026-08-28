@@ -1,0 +1,29 @@
+# Unify line endings to LF: text files use LF in both the repository and the
+# working tree, taking precedence over core.autocrlf so Windows checkouts do
+# not convert to CRLF.
+* text=auto eol=lf
+
+# Binary files (explicit declarations beyond git's auto-detection, to avoid
+# misclassification by text=auto).
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.bmp binary
+*.svg binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.eot binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.tgz binary
+*.tar binary
+*.7z binary
+*.exe binary
+*.dll binary
+*.node binary

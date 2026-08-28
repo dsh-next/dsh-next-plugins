@@ -1,0 +1,28 @@
+{
+  "name": "dsh-next-plugins",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DeepSeek Harness plugin family published under the @dsh-next npm scope: notifications, integrations, automation, and workflow plugins.",
+  "packageManager": "pnpm@11.24.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "docs:check": "node scripts/verify-docs.mjs",
+    "docs:list": "node scripts/verify-docs.mjs --list",
+    "plugin:new": "node scripts/dsh-plugin-new.mjs",
+    "runtime-deps:check": "node scripts/runtime-deps-check.mjs",
+    "test:scripts": "node --test scripts/*.test.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "lightningcss": "^1.32.0",
+    "playwright": "^1.62.1",
+    "tsdown": "^0.22.2"
+  },
+  "license": "MIT",
+  "author": "Rok Grabnar <sitegroove>"
+}

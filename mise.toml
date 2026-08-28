@@ -1,0 +1,18 @@
+# mise.toml — tool version pinning for the dsh-next-plugins monorepo.
+#
+# Source of truth for the local toolchain (loose major pins, matching CI).
+# The task definitions live in .mise/tasks/*.toml (file tasks) so the repo
+# stays organized instead of accumulating one large [tasks] block here.
+#
+# Docs: https://mise.jdx.dev/configuration.html
+
+[tools]
+node = "22"
+pnpm = "11"
+
+[env]
+# Keep pnpm's in-project store enabled (see pnpm-workspace.yaml) and avoid
+# mise re-installing the registry cache on every task invocation.
+
+# Pinned so `mise run` / `mise tasks run` resolve the same package manager
+# that CI installs via actions/setup-node + pnpm/action-setup.

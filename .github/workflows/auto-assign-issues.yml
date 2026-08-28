@@ -1,0 +1,32 @@
+name: Auto-assign issues to owner
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  assign:
+    name: Assign issue to owner
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Assign every Issue to owner
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const issue = context.payload.issue;
+            if (!issue || issue.pull_request) {
+              return;
+            }
+            const assignees = ['sitegroove'];
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              assignees,
+            });
+            console.log('Issue #' + issue.number + ': assigned ' + assignees.join(', ') + '.');

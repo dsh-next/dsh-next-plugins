@@ -1,0 +1,93 @@
+name: Bug report
+description: Report a reproducible bug. Must include screenshot evidence; reports without a screenshot are auto-closed.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Keep this template complete and fill in every required section. A bug
+        report missing screenshot evidence is auto-closed.
+
+        Search existing issues first.
+  - type: checkboxes
+    id: duplicate-check
+    attributes:
+      label: Pre-submit duplicate check
+      options:
+        - label: I searched open and closed issues and confirmed this is not a duplicate.
+          required: true
+  - type: dropdown
+    id: plugin
+    attributes:
+      label: Affected plugin
+      description: Which plugin or area this bug affects.
+      options:
+        - dsh-next-assistant
+        - dsh-next-notifier
+        - dsh-next-cron
+        - dsh-next-files
+        - dsh-next-git
+        - dsh-next-org
+        - dsh-next-previews
+        - dsh-next-slack
+        - dsh-next-telegram
+        - dsh-next-workflows
+        - shared / scripts
+        - other / unknown
+    validations:
+      required: true
+  - type: dropdown
+    id: issue-type
+    attributes:
+      label: Issue type
+      options:
+        - Bug report
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One or two sentences describing the bug.
+    validations:
+      required: true
+  - type: textarea
+    id: expected-outcome
+    attributes:
+      label: Expected outcome
+      description: What should happen instead.
+    validations:
+      required: true
+  - type: textarea
+    id: details-reproduction
+    attributes:
+      label: Details / reproduction
+      description: Clear reproduction steps.
+      placeholder: |
+        1. Open ...
+        2. Click ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: DSH version, browser, plugin name and version, OS, and key configuration.
+    validations:
+      required: true
+  - type: textarea
+    id: bug-screenshot
+    attributes:
+      label: Bug screenshot
+      description: Paste or upload a screenshot showing the bug. Reports without screenshot evidence are auto-closed.
+    validations:
+      required: true
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Logs, links, or other context.
+    validations:
+      required: false

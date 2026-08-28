@@ -1,0 +1,77 @@
+name: Feature request or question
+description: Request a feature, update documentation, or ask a project question.
+title: "[Issue]: "
+body:
+  - type: checkboxes
+    id: duplicate-check
+    attributes:
+      label: Pre-submit duplicate check
+      options:
+        - label: I searched open and closed issues and confirmed this is not a duplicate.
+          required: true
+  - type: dropdown
+    id: plugin
+    attributes:
+      label: Affected plugin
+      description: Which plugin or area this concerns; choose "other" if unsure.
+      options:
+        - dsh-next-assistant
+        - dsh-next-notifier
+        - dsh-next-cron
+        - dsh-next-files
+        - dsh-next-git
+        - dsh-next-org
+        - dsh-next-previews
+        - dsh-next-slack
+        - dsh-next-telegram
+        - dsh-next-workflows
+        - shared / scripts
+        - other / unknown
+    validations:
+      required: true
+  - type: dropdown
+    id: issue-type
+    attributes:
+      label: Issue type
+      options:
+        - Feature request
+        - Documentation
+        - Question
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One or two sentences describing the request.
+    validations:
+      required: true
+  - type: textarea
+    id: expected-outcome
+    attributes:
+      label: Expected outcome
+      description: What should be achieved once resolved.
+    validations:
+      required: true
+  - type: textarea
+    id: details-reproduction
+    attributes:
+      label: Details / context
+      description: For bugs give reproduction steps; for requests describe the use case and constraints.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: DSH version, browser, plugin name and version, OS, and key configuration. Fill N/A if not applicable.
+    validations:
+      required: true
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Screenshots, logs, links, or other context.
+    validations:
+      required: false

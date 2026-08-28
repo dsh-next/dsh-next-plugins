@@ -1,0 +1,16 @@
+packages:
+  - 'shared'
+  - 'packages/*'
+
+# SDK peers resolve at runtime from the DSH profile tree, not from this repo's
+# install; no automatic peer installation.
+autoInstallPeers: false
+
+allowBuilds:
+  # The cloudflared postinstall downloads the platform binary (the auto-tunnel
+  # feature ships its own tunnel client — users install nothing).
+  cloudflared: true
+  cpu-features: true
+  esbuild: true
+  node-pty: true
+  ssh2: true

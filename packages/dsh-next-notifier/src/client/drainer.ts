@@ -16,16 +16,39 @@ interface PendingEvent {
 }
 
 /**
- * The notification headline: the type (the Host-supplied `title`, e.g.
- * "Approval needed") plus the session's display title so a glance says both
- * what happened and in which session. The session title is appended from the
- * live session list; a session that is no longer listed (or absent) falls back
- * to the bare type.
+ * Emoji glyph per notification kind, used as the title's leading icon. Kept as
+ * unicode escapes so the source file stays ASCII (repository convention) while
+ * the browser renders the actual emoji.
  */
-function notificationTitle(event: PendingEvent, sessions: ISessions | undefined): string {
+const KIND_EMOJI: Record<string, string> = {
+  finished: '\u2705',
+  approval: '\u26a0\ufe0f',
+  question: '\u2753',
+  subagent: '\ud83d\udc65',
+  'goal-complete': '\ud83c\udfc6',
+  'goal-blocked': '\ud83d\udeab',
+}
+const DEFAULT_EMOJI = '\ud83d\udd14'
+
+/**
+ * The notification headline: an emoji icon for the kind plus the type (the
+ * Host-supplied `title`, e.g. "Approval needed"). The session title moves to
+ * the body.
+ */
+function notificationTitle(event: PendingEvent): string {
   const base = typeof event.title === 'string' && event.title.length > 0 ? event.title : 'DeepSeek Harness'
+  const emoji = (typeof event.kind === 'string' && KIND_EMOJI[event.kind]) || DEFAULT_EMOJI
+  return emoji + ' ' + base
+}
+
+/**
+ * The notification body: the session's display title so a glance says which
+ * session, falling back to the Host-supplied detail when the session is unknown.
+ */
+function notificationBody(event: PendingEvent, sessions: ISessions | undefined): string {
   const sessionTitle = sessionTitleOf(sessions, event.sessionId)
-  return sessionTitle ? base + ' \u00b7 ' + sessionTitle : base
+  if (sessionTitle) return sessionTitle
+  return typeof event.body === 'string' ? event.body : ''
 }
 
 /** Resolve a session's display title from the session list, safely. */
@@ -48,8 +71,8 @@ export function webPermission(): 'granted' | 'denied' | 'default' | 'unsupported
 export function showWebNotification(event: PendingEvent, sessions: ISessions | undefined): void {
   try {
     if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
-    const notification = new Notification(notificationTitle(event, sessions), {
-      body: event.body ?? '',
+    const notification = new Notification(notificationTitle(event), {
+      body: notificationBody(event, sessions),
       icon: DEEPSEEK_ICON,
       tag: 'dsh-next-notifier-' + (typeof event.id === 'number' ? event.id : 'unknown'),
     })

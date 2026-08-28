@@ -60,10 +60,10 @@ granted, the Host queues events and the Client shows them with an in-page
 click-to-open handler. If the page is closed or permission is missing, the alert
 is dropped.
 
-Each notification's headline names the **type of event** (e.g. "Approval
-needed", "Agent finished") followed by the **session's title** (e.g. "Approval
-needed · Design spec"), so a glance tells you both what happened and in which
-session. Clicking it opens that session.
+Each notification's headline is an **emoji icon + the event type** (e.g.
+"⚠️ Approval needed", "✅ Agent finished"), and the **body is the session's
+title** (e.g. "Design spec"), so a glance tells you both what happened and in
+which session. Clicking it opens that session.
 
 ## Architecture
 

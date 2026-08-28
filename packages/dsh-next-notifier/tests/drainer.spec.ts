@@ -79,36 +79,53 @@ describe('showWebNotification', () => {
     showWebNotification({ id: 7, title: 'Hello', body: 'World' }, undefined)
     expect(fakeCtors).toHaveLength(1)
     const n = fakeCtors[0]
-    expect(n.title).toBe('Hello')
+    expect(n.title).toBe('\ud83d\udd14 Hello')
     expect(n.body).toBe('World')
     expect(n.icon).toMatch(/^data:image\/png;base64,/)
     expect(n.tag).toBe('dsh-next-notifier-7')
   })
 
-  it('appends the session title to the headline when the session is listed', () => {
+  it('uses the kind emoji and the session title as the body', () => {
     installNotification('granted')
     const sessions = ({ list: { getSnapshot: () => ({ byId: { s5: { id: 's5', displayTitle: 'Design spec' } } }) } }) as unknown as ISessions
-    showWebNotification({ id: 1, sessionId: 's5', title: 'Approval needed' }, sessions)
-    expect(fakeCtors[0].title).toBe('Approval needed \u00b7 Design spec')
+    showWebNotification({ id: 1, kind: 'approval', sessionId: 's5', title: 'Approval needed', body: 'Waiting for approval: bash' }, sessions)
+    expect(fakeCtors[0].title).toBe('\u26a0\ufe0f Approval needed')
+    expect(fakeCtors[0].body).toBe('Design spec')
   })
 
-  it('keeps the headline when the session is not in the list', () => {
+  it('uses a distinct emoji per kind', () => {
+    const kinds: Record<string, string> = {
+      finished: '\u2705',
+      question: '\u2753',
+      subagent: '\ud83d\udc65',
+      'goal-complete': '\ud83c\udfc6',
+      'goal-blocked': '\ud83d\udeab',
+    }
+    for (const [kind, emoji] of Object.entries(kinds)) {
+      installNotification('granted')
+      showWebNotification({ id: 1, kind, title: 'Type' }, undefined)
+      expect(fakeCtors[fakeCtors.length - 1].title).toBe(emoji + ' Type')
+    }
+  })
+
+  it('falls back to the detail body when the session is unknown', () => {
     installNotification('granted')
     const sessions = ({ list: { getSnapshot: () => ({ byId: {} }) } }) as unknown as ISessions
-    showWebNotification({ id: 1, sessionId: 'ghost', title: 'Approval needed' }, sessions)
-    expect(fakeCtors[0].title).toBe('Approval needed')
+    showWebNotification({ id: 1, kind: 'approval', sessionId: 'ghost', title: 'Approval needed', body: 'Waiting for approval: bash' }, sessions)
+    expect(fakeCtors[0].title).toBe('\u26a0\ufe0f Approval needed')
+    expect(fakeCtors[0].body).toBe('Waiting for approval: bash')
   })
 
-  it('keeps the headline when there is no session', () => {
+  it('uses the default emoji for an unknown kind', () => {
     installNotification('granted')
-    showWebNotification({ id: 1, title: 'Agent finished' }, undefined)
-    expect(fakeCtors[0].title).toBe('Agent finished')
+    showWebNotification({ id: 1, title: 'Test notification', body: 'Check it' }, undefined)
+    expect(fakeCtors[0].title).toBe('\ud83d\udd14 Test notification')
   })
 
   it('falls back to DeepSeek Harness when the type title is empty', () => {
     installNotification('granted')
     showWebNotification({ id: 1, title: '' }, undefined)
-    expect(fakeCtors[0].title).toBe('DeepSeek Harness')
+    expect(fakeCtors[0].title).toBe('\ud83d\udd14 DeepSeek Harness')
   })
 
   it('closes itself on a 12s timer', () => {
@@ -139,8 +156,8 @@ describe('createDrainer', () => {
     const fetchPending = vi.fn().mockResolvedValue(queue).mockResolvedValueOnce(queue).mockResolvedValue([])
     const drainer = createDrainer(undefined, timer, fetchPending)
     await new Promise((r) => setTimeout(r, 20))
-    // Only the fresh, object row produced a notification.
-    expect(fakeCtors.map((n) => n.title)).toEqual(['fresh'])
+    // Only the fresh, object row produced a notification (with the default emoji).
+    expect(fakeCtors.map((n) => n.title)).toEqual(['\ud83d\udd14 fresh'])
     drainer.dispose()
   })
 

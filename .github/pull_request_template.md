@@ -10,7 +10,6 @@
 
 <!-- Check the packages this PR touches. -->
 
-- [ ] `packages/dsh-next-assistant`
 - [ ] `packages/dsh-next-notifier`
 - [ ] `packages/dsh-next-cron`
 - [ ] `packages/dsh-next-files`

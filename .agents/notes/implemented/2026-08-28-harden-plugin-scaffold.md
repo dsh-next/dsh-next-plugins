@@ -28,8 +28,7 @@ Backport:
 
 - The same `types: ["node"]` + `@types/node` was applied to the 8 existing
   skeleton packages (cron, files, git, org, previews, slack, telegram,
-  workflows) so every package matches the updated template exactly. The
-  orphaned JS prototype dsh-next-assistant was left untouched.
+  workflows) so every package matches the updated template exactly.
 
 Documented (not scaffold-able, in docs/plugins.md → SDK type resolution):
 

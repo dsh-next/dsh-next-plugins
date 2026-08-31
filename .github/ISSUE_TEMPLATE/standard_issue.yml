@@ -15,7 +15,6 @@ body:
       label: Affected plugin
       description: Which plugin or area this concerns; choose "other" if unsure.
       options:
-        - dsh-next-assistant
         - dsh-next-notifier
         - dsh-next-cron
         - dsh-next-files

@@ -10,7 +10,6 @@ and DSH profiles, written in TypeScript and built with the shared
 
 | Package | Description |
 | --- | --- |
-| `@dsh-next/dsh-next-assistant` | Voice assistant (JS prototype, conversion pending) |
 | `@dsh-next/dsh-next-cc-plugins` | Claude Code plugin marketplace bridge: install marketplace plugins as native skills, MCP and agent composition rows, slash commands, and hooks |
 | `@dsh-next/dsh-next-notifier` | Browser and OS notifications (JS prototype, conversion pending) |
 | `@dsh-next/dsh-next-cron` | Scheduled task automation |

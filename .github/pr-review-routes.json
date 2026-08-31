@@ -7,13 +7,6 @@
   },
   "routes": [
     {
-      "name": "assistant",
-      "label": "packages/dsh-next-assistant",
-      "paths": ["packages/dsh-next-assistant/**"],
-      "reviewers": ["sitegroove"],
-      "assignees": ["sitegroove"]
-    },
-    {
       "name": "notifier",
       "label": "packages/dsh-next-notifier",
       "paths": ["packages/dsh-next-notifier/**"],

@@ -92,13 +92,6 @@ async function openNotifierCard(page: Page): Promise<void> {
   await openPluginCard(page, 'DSH Next Notifier')
 }
 
-// Navigate to the assistant's settings section (Settings -> Plugins). The
-// assistant's settings section is titled "DSH Next Assistant"; opening it must
-// reveal the settings body.
-async function openAssistantCard(page: Page): Promise<void> {
-  await openPluginCard(page, 'DSH Next Assistant')
-}
-
 // Navigate to the skills manager's own settings section (Settings -> Skills),
 // dismissing onboarding first. Returns once the section's tab bar is visible.
 async function openSkillsSection(page: Page): Promise<void> {
@@ -160,15 +153,6 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await openNotifierCard(page)
     await expect(page.getByText('Enable notifications')).toBeVisible()
     await expect(page.getByText('Test browser notification')).toBeVisible()
-  },
-
-  // The assistant registers a sidebar "Next" chat entry plus a settings
-  // section. The marker drives to the settings section and asserts it renders
-  // (guards a silent payload-shape mismatch that the crash-marker layer cannot
-  // see).
-  'dsh-next-assistant': async (page) => {
-    await openAssistantCard(page)
-    await expect(page.getByText('Persona preset')).toBeVisible()
   },
 
   // The skills manager registers its own Settings -> Skills section (the same

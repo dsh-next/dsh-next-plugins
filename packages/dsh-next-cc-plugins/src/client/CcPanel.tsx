@@ -15,6 +15,11 @@
  *    URL, or local path; refresh; remove) with per-source last-synced age.
  *    Snapshots older than 24 hours re-sync automatically when the panel
  *    opens (Host `getState`), so versions stay current without a timer.
+ *  - Models: map the Claude model names your agents use onto models the
+ *    runtime actually offers (discovered live from the llm service). Every
+ *    alias defaults to inheriting the delegating session's model; values
+ *    from the composition config show as a preset baseline. Saving
+ *    re-resolves installed agent rows without reinstalling.
  *
  * Skills land per selected target; MCP servers, agent rows, commands, and
  * hooks are plugin-level and activate once regardless of target count — the
@@ -39,7 +44,7 @@ export interface CcPanelDeps {
   notifyInstalledChanged?: () => void
 }
 
-type Tab = 'plugins' | 'marketplaces'
+type Tab = 'plugins' | 'marketplaces' | 'models'
 
 /** Mutations whose success changes the installed skill set the chat UI surfaces. */
 const CATALOG_MUTATIONS = new Set(['installPlugin', 'uninstallPlugin', 'updatePlugin'])
@@ -107,6 +112,8 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
   const [selection, setSelection] = React.useState<Set<string>>(new Set())
   /** Two-step uninstall confirm inside the modal, by target id. */
   const [confirmTarget, setConfirmTarget] = React.useState<string | undefined>()
+  /** Unsaved Models-tab selections, alias to model id ('' = inherit). */
+  const [modelDraft, setModelDraft] = React.useState<Record<string, string>>({})
   const workspaces = deps.getWorkspaces()
 
   const refresh = React.useCallback(async (): Promise<void> => {
@@ -191,6 +198,18 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
       key,
       target: id === '' ? { scope: 'global' } : { scope: 'workspace', workspacePath: id },
     })
+  }
+
+  /** Save the Models tab: draft selections over the effective map, '' = inherit. */
+  const saveModels = async (): Promise<void> => {
+    const effective = state?.agentModelMap ?? {}
+    const map: Record<string, string> = {}
+    for (const alias of state?.agentModelAliases ?? []) {
+      const value = modelDraft[alias] !== undefined ? modelDraft[alias] : (effective[alias] ?? '')
+      if (value !== '') map[alias] = value
+    }
+    await mutate('setAgentModelOverrides', { map })
+    setModelDraft({})
   }
 
   // The flat plugin catalog across every marketplace, filtered in-panel.
@@ -324,6 +343,13 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
           className={tab === 'marketplaces' ? styles.tabActive : styles.tab}
           onClick={() => setTab('marketplaces')}
         >Marketplaces</button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'models'}
+          className={tab === 'models' ? styles.tabActive : styles.tab}
+          onClick={() => setTab('models')}
+        >Models</button>
       </div>
 
       {message !== undefined && (
@@ -476,6 +502,50 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
           </div>
         </div>
       )))}
+
+      {tab === 'models' && (
+        <div className={styles.modelList} data-testid="cc-models">
+          <div className={styles.hint}>
+            Map the Claude model names your agents use onto models this runtime offers. Unmapped names inherit the
+            delegating session&apos;s model — the same default as Claude&apos;s `model: inherit`. Saving re-resolves installed
+            agent rows without reinstalling; reload the profile to apply them.
+          </div>
+          {(state?.agentModelAliases ?? []).map((alias) => {
+            const effective = state?.agentModelMap[alias] ?? ''
+            const current = modelDraft[alias] !== undefined ? modelDraft[alias] : effective
+            const fromConfig = (state?.agentModelConfig ?? {})[alias] !== undefined && effective !== ''
+            const known = (state?.models ?? []).some((m) => m.id === current)
+            return (
+              <div key={alias} className={styles.optionRow} data-testid="cc-model-row">
+                <span className={styles.optionLabel}>{alias}</span>
+                {fromConfig && <span className={styles.installedChip}>config</span>}
+                <select
+                  className={styles.select}
+                  aria-label={`Model for ${alias}`}
+                  data-testid="cc-model-select"
+                  value={current}
+                  onChange={(e) => setModelDraft({ ...modelDraft, [alias]: e.target.value })}
+                >
+                  <option value="">Inherit session model</option>
+                  {(state?.models ?? []).map((m) => (
+                    <option key={`${m.provider}/${m.id}`} value={m.id}>{`${m.name} (${m.provider})`}</option>
+                  ))}
+                  {current !== '' && !known && <option value={current}>{current}</option>}
+                </select>
+              </div>
+            )
+          })}
+          <div className={styles.addRow}>
+            <button
+              type="button"
+              className={styles.primary}
+              disabled={busy}
+              onClick={() => void saveModels()}
+              data-testid="cc-model-save"
+            >Save model mappings</button>
+          </div>
+        </div>
+      )}
 
       {modalDialog()}
     </div>

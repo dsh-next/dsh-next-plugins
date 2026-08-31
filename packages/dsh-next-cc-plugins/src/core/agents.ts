@@ -168,6 +168,24 @@ export interface ModelResolution {
 }
 
 /**
+ * Tolerant parse of a Claude-alias to DSH-model map (RPC payloads and the
+ * persisted overrides file): non-object input, non-string values, and
+ * blank keys or values drop out rather than failing the whole save.
+ */
+export function sanitizeModelMap(raw: unknown): Record<string, string> {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value !== 'string') continue
+    const k = key.trim()
+    const v = value.trim()
+    if (k === '' || v === '') continue
+    out[k] = v
+  }
+  return out
+}
+
+/**
  * Resolve a Claude agent's `model:` frontmatter value against the user's
  * `runtime.agentModelMap` (Claude name or full Claude model id to DSH model
  * id; keys match case-insensitively). `model: inherit`, an absent value, or

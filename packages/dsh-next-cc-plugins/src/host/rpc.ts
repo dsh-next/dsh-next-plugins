@@ -80,6 +80,7 @@ export function registerRpc(ctx: Context, service: CcMarketplaceService): void {
       return service.uninstallPlugin(str(a.key), a.target === undefined ? undefined : targetRequest(a.target))
     },
     updatePlugin: (args) => service.updatePlugin(str(record(args).key)),
+    setAgentModelOverrides: (args) => service.setAgentModelOverrides(record(args).map),
   }
 
   const off = webServer.register({

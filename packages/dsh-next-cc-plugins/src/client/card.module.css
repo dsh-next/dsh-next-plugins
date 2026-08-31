@@ -324,6 +324,26 @@
   line-height: 1.5;
 }
 
+/* --- Models tab: alias rows with a model picker -------------------------- */
+
+.modelList {
+  flex-direction: column;
+  gap: 8px;
+  display: flex;
+}
+
+.modelList .optionRow {
+  cursor: default;
+}
+
+.modelList .optionRow:hover {
+  border-color: var(--dsw-alias-border-l2);
+}
+
+.modelList .select {
+  min-width: 280px;
+}
+
 .marketplaceChip {
   border: 0;
   border-radius: 999px;

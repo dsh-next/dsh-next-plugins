@@ -77,13 +77,23 @@ Agent frontmatter translation notes:
 - `tools:` entries map through a built-in Claude-to-DSH name table
   (`Bash` -> `bash`, `WebSearch` -> `web_search`, `Task` -> `subagent`, ...).
   Permission patterns (`Bash(git log:*)`) allow the base tool only — the
-  argument pattern is not enforced. Names with no DSH counterpart (for
-  example `NotebookEdit` or `mcp__server__tool`) drop with an install note.
-- `model:` values resolve through `runtime.agentModelMap` (case-insensitive
-  keys). `model: inherit` and unmapped values leave the child on the
-  delegating parent's model — DSH's default — with an install note for
-  unmapped names. Claude model ids are never passed through raw: an unknown
-  id would fail every delegation at child creation.
+  argument pattern is not enforced. `mcp__` refs resolve through the
+  plugin's installed MCP rows (plugin-owned servers, so name dedupe
+  survives) or pass through for user-configured servers; only names with
+  genuinely no DSH counterpart (for example `NotebookEdit`) drop with an
+  install note.
+- `model:` values resolve through the effective model map:
+  `runtime.agentModelMap` is the baseline, and the **Models tab** layers
+  saved overrides on top (`$DSH_HOME/cc-plugins/model-map.json`). The tab
+  discovers models live from the runtime's `llm` service — nothing is
+  hardcoded — offers a picker for every Claude family, mapped alias, and
+  model name your installed agents actually reference, and defaults every
+  alias to inheriting the delegating session's model. Saving re-resolves
+  installed agent rows without reinstalling (reload the profile to apply).
+  `model: inherit` and unmapped values leave the child on the delegating
+  parent's model — DSH's default — with an install note for unmapped names.
+  Claude model ids are never passed through raw: an unknown id would fail
+  every delegation at child creation.
 - Claude's per-agent `description` / `when_to_use` (parent-side tool
   selection guidance) has no `dsh-tool-subagent` counterpart today; the
   parent picks the tool by its `cc-agent-<name>` name.
@@ -132,11 +142,13 @@ Agent frontmatter translation notes:
 ## Settings UI
 
 The browser half registers a top-level Settings section ("Claude Plugins")
-with two tabs: **Plugins** (every marketplace's plugins in a card grid with
+with three tabs: **Plugins** (every marketplace's plugins in a card grid with
 search, marketplace filter, and installed-only toggle; installed version and
-Update button per card; Add/Manage opens the multi-target picker modal) and
+Update button per card; Add/Manage opens the multi-target picker modal),
 **Marketplaces** (add/refresh/remove sources with per-source last-synced
-age; snapshots older than 24 hours re-sync when the panel opens).
+age; snapshots older than 24 hours re-sync when the panel opens), and
+**Models** (map Claude model names onto the models this runtime offers,
+live-discovered — unmapped names inherit the session's model).
 
 ## Install
 

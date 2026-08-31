@@ -14,6 +14,9 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
+// Type-only: declares the `llm` service on Context for the Models tab's
+// live model discovery.
+import type {} from '@deepseek-ai/dsh-llm'
 import { nodeFs } from './host/fs-adapter.ts'
 import { nodeHookRunner } from './host/hook-runner.ts'
 import { registerRpc } from './host/rpc.ts'
@@ -78,6 +81,21 @@ export function apply(ctx: Context, config: PluginConfig = {}): void {
     store,
     agentsEnabled: config.runtime?.agents !== false,
     agentModelMap: config.runtime?.agentModelMap,
+    listRuntimeModels: async () => {
+      // Best effort: a composition without the llm service (or a provider
+      // whose listing fails) degrades the Models tab to inherit-only pickers.
+      const llm = ctx.get('llm')
+      if (llm === undefined || typeof llm.listProviders !== 'function') return []
+      const providers = llm.listProviders()
+      const lists = await Promise.all(providers.map(async (provider) => {
+        try {
+          return await llm.listModels(provider.id)
+        } catch {
+          return []
+        }
+      }))
+      return lists.flat().map((model) => ({ provider: model.provider, id: model.id, name: model.name }))
+    },
     onInstalledChanged: () => void runtime.refresh(),
   })
 

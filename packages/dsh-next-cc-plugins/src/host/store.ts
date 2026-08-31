@@ -9,6 +9,7 @@
  * is honored as a Grok Build interop fallback).
  */
 import { parseMarketplaceIndex } from '../core/marketplace-index.ts'
+import { sanitizeModelMap } from '../core/agents.ts'
 import { dirnamePath, isSafeRelativePath, joinPath } from '../core/path.ts'
 import { normalizeInstalledFile } from '../core/targets.ts'
 import type {
@@ -106,6 +107,19 @@ export class Store {
 
   async saveInstalled(file: InstalledFile): Promise<void> {
     await this.writeJson(this.installedPath(), file)
+  }
+
+  /** The panel's Claude-alias to DSH-model overrides (model-map.json). */
+  async readModelMap(): Promise<Record<string, string>> {
+    return sanitizeModelMap(await this.readJson<unknown>(this.modelMapPath(), {}))
+  }
+
+  async saveModelMap(map: Record<string, string>): Promise<void> {
+    await this.writeJson(this.modelMapPath(), map)
+  }
+
+  private modelMapPath(): string {
+    return joinPath(this.opts.root, 'model-map.json')
   }
 
   async readSnapshot(id: string): Promise<Snapshot | undefined> {

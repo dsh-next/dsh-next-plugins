@@ -38,6 +38,10 @@ describe('cc-plugins state() RPC contract', () => {
     const state = await makeService().state()
     expect(state).toHaveProperty('installed')
     expect(state).toHaveProperty('marketplaces')
+    expect(state).toHaveProperty('models')
+    expect(state).toHaveProperty('agentModelMap')
+    expect(state).toHaveProperty('agentModelConfig')
+    expect(state).toHaveProperty('agentModelAliases')
     // Raw persistence keys must NOT sit at the envelope's top level.
     expect(state).not.toHaveProperty('plugins')
     expect(state).not.toHaveProperty('files')

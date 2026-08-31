@@ -205,7 +205,13 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await page.getByText('Marketplaces', { exact: true }).first().click({ force: true })
     await expect(page.locator('input[placeholder*="owner/repo"]').first()).toBeVisible()
     await expect(page.getByText('refresh automatically', { exact: false }).first()).toBeVisible()
+    // The Models tab offers alias pickers over the runtime's live models.
+    // Scoped to the dialog's tablist: the app's own Settings sidebar also has
+    // a "Models" page, and an unscoped text locator clicks that instead.
     const settings = page.getByRole('dialog', { name: 'Settings' })
+    await settings.getByRole('tab', { name: 'Models' }).click({ force: true })
+    await expect(page.getByTestId('cc-model-row').first()).toBeVisible()
+    await expect(page.getByTestId('cc-model-select').first()).toBeVisible()
     await settings.getByRole('button', { name: 'Close' }).click({ force: true })
     await page.waitForTimeout(300)
   },

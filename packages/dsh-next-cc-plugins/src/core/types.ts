@@ -262,10 +262,30 @@ export interface MarketplacePluginView {
   updateAvailable?: true
 }
 
+/** One model the live `llm` service offers (best-effort discovery). */
+export interface RuntimeModel {
+  /** Provider route key (e.g. `deepseek-official`). */
+  provider: string
+  /** Model id passed to `agentOptions.model`. */
+  id: string
+  /** Human-readable model name for selectors. */
+  name: string
+}
+
 /** Full browser-facing state envelope. */
 export interface CcState {
   installed: InstalledPlugin[]
   marketplaces: MarketplaceViewRow[]
+  /** Models the runtime currently offers, for the Models tab pickers. */
+  models: RuntimeModel[]
+  /** Effective Claude-alias to DSH-model map (config baseline merged with
+   *  the panel's saved overrides). */
+  agentModelMap: Record<string, string>
+  /** The composition-config baseline portion of {@link agentModelMap}. */
+  agentModelConfig: Record<string, string>
+  /** Every Claude model name worth offering a picker for: the classic
+   *  families, mapped aliases, and names installed agents reference. */
+  agentModelAliases: string[]
 }
 
 export interface PluginDetail {

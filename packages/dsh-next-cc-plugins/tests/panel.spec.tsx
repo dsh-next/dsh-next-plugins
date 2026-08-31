@@ -14,7 +14,19 @@ import { CcPanel, formatLastSync } from '../src/client/CcPanel.tsx'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
+/** The Models-tab slice of the state envelope. */
+const MODEL_STATE: Pick<CcState, 'models' | 'agentModelMap' | 'agentModelConfig' | 'agentModelAliases'> = {
+  models: [
+    { provider: 'deepseek-official', id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash' },
+    { provider: 'deepseek-official', id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
+  ],
+  agentModelMap: { sonnet: 'deepseek-v4-pro' },
+  agentModelConfig: { sonnet: 'deepseek-v4-pro' },
+  agentModelAliases: ['haiku', 'opus', 'sonnet'],
+}
+
 const STATE: CcState = {
+  ...MODEL_STATE,
   installed: [],
   marketplaces: [
     {
@@ -211,7 +223,7 @@ describe('CcPanel', () => {
   })
 
   it('shows the empty state on the Plugins tab when no marketplaces exist', async () => {
-    await renderAsync({ rpc: rpcMock({ installed: [], marketplaces: [] }) })
+    await renderAsync({ rpc: rpcMock({ ...MODEL_STATE, installed: [], marketplaces: [] }) })
     expect(document.querySelector('[data-testid="cc-empty"]')).not.toBeNull()
     expect(document.body.textContent).toContain('Marketplaces tab')
   })
@@ -273,10 +285,34 @@ describe('CcPanel', () => {
     expect(card.querySelector('[data-testid="cc-update"]')).toBeNull()
   })
 
+  it('Models tab maps aliases onto runtime models and saves the merged map', async () => {
+    const rpc = rpcMock()
+    await renderAsync({ rpc })
+    await act(async () => { button('Models').click() })
+    const rows = [...container.querySelectorAll('[data-testid="cc-model-row"]')]
+    expect(rows).toHaveLength(3)
+    for (const alias of ['haiku', 'opus', 'sonnet']) {
+      expect(rows.some((r) => (r.textContent ?? '').startsWith(alias)), `row for ${alias}`).toBe(true)
+    }
+    // The sonnet row carries the config-baseline chip and its saved selection.
+    const sonnet = rows.find((r) => (r.textContent ?? '').startsWith('sonnet'))!
+    expect(sonnet.textContent).toContain('config')
+    expect((sonnet.querySelector('[data-testid="cc-model-select"]') as HTMLSelectElement).value).toBe('deepseek-v4-pro')
+    // Pick a model for haiku; save sends draft merged over the effective map.
+    const haiku = rows.find((r) => (r.textContent ?? '').startsWith('haiku'))!
+    await act(async () => { setSelect(haiku.querySelector('select')!, 'deepseek-v4-flash') })
+    await act(async () => { button('Save model mappings').click() })
+    expect(rpc).toHaveBeenCalledWith('setAgentModelOverrides', {
+      map: { haiku: 'deepseek-v4-flash', sonnet: 'deepseek-v4-pro' },
+    })
+    expect(document.querySelector('[data-testid="cc-message"]')?.textContent).toContain('done')
+  })
+
   it('orders installed plugins first, then alphabetical by name', async () => {
     const names = ['zzz-live', 'mmm', 'aaa', 'bbb-live']
     const isInstalled = (name: string): boolean => name === 'zzz-live' || name === 'bbb-live'
     const state: CcState = {
+      ...MODEL_STATE,
       installed: names.filter(isInstalled).map((name) => installedRecord({ key: `github:o/r/${name}`, pluginName: name })),
       marketplaces: [{
         ...STATE.marketplaces[0],

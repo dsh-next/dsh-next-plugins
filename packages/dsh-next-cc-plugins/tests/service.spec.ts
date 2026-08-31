@@ -59,7 +59,7 @@ interface Fixture {
 
 function makeFixture(
   seed: Record<string, string> = {},
-  over: { agentsEnabled?: boolean; agentModelMap?: Record<string, string> } = {},
+  over: { agentsEnabled?: boolean; agentModelMap?: Record<string, string>; listRuntimeModels?: () => Promise<Array<{ provider: string; id: string; name: string }>> } = {},
 ): Fixture {
   const fs = createMemFs(seed)
   const gh = createGhDouble({ 'o/r': TEAM_TOOLS_V1, 'x/external': EXTERNAL_FILES })
@@ -72,6 +72,7 @@ function makeFixture(
     cordisPatchPath: PATCH,
     agentsEnabled: over.agentsEnabled !== false,
     agentModelMap: over.agentModelMap,
+    listRuntimeModels: over.listRuntimeModels,
   })
   return { fs, gh, service }
 }
@@ -326,6 +327,102 @@ describe('CcMarketplaceService install', () => {
     // The unmapped model note stays honest (no agentModelMap in this fixture).
     expect(result.message).toContain('agent "search-conversations": agent model "haiku" has no mapping')
     expect(record.agents[0].model).toBeUndefined()
+  })
+
+  it('installs agent models through the effective map (config baseline + saved overrides)', async () => {
+    const fs = createMemFs()
+    // A saved panel override from an earlier session.
+    await fs.writeFile('/home/u/.dsh/cc-plugins/model-map.json', JSON.stringify({ haiku: 'dsh-fast' }))
+    const gh = createGhDouble({ 'o/r': TEAM_TOOLS_V1 })
+    const service = new CcMarketplaceService({
+      fs, fetch: gh.fetch as FetchLike,
+      dshHome: '/home/u/.dsh', agentsHome: '/home/u/.agents', home: '/home/u', cordisPatchPath: PATCH,
+      agentsEnabled: true,
+      agentModelMap: { sonnet: 'dsh-pro' },
+    })
+    await service.addMarketplace('o/r')
+    await service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })
+    // reviewer.md has no model: frontmatter, so exercise via a model-bearing agent.
+    gh.setRepo('o', 'r', {
+      ...TEAM_TOOLS_V1,
+      'plugins/team-tools/agents/reviewer.md': '---\ndescription: Reviews\nmodel: haiku\n---\nReview.',
+    })
+    await service.refreshMarketplaces()
+    await service.updatePlugin('github:o/r/team-tools')
+    const record = (await service.state()).installed[0]
+    expect(record.agents[0].model).toBe('dsh-fast') // the file override wins
+  })
+
+  describe('agent model overrides (Models tab)', () => {
+    const EPISODIC_AGENT = '---\ndescription: Search\nmodel: haiku\n---\nSearch.'
+
+    async function installEpisodic(over: Parameters<typeof makeFixture>[1] = {}): Promise<Fixture> {
+      const fix = makeFixture({}, over)
+      fix.gh.setRepo('o', 'episodic', {
+        '.claude-plugin/marketplace.json': JSON.stringify({
+          name: 'episodic-market',
+          plugins: [{ name: 'episodic-memory', description: 'Memory', source: './plugins/episodic-memory' }],
+        }),
+        'plugins/episodic-memory/agents/search-conversations.md': EPISODIC_AGENT,
+      })
+      await fix.service.addMarketplace('o/episodic')
+      await fix.service.installPlugin({ marketplaceId: 'github:o/episodic', plugin: 'episodic-memory', targets: [{ scope: 'global' }] })
+      return fix
+    }
+
+    it('state exposes discovered models, the effective map, and aliases from installed agents', async () => {
+      const fix = await installEpisodic({ listRuntimeModels: async () => [{ provider: 'deepseek-official', id: 'deepseek-v4-flash', name: 'Flash' }] })
+      const state = await fix.service.state()
+      expect(state.models).toEqual([{ provider: 'deepseek-official', id: 'deepseek-v4-flash', name: 'Flash' }])
+      expect(state.agentModelMap).toEqual({})
+      expect(state.agentModelConfig).toEqual({})
+      // haiku comes both from the family list and the installed agent's frontmatter.
+      expect(state.agentModelAliases).toEqual(['haiku', 'opus', 'sonnet'])
+    })
+
+    it('merges config baseline with overrides in the effective map', async () => {
+      const fix = await installEpisodic({ agentModelMap: { sonnet: 'dsh-pro' } })
+      await fix.service.setAgentModelOverrides({ haiku: 'dsh-fast' })
+      const state = await fix.service.state()
+      expect(state.agentModelConfig).toEqual({ sonnet: 'dsh-pro' })
+      expect(state.agentModelMap).toEqual({ haiku: 'dsh-fast', sonnet: 'dsh-pro' })
+    })
+
+    it('saving overrides re-resolves installed agent rows and rewrites the managed block', async () => {
+      const fix = await installEpisodic()
+      const result = await fix.service.setAgentModelOverrides({ haiku: 'dsh-fast' })
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+      expect(result.message).toContain('saved model overrides: haiku -> dsh-fast')
+      expect(result.message).toContain('agent "search-conversations" -> dsh-fast')
+      const record = (await fix.service.state()).installed[0]
+      expect(record.agents[0].model).toBe('dsh-fast')
+      expect(fix.fs.snapshot()[PATCH]).toContain("model: 'dsh-fast'")
+    })
+
+    it('clearing overrides returns agents to session-model inheritance', async () => {
+      const fix = await installEpisodic()
+      await fix.service.setAgentModelOverrides({ haiku: 'dsh-fast' })
+      const cleared = await fix.service.setAgentModelOverrides({})
+      expect(cleared.ok).toBe(true)
+      if (!cleared.ok) return
+      expect(cleared.message).toContain('cleared model overrides')
+      expect(cleared.message).toContain('agent "search-conversations" inherits the session model')
+      const record = (await fix.service.state()).installed[0]
+      expect(record.agents[0].model).toBeUndefined()
+      expect((fix.fs.snapshot()[PATCH] ?? '')).not.toContain("model: 'dsh-fast'")
+    })
+
+    it('sanitizes the payload: non-strings and blank entries drop out', async () => {
+      const fix = await installEpisodic()
+      const result = await fix.service.setAgentModelOverrides({ haiku: ' dsh-fast ', '': 'x', opus: 42, sonnet: '' })
+      expect(result.ok).toBe(true)
+      const state = await fix.service.state()
+      expect(state.agentModelMap).toEqual({ haiku: 'dsh-fast' })
+      // Corrupt persisted files read as empty maps, never crash the panel.
+      await fix.fs.writeFile('/home/u/.dsh/cc-plugins/model-map.json', '{not json')
+      expect((await fix.service.state()).agentModelMap).toEqual({})
+    })
   })
 
   it('translates agent tools frontmatter into toolFilter and maps model through agentModelMap', async () => {

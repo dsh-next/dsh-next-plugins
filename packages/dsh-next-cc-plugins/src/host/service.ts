@@ -23,7 +23,7 @@
  * faces so the service is fully testable with in-memory doubles.
  */
 import { createHash } from 'node:crypto'
-import { agentFrontmatter, resolveAgentModel, translateTools } from '../core/agents.ts'
+import { agentFrontmatter, resolveAgentModel, sanitizeModelMap, translateTools } from '../core/agents.ts'
 import { parseFrontmatter } from '../core/frontmatter.ts'
 import { applyManagedBlockText, normalizeMcpServers, renderManagedBlock, resolveServerName, type ManagedRow, type RawAgentRow, type RawMcpServer } from '../core/mcp.ts'
 import { parseMarketplaceSpec } from '../core/source.ts'
@@ -51,6 +51,7 @@ import type {
   PluginDetail,
   PluginInventory,
   PluginSource,
+  RuntimeModel,
   SkillComponent,
 } from '../core/types.ts'
 
@@ -76,6 +77,8 @@ export interface ServiceOptions {
   agentsEnabled?: boolean
   /** Claude model id to DSH model id map (Config runtime.agentModelMap). */
   agentModelMap?: Readonly<Record<string, string>>
+  /** Live model discovery for the Models tab (host entry injects ctx.llm). */
+  listRuntimeModels?: () => Promise<RuntimeModel[]>
   /** Notified after every install/uninstall/update persists (runtime refresh). */
   onInstalledChanged?: () => void
 }
@@ -123,6 +126,15 @@ export class CcMarketplaceService {
     return base !== '' ? `workspace "${base}"` : 'a workspace'
   }
 
+  /**
+   * The effective Claude-alias to DSH-model map: the composition config
+   * (`runtime.agentModelMap`) is the baseline, the panel's saved overrides
+   * (`<root>/model-map.json`) layer on top key by key.
+   */
+  private effectiveModelMap(overrides: Record<string, string>): Record<string, string> {
+    return { ...sanitizeModelMap(this.opts.agentModelMap), ...overrides }
+  }
+
   // -------------------------------------------------------------------------
   // Views
   // -------------------------------------------------------------------------
@@ -153,10 +165,13 @@ export class CcMarketplaceService {
   }
 
   async state(): Promise<CcState> {
-    const [marketplaces, installed] = await Promise.all([
+    const [marketplaces, installed, overrides] = await Promise.all([
       this.store.listMarketplaces(),
       this.store.readInstalled(),
+      this.store.readModelMap(),
     ])
+    const configMap = sanitizeModelMap(this.opts.agentModelMap)
+    const effective = { ...configMap, ...overrides }
     const rows: MarketplaceViewRow[] = []
     const byKey = new Map(installed.plugins.map((p) => [p.key, p]))
     for (const m of [...marketplaces].sort((a, b) => a.spec.localeCompare(b.spec))) {
@@ -210,7 +225,30 @@ export class CcMarketplaceService {
         plugins,
       })
     }
-    return { installed: installed.plugins, marketplaces: rows }
+    // Alias pickers cover the classic Claude families, every mapped alias,
+    // and every model name installed agents actually reference.
+    const aliases = new Set(['haiku', 'sonnet', 'opus'])
+    for (const key of Object.keys(effective)) aliases.add(key)
+    for (const record of installed.plugins) {
+      for (const row of record.agents) {
+        const { model } = agentFrontmatter(parseFrontmatter(row.persona))
+        if (model !== '' && model !== 'inherit') aliases.add(model)
+      }
+    }
+    let models: RuntimeModel[] = []
+    try {
+      models = this.opts.listRuntimeModels !== undefined ? await this.opts.listRuntimeModels() : []
+    } catch {
+      models = [] // best effort: the tab degrades to inherit-only pickers
+    }
+    return {
+      installed: installed.plugins,
+      marketplaces: rows,
+      models,
+      agentModelMap: effective,
+      agentModelConfig: configMap,
+      agentModelAliases: [...aliases].sort(),
+    }
   }
 
   /**
@@ -387,8 +425,9 @@ export class CcMarketplaceService {
     // 3. Agent delegation tools: managed dsh-tool-subagent rows (persona from
     //    the agent markdown, translated tools/model frontmatter), only while
     //    runtime.agents is enabled.
+    const modelMap = this.effectiveModelMap(await this.store.readModelMap())
     const agents = this.opts.agentsEnabled === true
-      ? this.buildAgentRows(key, args.plugin, resolved.files, inventory, others, mcp.rows, existing?.agents)
+      ? this.buildAgentRows(key, args.plugin, resolved.files, inventory, others, mcp.rows, modelMap, existing?.agents)
       : { rows: [] as InstalledAgentRow[], notes: [] as string[] }
 
     // 4. Materialize the plugin copy: the file cache drives the runtime
@@ -575,8 +614,9 @@ export class CcMarketplaceService {
     // plugin's own previous rows are excluded from the dedupe set.
     const others = installed.plugins.filter((p) => p.key !== key)
     const mcp = this.buildMcpRows(key, inventory, others, record.mcpServers)
+    const modelMap = this.effectiveModelMap(await this.store.readModelMap())
     const agents = this.opts.agentsEnabled === true
-      ? this.buildAgentRows(key, record.pluginName, resolved.files, inventory, others, mcp.rows, record.agents)
+      ? this.buildAgentRows(key, record.pluginName, resolved.files, inventory, others, mcp.rows, modelMap, record.agents)
       : { rows: [] as InstalledAgentRow[], notes: [] as string[] }
 
     await this.materializePlugin(key, resolved.files)
@@ -605,6 +645,57 @@ export class CcMarketplaceService {
     const message = notes.length > 0
       ? `updated "${record.pluginName}" to ${versionText}${skipped}; ${notes.join('; ')}`
       : `updated "${record.pluginName}" to ${versionText}${skipped}`
+    return { ok: true, message, state: await this.state() }
+  }
+
+  // -------------------------------------------------------------------------
+  // Agent model mapping (Models tab)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Save the panel's Claude-alias to DSH-model overrides (wholesale replace
+   * of model-map.json, sanitized), then re-resolve every installed agent
+   * row's `model:` against the new effective map. Managed rows rewrite when
+   * anything changed; a profile reload applies them. Aliases left unmapped
+   * inherit the delegating session's model — DSH's default.
+   */
+  async setAgentModelOverrides(raw: unknown): Promise<MutationResult> {
+    const overrides = sanitizeModelMap(raw)
+    await this.store.saveModelMap(overrides)
+    const effective = this.effectiveModelMap(overrides)
+
+    const installed = await this.store.readInstalled()
+    const changes: string[] = []
+    const plugins = installed.plugins.map((record): InstalledPlugin => {
+      let changed = false
+      const agents = record.agents.map((row): InstalledAgentRow => {
+        const { model } = agentFrontmatter(parseFrontmatter(row.persona))
+        const resolved = resolveAgentModel(model, effective).model
+        if (resolved === row.model) return row
+        changed = true
+        changes.push(`agent "${row.claudeName}" ${resolved === undefined ? 'inherits the session model' : `-> ${resolved}`}`)
+        if (resolved === undefined) {
+          const next = { ...row }
+          delete next.model
+          return next
+        }
+        return { ...row, model: resolved }
+      })
+      return changed ? { ...record, agents } : record
+    })
+
+    if (changes.length > 0) {
+      await this.writeManagedRows(plugins)
+      await this.store.saveInstalled({ plugins })
+      this.opts.onInstalledChanged?.()
+    }
+    const saved = Object.entries(overrides).map(([alias, model]) => `${alias} -> ${model}`)
+    const message = [
+      saved.length > 0
+        ? `saved model overrides: ${saved.join(', ')}`
+        : 'cleared model overrides; unmapped names inherit the session model',
+      changes.length > 0 ? `${changes.length} agent row(s) re-resolved (${changes.join('; ')}); reload the profile to apply` : '',
+    ].filter(Boolean).join('; ')
     return { ok: true, message, state: await this.state() }
   }
 
@@ -710,6 +801,7 @@ export class CcMarketplaceService {
     inventory: PluginInventory,
     others: readonly InstalledPlugin[],
     mcpRows: readonly InstalledMcpRow[],
+    modelMap: Readonly<Record<string, string>>,
     previous?: readonly InstalledAgentRow[],
   ): { rows: InstalledAgentRow[]; notes: string[] } {
     const notes: string[] = []
@@ -739,7 +831,7 @@ export class CcMarketplaceService {
         digest: (input) => createHash('sha256').update(input).digest('hex'),
       })
       notes.push(...translated.notes.map((note) => `agent "${agent.name}": ${note}`))
-      const resolved = resolveAgentModel(model, this.opts.agentModelMap ?? {})
+      const resolved = resolveAgentModel(model, modelMap)
       if (resolved.note !== undefined) notes.push(`agent "${agent.name}": ${resolved.note}`)
       rows.push({
         rowId: agentRowId(key, agent.name),

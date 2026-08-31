@@ -64,14 +64,19 @@ async function dismissOnboarding(page: Page): Promise<void> {
 // once the card's body is open. force:true sidesteps the onboarding modal masks.
 // The fresh scratch home can re-show a dialog on a cold load, so retry the whole
 // dismiss-and-open sequence a bounded number of times.
-async function openNotifierCard(page: Page): Promise<void> {
+async function openPluginCard(page: Page, title: string): Promise<void> {
   for (let attempt = 0; attempt < 5; attempt++) {
     await dismissOnboarding(page)
     try {
-      await page.getByText('Settings', { exact: true }).first().click({ force: true })
-      await page.waitForTimeout(600)
-      await page.getByText('Plugins', { exact: true }).first().click({ force: true })
-      const card = page.getByText('DSH Next Notifier').first()
+      // A previous marker may have left the Settings -> Plugins view open; in
+      // that case clicking "Settings" again toggles it closed. Only navigate
+      // when the Plugins tab is not already visible.
+      if (!(await page.getByText('Plugins', { exact: true }).first().isVisible().catch(() => false))) {
+        await page.getByText('Settings', { exact: true }).first().click({ force: true })
+        await page.waitForTimeout(600)
+        await page.getByText('Plugins', { exact: true }).first().click({ force: true })
+      }
+      const card = page.getByText(title).first()
       await card.waitFor({ state: 'visible', timeout: 4000 })
       await card.click({ force: true })
       return
@@ -80,7 +85,63 @@ async function openNotifierCard(page: Page): Promise<void> {
       await page.waitForTimeout(500)
     }
   }
-  throw new Error('could not open the DSH Next Notifier card after retries')
+  throw new Error(`could not open the ${title} card after retries`)
+}
+
+async function openNotifierCard(page: Page): Promise<void> {
+  await openPluginCard(page, 'DSH Next Notifier')
+}
+
+// Navigate to the assistant's settings section (Settings -> Plugins). The
+// assistant's settings section is titled "DSH Next Assistant"; opening it must
+// reveal the settings body.
+async function openAssistantCard(page: Page): Promise<void> {
+  await openPluginCard(page, 'DSH Next Assistant')
+}
+
+// Navigate to the skills manager's own settings section (Settings -> Skills),
+// dismissing onboarding first. Returns once the section's tab bar is visible.
+async function openSkillsSection(page: Page): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    await dismissOnboarding(page)
+    try {
+      const nav = page.getByRole('button', { name: 'Skills', exact: true }).first()
+      if (!(await nav.isVisible().catch(() => false))) {
+        await page.getByText('Settings', { exact: true }).first().click({ force: true })
+        await page.waitForTimeout(600)
+      }
+      await nav.waitFor({ state: 'visible', timeout: 4000 })
+      await nav.click({ force: true })
+      await page.waitForTimeout(400)
+      if (await page.getByText('Installed', { exact: true }).first().isVisible().catch(() => false)) return
+    } catch {
+      await page.waitForTimeout(500)
+    }
+  }
+  throw new Error('could not open the Skills settings section after retries')
+}
+
+// Navigate to the Claude marketplace bridge's settings section
+// (Settings -> Claude Plugins), dismissing onboarding first. Returns once the
+// section's tab bar is visible.
+async function openCcSection(page: Page): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    await dismissOnboarding(page)
+    try {
+      const nav = page.getByRole('button', { name: 'Claude Plugins', exact: true }).first()
+      if (!(await nav.isVisible().catch(() => false))) {
+        await page.getByText('Settings', { exact: true }).first().click({ force: true })
+        await page.waitForTimeout(600)
+      }
+      await nav.waitFor({ state: 'visible', timeout: 4000 })
+      await nav.click({ force: true })
+      await page.waitForTimeout(400)
+      if (await page.getByText('Marketplaces', { exact: true }).first().isVisible().catch(() => false)) return
+    } catch {
+      await page.waitForTimeout(500)
+    }
+  }
+  throw new Error('could not open the Claude Plugins settings section after retries')
 }
 
 // Per-plugin DOM markers: a package that ships UI registers a closure that
@@ -99,6 +160,68 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await openNotifierCard(page)
     await expect(page.getByText('Enable notifications')).toBeVisible()
     await expect(page.getByText('Test browser notification')).toBeVisible()
+  },
+
+  // The assistant registers a sidebar "Next" chat entry plus a settings
+  // section. The marker drives to the settings section and asserts it renders
+  // (guards a silent payload-shape mismatch that the crash-marker layer cannot
+  // see).
+  'dsh-next-assistant': async (page) => {
+    await openAssistantCard(page)
+    await expect(page.getByText('Persona preset')).toBeVisible()
+  },
+
+  // The skills manager registers its own Settings -> Skills section (the same
+  // nav level as General/Models/Plugins) with Installed, Search, and Providers
+  // tabs backed by a local GitHub-provider cache. Opening it must
+  // reveal the tab bar, the seeded throwaway skill must be toggleable and
+  // removable end-to-end (guards a client-side state-refresh regression the
+  // "section renders" check cannot see), and the empty Providers state must
+  // render. No network: providers are only added manually.
+  'dsh-next-skills': async (page) => {
+    await openSkillsSection(page)
+    await expect(page.getByText('Installed', { exact: true })).toBeVisible()
+    await expect(page.getByText('Search', { exact: true })).toBeVisible()
+    await expect(page.getByText('Providers', { exact: true })).toBeVisible()
+    await expect(page.getByText('e2e-test-skill', { exact: true }).first()).toBeVisible()
+    const row = page.getByText('e2e-test-skill', { exact: true }).first()
+      .locator('xpath=ancestor::div[contains(@class,"skill")][1]')
+    const disable = row.locator('button', { hasText: 'Disable' })
+    await expect(disable).toBeVisible()
+    await disable.click({ force: true })
+    await expect(row.locator('button', { hasText: 'Enable' })).toBeVisible()
+    await row.locator('button', { hasText: 'Remove' }).click({ force: true })
+    // The Settings shell itself is a role="dialog"; scope by the popup's name.
+    const dialog = page.getByRole('dialog', { name: 'Remove skill "e2e-test-skill"?' })
+    await expect(dialog).toBeVisible()
+    await dialog.locator('button', { hasText: 'Remove' }).click({ force: true })
+    await expect(page.getByText('e2e-test-skill', { exact: true })).toHaveCount(0)
+    // Providers tab renders its empty state and the add-provider control.
+    await page.getByText('Providers', { exact: true }).first().click({ force: true })
+    await expect(page.getByText('No providers', { exact: false }).first()).toBeVisible()
+    await expect(page.locator('input[placeholder*="github.com"]').first()).toBeVisible()
+  },
+
+  // The cc-plugins bridge registers its own Settings -> Claude Plugins
+  // section with Marketplaces and Installed tabs backed by the Host RPC over
+  // the plugin data root. Opening it must reveal the tab bar, the empty
+  // marketplaces state, and the add-marketplace control; switching to the
+  // Installed tab must render its empty state (guards a silent payload-shape
+  // mismatch the crash-marker layer cannot see). No network: marketplaces are
+  // only added manually. The marker closes the Settings dialog afterwards:
+  // this package sorts before dsh-next-notifier, whose openPluginCard only
+  // handles a closed or Plugins-view Settings shell.
+  'dsh-next-cc-plugins': async (page) => {
+    await openCcSection(page)
+    await expect(page.getByText('Marketplaces', { exact: true }).first()).toBeVisible()
+    await expect(page.getByText('Installed', { exact: true }).first()).toBeVisible()
+    await expect(page.getByText('No marketplaces added yet', { exact: false }).first()).toBeVisible()
+    await expect(page.locator('input[placeholder*="owner/repo"]').first()).toBeVisible()
+    await page.getByText('Installed', { exact: true }).first().click({ force: true })
+    await expect(page.getByText('No Claude Code plugins installed yet', { exact: false }).first()).toBeVisible()
+    const settings = page.getByRole('dialog', { name: 'Settings' })
+    await settings.getByRole('button', { name: 'Close' }).click({ force: true })
+    await page.waitForTimeout(300)
   },
 }
 

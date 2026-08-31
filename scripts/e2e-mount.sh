@@ -38,6 +38,10 @@ fi
 # Scratch home (never touch the real ~/.dsh).
 SCRATCH="${DSH_HOME_BASE:-$(mktemp -d /tmp/dsh-next-e2e.XXXXXX)}"
 export DSH_HOME="$SCRATCH/home"
+# Isolate the shared agent skills root too: without this, both the DSH
+# filesystem skill provider and dsh-next-skills scan the REAL ~/.agents, and
+# the smoke would read (and could mutate) the developer's actual skills.
+export DSH_AGENTS_HOME="$SCRATCH/home/agents"
 mkdir -p "$DSH_HOME/profiles/smoke"
 say "scratch home: $DSH_HOME"
 
@@ -95,6 +99,22 @@ dsh-next-notifier:
   enabled: true
   suppressFocused: true
   volume: 70
+EOF
+
+# Seed one throwaway skill into the isolated agents root so the skills DOM
+# marker can exercise a real enable-toggle and a real delete round-trip. The
+# block-scalar (`|`) description is deliberate: it guards the toggle against
+# corrupting a multi-line description (the class of bug a single-line seed
+# would never catch).
+mkdir -p "$DSH_AGENTS_HOME/skills/e2e-test-skill"
+cat > "$DSH_AGENTS_HOME/skills/e2e-test-skill/SKILL.md" <<'EOF'
+---
+name: e2e-test-skill
+description: |
+  Throwaway skill for the skills marker.
+  Multi-line to exercise block-scalar descriptions.
+---
+# Test
 EOF
 
 

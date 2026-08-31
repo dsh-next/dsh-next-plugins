@@ -26,6 +26,7 @@ import { agentFrontmatter, resolveAgentModel, translateTools } from '../core/age
 import { parseFrontmatter } from '../core/frontmatter.ts'
 import { applyManagedBlockText, normalizeMcpServers, renderManagedBlock, resolveServerName, type ManagedRow, type RawAgentRow, type RawMcpServer } from '../core/mcp.ts'
 import { parseMarketplaceSpec } from '../core/source.ts'
+import { targetId, type TargetRequest } from '../core/targets.ts'
 import { isSkillName, sanitizeIdentifier } from '../core/name.ts'
 import { dirnamePath, isSafeRelativePath, joinPath } from '../core/path.ts'
 import { pluginInventory, pluginLevelReferenceNotes, readManifestPaths, skillFiles, type PluginFiles } from '../core/plugin-inventory.ts'
@@ -39,6 +40,8 @@ import type {
   InstalledAgentRow,
   InstalledMcpRow,
   InstalledPlugin,
+  InstalledSkillRef,
+  InstalledTarget,
   MarketplacePlugin,
   MarketplacePluginView,
   MarketplaceViewRow,
@@ -108,6 +111,14 @@ export class CcMarketplaceService {
   private skillsRoot(scope: 'global' | 'workspace', workspacePath?: string): string | undefined {
     if (scope === 'global') return joinPath(this.opts.agentsHome, 'skills')
     return workspacePath !== undefined && workspacePath !== '' ? joinPath(workspacePath, '.agents/skills') : undefined
+  }
+
+  /** Human label for an install target used in messages. */
+  private scopeLabel(target: { scope: 'global' | 'workspace'; workspacePath?: string }): string {
+    if (target.scope !== 'workspace') return 'the global root'
+    const path = target.workspacePath ?? ''
+    const base = path.split('/').filter(Boolean).pop() ?? path
+    return base !== '' ? `workspace "${base}"` : 'a workspace'
   }
 
   // -------------------------------------------------------------------------
@@ -263,16 +274,27 @@ export class CcMarketplaceService {
   async installPlugin(args: {
     marketplaceId: string
     plugin: string
-    scope: 'global' | 'workspace'
-    workspacePath?: string
+    targets: readonly TargetRequest[]
   }): Promise<MutationResult> {
-    if (args.scope === 'workspace' && (args.workspacePath === undefined || args.workspacePath === '')) {
-      return { ok: false, error: 'workspace scope requires a workspacePath' }
+    if (args.targets.length === 0) {
+      return { ok: false, error: 'at least one install target is required (global or workspace)' }
+    }
+    for (const t of args.targets) {
+      if (t.scope === 'workspace' && (t.workspacePath === undefined || t.workspacePath === '')) {
+        return { ok: false, error: 'workspace targets require a workspacePath' }
+      }
     }
     const key = `${args.marketplaceId}/${args.plugin}`
     const installed = await this.store.readInstalled()
-    if (installed.plugins.some((p) => p.key === key)) {
-      return { ok: false, error: `plugin "${args.plugin}" is already installed from this marketplace` }
+    const existing = installed.plugins.find((p) => p.key === key)
+    // Targets already holding the plugin are rejected; the UI locks them and
+    // only offers the remaining ones. Fresh targets merge into the record.
+    if (existing !== undefined) {
+      const taken = args.targets.filter((t) => existing.targets.some((et) => targetId(et) === targetId(t)))
+      if (taken.length > 0) {
+        const labels = taken.map((t) => this.scopeLabel(t)).join(', ')
+        return { ok: false, error: `plugin "${args.plugin}" is already installed in ${labels}` }
+      }
     }
     let resolved
     try {
@@ -285,41 +307,58 @@ export class CcMarketplaceService {
       return { ok: false, error: `plugin "${args.plugin}" source is not installable: ${resolved.entry.source.reason}` }
     }
     const inventory = pluginInventory(resolved.files)
-    const root = this.skillsRoot(args.scope, args.workspacePath)
-    if (root === undefined) return { ok: false, error: 'workspace scope requires a workspacePath' }
 
-    // 1. Skills: copy each skill directory into the chosen skills root.
+    // 1. Skills: copy each skill directory into every requested target's
+    //    skills root. Any failure rolls back every target's copies.
     const copiedDirs: string[] = []
-    for (const skill of inventory.skills) {
-      if (!isSkillName(skill.name)) {
+    const newTargets: InstalledTarget[] = []
+    for (const t of args.targets) {
+      const root = this.skillsRoot(t.scope, t.workspacePath)
+      if (root === undefined) {
         await this.rollbackDirs(copiedDirs)
-        return { ok: false, error: `skill "${skill.name}" has a name the DSH skill registry rejects (kebab-case required)` }
+        return { ok: false, error: 'workspace targets require a workspacePath' }
       }
-      const target = joinPath(root, skill.name)
-      try {
-        await this.opts.fs.access(target)
-        await this.rollbackDirs(copiedDirs)
-        return { ok: false, error: `skill "${skill.name}" already exists in the ${args.scope} skills root` }
-      } catch {
-        // not installed yet
+      const skillRefs: InstalledSkillRef[] = []
+      for (const skill of inventory.skills) {
+        if (!isSkillName(skill.name)) {
+          await this.rollbackDirs(copiedDirs)
+          return { ok: false, error: `skill "${skill.name}" has a name the DSH skill registry rejects (kebab-case required)` }
+        }
+        const target = joinPath(root, skill.name)
+        try {
+          await this.opts.fs.access(target)
+          await this.rollbackDirs(copiedDirs)
+          return { ok: false, error: `skill "${skill.name}" already exists in the ${this.scopeLabel(t)} skills root` }
+        } catch {
+          // not installed yet
+        }
+        const failure = await this.copySkill(resolved.files, skill, target, key)
+        if (failure !== undefined) {
+          await this.opts.fs.rm(target, { recursive: true, force: true }).catch(() => {})
+          await this.rollbackDirs(copiedDirs)
+          return { ok: false, error: failure }
+        }
+        copiedDirs.push(target)
+        skillRefs.push({ name: skill.name, directory: target })
       }
-      const failure = await this.copySkill(resolved.files, skill, target, key)
-      if (failure !== undefined) {
-        await this.opts.fs.rm(target, { recursive: true, force: true }).catch(() => {})
-        await this.rollbackDirs(copiedDirs)
-        return { ok: false, error: failure }
-      }
-      copiedDirs.push(target)
+      newTargets.push({
+        scope: t.scope,
+        ...(t.scope === 'workspace' && t.workspacePath !== undefined ? { workspacePath: t.workspacePath } : {}),
+        skills: skillRefs,
+      })
     }
 
-    // 2. MCP servers: managed dsh-mcp-client rows in the user patch file.
-    const mcp = this.buildMcpRows(key, inventory, installed.plugins)
+    // 2. MCP servers: managed dsh-mcp-client rows (plugin-level, once).
+    //    The plugin's own previous rows are excluded from the dedupe set so
+    //    adding a target never renames its own servers.
+    const others = installed.plugins.filter((p) => p.key !== key)
+    const mcp = this.buildMcpRows(key, inventory, others, existing?.mcpServers)
 
     // 3. Agent delegation tools: managed dsh-tool-subagent rows (persona from
     //    the agent markdown, translated tools/model frontmatter), only while
     //    runtime.agents is enabled.
     const agents = this.opts.agentsEnabled === true
-      ? this.buildAgentRows(key, resolved.files, inventory, installed.plugins)
+      ? this.buildAgentRows(key, resolved.files, inventory, others, existing?.agents)
       : { rows: [] as InstalledAgentRow[], notes: [] as string[] }
 
     // 4. Materialize the plugin copy: the file cache drives the runtime
@@ -328,7 +367,7 @@ export class CcMarketplaceService {
 
     // 5. Registry record + managed-block rewrite from the registry.
     const now = new Date().toISOString()
-    const record: InstalledPlugin = {
+    const base: InstalledPlugin = existing ?? {
       key,
       marketplaceId: args.marketplaceId,
       marketplaceSpec: resolved.marketplaceSpec,
@@ -336,9 +375,16 @@ export class CcMarketplaceService {
       version: resolved.entry.version,
       installedAt: now,
       updatedAt: now,
-      scope: args.scope,
-      ...(args.scope === 'workspace' && args.workspacePath !== undefined ? { workspacePath: args.workspacePath } : {}),
-      skills: inventory.skills.map((s) => ({ name: s.name, directory: joinPath(root, s.name) })),
+      targets: [],
+      mcpServers: [],
+      agents: [],
+      pending: { commands: [], hookEvents: [] },
+    }
+    const record: InstalledPlugin = {
+      ...base,
+      version: resolved.entry.version,
+      updatedAt: now,
+      targets: [...base.targets, ...newTargets],
       mcpServers: mcp.rows,
       agents: agents.rows,
       pending: {
@@ -346,7 +392,9 @@ export class CcMarketplaceService {
         hookEvents: inventory.hookEvents,
       },
     }
-    const plugins = [...installed.plugins, record]
+    const plugins = existing === undefined
+      ? [...installed.plugins, record]
+      : installed.plugins.map((p) => (p.key === key ? record : p))
     try {
       await this.writeManagedRows(plugins)
     } catch (error) {
@@ -367,21 +415,52 @@ export class CcMarketplaceService {
       inventory.skills.length > 0 ? `${inventory.skills.length} skill(s)` : '',
       mcp.rows.length > 0 ? `${mcp.rows.length} MCP server(s) written to cordis.patch.yml (restart DSH or reload the profile to attach)` : '',
       pendingBits.length > 0 ? pendingBits.join(', ') : '',
+      `targets: ${args.targets.map((t) => this.scopeLabel(t)).join(' + ')}`,
     ].filter(Boolean)
-    const summary = parts.length > 0 ? parts.join('; ') : 'no installable components found'
+    const summary = parts.join('; ')
     const notes = [...mcp.notes, ...agents.notes, ...pluginLevelReferenceNotes(resolved.files, inventory.skills)]
-    const message = notes.length > 0 ? `installed "${args.plugin}": ${summary}; ${notes.join('; ')}` : `installed "${args.plugin}": ${summary}`
+    const verb = existing === undefined ? 'installed' : 'added targets to'
+    const message = notes.length > 0 ? `${verb} "${args.plugin}": ${summary}; ${notes.join('; ')}` : `${verb} "${args.plugin}": ${summary}`
     return { ok: true, message, state: await this.state() }
   }
 
-  async uninstallPlugin(key: string): Promise<MutationResult> {
+  /** Uninstall one target's skills, or the whole plugin when no target is
+   *  given (or the last target goes away). */
+  async uninstallPlugin(key: string, target?: TargetRequest): Promise<MutationResult> {
     const installed = await this.store.readInstalled()
     const record = installed.plugins.find((p) => p.key === key)
     if (record === undefined) return { ok: false, error: `plugin "${key}" is not installed` }
 
-    // 1. Skills -> recoverable trash inside each skill's root.
-    for (const skill of record.skills) {
-      await this.trashDir(skill.directory, skill.name)
+    if (target !== undefined) {
+      const id = targetId(target)
+      const held = record.targets.find((et) => targetId(et) === id)
+      if (held === undefined) {
+        return { ok: false, error: `plugin "${record.pluginName}" is not installed in ${this.scopeLabel(target)}` }
+      }
+      for (const skill of held.skills) {
+        await this.trashDir(skill.directory, skill.name)
+      }
+      const remaining = record.targets.filter((et) => targetId(et) !== id)
+      if (remaining.length > 0) {
+        const updated: InstalledPlugin = { ...record, targets: remaining, updatedAt: new Date().toISOString() }
+        const plugins = installed.plugins.map((p) => (p.key === key ? updated : p))
+        await this.writeManagedRows(plugins)
+        await this.store.saveInstalled({ plugins })
+        this.opts.onInstalledChanged?.()
+        return {
+          ok: true,
+          message: `removed "${record.pluginName}" from ${this.scopeLabel(target)} (${held.skills.length} skill(s) moved to .trash; ${remaining.length} target(s) remain)`,
+          state: await this.state(),
+        }
+      }
+      // The last target went away: fall through to a full uninstall.
+    }
+
+    // 1. Every target's skills -> recoverable trash inside each skill's root.
+    for (const t of record.targets) {
+      for (const skill of t.skills) {
+        await this.trashDir(skill.directory, skill.name)
+      }
     }
 
     // 2. The materialized plugin copy (hooks' CLAUDE_PLUGIN_ROOT) goes away.
@@ -392,9 +471,10 @@ export class CcMarketplaceService {
     await this.writeManagedRows(kept)
     await this.store.saveInstalled({ plugins: kept })
     this.opts.onInstalledChanged?.()
+    const skillCount = record.targets.reduce((sum, t) => sum + t.skills.length, 0)
     return {
       ok: true,
-      message: `uninstalled "${record.pluginName}" (${record.skills.length} skill(s) moved to .trash, ${record.mcpServers.length} MCP row(s) and ${record.agents.length} agent row(s) removed)`,
+      message: `uninstalled "${record.pluginName}" (${skillCount} skill(s) moved to .trash, ${record.mcpServers.length} MCP row(s) and ${record.agents.length} agent row(s) removed)`,
       state: await this.state(),
     }
   }
@@ -421,32 +501,42 @@ export class CcMarketplaceService {
       return { ok: false, error: `plugin "${record.pluginName}" source became non-installable: ${resolved.entry.source.reason}` }
     }
     const inventory = pluginInventory(resolved.files)
-    const root = this.skillsRoot(record.scope, record.workspacePath)
-    if (root === undefined) return { ok: false, error: 'stored install has no usable skills root' }
 
+    // Skills refresh in every target's root; per-skill failures skip that
+    // skill, and skills removed upstream are trashed per target.
     const errors: string[] = []
-    const skillDirs: Array<{ name: string; directory: string }> = []
-    const seen = new Set<string>()
-    for (const skill of inventory.skills) {
-      if (!isSkillName(skill.name)) {
-        errors.push(`skill "${skill.name}" has an invalid name`)
+    const updatedTargets: InstalledTarget[] = []
+    for (const t of record.targets) {
+      const root = this.skillsRoot(t.scope, t.workspacePath)
+      if (root === undefined) {
+        errors.push(`target ${this.scopeLabel(t)} has no usable skills root`)
+        updatedTargets.push(t)
         continue
       }
-      seen.add(skill.name)
-      const target = joinPath(root, skill.name)
-      const failure = await this.copySkill(resolved.files, skill, target, key)
-      if (failure !== undefined) {
-        errors.push(failure)
-        continue
+      const skillDirs: InstalledSkillRef[] = []
+      const seen = new Set<string>()
+      for (const skill of inventory.skills) {
+        if (!isSkillName(skill.name)) {
+          errors.push(`skill "${skill.name}" has an invalid name`)
+          continue
+        }
+        seen.add(skill.name)
+        const target = joinPath(root, skill.name)
+        const failure = await this.copySkill(resolved.files, skill, target, key)
+        if (failure !== undefined) {
+          errors.push(failure)
+          continue
+        }
+        skillDirs.push({ name: skill.name, directory: target })
       }
-      skillDirs.push({ name: skill.name, directory: target })
+      // Skills removed upstream are trashed; new skills were added above.
+      for (const old of t.skills) {
+        if (seen.has(old.name)) continue
+        await this.trashDir(old.directory, old.name)
+      }
+      updatedTargets.push({ ...t, skills: skillDirs })
     }
-    // Skills removed upstream are trashed; new skills were added above.
-    for (const old of record.skills) {
-      if (seen.has(old.name)) continue
-      await this.trashDir(old.directory, old.name)
-    }
-    if (errors.length > 0 && skillDirs.length === 0 && inventory.skills.length > 0) {
+    if (errors.length > 0 && updatedTargets.every((t) => t.skills.length === 0) && inventory.skills.length > 0) {
       return { ok: false, error: `update failed: ${errors.join('; ')}` }
     }
 
@@ -465,7 +555,7 @@ export class CcMarketplaceService {
       ...record,
       version: resolved.entry.version,
       updatedAt: new Date().toISOString(),
-      skills: skillDirs,
+      targets: updatedTargets,
       mcpServers: mcp.rows,
       agents: agents.rows,
       pending: {

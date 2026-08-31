@@ -6,6 +6,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { parseTargets } from '../core/targets.ts'
 import type { CcMarketplaceService } from './service.ts'
 
 const RPC_PATH = '/dsh-next-cc-plugins/rpc'
@@ -28,6 +29,16 @@ function scope(input: unknown): 'global' | 'workspace' {
   return input === 'workspace' ? 'workspace' : 'global'
 }
 
+/** The uninstall target selector: '' = global, a path = that workspace. */
+function targetRequest(input: unknown): { scope: 'global' | 'workspace'; workspacePath?: string } | undefined {
+  if (input === null || typeof input !== 'object' || Array.isArray(input)) return undefined
+  const t = input as Record<string, unknown>
+  const sc = scope(t.scope)
+  const workspacePath = optStr(t.workspacePath)
+  if (sc === 'workspace' && workspacePath === undefined) return undefined
+  return sc === 'workspace' ? { scope: sc, workspacePath } : { scope: sc }
+}
+
 export function registerRpc(ctx: Context, service: CcMarketplaceService): void {
   const webServer = ctx.get('webServer')
   if (!webServer || typeof webServer.register !== 'function') return
@@ -43,14 +54,31 @@ export function registerRpc(ctx: Context, service: CcMarketplaceService): void {
     },
     installPlugin: (args) => {
       const a = record(args)
+      // New shape: targets: [{scope, workspacePath?}]. The legacy single
+      // scope/workspacePath pair still works (one target).
+      const parsed = parseTargets(a.targets)
+      if ('error' in parsed) {
+        const legacyScope = scope(a.scope)
+        const legacyPath = optStr(a.workspacePath)
+        if (legacyScope === 'workspace' && legacyPath === undefined) {
+          return { ok: false, error: parsed.error }
+        }
+        return service.installPlugin({
+          marketplaceId: str(a.marketplaceId),
+          plugin: str(a.plugin),
+          targets: [legacyScope === 'workspace' ? { scope: legacyScope, workspacePath: legacyPath } : { scope: legacyScope }],
+        })
+      }
       return service.installPlugin({
         marketplaceId: str(a.marketplaceId),
         plugin: str(a.plugin),
-        scope: scope(a.scope),
-        workspacePath: optStr(a.workspacePath),
+        targets: parsed.targets,
       })
     },
-    uninstallPlugin: (args) => service.uninstallPlugin(str(record(args).key)),
+    uninstallPlugin: (args) => {
+      const a = record(args)
+      return service.uninstallPlugin(str(a.key), a.target === undefined ? undefined : targetRequest(a.target))
+    },
     updatePlugin: (args) => service.updatePlugin(str(record(args).key)),
   }
 

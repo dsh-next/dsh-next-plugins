@@ -13,6 +13,15 @@ with a built-in runtime for the components DSH activates in-process.
   `.claude-plugin/marketplace.json` index (`.grok-plugin/marketplace.json`
   is honored as a Grok Build interop fallback). Browse each marketplace's
   plugins with their component inventories, refresh, and remove.
+- **Browse and install plugins** — the Plugins tab lists every plugin across
+  all marketplaces in a two-column card grid with search, a marketplace
+  filter, and an installed-only toggle. Each card's Add (or Manage) button
+  opens a target picker: any combination of the global skills root and your
+  workspaces, in one install. Targets already holding the plugin are locked
+  with their own uninstall; Update refreshes every target. Skills land per
+  selected target; MCP servers, agent rows, commands, and hooks are
+  plugin-level and activate once regardless of target count (the modal says
+  so). Pre-targets registry records migrate to the new shape on read.
 - **Install plugins** — each plugin's components land on the DSH surface
   that natively consumes it:
 

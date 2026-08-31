@@ -187,7 +187,19 @@ export interface PendingComponents {
   hookEvents: string[]
 }
 
-/** A persisted install record (installed.json value). */
+/** One install target of a plugin: a skills root (global or one workspace). */
+export interface InstalledTarget {
+  scope: 'global' | 'workspace'
+  /** Absolute workspace path; present only for the workspace scope. */
+  workspacePath?: string
+  /** Skill copies living in this target's skills root. */
+  skills: InstalledSkillRef[]
+}
+
+/** A persisted install record (installed.json value). Skills live per target
+ *  (the global root and/or any workspace root); MCP rows, agent rows, and the
+ *  pending components are plugin-level and activate once regardless of how
+ *  many targets hold the skills. */
 export interface InstalledPlugin {
   /** `<marketplaceId>/<pluginName>`. */
   key: string
@@ -197,9 +209,7 @@ export interface InstalledPlugin {
   version: string
   installedAt: string
   updatedAt: string
-  scope: 'global' | 'workspace'
-  workspacePath?: string
-  skills: InstalledSkillRef[]
+  targets: InstalledTarget[]
   mcpServers: InstalledMcpRow[]
   agents: InstalledAgentRow[]
   pending: PendingComponents

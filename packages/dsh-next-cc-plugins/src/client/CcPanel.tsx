@@ -1,9 +1,19 @@
 /**
  * The Claude Plugins settings panel rendered in the `settings.section` slot:
- * a whole settings page with two tabs (Marketplaces, Installed) over the
- * Host JSON RPC. The Marketplaces tab lists every configured marketplace and
- * its plugins with per-plugin install controls; the Installed tab lists the
- * installed records with update and uninstall actions.
+ * a whole settings page with two tabs over the Host JSON RPC.
+ *
+ *  - Plugins: every plugin across all marketplaces in a two-column card grid
+ *    with a provider (marketplace) filter, a search box, and an
+ *    installed-only toggle. Each card opens the Add/Manage modal: pick any
+ *    combination of the global root and workspaces as install targets
+ *    (targets already holding the plugin are locked with an "added" badge
+ *    and offer their own uninstall), plus Update everywhere.
+ *  - Marketplaces: source management (add by owner/repo shorthand, GitHub
+ *    URL, or local path; refresh; remove).
+ *
+ * Skills land per selected target; MCP servers, agent rows, commands, and
+ * hooks are plugin-level and activate once regardless of target count — the
+ * modal states this so the scope picker never over-promises.
  */
 import * as React from 'react'
 import type {
@@ -24,7 +34,7 @@ export interface CcPanelDeps {
   notifyInstalledChanged?: () => void
 }
 
-type Tab = 'marketplaces' | 'installed'
+type Tab = 'plugins' | 'marketplaces'
 
 /** Mutations whose success changes the installed skill set the chat UI surfaces. */
 const CATALOG_MUTATIONS = new Set(['installPlugin', 'uninstallPlugin', 'updatePlugin'])
@@ -49,15 +59,33 @@ export function inventorySummary(inventory: PluginInventory): string {
   return parts.length > 0 ? parts.join(', ') : 'no components'
 }
 
+/** Where a plugin's skills are installed, across every target. */
+export function presenceLabel(record: InstalledPlugin, workspaces: ReadonlyArray<WorkspaceRow>): string {
+  const parts: string[] = []
+  const global = record.targets.some((t) => t.scope === 'global')
+  const ws = record.targets.filter((t) => t.scope === 'workspace')
+  if (global) parts.push('global')
+  if (ws.length > 0) {
+    const titles = ws.map((t) => workspaces.find((w) => w.path === t.workspacePath)?.title ?? 'workspace')
+    parts.push(...titles)
+  }
+  return parts.length > 0 ? `in ${parts.join(' + ')}` : 'installed'
+}
+
 export function CcPanel(deps: CcPanelDeps): React.ReactElement {
-  const [tab, setTab] = React.useState<Tab>('marketplaces')
+  const [tab, setTab] = React.useState<Tab>('plugins')
   const [state, setState] = React.useState<CcState | undefined>()
   const [busy, setBusy] = React.useState(false)
   const [message, setMessage] = React.useState<{ ok: boolean; text: string } | undefined>()
   const [spec, setSpec] = React.useState('')
-  const [scope, setScope] = React.useState<'global' | 'workspace'>('global')
-  const [workspacePath, setWorkspacePath] = React.useState('')
-  const [confirmKey, setConfirmKey] = React.useState<string | undefined>()
+  const [search, setSearch] = React.useState('')
+  const [providerFilter, setProviderFilter] = React.useState('')
+  const [installedOnly, setInstalledOnly] = React.useState(false)
+  /** The open Add/Manage modal's plugin (marketplace + catalog entry). */
+  const [modal, setModal] = React.useState<{ marketplaceId: string; plugin: MarketplacePluginView } | undefined>()
+  const [selection, setSelection] = React.useState<Set<string>>(new Set())
+  /** Two-step uninstall confirm inside the modal, by target id. */
+  const [confirmTarget, setConfirmTarget] = React.useState<string | undefined>()
   const workspaces = deps.getWorkspaces()
 
   const refresh = React.useCallback(async (): Promise<void> => {
@@ -73,12 +101,14 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
     void refresh()
   }, [refresh])
 
-  // Keep the selected workspace valid as workspaces come and go.
   React.useEffect(() => {
-    if (scope === 'workspace' && workspacePath !== '' && !workspaces.some((w) => w.path === workspacePath)) {
-      setWorkspacePath(workspaces[0]?.path ?? '')
+    if (modal === undefined) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') { setModal(undefined); setSelection(new Set()); setConfirmTarget(undefined) }
     }
-  }, [scope, workspacePath, workspaces])
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [modal])
 
   const mutate = async (method: string, args?: unknown): Promise<void> => {
     setBusy(true)
@@ -92,7 +122,7 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
         else await refresh()
         setMessage({ ok: true, text: result.message ?? 'done' })
         if (CATALOG_MUTATIONS.has(method)) deps.notifyInstalledChanged?.()
-        setConfirmKey(undefined)
+        setConfirmTarget(undefined)
       }
     } catch (error) {
       setMessage({ ok: false, text: errMsg(error) })
@@ -109,6 +139,140 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
 
   const marketplaces: MarketplaceViewRow[] = state?.marketplaces ?? []
   const installed: InstalledPlugin[] = state?.installed ?? []
+  const byKey = React.useMemo(() => new Map(installed.map((r) => [r.key, r])), [installed])
+
+  const openModal = (marketplaceId: string, plugin: MarketplacePluginView): void => {
+    setModal({ marketplaceId, plugin })
+    setSelection(new Set())
+    setConfirmTarget(undefined)
+  }
+
+  const toggleTarget = (id: string): void => {
+    setSelection((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const confirmInstall = (): void => {
+    if (modal === undefined || selection.size === 0) return
+    const targets = [...selection].map((id): { scope: 'global' | 'workspace'; workspacePath?: string } =>
+      id === '' ? { scope: 'global' } : { scope: 'workspace', workspacePath: id })
+    void mutate('installPlugin', { marketplaceId: modal.marketplaceId, plugin: modal.plugin.name, targets })
+    setModal(undefined)
+    setSelection(new Set())
+  }
+
+  const uninstallTarget = (key: string, id: string): void => {
+    void mutate('uninstallPlugin', {
+      key,
+      target: id === '' ? { scope: 'global' } : { scope: 'workspace', workspacePath: id },
+    })
+  }
+
+  // The flat plugin catalog across every marketplace, filtered in-panel.
+  const catalog = React.useMemo(() => marketplaces.flatMap((m) => m.plugins.map((p) => ({ marketplace: m, plugin: p }))), [marketplaces])
+  const filtered = React.useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return catalog.filter(({ marketplace, plugin }) => {
+      if (providerFilter !== '' && marketplace.id !== providerFilter) return false
+      if (installedOnly && !byKey.has(`${marketplace.id}/${plugin.name}`)) return false
+      if (q !== '' && !`${plugin.name} ${plugin.description} ${marketplace.name}`.toLowerCase().includes(q)) return false
+      return true
+    })
+  }, [catalog, providerFilter, installedOnly, search, byKey])
+
+  /** The Add/Manage modal: the skills panel's proven multi-target picker. */
+  const modalDialog = (): React.ReactElement | null => {
+    if (modal === undefined) return null
+    const key = `${modal.marketplaceId}/${modal.plugin.name}`
+    const record = byKey.get(key)
+    const heldIds = new Set((record?.targets ?? []).map((t) => (t.scope === 'workspace' ? (t.workspacePath ?? '') : '')))
+    const options: Array<{ id: string; label: string; installed: boolean }> = [
+      { id: '', label: 'Global', installed: heldIds.has('') },
+      ...workspaces.map((w) => ({ id: w.path, label: w.title, installed: heldIds.has(w.path) })),
+    ]
+    return (
+      <div className={styles.overlay} role="presentation" onClick={() => { setModal(undefined); setSelection(new Set()); setConfirmTarget(undefined) }}>
+        <div
+          className={styles.modal}
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Manage plugin "${modal.plugin.name}"`}
+          data-testid="cc-modal"
+          onClick={(e: React.MouseEvent) => e.stopPropagation()}
+        >
+          <p className={styles.modalTitle}>{`${modal.plugin.name}${record !== undefined && record.version !== '' ? ` ${record.version}` : ''}`}</p>
+          <p className={styles.modalHint}>
+            Choose where to add it. Skills install per target; MCP servers, agents, commands, and hooks activate globally once.
+            Targets already holding the plugin are marked and locked.
+          </p>
+          <div className={styles.optionList}>
+            {options.map((option) => (
+              <label
+                key={option.id === '' ? 'global' : option.id}
+                className={styles.optionRow + (option.installed ? ` ${styles.optionLocked}` : '')}
+                data-testid="cc-target"
+              >
+                <input
+                  type="checkbox"
+                  checked={option.installed || selection.has(option.id)}
+                  disabled={busy || option.installed}
+                  onChange={() => toggleTarget(option.id)}
+                />
+                <span className={styles.optionLabel}>{option.id === '' ? `Global ${option.label}` : option.label}</span>
+                {option.installed && (
+                  <>
+                    <span className={styles.addedBadge}>added</span>
+                    {confirmTarget === option.id ? (
+                      <button
+                        type="button"
+                        className={`${styles.danger} ${styles.optionAction}`}
+                        disabled={busy}
+                        onClick={() => uninstallTarget(key, option.id)}
+                      >Confirm</button>
+                    ) : (
+                      <button
+                        type="button"
+                        className={`${styles.ghostDanger} ${styles.optionAction}`}
+                        disabled={busy}
+                        onClick={() => setConfirmTarget(option.id)}
+                      >Uninstall</button>
+                    )}
+                  </>
+                )}
+              </label>
+            ))}
+          </div>
+          <div className={styles.modalActions}>
+            <button
+              type="button"
+              className={styles.ghost}
+              disabled={busy}
+              onClick={() => { setModal(undefined); setSelection(new Set()); setConfirmTarget(undefined) }}
+            >Cancel</button>
+            {record !== undefined && (
+              <button
+                type="button"
+                className={styles.ghost}
+                disabled={busy}
+                onClick={() => { void mutate('updatePlugin', { key }); setModal(undefined) }}
+              >Update everywhere</button>
+            )}
+            <button
+              type="button"
+              className={styles.primary}
+              disabled={busy || selection.size === 0}
+              onClick={confirmInstall}
+              data-testid="cc-modal-add"
+            >{selection.size > 1 ? `Add to ${selection.size} targets` : 'Add'}</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className={styles.page}>
@@ -116,22 +280,103 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
         <button
           type="button"
           role="tab"
+          aria-selected={tab === 'plugins'}
+          className={tab === 'plugins' ? styles.tabActive : styles.tab}
+          onClick={() => setTab('plugins')}
+        >Plugins</button>
+        <button
+          type="button"
+          role="tab"
           aria-selected={tab === 'marketplaces'}
           className={tab === 'marketplaces' ? styles.tabActive : styles.tab}
           onClick={() => setTab('marketplaces')}
         >Marketplaces</button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'installed'}
-          className={tab === 'installed' ? styles.tabActive : styles.tab}
-          onClick={() => setTab('installed')}
-        >Installed</button>
       </div>
 
       {message !== undefined && (
         <div className={message.ok ? styles.noticeOk : styles.noticeErr} data-testid="cc-message">{message.text}</div>
       )}
+
+      {tab === 'plugins' && (
+        <div className={styles.filterRow}>
+          <input
+            type="search"
+            className={styles.input}
+            placeholder="Search plugins…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            data-testid="cc-search"
+          />
+          <select
+            className={styles.select}
+            value={providerFilter}
+            onChange={(e) => setProviderFilter(e.target.value)}
+            aria-label="Marketplace"
+            data-testid="cc-provider"
+          >
+            <option value="">All marketplaces</option>
+            {marketplaces.map((m) => (
+              <option key={m.id} value={m.id}>{m.spec}</option>
+            ))}
+          </select>
+          <label className={styles.toggleWrap}>
+            <input
+              type="checkbox"
+              checked={installedOnly}
+              onChange={(e) => setInstalledOnly(e.target.checked)}
+              data-testid="cc-installed-only"
+            />
+            Installed only
+          </label>
+        </div>
+      )}
+
+      {tab === 'plugins' && (marketplaces.length === 0 ? (
+        <div className={styles.empty} data-testid="cc-empty">
+          No marketplaces added yet. Add one in the Marketplaces tab (owner/repo GitHub shorthand, a GitHub URL, or a local path).
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className={styles.empty} data-testid="cc-empty">No plugins match the current filters.</div>
+      ) : (
+        <div className={styles.pluginGrid} data-testid="cc-plugins">
+          {filtered.map(({ marketplace, plugin }) => {
+            const key = `${marketplace.id}/${plugin.name}`
+            const record = byKey.get(key)
+            return (
+              <div key={key} className={styles.pluginCard} data-testid="cc-plugin">
+                <div className={styles.pluginCardTop}>
+                  <div className={styles.headText}>
+                    <div className={styles.pluginName}>
+                      {plugin.name}
+                      {plugin.version !== '' && <span className={styles.version}> {plugin.version}</span>}
+                    </div>
+                    <div className={styles.desc}>{plugin.description !== '' ? plugin.description : 'no description'}</div>
+                    <div className={styles.desc}>
+                      {plugin.inventory !== undefined ? inventorySummary(plugin.inventory)
+                        : plugin.sourceUnsupported !== undefined ? `not installable: ${plugin.sourceUnsupported}`
+                          : 'components resolve on install'}
+                    </div>
+                  </div>
+                  {record !== undefined && (
+                    <span className={styles.presenceBadge}>{presenceLabel(record, workspaces)}</span>
+                  )}
+                </div>
+                <div className={styles.pluginCardTop}>
+                  <span className={styles.marketplaceChip}>{marketplace.name}</span>
+                  <button
+                    type="button"
+                    className={record !== undefined ? styles.ghost : styles.primary}
+                    disabled={busy || plugin.sourceUnsupported !== undefined}
+                    title={key}
+                    onClick={() => openModal(marketplace.id, plugin)}
+                    data-testid="cc-add"
+                  >{record !== undefined ? 'Manage' : 'Add'}</button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      ))}
 
       {tab === 'marketplaces' && (
         <div className={styles.addRow}>
@@ -150,31 +395,19 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
         </div>
       )}
 
-      {tab === 'marketplaces' && (
-        <div className={styles.scopeRow}>
-          <span className={styles.scopeLabel}>Install scope:</span>
-          <select className={styles.select} value={scope} onChange={(e) => setScope(e.target.value === 'workspace' ? 'workspace' : 'global')}>
-            <option value="global">Global</option>
-            {workspaces.length > 0 && <option value="workspace">Workspace</option>}
-          </select>
-          {scope === 'workspace' && (
-            <select className={styles.select} value={workspacePath} onChange={(e) => setWorkspacePath(e.target.value)}>
-              {workspaces.map((w) => (
-                <option key={w.path} value={w.path}>{w.title}</option>
-              ))}
-            </select>
-          )}
-        </div>
-      )}
-
       {tab === 'marketplaces' && (marketplaces.length === 0 ? (
         <div className={styles.empty} data-testid="cc-empty">No marketplaces added yet. Add one with an owner/repo GitHub shorthand, a GitHub URL, or a local path.</div>
       ) : marketplaces.map((m) => (
-        <div key={m.id} className={styles.card} data-testid="cc-plugins">
+        <div key={m.id} className={styles.card} data-testid="cc-marketplace">
           <div className={styles.marketHead}>
             <div className={styles.headText}>
               <div className={styles.name}>{m.name}</div>
-              <div className={styles.desc}>{m.spec}{m.description !== '' ? ` — ${m.description}` : ''}{m.owner !== '' ? ` by ${m.owner}` : ''}</div>
+              <div className={styles.desc}>
+                {m.spec}
+                {m.description !== '' ? ` — ${m.description}` : ''}
+                {m.owner !== '' ? ` by ${m.owner}` : ''}
+                {` · ${m.plugins.length} plugin${m.plugins.length === 1 ? '' : 's'}`}
+              </div>
               {m.error !== undefined && <div className={styles.errText}>{m.error}</div>}
             </div>
             <button
@@ -184,119 +417,10 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
               onClick={() => void mutate('removeMarketplace', { marketplaceId: m.id })}
             >Remove</button>
           </div>
-          {m.plugins.length > 0 && (
-            <div className={styles.pluginList}>
-              {m.plugins.map((p) => (
-                <PluginRow
-                  key={p.name}
-                  marketplaceId={m.id}
-                  plugin={p}
-                  busy={busy}
-                  scope={scope}
-                  workspacePath={scope === 'workspace' ? workspacePath : undefined}
-                  onInstall={() => void mutate('installPlugin', {
-                    marketplaceId: m.id,
-                    plugin: p.name,
-                    scope,
-                    ...(scope === 'workspace' ? { workspacePath } : {}),
-                  })}
-                  onUninstall={() => void mutate('uninstallPlugin', { key: `${m.id}/${p.name}` })}
-                  onUpdate={() => void mutate('updatePlugin', { key: `${m.id}/${p.name}` })}
-                />
-              ))}
-            </div>
-          )}
         </div>
       )))}
 
-      {tab === 'installed' && (installed.length === 0 ? (
-        <div className={styles.empty} data-testid="cc-installed-empty">No Claude Code plugins installed yet.</div>
-      ) : installed.map((record) => (
-        <div key={record.key} className={styles.card} data-testid="cc-installed">
-          <div className={styles.marketHead}>
-            <div className={styles.headText}>
-              <div className={styles.name}>{record.pluginName}{record.version !== '' ? ` ${record.version}` : ''}</div>
-              <div className={styles.desc}>
-                from {record.marketplaceSpec} · {record.scope}{record.scope === 'workspace' && record.workspacePath !== undefined ? ` (${record.workspacePath})` : ''}
-              </div>
-              <div className={styles.desc}>{installedSummary(record)}</div>
-            </div>
-            <div className={styles.rowActions}>
-              <button type="button" className={styles.ghost} disabled={busy} onClick={() => void mutate('updatePlugin', { key: record.key })}>Update</button>
-              {confirmKey === record.key ? (
-                <button type="button" className={styles.danger} disabled={busy} onClick={() => void mutate('uninstallPlugin', { key: record.key })}>Confirm uninstall</button>
-              ) : (
-                <button type="button" className={styles.ghostDanger} disabled={busy} onClick={() => setConfirmKey(record.key)}>Uninstall</button>
-              )}
-            </div>
-          </div>
-        </div>
-      )))}
+      {modalDialog()}
     </div>
   )
-}
-
-/** One plugin row inside a marketplace card. */
-function PluginRow(props: {
-  marketplaceId: string
-  plugin: MarketplacePluginView
-  busy: boolean
-  scope: 'global' | 'workspace'
-  workspacePath?: string
-  onInstall: () => void
-  onUninstall: () => void
-  onUpdate: () => void
-}): React.ReactElement {
-  const p = props.plugin
-  const key = `${props.marketplaceId}/${p.name}`
-  const [confirm, setConfirm] = React.useState(false)
-  return (
-    <div className={styles.pluginRow} data-testid="cc-plugin">
-      <div className={styles.headText}>
-        <div className={styles.pluginName}>
-          {p.name}
-          {p.version !== '' && <span className={styles.version}> {p.version}</span>}
-          {p.category !== '' && <span className={styles.chip}> {p.category}</span>}
-        </div>
-        <div className={styles.desc}>{p.description !== '' ? p.description : 'no description'}</div>
-        <div className={styles.desc}>
-          {p.inventory !== undefined ? inventorySummary(p.inventory)
-            : p.sourceUnsupported !== undefined ? `not installable: ${p.sourceUnsupported}`
-              : 'components resolve on install'}
-        </div>
-      </div>
-      <div className={styles.rowActions}>
-        {p.installed ? (
-          <>
-            <button type="button" className={styles.ghost} disabled={props.busy} onClick={props.onUpdate}>Update</button>
-            {confirm ? (
-              <button type="button" className={styles.danger} disabled={props.busy} onClick={props.onUninstall}>Confirm uninstall</button>
-            ) : (
-              <button type="button" className={styles.ghostDanger} disabled={props.busy} onClick={() => setConfirm(true)}>Uninstall</button>
-            )}
-          </>
-        ) : (
-          <button
-            type="button"
-            className={styles.primary}
-            disabled={props.busy || p.sourceUnsupported !== undefined || (props.scope === 'workspace' && (props.workspacePath === undefined || props.workspacePath === ''))}
-            title={key}
-            onClick={props.onInstall}
-          >Install</button>
-        )}
-      </div>
-    </div>
-  )
-}
-
-/** Summary line for an installed record. */
-function installedSummary(record: InstalledPlugin): string {
-  const parts = [
-    record.skills.length > 0 ? `${record.skills.length} skill${record.skills.length === 1 ? '' : 's'} (${record.skills.map((s) => s.name).join(', ')})` : '',
-    record.mcpServers.length > 0 ? `${record.mcpServers.length} MCP server${record.mcpServers.length === 1 ? '' : 's'} (${record.mcpServers.map((s) => s.serverName).join(', ')})` : '',
-    record.agents.length > 0 ? `${record.agents.length} agent tool${record.agents.length === 1 ? '' : 's'} (${record.agents.map((a) => a.toolName).join(', ')})` : '',
-    record.pending.commands.length > 0 ? `${record.pending.commands.length} command${record.pending.commands.length === 1 ? '' : 's'} registered` : '',
-    record.pending.hookEvents.length > 0 ? `${record.pending.hookEvents.length} hook event${record.pending.hookEvents.length === 1 ? '' : 's'}` : '',
-  ].filter(Boolean)
-  return parts.length > 0 ? parts.join(' · ') : 'no components'
 }

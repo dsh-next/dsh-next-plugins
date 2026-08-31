@@ -197,12 +197,13 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
   // handles a closed or Plugins-view Settings shell.
   'dsh-next-cc-plugins': async (page) => {
     await openCcSection(page)
+    await expect(page.getByText('Plugins', { exact: true }).first()).toBeVisible()
     await expect(page.getByText('Marketplaces', { exact: true }).first()).toBeVisible()
-    await expect(page.getByText('Installed', { exact: true }).first()).toBeVisible()
     await expect(page.getByText('No marketplaces added yet', { exact: false }).first()).toBeVisible()
+    await expect(page.getByTestId('cc-search').first()).toBeVisible()
+    await expect(page.getByTestId('cc-installed-only').first()).toBeVisible()
+    await page.getByText('Marketplaces', { exact: true }).first().click({ force: true })
     await expect(page.locator('input[placeholder*="owner/repo"]').first()).toBeVisible()
-    await page.getByText('Installed', { exact: true }).first().click({ force: true })
-    await expect(page.getByText('No Claude Code plugins installed yet', { exact: false }).first()).toBeVisible()
     const settings = page.getByRole('dialog', { name: 'Settings' })
     await settings.getByRole('button', { name: 'Close' }).click({ force: true })
     await page.waitForTimeout(300)

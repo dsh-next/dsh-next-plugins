@@ -10,6 +10,7 @@
  */
 import { parseMarketplaceIndex } from '../core/marketplace-index.ts'
 import { dirnamePath, isSafeRelativePath, joinPath } from '../core/path.ts'
+import { normalizeInstalledFile } from '../core/targets.ts'
 import type {
   FetchLike,
   FsLike,
@@ -98,7 +99,9 @@ export class Store {
   }
 
   async readInstalled(): Promise<InstalledFile> {
-    return this.readJson<InstalledFile>(this.installedPath(), { plugins: [] })
+    // Normalize on read: pre-targets records (single scope/skills triple)
+    // migrate into the targets array, and corrupt lines drop out.
+    return normalizeInstalledFile(await this.readJson<unknown>(this.installedPath(), { plugins: [] }))
   }
 
   async saveInstalled(file: InstalledFile): Promise<void> {

@@ -1,14 +1,15 @@
 /**
- * jsdom render test for the Claude Plugins settings panel: proves the panel
- * renders its tabs and rows from the Host envelopes and that the interactive
- * controls dispatch the right RPC calls. This complements the Host RPC
- * contract test (shape) and the real-mount e2e marker (whole shell).
+ * jsdom render test for the Claude Plugins settings panel: proves the two
+ * tabs (Plugins grid with search/provider/installed filters, Marketplaces
+ * sources) and the Add/Manage modal's multi-target flows dispatch the right
+ * RPC calls. This complements the Host RPC contract test (shape) and the
+ * real-mount e2e marker (whole shell).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as React from 'react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import type { CcState, MutationResult, WorkspaceRow } from '../src/core/types.ts'
+import type { CcState, InstalledPlugin, MutationResult, WorkspaceRow } from '../src/core/types.ts'
 import { CcPanel } from '../src/client/CcPanel.tsx'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -55,10 +56,47 @@ const STATE: CcState = {
         },
       ],
     },
+    {
+      id: 'github:o/other',
+      spec: 'o/other',
+      name: 'other-mkt',
+      description: '',
+      owner: '',
+      lastSync: '2026-01-01T00:00:00.000Z',
+      plugins: [
+        {
+          name: 'searchable-thing',
+          description: 'A very specific description',
+          version: '',
+          category: '',
+          author: '',
+          homepage: '',
+          tags: [],
+          installed: false,
+        },
+      ],
+    },
   ],
 }
 
 const WS: WorkspaceRow[] = [{ id: 'w1', title: 'Project One', path: '/w1' }]
+
+function installedRecord(overrides: Partial<InstalledPlugin> = {}): InstalledPlugin {
+  return {
+    key: 'github:o/r/team-tools',
+    marketplaceId: 'github:o/r',
+    marketplaceSpec: 'o/r',
+    pluginName: 'team-tools',
+    version: '1.0.0',
+    installedAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    targets: [{ scope: 'global', skills: [{ name: 'deploy', directory: '/home/u/.agents/skills/deploy' }] }],
+    mcpServers: [],
+    agents: [],
+    pending: { commands: ['ship'], hookEvents: ['PreToolUse'] },
+    ...overrides,
+  }
+}
 
 type RpcFn = (method: string, args?: unknown) => Promise<unknown>
 
@@ -102,6 +140,21 @@ function setValue(el: Element, value: string): void {
   el.dispatchEvent(new Event('input', { bubbles: true }))
 }
 
+/** Set a controlled select's value the way React's tracker accepts under jsdom. */
+function setSelect(el: Element, value: string): void {
+  const proto = window.HTMLSelectElement.prototype
+  const setter = Object.getOwnPropertyDescriptor(proto, 'value')!.set!
+  setter.call(el, value)
+  el.dispatchEvent(new Event('change', { bubbles: true }))
+}
+
+/** Toggle a checkbox the way React observes under jsdom: a native click (a
+ *  synthetic `change` event does not reach React's checkbox onChange). */
+function check(el: Element, value: boolean): void {
+  const input = el as HTMLInputElement
+  if (input.checked !== value) input.click()
+}
+
 /** The first button with exactly this label. */
 function button(text: string): HTMLButtonElement {
   const found = [...container.querySelectorAll('button')].filter((b) => b.textContent === text)
@@ -109,97 +162,135 @@ function button(text: string): HTMLButtonElement {
   return found[0] as HTMLButtonElement
 }
 
+function pluginCards(): Element[] {
+  return [...container.querySelectorAll('[data-testid="cc-plugin"]')]
+}
+
 describe('CcPanel', () => {
-  it('renders the tabs and the marketplace rows from the state envelope', async () => {
+  it('renders the Plugins grid with cards, summaries, and marketplace chips', async () => {
     await renderAsync()
     expect(document.querySelector('[data-testid="cc-plugins"]')).not.toBeNull()
-    expect(document.body.textContent).toContain('acme-tools')
     expect(document.body.textContent).toContain('team-tools')
     expect(document.body.textContent).toContain('1 skill, 1 MCP server, 1 command, 1 hook event (enable runtime.hooks)')
-    // The unsupported source explains itself and renders a disabled install.
+    expect(pluginCards()).toHaveLength(3)
+    expect(document.body.textContent).toContain('acme-tools')
+    expect(document.body.textContent).toContain('other-mkt')
+    // The unsupported source explains itself and renders a disabled Add.
     expect(document.body.textContent).toContain('npm plugin sources are not supported yet')
-    const installs = [...container.querySelectorAll('button')].filter((b) => b.textContent === 'Install')
-    expect(installs).toHaveLength(2)
-    const disabled = installs.find((b) => b.disabled)
+    const adds = [...container.querySelectorAll('[data-testid="cc-add"]')].filter((b) => b.textContent === 'Add')
+    expect(adds).toHaveLength(3)
+    const disabled = adds.find((b) => (b as HTMLButtonElement).disabled)
     expect(disabled).toBeDefined()
     expect(disabled?.getAttribute('title')).toBe('github:o/r/packed')
   })
 
-  it('renders the empty state with the add-marketplace control', async () => {
+  it('shows the empty state on the Plugins tab when no marketplaces exist', async () => {
     await renderAsync({ rpc: rpcMock({ installed: [], marketplaces: [] }) })
     expect(document.querySelector('[data-testid="cc-empty"]')).not.toBeNull()
-    const input = document.querySelector('[data-testid="cc-add-input"]') as HTMLInputElement
-    expect(input).not.toBeNull()
-    expect(input.placeholder).toContain('owner/repo')
+    expect(document.body.textContent).toContain('Marketplaces tab')
   })
 
-  it('dispatches addMarketplace with the typed spec', async () => {
+  it('filters the grid by search, provider, and the installed-only toggle', async () => {
+    const state: CcState = { ...STATE, installed: [installedRecord()] }
+    await renderAsync({ rpc: rpcMock(state) })
+    expect(pluginCards()).toHaveLength(3)
+
+    const search = document.querySelector('[data-testid="cc-search"]')!
+    await act(async () => { setValue(search, 'very specific') })
+    expect(pluginCards()).toHaveLength(1)
+    expect(pluginCards()[0].textContent).toContain('searchable-thing')
+
+    await act(async () => { setValue(search, '') })
+    const provider = document.querySelector('[data-testid="cc-provider"]') as HTMLSelectElement
+    await act(async () => { setSelect(provider, 'github:o/other') })
+    expect(pluginCards()).toHaveLength(1)
+
+    await act(async () => { setSelect(provider, '') })
+    const toggle = document.querySelector('[data-testid="cc-installed-only"]')!
+    await act(async () => { check(toggle, true) })
+    expect(pluginCards()).toHaveLength(1)
+    expect(pluginCards()[0].textContent).toContain('team-tools')
+    // The installed card carries the presence badge and a Manage button.
+    expect(pluginCards()[0].textContent).toContain('in global')
+    expect(pluginCards()[0].textContent).toContain('Manage')
+  })
+
+  it('Marketplaces tab lists sources and dispatches addMarketplace', async () => {
     const rpc = rpcMock()
     await renderAsync({ rpc })
+    await act(async () => { button('Marketplaces').click() })
+    expect(document.querySelector('[data-testid="cc-marketplace"]')).not.toBeNull()
+    expect(document.body.textContent).toContain('2 plugins')
     const input = document.querySelector('[data-testid="cc-add-input"]') as HTMLInputElement
     await act(async () => { setValue(input, 'anthropics/claude-code') })
     await act(async () => { button('Add marketplace').click() })
     expect(rpc).toHaveBeenCalledWith('addMarketplace', { spec: 'anthropics/claude-code' })
   })
 
-  it('dispatches installPlugin for an installable plugin', async () => {
+  it('Add modal installs to multiple selected targets', async () => {
     const rpc = rpcMock()
     const notify = vi.fn()
     await renderAsync({ rpc, notifyInstalledChanged: notify })
-    const install = [...container.querySelectorAll('button')].filter((b) => b.textContent === 'Install').find((b) => !b.disabled)!
-    await act(async () => { install.click() })
+    await act(async () => { (pluginCards()[0].querySelector('[data-testid="cc-add"]') as HTMLElement).click() })
+    const modal = document.querySelector('[data-testid="cc-modal"]')
+    expect(modal).not.toBeNull()
+    expect(modal?.textContent).toContain('activate globally once')
+    // Both targets selectable; footer reflects the count.
+    const targets = [...container.querySelectorAll('[data-testid="cc-target"] input[type="checkbox"]')]
+    expect(targets).toHaveLength(2)
+    await act(async () => { check(targets[0], true) })
+    expect(button('Add').disabled).toBe(false)
+    await act(async () => { check(targets[1], true) })
+    expect(button('Add to 2 targets').disabled).toBe(false)
+    await act(async () => { button('Add to 2 targets').click() })
     expect(rpc).toHaveBeenCalledWith('installPlugin', {
       marketplaceId: 'github:o/r',
       plugin: 'team-tools',
-      scope: 'global',
+      targets: [{ scope: 'global' }, { scope: 'workspace', workspacePath: '/w1' }],
     })
     expect(notify).toHaveBeenCalled()
+    expect(document.querySelector('[data-testid="cc-modal"]')).toBeNull()
   })
 
-  it('shows the mutation message from the envelope', async () => {
+  it('Manage modal locks installed targets, uninstalls per target, and updates everywhere', async () => {
+    const state: CcState = { ...STATE, installed: [installedRecord()] }
+    const rpc = rpcMock(state)
+    await renderAsync({ rpc })
+    await act(async () => { (pluginCards()[0].querySelector('[data-testid="cc-add"]') as HTMLElement).click() })
+    const modal = document.querySelector('[data-testid="cc-modal"]')!
+    // The global row is locked with an added badge and its own uninstall.
+    const rows = [...container.querySelectorAll('[data-testid="cc-target"]')]
+    expect(rows).toHaveLength(2)
+    expect(rows[0].textContent).toContain('added')
+    expect((rows[0].querySelector('input[type="checkbox"]') as HTMLInputElement).disabled).toBe(true)
+    expect(rows[1].textContent).not.toContain('added')
+    // The workspace row stays selectable for adding.
+    expect((rows[1].querySelector('input[type="checkbox"]') as HTMLInputElement).disabled).toBe(false)
+    // Update everywhere dispatches with the key.
+    await act(async () => { button('Update everywhere').click() })
+    expect(rpc).toHaveBeenCalledWith('updatePlugin', { key: 'github:o/r/team-tools' })
+    // Per-target uninstall is a two-step confirm and sends the target.
+    await act(async () => { (pluginCards()[0].querySelector('[data-testid="cc-add"]') as HTMLElement).click() })
+    await act(async () => { button('Uninstall').click() })
+    await act(async () => { button('Confirm').click() })
+    expect(rpc).toHaveBeenCalledWith('uninstallPlugin', {
+      key: 'github:o/r/team-tools',
+      target: { scope: 'global' },
+    })
+  })
+
+  it('shows the mutation message and surfaces failures', async () => {
     await renderAsync()
+    await act(async () => { button('Marketplaces').click() })
     await act(async () => { button('Refresh all').click() })
     expect(document.querySelector('[data-testid="cc-message"]')?.textContent).toContain('done')
-  })
 
-  it('renders the Installed tab from installed records', async () => {
-    const state: CcState = {
-      installed: [{
-        key: 'github:o/r/team-tools',
-        marketplaceId: 'github:o/r',
-        marketplaceSpec: 'o/r',
-        pluginName: 'team-tools',
-        version: '1.0.0',
-        installedAt: '2026-01-01T00:00:00.000Z',
-        updatedAt: '2026-01-01T00:00:00.000Z',
-        scope: 'global',
-        skills: [{ name: 'deploy', directory: '/home/u/.agents/skills/deploy' }],
-        mcpServers: [{ rowId: 'r', serverName: 'linear', claudeName: 'linear', def: { transport: 'stdio', command: 'npx', args: [], env: {} } }],
-        agents: [{ rowId: 'a', toolName: 'cc-agent-reviewer', claudeName: 'reviewer', persona: 'Reviews' }],
-        pending: { commands: ['ship'], hookEvents: ['PreToolUse'] },
-      }],
-      marketplaces: [],
-    }
-    await renderAsync({ rpc: rpcMock(state) })
-    await act(async () => { button('Installed').click() })
-    const row = document.querySelector('[data-testid="cc-installed"]')
-    expect(row?.textContent).toContain('team-tools 1.0.0')
-    expect(row?.textContent).toContain('1 skill (deploy)')
-    expect(row?.textContent).toContain('1 MCP server (linear)')
-    expect(row?.textContent).toContain('1 agent tool (cc-agent-reviewer)')
-    expect(row?.textContent).toContain('1 command registered')
-    expect(row?.textContent).toContain('1 hook event')
-    // Uninstall is a two-step confirm.
-    await act(async () => { button('Uninstall').click() })
-    expect([...container.querySelectorAll('button')].some((b) => b.textContent === 'Confirm uninstall')).toBe(true)
-  })
-
-  it('surfaces a failed mutation as an error notice', async () => {
     const rpc = vi.fn<RpcFn>(async (method: string) => {
       if (method === 'getState') return STATE
       return { ok: false, error: 'boom' }
     })
     await renderAsync({ rpc })
+    await act(async () => { button('Marketplaces').click() })
     await act(async () => { button('Refresh all').click() })
     expect(document.querySelector('[data-testid="cc-message"]')?.textContent).toContain('boom')
   })

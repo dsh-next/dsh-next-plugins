@@ -13,6 +13,8 @@ import {
   expandMcpServerTemplates,
   extractManagedBlock,
   normalizeMcpServers,
+  renderMcpConfig,
+  renderMcpRow,
   renderManagedBlock,
   resolveServerName,
 } from '../src/core/mcp.ts'
@@ -193,6 +195,22 @@ describe('resolveServerName', () => {
     expect(resolveServerName('github')).toEqual({ name: 'github', sanitized: false })
     expect(resolveServerName('my server!')).toEqual({ name: 'my-server', sanitized: true })
     expect(resolveServerName('a'.repeat(40)).name.length).toBeLessThanOrEqual(32)
+  })
+})
+
+describe('renderMcpConfig cwd', () => {
+  it('emits cwd for stdio servers so relative command paths resolve', () => {
+    const lines = renderMcpConfig('srv', STDIO, '/root/plugins/p')
+    expect(lines).toContain("        cwd: '/root/plugins/p'")
+    // Without a cwd nothing is emitted.
+    expect(renderMcpConfig('srv', STDIO).some((l) => l.includes('cwd'))).toBe(false)
+  })
+
+  it('renders cwd through renderMcpRow and never for remote servers', () => {
+    const stdio = renderMcpRow({ rowId: 'r', serverName: 's', def: STDIO, cwd: '/p' })
+    expect(stdio).toContain("cwd: '/p'")
+    const http = renderMcpRow({ rowId: 'r', serverName: 's', def: HTTP, cwd: '/p' })
+    expect(http.includes('cwd')).toBe(false)
   })
 })
 

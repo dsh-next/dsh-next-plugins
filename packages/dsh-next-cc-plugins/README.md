@@ -70,7 +70,9 @@ Component and version fidelity follows Claude Code's current reference:
   time against the plugin's materialized root and the host environment
   (DSH's MCP client does no substitution). `${CLAUDE_PROJECT_DIR}` stays as
   written with a note (it has no single value across install targets), as do
-  references to unset variables.
+  references to unset variables. stdio rows also carry the plugin root as
+  their `cwd` — Claude Code runs plugin MCP servers from the plugin root,
+  which relative command paths (`./cli/server.js`) rely on.
 - **Version precedence** — the catalog side is the marketplace entry's
   `version`, then the plugin's own `plugin.json` version (resolvable for
   relative sources), then no version at all; version-less plugins get their

@@ -1127,7 +1127,14 @@ export class CcMarketplaceService {
   /** Re-render the managed block from the full registry and splice the patch file. */
   private async writeManagedRows(plugins: readonly InstalledPlugin[]): Promise<void> {
     const rows: ManagedRow[] = plugins.flatMap((plugin) => [
-      ...plugin.mcpServers.map((row): RawMcpServer => ({ rowId: row.rowId, serverName: row.serverName, def: row.def })),
+      ...plugin.mcpServers.map((row): RawMcpServer => ({
+        rowId: row.rowId,
+        serverName: row.serverName,
+        def: row.def,
+        // Claude Code runs plugin MCP servers with the plugin root as cwd,
+        // which relative command paths (`./cli/server.js`) rely on.
+        ...(row.def.transport === 'stdio' ? { cwd: this.pluginRootOf(plugin.key) } : {}),
+      })),
       ...plugin.agents.map((row): RawAgentRow => ({
         rowId: row.rowId,
         toolName: row.toolName,

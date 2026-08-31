@@ -455,6 +455,9 @@ describe('CcMarketplaceService install', () => {
 
     // The patch file carries the managed dsh-mcp-client and dsh-tool-subagent rows.
     const patch = f.fs.snapshot()[PATCH] ?? ''
+    // stdio MCP rows run with the plugin root as cwd (Claude Code behavior
+    // that relative command paths rely on).
+    expect(patch).toContain("cwd: '/home/u/.dsh/cc-plugins/plugins/github_o_r_team-tools'")
     expect(patch).toContain("'@deepseek-ai/dsh-mcp-client'")
     expect(patch).toContain("serverName: 'linear'")
     expect(patch).toContain("args: ['-y', 'linear-mcp']")

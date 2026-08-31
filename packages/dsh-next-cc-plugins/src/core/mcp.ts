@@ -19,6 +19,8 @@ export interface RawMcpServer {
   rowId: string
   serverName: string
   def: McpTransport
+  /** Working directory for stdio servers (the plugin's install root). */
+  cwd?: string
 }
 
 export interface NormalizeMcpResult {
@@ -109,8 +111,11 @@ function yamlBlockScalar(text: string, indent: number): string {
   return `|-\n${lines.map((line) => (line === '' ? '' : pad + line)).join('\n')}`
 }
 
-/** Render the dsh-mcp-client config mapping for one server (2-space indent). */
-export function renderMcpConfig(serverName: string, def: McpTransport): string[] {
+/** Render the dsh-mcp-client config mapping for one server (2-space indent).
+ *  `cwd` (stdio only) mirrors Claude Code: plugin MCP servers run with the
+ *  plugin's install root as their working directory, so relative command
+ *  paths like `./cli/server.js` resolve. */
+export function renderMcpConfig(serverName: string, def: McpTransport, cwd?: string): string[] {
   const lines = [
     `        serverName: ${yamlScalar(serverName)}`,
     `        transport: ${yamlScalar(def.transport)}`,
@@ -119,6 +124,7 @@ export function renderMcpConfig(serverName: string, def: McpTransport): string[]
     lines.push(`        command: ${yamlScalar(def.command)}`)
     lines.push(`        args: ${yamlStringList(def.args)}`)
     if (Object.keys(def.env).length > 0) lines.push(`        env: ${yamlStringMap(def.env)}`)
+    if (cwd !== undefined && cwd !== '') lines.push(`        cwd: ${yamlScalar(cwd)}`)
   } else {
     lines.push(`        url: ${yamlScalar(def.url)}`)
     if (Object.keys(def.headers).length > 0) lines.push(`        headers: ${yamlStringMap(def.headers)}`)
@@ -136,7 +142,7 @@ export function renderMcpRow(row: RawMcpServer): string {
     `    - id: ${yamlScalar(row.rowId)}`,
     `      name: '@deepseek-ai/dsh-mcp-client'`,
     `      config:`,
-    ...renderMcpConfig(row.serverName, row.def),
+    ...renderMcpConfig(row.serverName, row.def, row.cwd),
   ].join('\n')
 }
 

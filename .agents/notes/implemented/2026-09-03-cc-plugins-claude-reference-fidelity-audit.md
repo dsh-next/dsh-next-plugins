@@ -1,6 +1,6 @@
 # cc-plugins: fidelity audit against the current Claude Code plugin reference
 
-- date: 2026-09-03
+- date: 2026-09-01
 - status: implemented
 - scope: packages/dsh-next-cc-plugins
 

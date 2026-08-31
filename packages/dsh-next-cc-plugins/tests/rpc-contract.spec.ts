@@ -72,7 +72,7 @@ describe('cc-plugins state() RPC contract', () => {
     const record = state.installed[0]
     expect(Object.keys(record).sort()).toEqual([
       'agents', 'installedAt', 'key', 'marketplaceId', 'marketplaceSpec', 'mcpServers', 'pending',
-      'pluginName', 'targets', 'updatedAt', 'version',
+      'pluginName', 'snapshotDigest', 'targets', 'updatedAt', 'version',
     ])
     expect(record.pending).toEqual({ commands: [], hookEvents: [] })
   })

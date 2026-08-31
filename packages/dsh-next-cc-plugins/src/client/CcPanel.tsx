@@ -4,12 +4,16 @@
  *
  *  - Plugins: every plugin across all marketplaces in a two-column card grid
  *    with a provider (marketplace) filter, a search box, and an
- *    installed-only toggle. Each card opens the Add/Manage modal: pick any
+ *    installed-only toggle. Installed cards carry their installed version and
+ *    an Update button whenever the (auto-refreshed) marketplace snapshot
+ *    offers a newer one. Each card opens the Add/Manage modal: pick any
  *    combination of the global root and workspaces as install targets
  *    (targets already holding the plugin are locked with an "added" badge
  *    and offer their own uninstall), plus Update everywhere.
  *  - Marketplaces: source management (add by owner/repo shorthand, GitHub
- *    URL, or local path; refresh; remove).
+ *    URL, or local path; refresh; remove) with per-source last-synced age.
+ *    Snapshots older than 24 hours re-sync automatically when the panel
+ *    opens (Host `getState`), so versions stay current without a timer.
  *
  * Skills land per selected target; MCP servers, agent rows, commands, and
  * hooks are plugin-level and activate once regardless of target count — the
@@ -70,6 +74,22 @@ export function presenceLabel(record: InstalledPlugin, workspaces: ReadonlyArray
     parts.push(...titles)
   }
   return parts.length > 0 ? `in ${parts.join(' + ')}` : 'installed'
+}
+
+/** Relative age of a marketplace's last sync, e.g. "3h ago" or "never". */
+export function formatLastSync(iso: string, now: number = Date.now()): string {
+  if (iso === '') return 'never'
+  const at = Date.parse(iso)
+  if (Number.isNaN(at)) return 'unknown'
+  const diff = now - at
+  if (diff < 60_000) return 'just now'
+  const minutes = Math.floor(diff / 60_000)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days}d ago`
+  return iso.slice(0, 10)
 }
 
 export function CcPanel(deps: CcPanelDeps): React.ReactElement {
@@ -204,7 +224,9 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
           data-testid="cc-modal"
           onClick={(e: React.MouseEvent) => e.stopPropagation()}
         >
-          <p className={styles.modalTitle}>{`${modal.plugin.name}${record !== undefined && record.version !== '' ? ` ${record.version}` : ''}`}</p>
+          <p className={styles.modalTitle}>
+            {`${modal.plugin.name}${record !== undefined && record.version !== '' ? ` (installed ${record.version})` : ''}${modal.plugin.updateAvailable === true && modal.plugin.version !== '' ? ` — ${modal.plugin.version} available` : ''}`}
+          </p>
           <p className={styles.modalHint}>
             Choose where to add it. Skills install per target; MCP servers, agents, commands, and hooks activate globally once.
             Targets already holding the plugin are marked and locked.
@@ -358,19 +380,38 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
                     </div>
                   </div>
                   {record !== undefined && (
-                    <span className={styles.presenceBadge}>{presenceLabel(record, workspaces)}</span>
+                    <div className={styles.badges}>
+                      <span className={styles.presenceBadge}>{presenceLabel(record, workspaces)}</span>
+                      {plugin.installedVersion !== undefined && (
+                        <span className={styles.installedChip} data-testid="cc-installed-version">
+                          {`installed ${plugin.installedVersion}`}
+                        </span>
+                      )}
+                    </div>
                   )}
                 </div>
                 <div className={styles.pluginCardTop}>
                   <span className={styles.marketplaceChip}>{marketplace.name}</span>
-                  <button
-                    type="button"
-                    className={record !== undefined ? styles.ghost : styles.primary}
-                    disabled={busy || plugin.sourceUnsupported !== undefined}
-                    title={key}
-                    onClick={() => openModal(marketplace.id, plugin)}
-                    data-testid="cc-add"
-                  >{record !== undefined ? 'Manage' : 'Add'}</button>
+                  <div className={styles.rowActions}>
+                    {plugin.updateAvailable === true && record !== undefined && (
+                      <button
+                        type="button"
+                        className={styles.ghost}
+                        disabled={busy}
+                        title={`update ${key} to ${plugin.version !== '' ? plugin.version : 'latest'}`}
+                        onClick={() => { void mutate('updatePlugin', { key }) }}
+                        data-testid="cc-update"
+                      >Update</button>
+                    )}
+                    <button
+                      type="button"
+                      className={record !== undefined ? styles.ghost : styles.primary}
+                      disabled={busy || plugin.sourceUnsupported !== undefined}
+                      title={key}
+                      onClick={() => openModal(marketplace.id, plugin)}
+                      data-testid="cc-add"
+                    >{record !== undefined ? 'Manage' : 'Add'}</button>
+                  </div>
                 </div>
               </div>
             )
@@ -395,6 +436,10 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
         </div>
       )}
 
+      {tab === 'marketplaces' && (
+        <div className={styles.hint}>Snapshots older than 24 hours refresh automatically when this panel opens; Refresh all forces it now. Update buttons appear when a marketplace carries a newer version than the installed one.</div>
+      )}
+
       {tab === 'marketplaces' && (marketplaces.length === 0 ? (
         <div className={styles.empty} data-testid="cc-empty">No marketplaces added yet. Add one with an owner/repo GitHub shorthand, a GitHub URL, or a local path.</div>
       ) : marketplaces.map((m) => (
@@ -407,6 +452,7 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
                 {m.description !== '' ? ` — ${m.description}` : ''}
                 {m.owner !== '' ? ` by ${m.owner}` : ''}
                 {` · ${m.plugins.length} plugin${m.plugins.length === 1 ? '' : 's'}`}
+                {` · last synced ${formatLastSync(m.lastSync)}`}
               </div>
               {m.error !== undefined && <div className={styles.errText}>{m.error}</div>}
             </div>

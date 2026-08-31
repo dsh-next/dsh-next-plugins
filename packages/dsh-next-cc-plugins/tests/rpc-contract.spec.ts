@@ -22,8 +22,7 @@ const MARKET: Record<string, string> = {
   'plugins/team-tools/.mcp.json': JSON.stringify({ mcpServers: { linear: { command: 'npx' } } }),
 }
 
-function makeService(): CcMarketplaceService {
-  const gh = createGhDouble({ 'o/r': MARKET })
+function makeService(gh: ReturnType<typeof createGhDouble> = createGhDouble({ 'o/r': MARKET })): CcMarketplaceService {
   return new CcMarketplaceService({
     fs: createMemFs(),
     fetch: gh.fetch as FetchLike,
@@ -79,6 +78,32 @@ describe('cc-plugins state() RPC contract', () => {
     expect(Object.keys(m).sort()).toEqual(['description', 'id', 'lastSync', 'name', 'owner', 'plugins', 'spec'])
     expect(m.error).toBeUndefined()
     expect(m.plugins[0]).toMatchObject({ name: 'team-tools', installed: false })
+    // Version fields appear only for installed plugins.
+    expect(m.plugins[0].installedVersion).toBeUndefined()
+    expect(m.plugins[0].updateAvailable).toBeUndefined()
+  })
+
+  it('plugin views carry installedVersion and updateAvailable for stale installs', async () => {
+    const gh = createGhDouble({ 'o/r': MARKET })
+    const service = makeService(gh)
+    await service.addMarketplace('o/r')
+    await service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })
+
+    const same = (await service.state()).marketplaces[0].plugins[0]
+    expect(same.installedVersion).toBe('1.0.0')
+    expect(same.updateAvailable).toBeUndefined()
+
+    gh.setRepo('o', 'r', {
+      ...MARKET,
+      '.claude-plugin/marketplace.json': JSON.stringify({
+        name: 'acme-tools',
+        plugins: [{ name: 'team-tools', description: 'Tools', version: '1.1.0', source: './plugins/team-tools' }],
+      }),
+    })
+    await service.refreshMarketplaces()
+    const ahead = (await service.state()).marketplaces[0].plugins[0]
+    expect(ahead.installedVersion).toBe('1.0.0')
+    expect(ahead.updateAvailable).toBe(true)
   })
 
   it('getPluginDetail answers the detail envelope', async () => {

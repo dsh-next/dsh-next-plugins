@@ -27,6 +27,7 @@ import { parseFrontmatter } from '../core/frontmatter.ts'
 import { applyManagedBlockText, normalizeMcpServers, renderManagedBlock, resolveServerName, type ManagedRow, type RawAgentRow, type RawMcpServer } from '../core/mcp.ts'
 import { parseMarketplaceSpec } from '../core/source.ts'
 import { targetId, type TargetRequest } from '../core/targets.ts'
+import { hasNewerVersion, isSnapshotStale } from '../core/versions.ts'
 import { isSkillName, sanitizeIdentifier } from '../core/name.ts'
 import { dirnamePath, isSafeRelativePath, joinPath } from '../core/path.ts'
 import { pluginInventory, pluginLevelReferenceNotes, readManifestPaths, skillFiles, type PluginFiles } from '../core/plugin-inventory.ts'
@@ -125,12 +126,38 @@ export class CcMarketplaceService {
   // Views
   // -------------------------------------------------------------------------
 
+  /**
+   * The panel's load entry (`getState` RPC): marketplace snapshots older than
+   * the refresh TTL re-sync first (best effort, in parallel — a failed
+   * refresh keeps the cached data and the manual Refresh all button reports
+   * errors), then the pure state view answers. This is what makes catalog
+   * versions and the update badge trustworthy without a background timer.
+   */
+  async getState(): Promise<CcState> {
+    await this.refreshStaleMarketplaces()
+    return this.state()
+  }
+
+  /** Re-sync every marketplace whose cached snapshot is older than the TTL. */
+  private async refreshStaleMarketplaces(): Promise<void> {
+    const marketplaces = await this.store.listMarketplaces()
+    await Promise.all(marketplaces.map(async (m) => {
+      const snapshot = await this.store.readSnapshot(m.id)
+      if (snapshot !== undefined && !isSnapshotStale(snapshot.fetchedAt)) return
+      const parsed = parseMarketplaceSpec(m.spec)
+      if ('error' in parsed) return
+      // Errors are swallowed on purpose: cached data still answers the panel.
+      await this.store.sync(parsed.source, m.id)
+    }))
+  }
+
   async state(): Promise<CcState> {
     const [marketplaces, installed] = await Promise.all([
       this.store.listMarketplaces(),
       this.store.readInstalled(),
     ])
     const rows: MarketplaceViewRow[] = []
+    const byKey = new Map(installed.plugins.map((p) => [p.key, p]))
     for (const m of [...marketplaces].sort((a, b) => a.spec.localeCompare(b.spec))) {
       const snapshot = await this.store.readSnapshot(m.id)
       if (snapshot === undefined) {
@@ -146,8 +173,8 @@ export class CcMarketplaceService {
         })
         continue
       }
-      const installedKeys = new Set(installed.plugins.map((p) => p.key))
       const plugins: MarketplacePluginView[] = snapshot.index.plugins.map((plugin) => {
+        const record = byKey.get(`${m.id}/${plugin.name}`)
         const view: MarketplacePluginView = {
           name: plugin.name,
           description: plugin.description,
@@ -156,7 +183,9 @@ export class CcMarketplaceService {
           author: plugin.author,
           homepage: plugin.homepage,
           tags: plugin.tags,
-          installed: installedKeys.has(`${m.id}/${plugin.name}`),
+          installed: record !== undefined,
+          ...(record !== undefined && record.version !== '' ? { installedVersion: record.version } : {}),
+          ...(record !== undefined && hasNewerVersion(record.version, plugin.version) ? { updateAvailable: true } : {}),
         }
         if (plugin.source.kind === 'unsupported') {
           view.sourceUnsupported = plugin.source.reason

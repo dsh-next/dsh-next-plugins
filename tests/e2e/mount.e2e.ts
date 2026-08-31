@@ -204,6 +204,7 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await expect(page.getByTestId('cc-installed-only').first()).toBeVisible()
     await page.getByText('Marketplaces', { exact: true }).first().click({ force: true })
     await expect(page.locator('input[placeholder*="owner/repo"]').first()).toBeVisible()
+    await expect(page.getByText('refresh automatically', { exact: false }).first()).toBeVisible()
     const settings = page.getByRole('dialog', { name: 'Settings' })
     await settings.getByRole('button', { name: 'Close' }).click({ force: true })
     await page.waitForTimeout(300)

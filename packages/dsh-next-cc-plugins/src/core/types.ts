@@ -256,6 +256,10 @@ export interface MarketplacePluginView {
   /** Set when the source form is not installable by this bridge version. */
   sourceUnsupported?: string
   installed: boolean
+  /** The installed record's version, set when this plugin is installed. */
+  installedVersion?: string
+  /** Set when the snapshot's catalog version is newer than the installed one. */
+  updateAvailable?: true
 }
 
 /** Full browser-facing state envelope. */

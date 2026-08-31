@@ -44,7 +44,7 @@ export function registerRpc(ctx: Context, service: CcMarketplaceService): void {
   if (!webServer || typeof webServer.register !== 'function') return
 
   const handlers: Record<string, Handler> = {
-    getState: () => service.state(),
+    getState: () => service.getState(),
     addMarketplace: (args) => service.addMarketplace(str(record(args).spec)),
     removeMarketplace: (args) => service.removeMarketplace(str(record(args).marketplaceId)),
     refreshMarketplaces: () => service.refreshMarketplaces(),

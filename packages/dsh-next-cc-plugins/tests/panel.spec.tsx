@@ -9,8 +9,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as React from 'react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import type { CcState, InstalledPlugin, MutationResult, WorkspaceRow } from '../src/core/types.ts'
-import { CcPanel } from '../src/client/CcPanel.tsx'
+import type { CcState, InstalledPlugin, MarketplacePluginView, MutationResult, WorkspaceRow } from '../src/core/types.ts'
+import { CcPanel, formatLastSync } from '../src/client/CcPanel.tsx'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -99,6 +99,25 @@ function installedRecord(overrides: Partial<InstalledPlugin> = {}): InstalledPlu
 }
 
 type RpcFn = (method: string, args?: unknown) => Promise<unknown>
+
+/** STATE with team-tools installed at 1.0.0; the plugin view mirrors the
+ *  Host flags for `catalogVersion` (`newer` sets updateAvailable). */
+function stateWithInstall(catalogVersion: string, newer: boolean): CcState {
+  const base = STATE.marketplaces[0]
+  const team = base.plugins[0]
+  const installedView: MarketplacePluginView = {
+    ...team,
+    version: catalogVersion,
+    installed: true,
+    installedVersion: '1.0.0',
+    ...(newer ? { updateAvailable: true } : {}),
+  }
+  return {
+    ...STATE,
+    installed: [installedRecord()],
+    marketplaces: [{ ...base, plugins: [installedView, ...base.plugins.slice(1)] }, STATE.marketplaces[1]],
+  }
+}
 
 function rpcMock(state: CcState = STATE): RpcFn & ReturnType<typeof vi.fn> {
   return vi.fn<RpcFn>(async (method: string) => {
@@ -221,10 +240,30 @@ describe('CcPanel', () => {
     await act(async () => { button('Marketplaces').click() })
     expect(document.querySelector('[data-testid="cc-marketplace"]')).not.toBeNull()
     expect(document.body.textContent).toContain('2 plugins')
+    expect(document.body.textContent).toContain('last synced')
+    expect(document.body.textContent).toContain('refresh automatically')
     const input = document.querySelector('[data-testid="cc-add-input"]') as HTMLInputElement
     await act(async () => { setValue(input, 'anthropics/claude-code') })
     await act(async () => { button('Add marketplace').click() })
     expect(rpc).toHaveBeenCalledWith('addMarketplace', { spec: 'anthropics/claude-code' })
+  })
+
+  it('shows the installed version and a card Update button when the catalog is newer', async () => {
+    const rpc = rpcMock(stateWithInstall('1.1.0', true))
+    await renderAsync({ rpc })
+    const card = pluginCards()[0]
+    expect(card.textContent).toContain('installed 1.0.0')
+    const update = card.querySelector('[data-testid="cc-update"]') as HTMLButtonElement
+    expect(update).not.toBeNull()
+    await act(async () => { update.click() })
+    expect(rpc).toHaveBeenCalledWith('updatePlugin', { key: 'github:o/r/team-tools' })
+  })
+
+  it('hides the card Update button while the installed version is current', async () => {
+    await renderAsync({ rpc: rpcMock(stateWithInstall('1.0.0', false)) })
+    const card = pluginCards()[0]
+    expect(card.textContent).toContain('installed 1.0.0')
+    expect(card.querySelector('[data-testid="cc-update"]')).toBeNull()
   })
 
   it('Add modal installs to multiple selected targets', async () => {
@@ -293,5 +332,22 @@ describe('CcPanel', () => {
     await act(async () => { button('Marketplaces').click() })
     await act(async () => { button('Refresh all').click() })
     expect(document.querySelector('[data-testid="cc-message"]')?.textContent).toContain('boom')
+  })
+})
+
+describe('formatLastSync', () => {
+  const NOW = Date.parse('2026-09-02T12:00:00.000Z')
+
+  it('labels missing and invalid stamps', () => {
+    expect(formatLastSync('', NOW)).toBe('never')
+    expect(formatLastSync('not-a-date', NOW)).toBe('unknown')
+  })
+
+  it('uses relative bands and falls back to the date beyond a week', () => {
+    expect(formatLastSync(new Date(NOW - 30_000).toISOString(), NOW)).toBe('just now')
+    expect(formatLastSync(new Date(NOW - 5 * 60_000).toISOString(), NOW)).toBe('5m ago')
+    expect(formatLastSync(new Date(NOW - 3 * 3_600_000).toISOString(), NOW)).toBe('3h ago')
+    expect(formatLastSync(new Date(NOW - 2 * 86_400_000).toISOString(), NOW)).toBe('2d ago')
+    expect(formatLastSync(new Date(NOW - 30 * 86_400_000).toISOString(), NOW)).toBe('2026-08-03')
   })
 })

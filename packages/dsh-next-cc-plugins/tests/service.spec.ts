@@ -175,6 +175,57 @@ describe('CcMarketplaceService marketplaces', () => {
     if (!failed.ok) expect(failed.error).toContain('HTTP 500')
   })
 
+  it('getState re-syncs stale snapshots but leaves fresh ones alone', async () => {
+    await f.service.addMarketplace('o/r')
+    const afterAdd = f.gh.calls.length
+    // Fresh snapshot: the panel load answers from the cache.
+    await f.service.getState()
+    expect(f.gh.calls).toHaveLength(afterAdd)
+
+    // Age the cached snapshot past the TTL: the next panel load re-syncs.
+    const snapPath = '/home/u/.dsh/cc-plugins/cache/github_o_r/snapshot.json'
+    const snap = JSON.parse(await f.fs.readFile(snapPath)) as { fetchedAt: string }
+    await f.fs.writeFile(snapPath, JSON.stringify({ ...snap, fetchedAt: '2020-01-01T00:00:00.000Z' }))
+    const state = await f.service.getState()
+    expect(f.gh.calls.length).toBeGreaterThan(afterAdd)
+    expect(state.marketplaces[0].lastSync).not.toBe('2020-01-01T00:00:00.000Z')
+  })
+
+  it('getState keeps cached data when a stale refresh fails', async () => {
+    await f.service.addMarketplace('o/r')
+    const snapPath = '/home/u/.dsh/cc-plugins/cache/github_o_r/snapshot.json'
+    const snap = JSON.parse(await f.fs.readFile(snapPath)) as { fetchedAt: string }
+    await f.fs.writeFile(snapPath, JSON.stringify({ ...snap, fetchedAt: '2020-01-01T00:00:00.000Z' }))
+    f.gh.failRepo('o', 'r', 500)
+    // The panel load still answers with the cached catalog and old stamp.
+    const state = await f.service.getState()
+    expect(state.marketplaces).toHaveLength(1)
+    expect(state.marketplaces[0].plugins.map((p) => p.name)).toContain('team-tools')
+    expect(state.marketplaces[0].error).toBeUndefined()
+  })
+
+  it('marks installedVersion and updateAvailable when the catalog moves ahead', async () => {
+    await f.service.addMarketplace('o/r')
+    await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })
+
+    const current = (await f.service.state()).marketplaces[0].plugins[0]
+    expect(current.installed).toBe(true)
+    expect(current.installedVersion).toBe('1.0.0')
+    expect(current.updateAvailable).toBeUndefined()
+
+    f.gh.setRepo('o', 'r', TEAM_TOOLS_V2) // catalog moves to 2.0.0
+    await f.service.refreshMarketplaces()
+    const ahead = (await f.service.state()).marketplaces[0].plugins[0]
+    expect(ahead.version).toBe('2.0.0')
+    expect(ahead.installedVersion).toBe('1.0.0')
+    expect(ahead.updateAvailable).toBe(true)
+
+    await f.service.updatePlugin('github:o/r/team-tools')
+    const updated = (await f.service.state()).marketplaces[0].plugins[0]
+    expect(updated.installedVersion).toBe('2.0.0')
+    expect(updated.updateAvailable).toBeUndefined()
+  })
+
   it('removes an empty marketplace and refuses one with installed plugins', async () => {
     await f.service.addMarketplace('o/r')
     await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })

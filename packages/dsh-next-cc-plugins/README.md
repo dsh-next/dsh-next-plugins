@@ -12,10 +12,16 @@ with a built-in runtime for the components DSH activates in-process.
   HTTPS/SSH URLs) or local directories holding a
   `.claude-plugin/marketplace.json` index (`.grok-plugin/marketplace.json`
   is honored as a Grok Build interop fallback). Browse each marketplace's
-  plugins with their component inventories, refresh, and remove.
+  plugins with their component inventories, refresh, and remove. Snapshots
+  older than 24 hours re-sync automatically whenever the panel opens
+  (best-effort: a failed refresh keeps the cached catalog), each source shows
+  its last-synced age, and Refresh all forces a re-sync now.
 - **Browse and install plugins** — the Plugins tab lists every plugin across
   all marketplaces in a two-column card grid with search, a marketplace
-  filter, and an installed-only toggle. Each card's Add (or Manage) button
+  filter, and an installed-only toggle. Installed cards show their installed
+  version and, whenever the marketplace carries a newer one, an Update
+  button (update also re-syncs that marketplace first, so it always pulls
+  the true latest). Each card's Add (or Manage) button
   opens a target picker: any combination of the global skills root and your
   workspaces, in one install. Targets already holding the plugin are locked
   with their own uninstall; Update refreshes every target. Skills land per
@@ -125,9 +131,11 @@ Agent frontmatter translation notes:
 ## Settings UI
 
 The browser half registers a top-level Settings section ("Claude Plugins")
-with two tabs: **Marketplaces** (add/refresh/remove sources, per-plugin
-install with a global/workspace scope picker) and **Installed** (records
-with update and two-step-confirm uninstall).
+with two tabs: **Plugins** (every marketplace's plugins in a card grid with
+search, marketplace filter, and installed-only toggle; installed version and
+Update button per card; Add/Manage opens the multi-target picker modal) and
+**Marketplaces** (add/refresh/remove sources with per-source last-synced
+age; snapshots older than 24 hours re-sync when the panel opens).
 
 ## Install
 

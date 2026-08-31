@@ -221,7 +221,10 @@ export function applyManagedBlockText(text: string, blockText: string): string {
     // Drop the block plus the blank line that separated it from prior content.
     const before = text.slice(0, text.indexOf(existing)).replace(/\n\n$/, '\n')
     const after = text.slice(text.indexOf(existing) + existing.length).replace(/^\n/, '')
-    return `${before}${after}`
+    const next = `${before}${after}`
+    // The loader requires a top-level YAML array: a file the removal emptied
+    // must become the canonical empty array, never an empty document.
+    return next.trim() === '' ? '[]\n' : next
   }
   return text.replace(existing, blockText)
 }

@@ -127,6 +127,13 @@ describe('applyManagedBlock', () => {
     expect(cleared).toContain('foreign: 1')
   })
 
+  it('leaves the canonical empty array when the removal empties the file', () => {
+    // Uninstalling the last plugin must never leave an empty document: the
+    // loader requires a top-level array and refuses to boot otherwise.
+    const blockOnly = applyManagedBlock('', [{ rowId: 'r', serverName: 's', def: STDIO }])
+    expect(applyManagedBlock(blockOnly, [])).toBe('[]\n')
+  })
+
   it('leaves a file without a block untouched when rows are empty', () => {
     expect(applyManagedBlock('x: 1\n', [])).toBe('x: 1\n')
   })

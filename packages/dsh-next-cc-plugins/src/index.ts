@@ -93,20 +93,6 @@ export function apply(ctx: Context, config: PluginConfig = {}): void {
     logger: { warn: (message) => ctx.logger.warn(message) },
   })
 
-  // The shareable settings mirror: absent settings service (minimal boots)
-  // just disables mirroring; the panel and mutations work unchanged.
-  const settingsProvider = ctx.get('settings')
-  let settingsMirror: SettingsMirror | undefined
-  let watchSettings: ((onChange: () => void) => () => void) | undefined
-  if (settingsProvider !== undefined && typeof settingsProvider.register === 'function') {
-    const scope = settingsProvider.register(settingsNamespace('cc-plugins'), MirrorSettingsSchema)
-    settingsMirror = {
-      read: () => scope.get(),
-      write: async (section) => { await scope.replace(section as unknown as Record<string, unknown>) },
-    }
-    watchSettings = (onChange) => scope.watch(() => onChange())
-  }
-
   const service = new CcMarketplaceService({
     fs: nodeFs(),
     fetch: (url, init) => fetch(url, init),
@@ -116,7 +102,6 @@ export function apply(ctx: Context, config: PluginConfig = {}): void {
     store,
     agentsEnabled: config.runtime?.agents !== false,
     agentModelMap: config.runtime?.agentModelMap,
-    settings: settingsMirror,
     logger: {
       warn: (message) => { ctx.logger.warn(message) },
       info: (message) => { ctx.logger.info(message) },
@@ -142,10 +127,24 @@ export function apply(ctx: Context, config: PluginConfig = {}): void {
   registerRpc(ctx, service)
   runtime.attach(ctx)
 
-  // Adopt what a shared settings document carries (boot + hot-published
-  // external edits); self-writes re-enter as no-op reconciles.
-  if (settingsMirror !== undefined && watchSettings !== undefined) {
-    ctx.effect(() => watchSettings(() => { void service.reconcileFromMirror() }))
+  // The shareable settings mirror. The settings service usually activates
+  // after this plugin, so the wiring lives on a scoped inject fiber: it
+  // starts once settings is available, re-runs if the service bounces, and
+  // disposes (clearing the mirror) with it. Compositions without the
+  // service simply run unmirrored.
+  ctx.inject(['settings'], (sctx) => {
+    const provider = sctx.settings
+    if (typeof provider.register !== 'function') return
+    const scope = provider.register(settingsNamespace('cc-plugins'), MirrorSettingsSchema)
+    const mirror: SettingsMirror = {
+      read: () => scope.get(),
+      write: async (section) => { await scope.replace(section as unknown as Record<string, unknown>) },
+    }
+    service.setSettingsMirror(mirror)
+    sctx.effect(() => () => { service.setSettingsMirror(undefined) })
+    // Adopt what a shared settings document carries (boot + hot-published
+    // external edits); self-writes re-enter as no-op reconciles.
+    sctx.effect(() => scope.watch(() => { void service.reconcileFromMirror() }))
     void service.reconcileFromMirror()
-  }
+  })
 }

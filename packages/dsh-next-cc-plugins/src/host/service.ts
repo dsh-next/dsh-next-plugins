@@ -111,11 +111,19 @@ export function agentRowId(pluginKey: string, claudeAgentName: string): string {
 
 export class CcMarketplaceService {
   private readonly store: Store
+  /** The settings-document mirror; wireable late (the settings fiber may start after this service). */
+  private settings: SettingsMirror | undefined
   /** Serialized reconcile runs (boot + external settings edits). */
   private reconcileInFlight: Promise<ReconcileReport> | undefined
 
   constructor(private readonly opts: ServiceOptions) {
     this.store = opts.store ?? new Store({ fs: opts.fs, fetch: opts.fetch, root: joinPath(opts.dshHome, 'cc-plugins'), home: opts.home })
+    this.settings = opts.settings
+  }
+
+  /** Wire (or clear) the settings mirror — the host entry's settings fiber calls this. */
+  setSettingsMirror(settings: SettingsMirror | undefined): void {
+    this.settings = settings
   }
 
   /** The store shared with the runtime bridge. */
@@ -746,14 +754,14 @@ export class CcMarketplaceService {
 
   /** Write the whole setup into the settings document; best effort. */
   private async mirrorCurrentState(): Promise<void> {
-    if (this.opts.settings === undefined) return
+    if (this.settings === undefined) return
     try {
       const [marketplaces, installed, models] = await Promise.all([
         this.store.listMarketplaces(),
         this.store.readInstalled(),
         this.store.readModelMap(),
       ])
-      await this.opts.settings.write(renderMirror({ marketplaces, installed: installed.plugins, models }))
+      await this.settings.write(renderMirror({ marketplaces, installed: installed.plugins, models }))
     } catch (error) {
       this.opts.logger?.warn?.(`dsh-next-cc-plugins settings mirror write failed: ${error instanceof Error ? error.message : String(error)}`)
     }
@@ -779,10 +787,10 @@ export class CcMarketplaceService {
 
   private async runReconcile(): Promise<ReconcileReport> {
     const report: ReconcileReport = { marketplacesAdded: [], installed: [], skipped: [] }
-    if (this.opts.settings === undefined) return report
+    if (this.settings === undefined) return report
     let section
     try {
-      section = parseMirror(this.opts.settings.read())
+      section = parseMirror(this.settings.read())
     } catch (error) {
       this.opts.logger?.warn?.(`dsh-next-cc-plugins settings mirror read failed: ${error instanceof Error ? error.message : String(error)}`)
       return report

@@ -51,44 +51,60 @@ export function dshCommandName(pluginName: string, claudeName: string): string {
 }
 
 /**
- * Extract command definitions from a plugin's file map. Nested command files
- * (Claude's `commands/group/name.md` qualified form) are skipped with a note:
- * DSH has no namespaced command grammar.
+ * Extract command definitions from a plugin's file map. `roots` is the
+ * commands root (default `commands`) or the manifest override list — each
+ * entry may be a directory (scanned) or a single .md file. Nested command
+ * files (Claude's `commands/group/name.md` qualified form) are skipped with
+ * a note: DSH has no namespaced command grammar.
  */
 export function commandsFromFiles(
   files: PluginFiles,
   pluginName: string,
-  commandsDir = 'commands',
+  roots: string | readonly string[] = 'commands',
 ): { commands: CcCommand[]; notes: string[] } {
-  const prefix = `${commandsDir.replace(/\/+$/, '')}/`
+  const rootList = typeof roots === 'string' ? [roots] : roots
   const out: CcCommand[] = []
   const notes: string[] = []
-  for (const [path, content] of Object.entries(files)) {
-    if (!path.startsWith(prefix)) continue
-    const rel = path.slice(prefix.length)
-    if (!rel.endsWith('.md')) continue
-    if (rel.includes('/')) {
-      notes.push(`nested command "${rel}" skipped (no DSH namespaced command grammar)`)
+  for (const rootRaw of rootList) {
+    const root = rootRaw.replace(/\/+$/, '').replace(/^\.\/+/, '')
+    // A root that names an existing file is a single command definition.
+    if (files[root] !== undefined) {
+      if (!root.endsWith('.md')) continue
+      const rel = root.split('/').pop() ?? root
+      const claudeName = rel.slice(0, -3)
+      if (claudeName === '') continue
+      appendCommand(files, root, claudeName, pluginName, out)
       continue
     }
-    const claudeName = rel.slice(0, -3)
-    if (claudeName === '') continue
-    const name = dshCommandName(pluginName, claudeName)
-    if (name === '') {
-      notes.push(`command "${claudeName}" has no derivable DSH name; skipped`)
-      continue
+    const prefix = `${root}/`
+    for (const path of Object.keys(files)) {
+      if (!path.startsWith(prefix)) continue
+      const rel = path.slice(prefix.length)
+      if (!rel.endsWith('.md')) continue
+      if (rel.includes('/')) {
+        notes.push(`nested command "${rel}" skipped (no DSH namespaced command grammar)`)
+        continue
+      }
+      const claudeName = rel.slice(0, -3)
+      if (claudeName === '') continue
+      appendCommand(files, path, claudeName, pluginName, out)
     }
-    const parsed = parseFrontmatter(content)
-    out.push({
-      name,
-      claudeName,
-      description: parsed?.description !== undefined && parsed.description !== '' ? parsed.description : `Claude command ${claudeName}`,
-      hint: parsed?.scalars['argument-hint'] ?? '',
-      template: parsed?.body ?? content,
-    })
   }
   out.sort((a, b) => a.name.localeCompare(b.name))
   return { commands: out, notes }
+}
+
+function appendCommand(files: PluginFiles, path: string, claudeName: string, pluginName: string, out: CcCommand[]): void {
+  const name = dshCommandName(pluginName, claudeName)
+  if (name === '') return
+  const parsed = parseFrontmatter(files[path] ?? '')
+  out.push({
+    name,
+    claudeName,
+    description: parsed?.description !== undefined && parsed.description !== '' ? parsed.description : `Claude command ${claudeName}`,
+    hint: parsed?.scalars['argument-hint'] ?? '',
+    template: parsed?.body ?? files[path] ?? '',
+  })
 }
 
 /**

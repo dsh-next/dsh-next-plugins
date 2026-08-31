@@ -32,6 +32,7 @@ import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-subagent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { commandsFromFiles, expandTemplate } from '../core/commands.ts'
+import { hooksDocument, readManifestPaths, DEFAULT_COMPONENT_PATHS } from '../core/plugin-inventory.ts'
 import {
   hookMatches,
   hookPayload,
@@ -196,9 +197,12 @@ export class CcRuntime {
         for (const record of plugins.plugins) {
           const files = await this.deps.store.readCachedPluginFiles(record.marketplaceId, record.pluginName)
           if (files === undefined) continue
-          const hooksRaw = files['hooks/hooks.json'] ?? files[hooksOverrideOf(files)] ?? ''
-          this.loaded.push({ record, files, hooks: parseHookSet(hooksRaw) })
-          const { commands } = commandsFromFiles(files, record.pluginName)
+          this.loaded.push({ record, files, hooks: parseHookSet(hooksDocument(files)) })
+          const { commands } = commandsFromFiles(
+            files,
+            record.pluginName,
+            readManifestPaths(files).commands ?? DEFAULT_COMPONENT_PATHS.commands,
+          )
           for (const command of commands) {
             try {
               const off = ctx.commands.register({
@@ -404,15 +408,4 @@ function promptOf(messages: readonly UserMessage[]): string | undefined {
     if (text !== undefined && text.type === 'text' && text.text.trim() !== '') return text.text
   }
   return undefined
-}
-
-/** The plugin.json `hooks` path override when present. */
-function hooksOverrideOf(files: Record<string, string>): string {
-  try {
-    const manifest = JSON.parse(files['.claude-plugin/plugin.json'] ?? '{}') as Record<string, unknown>
-    const hooks = manifest.hooks
-    return typeof hooks === 'string' ? hooks : ''
-  } catch {
-    return ''
-  }
 }

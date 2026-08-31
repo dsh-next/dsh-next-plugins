@@ -5,7 +5,7 @@
  * `pluginLevelReferenceNotes`.
  */
 import { describe, expect, it } from 'vitest'
-import { pluginInventory, pluginLevelReferenceNotes, readManifestPaths, skillFiles } from '../src/core/plugin-inventory.ts'
+import { pluginInventory, pluginLevelReferenceNotes, hooksDocument, readManifestPaths, skillFiles } from '../src/core/plugin-inventory.ts'
 
 const SKILL = (name: string, description = 'does things'): string =>
   `---\nname: ${name}\ndescription: ${description}\n---\nbody\n`
@@ -28,8 +28,15 @@ describe('pluginInventory', () => {
     const inv = pluginInventory(fullPlugin())
     expect(inv.skills.map((s) => s.name)).toEqual(['deploy', 'review'])
     expect(inv.skills[0]).toEqual({ name: 'deploy', description: 'Deploys the app', path: 'skills/deploy' })
-    expect(inv.commands).toEqual([{ name: 'ship', description: 'Ship it', path: 'ship.md' }])
-    expect(inv.agents).toEqual([{ name: 'reviewer', description: 'Reviews PRs', path: 'reviewer.md', tools: 'Bash, Read', model: 'sonnet' }])
+    expect(inv.commands).toEqual([{ name: 'ship', description: 'Ship it', path: 'ship.md', file: 'commands/ship.md' }])
+    expect(inv.agents).toEqual([{
+      name: 'reviewer',
+      description: 'Reviews PRs',
+      path: 'reviewer.md',
+      file: 'agents/reviewer.md',
+      tools: 'Bash, Read',
+      model: 'sonnet',
+    }])
     expect(inv.hookEvents).toEqual(['PreToolUse', 'Stop'])
     expect(inv.mcpServers).toEqual([{
       name: 'linear',
@@ -45,7 +52,15 @@ describe('pluginInventory', () => {
 
   it('supports flat skills (skills/<name>.md at the root)', () => {
     const inv = pluginInventory({ 'skills/quick.md': SKILL('quick') })
-    expect(inv.skills).toEqual([{ name: 'quick', description: 'does things', path: '' }])
+    expect(inv.skills).toEqual([{ name: 'quick', description: 'does things', path: '', file: 'skills/quick.md' }])
+  })
+
+  it('resolves a flat skill whose frontmatter name differs from its file name', () => {
+    const files = { 'skills/quick.md': SKILL('lightning-fast') }
+    const inv = pluginInventory(files)
+    expect(inv.skills.map((s) => s.name)).toEqual(['lightning-fast'])
+    // The file is read from its real path, not reconstructed from the name.
+    expect(skillFiles(files, inv.skills[0])).toEqual({ 'SKILL.md': SKILL('lightning-fast') })
   })
 
   it('notes a hidden skill directory instead of failing', () => {
@@ -75,6 +90,60 @@ describe('pluginInventory', () => {
     expect(inv.agents.map((a) => a.name)).toEqual(['bot'])
     expect(inv.hookEvents).toEqual(['Stop'])
     expect(inv.mcpServers.map((s) => s.name)).toEqual(['s'])
+  })
+
+  it('accepts array overrides mixing directories and single files', () => {
+    const files = {
+      '.claude-plugin/plugin.json': JSON.stringify({
+        skills: ['./bundle/skills', './solo/one.md'],
+        commands: ['./bundle/commands', './one-off.md'],
+        agents: ['./extra/ruler.md'],
+        hooks: ['./h/security.json', './h/main.json'],
+        mcpServers: ['./mcp/primary.json', './mcp/extra.json'],
+      }),
+      'bundle/skills/deep/SKILL.md': SKILL('deep'),
+      'solo/one.md': SKILL('solo-one'),
+      'bundle/commands/go.md': '---\ndescription: Go\n---\n',
+      'one-off.md': '---\ndescription: Once\n---\n',
+      'extra/ruler.md': '---\ndescription: Rules\n---\n',
+      'h/security.json': JSON.stringify({ PreToolUse: [] }),
+      'h/main.json': JSON.stringify({ Stop: [], PreToolUse: [] }),
+      'mcp/primary.json': JSON.stringify({ mcpServers: { alpha: { command: 'a' } } }),
+      'mcp/extra.json': JSON.stringify({ mcpServers: { beta: { command: 'b' }, alpha: { command: 'dup' } } }),
+      'skills/ignored/SKILL.md': SKILL('ignored'),
+    }
+    const inv = pluginInventory(files)
+    expect(inv.skills.map((s) => s.name)).toEqual(['deep', 'solo-one'])
+    expect(inv.skills.find((s) => s.name === 'solo-one')).toEqual({
+      name: 'solo-one',
+      description: 'does things',
+      path: '',
+      file: 'solo/one.md',
+    })
+    expect(inv.commands.map((c) => c.name)).toEqual(['go', 'one-off'])
+    expect(inv.commands.find((c) => c.name === 'one-off')?.file).toBe('one-off.md')
+    expect(inv.agents.map((a) => a.name)).toEqual(['ruler'])
+    expect(inv.agents[0].file).toBe('extra/ruler.md')
+    // Hook files merge, deduplicated and sorted.
+    expect(inv.hookEvents).toEqual(['PreToolUse', 'Stop'])
+    expect(inv.mcpServers.map((s) => s.name)).toEqual(['alpha', 'beta'])
+    expect(inv.notes.join(' ')).toContain('declared in more than one file')
+  })
+
+  it('notes override files that do not exist and duplicate skill names across roots', () => {
+    const inv = pluginInventory({
+      '.claude-plugin/plugin.json': JSON.stringify({
+        skills: ['./a', './b'],
+        hooks: './missing/hooks.json',
+        mcpServers: './missing/.mcp.json',
+      }),
+      'a/dup/SKILL.md': SKILL('dup'),
+      'b/dup/SKILL.md': SKILL('dup'),
+    })
+    expect(inv.skills.map((s) => s.name)).toEqual(['dup'])
+    expect(inv.notes.join(' ')).toContain('listed more than once')
+    expect(inv.notes.join(' ')).toContain('hooks file "missing/hooks.json" listed in plugin.json was not found')
+    expect(inv.notes.join(' ')).toContain('MCP file "missing/.mcp.json" listed in plugin.json was not found')
   })
 
   it('ignores nested command markdown but keeps top-level commands', () => {
@@ -121,8 +190,13 @@ describe('readManifestPaths', () => {
     expect(readManifestPaths({ '.claude-plugin/plugin.json': '{oops' })).toEqual({})
   })
 
-  it('keeps only string path overrides', () => {
-    expect(readManifestPaths({ '.claude-plugin/plugin.json': JSON.stringify({ skills: 3, commands: './c' }) })).toEqual({ commands: './c' })
+  it('keeps only string path overrides, normalized to lists', () => {
+    expect(readManifestPaths({ '.claude-plugin/plugin.json': JSON.stringify({ skills: 3, commands: './c' }) })).toEqual({ commands: ['./c'] })
+    expect(readManifestPaths({
+      '.claude-plugin/plugin.json': JSON.stringify({ agents: ['./a.md', 7, ' ', './b'] }),
+    })).toEqual({ agents: ['./a.md', './b'] })
+    // An empty array or empty string clears the override.
+    expect(readManifestPaths({ '.claude-plugin/plugin.json': JSON.stringify({ hooks: [] }) })).toEqual({})
   })
 })
 
@@ -139,6 +213,26 @@ describe('skillFiles', () => {
     expect(skillFiles({ 'skills/quick.md': SKILL('quick') }, { name: 'quick', description: '', path: '' })).toEqual({
       'SKILL.md': SKILL('quick'),
     })
+  })
+
+  it('reads a single-file skill from its recorded file path', () => {
+    expect(skillFiles({ 'solo/one.md': SKILL('solo-one') }, { name: 'solo-one', description: '', path: '', file: 'solo/one.md' }))
+      .toEqual({ 'SKILL.md': SKILL('solo-one') })
+  })
+})
+
+describe('hooksDocument', () => {
+  it('returns the default hooks file when no override exists', () => {
+    expect(hooksDocument({ 'hooks/hooks.json': '{"Stop":[]}' })).toBe('{"Stop":[]}')
+    expect(hooksDocument({})).toBe('')
+  })
+
+  it('returns the first existing manifest-named hooks file', () => {
+    const files = {
+      '.claude-plugin/plugin.json': JSON.stringify({ hooks: ['./h/security.json', './h/main.json'] }),
+      'h/main.json': '{"Stop":[]}',
+    }
+    expect(hooksDocument(files)).toBe('{"Stop":[]}')
   })
 })
 

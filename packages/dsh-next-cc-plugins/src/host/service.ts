@@ -1027,12 +1027,10 @@ export class CcMarketplaceService {
   ): { rows: InstalledAgentRow[]; notes: string[] } {
     const notes: string[] = []
     if (inventory.agents.length === 0) return { rows: [], notes }
-    const paths = readManifestPaths(files)
-    const agentsDir = (paths.agents ?? 'agents').replace(/^\.\/+/, '').replace(/\/+$/, '')
     const taken = new Set(others.flatMap((p) => p.agents.map((a) => a.toolName)))
     const rows: InstalledAgentRow[] = []
     for (const agent of inventory.agents) {
-      const persona = files[`${agentsDir}/${agent.path}`] ?? ''
+      const persona = agent.file !== undefined ? files[agent.file] ?? '' : ''
       if (persona === '') continue
       let toolName = `cc-agent-${sanitizeIdentifier(agent.name).toLowerCase()}`
       const kept = previous?.find((p) => p.claudeName === agent.name)

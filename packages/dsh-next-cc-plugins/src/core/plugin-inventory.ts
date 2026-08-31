@@ -4,7 +4,8 @@
  *
  * Component layout follows the Claude Code plugin reference, with the
  * optional `.claude-plugin/plugin.json` manifest able to redirect each
- * component directory:
+ * component — as a directory path, a single file path, or an array mixing
+ * both:
  *   - skills:   `skills/<dir>/SKILL.md` (bundle) or `skills/<name>.md` (flat)
  *   - commands: `commands/**.md` (nested paths become `parent:child` names)
  *   - agents:   `agents/*.md`
@@ -28,12 +29,39 @@ import type {
 /** A plugin's files: plugin-relative path to UTF-8 content. */
 export type PluginFiles = Record<string, string>
 
+/**
+ * Component path overrides from `.claude-plugin/plugin.json`. Each entry is
+ * the resolved list of paths (directories or single files) for that
+ * component, in manifest order; `undefined` means "use the default root".
+ */
 export interface PluginManifestPaths {
-  skills?: string
-  commands?: string
-  agents?: string
-  hooks?: string
-  mcpServers?: string
+  skills?: string[]
+  commands?: string[]
+  agents?: string[]
+  hooks?: string[]
+  mcpServers?: string[]
+}
+
+/** The component roots used when the manifest names none. */
+export const DEFAULT_COMPONENT_PATHS = {
+  skills: ['skills'],
+  commands: ['commands'],
+  agents: ['agents'],
+  hooks: ['hooks/hooks.json'],
+  mcpServers: ['.mcp.json'],
+} as const
+
+const MANIFEST_COMPONENT_KEYS = ['skills', 'commands', 'agents', 'hooks', 'mcpServers'] as const
+
+/** Normalize one manifest override value: a path string or a list of them. */
+function pathList(raw: unknown): string[] | undefined {
+  if (typeof raw === 'string') {
+    const t = raw.trim()
+    return t === '' ? undefined : [t]
+  }
+  if (!Array.isArray(raw)) return undefined
+  const list = raw.filter((v): v is string => typeof v === 'string' && v.trim() !== '').map((v) => v.trim())
+  return list.length === 0 ? undefined : list
 }
 
 /** Read the optional `.claude-plugin/plugin.json` component path overrides. */
@@ -43,9 +71,9 @@ export function readManifestPaths(files: PluginFiles): PluginManifestPaths {
   try {
     const data = JSON.parse(raw) as Record<string, unknown>
     const out: PluginManifestPaths = {}
-    for (const key of ['skills', 'commands', 'agents', 'hooks', 'mcpServers'] as const) {
-      const value = data[key]
-      if (typeof value === 'string' && value.trim() !== '') out[key] = value.trim()
+    for (const key of MANIFEST_COMPONENT_KEYS) {
+      const list = pathList(data[key])
+      if (list !== undefined) out[key] = list
     }
     return out
   } catch {
@@ -60,137 +88,227 @@ function trimDir(dir: string): string {
   return s
 }
 
-function extractSkills(files: PluginFiles, dir: string, notes: string[]): SkillComponent[] {
-  const root = trimDir(dir)
-  const prefix = root === '' ? '' : `${root}/`
-  const bundles = new Map<string, { path: string; content: string }>()
-  const flats: Array<{ path: string; content: string }> = []
-  for (const [path, content] of Object.entries(files)) {
-    if (!path.startsWith(prefix)) continue
-    const rel = path.slice(prefix.length)
-    const segments = rel.split('/')
-    const base = segments[segments.length - 1]
-    if (base !== 'SKILL.md' && !(segments.length === 1 && base.endsWith('.md'))) continue
-    if (segments.length === 1) flats.push({ path: rel, content })
-    else bundles.set(segments.slice(0, -1).join('/'), { path: rel, content })
-  }
+function basename(path: string): string {
+  const parts = path.split('/')
+  return parts[parts.length - 1]
+}
+
+function extractSkills(files: PluginFiles, roots: readonly string[], notes: string[]): SkillComponent[] {
   const out: SkillComponent[] = []
-  for (const [dirPath, entry] of [...bundles.entries()].sort(([a], [b]) => a.localeCompare(b))) {
-    if (dirPath.split('/').some((segment) => segment.startsWith('.'))) {
-      notes.push(`skill directory "${dirPath}" is hidden; skipped`)
-      continue
+  const seen = new Set<string>()
+  const push = (skill: SkillComponent): void => {
+    if (skill.name === '') return
+    if (seen.has(skill.name)) {
+      notes.push(`skill "${skill.name}" is listed more than once; kept the first`)
+      return
     }
-    const parsed = parseFrontmatter(entry.content)
-    const name = parsed?.name !== undefined && parsed.name !== '' ? parsed.name : dirPath.split('/').pop() ?? ''
-    if (name === '') {
-      notes.push(`skill directory "${dirPath}" has no derivable name; skipped`)
-      continue
-    }
-    // `dirPath` is relative to the skills root; the inventory reports the
-    // plugin-relative path so `skillFiles` can slice the plugin file map.
-    out.push({ name, description: parsed?.description ?? '', path: prefix === '' ? dirPath : `${prefix}${dirPath}` })
+    seen.add(skill.name)
+    out.push(skill)
   }
-  for (const entry of flats.sort((a, b) => a.path.localeCompare(b.path))) {
-    const parsed = parseFrontmatter(entry.content)
-    const name = parsed?.name !== undefined && parsed.name !== '' ? parsed.name : entry.path.replace(/\.md$/, '')
-    if (name === '') continue
-    out.push({ name, description: parsed?.description ?? '', path: '' })
+  for (const rootRaw of roots) {
+    const root = trimDir(rootRaw)
+    // A root that names an existing file is a single-file (flat) skill.
+    if (files[root] !== undefined) {
+      if (!root.endsWith('.md')) {
+        notes.push(`skill path "${rootRaw}" is a file but not markdown; skipped`)
+        continue
+      }
+      const parsed = parseFrontmatter(files[root])
+      const name = parsed?.name !== undefined && parsed.name !== '' ? parsed.name : root.slice(0, -3).split('/').pop() ?? ''
+      push({ name, description: parsed?.description ?? '', path: '', file: root })
+      continue
+    }
+    const prefix = root === '' ? '' : `${root}/`
+    const bundles = new Map<string, { path: string; content: string }>()
+    const flats: Array<{ path: string; content: string }> = []
+    for (const [path, content] of Object.entries(files)) {
+      if (!path.startsWith(prefix)) continue
+      const rel = path.slice(prefix.length)
+      const segments = rel.split('/')
+      const base = segments[segments.length - 1]
+      if (base !== 'SKILL.md' && !(segments.length === 1 && base.endsWith('.md'))) continue
+      if (segments.length === 1) flats.push({ path: rel, content })
+      else bundles.set(segments.slice(0, -1).join('/'), { path: rel, content })
+    }
+    for (const [dirPath, entry] of [...bundles.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+      if (dirPath.split('/').some((segment) => segment.startsWith('.'))) {
+        notes.push(`skill directory "${dirPath}" is hidden; skipped`)
+        continue
+      }
+      const parsed = parseFrontmatter(entry.content)
+      const name = parsed?.name !== undefined && parsed.name !== '' ? parsed.name : dirPath.split('/').pop() ?? ''
+      // `dirPath` is relative to this root; the inventory reports the
+      // plugin-relative path so `skillFiles` can slice the plugin file map.
+      push({ name, description: parsed?.description ?? '', path: prefix === '' ? dirPath : `${prefix}${dirPath}` })
+    }
+    for (const entry of flats.sort((a, b) => a.path.localeCompare(b.path))) {
+      const parsed = parseFrontmatter(entry.content)
+      const name = parsed?.name !== undefined && parsed.name !== '' ? parsed.name : entry.path.replace(/\.md$/, '')
+      push({ name, description: parsed?.description ?? '', path: '', file: `${prefix}${entry.path}` })
+    }
   }
   return out
 }
 
-function extractCommands(files: PluginFiles, dir: string): CommandComponent[] {
-  const root = trimDir(dir)
-  const prefix = root === '' ? '' : `${root}/`
+function extractCommands(files: PluginFiles, roots: readonly string[]): CommandComponent[] {
   const out: CommandComponent[] = []
-  for (const [path, content] of Object.entries(files)) {
-    if (!path.startsWith(prefix)) continue
-    const rel = path.slice(prefix.length)
-    if (!rel.endsWith('.md') || rel.includes('/')) continue // nested commands: keep flat for now
-    const name = rel.slice(0, -3)
-    if (name === '') continue
-    const parsed = parseFrontmatter(content)
-    out.push({ name, description: parsed?.description ?? '', path: rel })
-  }
-  return out.sort((a, b) => a.name.localeCompare(b.name))
-}
-
-function extractAgents(files: PluginFiles, dir: string): AgentComponent[] {
-  const root = trimDir(dir)
-  const prefix = root === '' ? '' : `${root}/`
-  const out: AgentComponent[] = []
-  for (const [path, content] of Object.entries(files)) {
-    if (!path.startsWith(prefix)) continue
-    const rel = path.slice(prefix.length)
-    if (!rel.endsWith('.md') || rel.includes('/')) continue
-    const name = rel.slice(0, -3)
-    if (name === '') continue
-    const parsed = parseFrontmatter(content)
-    const outName = parsed?.name !== undefined && parsed.name !== '' ? parsed.name : name
-    out.push({
-      name: outName,
-      description: parsed?.description ?? '',
-      path: rel,
-      tools: parsed?.tools ?? '',
-      model: parsed?.model ?? '',
-    })
-  }
-  return out.sort((a, b) => a.name.localeCompare(b.name))
-}
-
-function extractHookEvents(files: PluginFiles, path: string, notes: string[]): string[] {
-  const raw = files[trimDir(path)]
-  if (raw === undefined) return []
-  let data: unknown
-  try {
-    data = JSON.parse(raw)
-  } catch {
-    notes.push(`hooks file "${path}" is not valid JSON; hooks not inventoried`)
-    return []
-  }
-  if (data === null || typeof data !== 'object' || Array.isArray(data)) {
-    notes.push(`hooks file "${path}" has an unexpected shape; hooks not inventoried`)
-    return []
-  }
-  return Object.keys(data as Record<string, unknown>).sort()
-}
-
-function extractMcp(files: PluginFiles, path: string, notes: string[]): McpServerComponent[] {
-  const raw = files[trimDir(path)]
-  if (raw === undefined) {
-    // Claude Code also allows the MCP servers inline in
-    // `.claude-plugin/plugin.json` under `mcpServers` (the form
-    // ChromeDevTools/chrome-devtools-mcp ships) instead of a separate file.
-    const manifest = files['.claude-plugin/plugin.json']
-    if (manifest === undefined) return []
-    let inline: unknown
-    try {
-      inline = JSON.parse(manifest)
-    } catch {
-      return []
+  for (const rootRaw of roots) {
+    const root = trimDir(rootRaw)
+    if (files[root] !== undefined) {
+      if (!root.endsWith('.md')) continue
+      const rel = basename(root)
+      const name = rel.slice(0, -3)
+      if (name === '') continue
+      const parsed = parseFrontmatter(files[root])
+      out.push({ name, description: parsed?.description ?? '', path: rel, file: root })
+      continue
     }
-    const servers = (inline !== null && typeof inline === 'object' && !Array.isArray(inline))
-      ? (inline as Record<string, unknown>).mcpServers
-      : undefined
-    if (servers === undefined) return []
-    return normalizeMcpServers(servers, notes).servers
+    const prefix = root === '' ? '' : `${root}/`
+    for (const [path, content] of Object.entries(files)) {
+      if (!path.startsWith(prefix)) continue
+      const rel = path.slice(prefix.length)
+      if (!rel.endsWith('.md') || rel.includes('/')) continue // nested commands: keep flat for now
+      const name = rel.slice(0, -3)
+      if (name === '') continue
+      const parsed = parseFrontmatter(content)
+      out.push({ name, description: parsed?.description ?? '', path: rel, file: path })
+    }
   }
-  let data: unknown
+  return out.sort((a, b) => a.name.localeCompare(b.name))
+}
+
+function extractAgents(files: PluginFiles, roots: readonly string[]): AgentComponent[] {
+  const out: AgentComponent[] = []
+  for (const rootRaw of roots) {
+    const root = trimDir(rootRaw)
+    if (files[root] !== undefined) {
+      if (!root.endsWith('.md')) continue
+      const rel = basename(root)
+      const name = rel.slice(0, -3)
+      if (name === '') continue
+      const parsed = parseFrontmatter(files[root])
+      out.push({
+        name: parsed?.name !== undefined && parsed.name !== '' ? parsed.name : name,
+        description: parsed?.description ?? '',
+        path: rel,
+        file: root,
+        tools: parsed?.tools ?? '',
+        model: parsed?.model ?? '',
+      })
+      continue
+    }
+    const prefix = root === '' ? '' : `${root}/`
+    for (const [path, content] of Object.entries(files)) {
+      if (!path.startsWith(prefix)) continue
+      const rel = path.slice(prefix.length)
+      if (!rel.endsWith('.md') || rel.includes('/')) continue
+      const name = rel.slice(0, -3)
+      if (name === '') continue
+      const parsed = parseFrontmatter(content)
+      out.push({
+        name: parsed?.name !== undefined && parsed.name !== '' ? parsed.name : name,
+        description: parsed?.description ?? '',
+        path: rel,
+        file: path,
+        tools: parsed?.tools ?? '',
+        model: parsed?.model ?? '',
+      })
+    }
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name))
+}
+
+function extractHookEvents(files: PluginFiles, paths: readonly string[], explicit: boolean, notes: string[]): string[] {
+  const events = new Set<string>()
+  let anyFound = false
+  for (const rawPath of paths) {
+    const path = trimDir(rawPath)
+    const raw = files[path]
+    if (raw === undefined) {
+      // The default location stays silent when absent (most plugins ship
+      // none); a manifest-named file that is missing is a real problem.
+      if (explicit) notes.push(`hooks file "${path}" listed in plugin.json was not found`)
+      continue
+    }
+    anyFound = true
+    let data: unknown
+    try {
+      data = JSON.parse(raw)
+    } catch {
+      notes.push(`hooks file "${path}" is not valid JSON; its hooks were not inventoried`)
+      continue
+    }
+    if (data === null || typeof data !== 'object' || Array.isArray(data)) {
+      notes.push(`hooks file "${path}" has an unexpected shape; its hooks were not inventoried`)
+      continue
+    }
+    for (const event of Object.keys(data as Record<string, unknown>)) events.add(event)
+  }
+  if (anyFound) return [...events].sort()
+  return []
+}
+
+function manifestInlineMcpServers(files: PluginFiles): unknown {
+  const manifest = files['.claude-plugin/plugin.json']
+  if (manifest === undefined) return undefined
   try {
-    data = JSON.parse(raw)
+    const inline = JSON.parse(manifest) as Record<string, unknown>
+    return inline.mcpServers
   } catch {
-    notes.push(`MCP file "${path}" is not valid JSON; servers not inventoried`)
-    return []
+    return undefined
   }
-  const servers = (data !== null && typeof data === 'object' && !Array.isArray(data))
-    ? (data as Record<string, unknown>).mcpServers
-    : undefined
-  if (servers === undefined) {
-    notes.push(`MCP file "${path}" has no "mcpServers" object`)
-    return []
+}
+
+function extractMcp(files: PluginFiles, paths: readonly string[], explicit: boolean, notes: string[]): McpServerComponent[] {
+  const out: McpServerComponent[] = []
+  const seen = new Set<string>()
+  const merge = (raw: unknown, where: string): void => {
+    const result = normalizeMcpServers(raw, notes)
+    for (const server of result.servers) {
+      if (seen.has(server.name)) {
+        notes.push(`MCP server "${server.name}" is declared in more than one file; kept the first (${where})`)
+        continue
+      }
+      seen.add(server.name)
+      out.push(server)
+    }
   }
-  const result = normalizeMcpServers(servers, notes)
-  return result.servers
+  let anyFound = false
+  for (const rawPath of paths) {
+    const path = trimDir(rawPath)
+    const raw = files[path]
+    if (raw === undefined) {
+      if (explicit) notes.push(`MCP file "${path}" listed in plugin.json was not found`)
+      continue
+    }
+    let data: unknown
+    try {
+      data = JSON.parse(raw)
+    } catch {
+      notes.push(`MCP file "${path}" is not valid JSON; servers not inventoried`)
+      continue
+    }
+    const servers = (data !== null && typeof data === 'object' && !Array.isArray(data))
+      ? (data as Record<string, unknown>).mcpServers
+      : undefined
+    if (servers === undefined) {
+      notes.push(`MCP file "${path}" has no "mcpServers" object`)
+      continue
+    }
+    anyFound = true
+    merge(servers, path)
+  }
+  if (anyFound) return out
+  // Claude Code also allows the MCP servers inline in
+  // `.claude-plugin/plugin.json` under `mcpServers` (the form
+  // ChromeDevTools/chrome-devtools-mcp ships) instead of a separate file.
+  // Only the no-override path falls back to it, matching Claude: an explicit
+  // mcpServers path list is authoritative.
+  if (!explicit) {
+    const inline = manifestInlineMcpServers(files)
+    if (inline !== undefined) return normalizeMcpServers(inline, notes).servers
+  }
+  return out
 }
 
 /** Compute the full component inventory of a plugin's files. */
@@ -198,11 +316,11 @@ export function pluginInventory(files: PluginFiles): PluginInventory {
   const notes: string[] = []
   const paths = readManifestPaths(files)
   const inventory: PluginInventory = {
-    skills: extractSkills(files, paths.skills ?? 'skills', notes),
-    commands: extractCommands(files, paths.commands ?? 'commands'),
-    agents: extractAgents(files, paths.agents ?? 'agents'),
-    hookEvents: extractHookEvents(files, paths.hooks ?? 'hooks/hooks.json', notes),
-    mcpServers: extractMcp(files, paths.mcpServers ?? '.mcp.json', notes),
+    skills: extractSkills(files, paths.skills ?? DEFAULT_COMPONENT_PATHS.skills, notes),
+    commands: extractCommands(files, paths.commands ?? DEFAULT_COMPONENT_PATHS.commands),
+    agents: extractAgents(files, paths.agents ?? DEFAULT_COMPONENT_PATHS.agents),
+    hookEvents: extractHookEvents(files, paths.hooks ?? DEFAULT_COMPONENT_PATHS.hooks, paths.hooks !== undefined, notes),
+    mcpServers: extractMcp(files, paths.mcpServers ?? DEFAULT_COMPONENT_PATHS.mcpServers, paths.mcpServers !== undefined, notes),
     notes,
   }
   return inventory
@@ -213,6 +331,9 @@ export function pluginInventory(files: PluginFiles): PluginInventory {
  * below it), with paths rewritten relative to the skill directory.
  */
 export function skillFiles(files: PluginFiles, skill: SkillComponent): PluginFiles {
+  if (skill.file !== undefined) {
+    return { 'SKILL.md': files[skill.file] ?? '' }
+  }
   if (skill.path === '') {
     return { 'SKILL.md': files['skills/' + skill.name + '.md'] ?? '' }
   }
@@ -222,6 +343,20 @@ export function skillFiles(files: PluginFiles, skill: SkillComponent): PluginFil
     if (path.startsWith(prefix)) out[path.slice(prefix.length)] = content
   }
   return out
+}
+
+/**
+ * The raw hooks document to activate: the first existing hooks file named by
+ * the manifest (or the default `hooks/hooks.json`). '' when the plugin has
+ * none.
+ */
+export function hooksDocument(files: PluginFiles): string {
+  const paths = readManifestPaths(files).hooks ?? DEFAULT_COMPONENT_PATHS.hooks
+  for (const rawPath of paths) {
+    const raw = files[trimDir(rawPath)]
+    if (raw !== undefined) return raw
+  }
+  return ''
 }
 
 /** Roots this bridge consumes as components; never counted as stray assets. */

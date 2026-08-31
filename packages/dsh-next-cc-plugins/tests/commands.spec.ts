@@ -54,6 +54,21 @@ describe('commandsFromFiles', () => {
   it('returns nothing for an empty file set', () => {
     expect(commandsFromFiles({}, 'x')).toEqual({ commands: [], notes: [] })
   })
+
+  it('scans manifest override roots and single-file roots', () => {
+    const files = {
+      'bundle/commands/go.md': '---\ndescription: Go\n---\n',
+      'one-off.md': '---\ndescription: Once\nargument-hint: [what]\n---\n',
+      'commands/ignored.md': 'ignored default root',
+    }
+    const { commands } = commandsFromFiles(files, 'p', ['./bundle/commands', './one-off.md'])
+    expect(commands.map((c) => c.name)).toEqual(['go', 'one-off'])
+    expect(commands.find((c) => c.name === 'one-off')?.hint).toBe('[what]')
+    // A root that names a directory is scanned even when written with a
+    // trailing slash.
+    const { commands: trailing } = commandsFromFiles({ 'b/x.md': 'y' }, 'p', 'b/')
+    expect(trailing.map((c) => c.name)).toEqual(['x'])
+  })
 })
 
 describe('expandTemplate', () => {

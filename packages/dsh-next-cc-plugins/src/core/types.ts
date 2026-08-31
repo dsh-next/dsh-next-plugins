@@ -103,6 +103,8 @@ export interface SkillComponent {
   description: string
   /** Plugin-relative directory of the skill (bundle form) or '' (flat). */
   path: string
+  /** Plugin-relative file of a single-file skill (flat form). */
+  file?: string
 }
 
 export interface CommandComponent {
@@ -110,12 +112,16 @@ export interface CommandComponent {
   name: string
   description: string
   path: string
+  /** Plugin-relative path of the command's markdown file. */
+  file?: string
 }
 
 export interface AgentComponent {
   name: string
   description: string
   path: string
+  /** Plugin-relative path of the agent's markdown file. */
+  file?: string
   /** Raw `tools:` frontmatter (comma-separated Claude tool names), '' when absent. */
   tools: string
   /** Raw `model:` frontmatter (Claude model name or id), '' when absent. */

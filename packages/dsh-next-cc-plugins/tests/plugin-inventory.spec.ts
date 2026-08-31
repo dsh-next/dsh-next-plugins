@@ -5,7 +5,7 @@
  * `pluginLevelReferenceNotes`.
  */
 import { describe, expect, it } from 'vitest'
-import { dependencyNotes, pluginInventory, pluginLevelReferenceNotes, hooksDocument, readManifestPaths, skillFiles, unbridgedNotes } from '../src/core/plugin-inventory.ts'
+import { dependencyNotes, pluginInventory, pluginLevelReferenceNotes, hooksDocument, readManifestPaths, skillFiles, skillSemanticNotes, unbridgedNotes } from '../src/core/plugin-inventory.ts'
 
 const SKILL = (name: string, description = 'does things'): string =>
   `---\nname: ${name}\ndescription: ${description}\n---\nbody\n`
@@ -399,5 +399,31 @@ describe('plugin dependencies', () => {
     }
     expect(pluginInventory(files).dependencies).toEqual(['ok'])
     expect(dependencyNotes([])).toEqual([])
+  })
+})
+
+describe('skill semantic-difference notes', () => {
+  it('notes the frontmatter keys DSH skills do not act on, per skill', () => {
+    const files = {
+      'skills/deploy/SKILL.md': '---\nname: deploy\ndescription: d\nallowed-tools: Bash, Read\nmodel: sonnet\n---\nbody',
+      'skills/audit/SKILL.md': '---\nname: audit\ndescription: d\ndisallowed-tools:\n  - AskUserQuestion\ncontext: fork\n---\nbody',
+      'skills/clean/SKILL.md': '---\nname: clean\ndescription: d\n---\nbody',
+    }
+    const inv = pluginInventory(files)
+    expect(skillSemanticNotes(files, inv.skills)).toEqual([
+      'skill "audit" declares disallowed-tools, context which DSH skills do not act on',
+      'skill "deploy" declares allowed-tools, model which DSH skills do not act on',
+    ])
+  })
+
+  it('stays silent for DSH-native keys and frontmatter-less skills', () => {
+    const files = {
+      // disable-model-invocation and user-invocable pass through working:
+      // DSH's own skill runtime reads them.
+      'skills/plain/SKILL.md': '---\nname: plain\ndescription: d\ndisable-model-invocation: true\nuser-invocable: false\n---\nbody',
+      'skills/bare/SKILL.md': 'no frontmatter at all',
+    }
+    const inv = pluginInventory(files)
+    expect(skillSemanticNotes(files, inv.skills)).toEqual([])
   })
 })

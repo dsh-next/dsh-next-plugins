@@ -345,6 +345,31 @@ export function dependencyNotes(dependencies: readonly string[]): string[] {
   return [`requires plugin(s) ${dependencies.join(', ')}; this bridge does not auto-install dependencies`]
 }
 
+/**
+ * SKILL.md frontmatter keys Claude Code acts on that DSH has no counterpart
+ * for. DSH's skill runtime does honor `disable-model-invocation` and
+ * `user-invocable` (same kebab-case names), so those pass through working;
+ * these do not, and skills carrying them install with a note so the user
+ * knows the semantics did not carry over.
+ */
+const UNBRIDGED_SKILL_KEYS = [
+  'allowed-tools', 'disallowed-tools', 'model', 'effort', 'context', 'agent', 'background', 'hooks',
+] as const
+
+/** One note per skill whose frontmatter declares keys DSH does not act on. */
+export function skillSemanticNotes(files: PluginFiles, skills: readonly SkillComponent[]): string[] {
+  const notes: string[] = []
+  for (const skill of skills) {
+    const parsed = parseFrontmatter(skillFiles(files, skill)['SKILL.md'] ?? '')
+    if (parsed === undefined) continue
+    const keys = UNBRIDGED_SKILL_KEYS.filter((key) => parsed.scalars[key] !== undefined || (parsed.lists[key] ?? []).length > 0)
+    if (keys.length > 0) {
+      notes.push(`skill "${skill.name}" declares ${keys.join(', ')} which DSH skills do not act on`)
+    }
+  }
+  return notes
+}
+
 /** Compute the full component inventory of a plugin's files. */
 export function pluginInventory(files: PluginFiles): PluginInventory {
   const notes: string[] = []

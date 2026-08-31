@@ -27,6 +27,7 @@ import { agentFrontmatter, resolveAgentModel, sanitizeModelMap, translateTools }
 import { parseFrontmatter } from '../core/frontmatter.ts'
 import { applyManagedBlockText, normalizeMcpServers, renderManagedBlock, resolveServerName, type ManagedRow, type RawAgentRow, type RawMcpServer } from '../core/mcp.ts'
 import { parseMarketplaceSpec } from '../core/source.ts'
+import { decodeTarget, MIRROR_INHERIT, parseMirror, renderMirror, type SettingsMirror } from '../core/mirror.ts'
 import { targetId, type TargetRequest } from '../core/targets.ts'
 import { hasNewerVersion, isSnapshotStale } from '../core/versions.ts'
 import { isSkillName, sanitizeIdentifier } from '../core/name.ts'
@@ -55,6 +56,13 @@ import type {
   SkillComponent,
 } from '../core/types.ts'
 
+/** What one {@link CcMarketplaceService.reconcileFromMirror} run adopted. */
+export interface ReconcileReport {
+  marketplacesAdded: string[]
+  installed: string[]
+  skipped: string[]
+}
+
 /** Marker written inside every skill directory this plugin installs. */
 export const SOURCE_MARKER = '.dsh-next-cc-source.json'
 /** Recoverable-delete directory inside every skill root (skipped by discovery). */
@@ -79,6 +87,10 @@ export interface ServiceOptions {
   agentModelMap?: Readonly<Record<string, string>>
   /** Live model discovery for the Models tab (host entry injects ctx.llm). */
   listRuntimeModels?: () => Promise<RuntimeModel[]>
+  /** The settings-document mirror (host entry injects a registered scope). */
+  settings?: SettingsMirror
+  /** Diagnostics sink for best-effort mirror and reconcile reporting. */
+  logger?: { warn?: (message: string) => void; info?: (message: string) => void }
   /** Notified after every install/uninstall/update persists (runtime refresh). */
   onInstalledChanged?: () => void
 }
@@ -99,6 +111,8 @@ export function agentRowId(pluginKey: string, claudeAgentName: string): string {
 
 export class CcMarketplaceService {
   private readonly store: Store
+  /** Serialized reconcile runs (boot + external settings edits). */
+  private reconcileInFlight: Promise<ReconcileReport> | undefined
 
   constructor(private readonly opts: ServiceOptions) {
     this.store = opts.store ?? new Store({ fs: opts.fs, fetch: opts.fetch, root: joinPath(opts.dshHome, 'cc-plugins'), home: opts.home })
@@ -306,6 +320,7 @@ export class CcMarketplaceService {
       return { ok: false, error: `adding "${parsed.canonical}" failed: ${sync.error}` }
     }
     await this.store.saveMarketplaces([...marketplaces, { id: parsed.id, spec: parsed.canonical, addedAt: new Date().toISOString() }])
+    await this.mirrorCurrentState()
     return {
       ok: true,
       message: `added marketplace "${sync.snapshot.index.name}" (${sync.snapshot.index.plugins.length} plugins)`,
@@ -322,6 +337,7 @@ export class CcMarketplaceService {
       return { ok: false, error: `uninstall its plugins first: ${fromHere.join(', ')}` }
     }
     await this.store.saveMarketplaces(marketplaces.filter((m) => m.id !== id))
+    await this.mirrorCurrentState()
     return { ok: true, message: `removed marketplace "${id}"`, state: await this.state() }
   }
 
@@ -494,6 +510,7 @@ export class CcMarketplaceService {
     await this.store.saveCachedPluginFiles(args.marketplaceId, args.plugin, resolved.files)
     await this.store.saveInstalled({ plugins })
     this.opts.onInstalledChanged?.()
+    await this.mirrorCurrentState()
 
     const pendingBits = [
       record.pending.commands.length > 0 ? `${record.pending.commands.length} command(s) registered` : '',
@@ -536,6 +553,7 @@ export class CcMarketplaceService {
         await this.writeManagedRows(plugins)
         await this.store.saveInstalled({ plugins })
         this.opts.onInstalledChanged?.()
+        await this.mirrorCurrentState()
         return {
           ok: true,
           message: `removed "${record.pluginName}" from ${this.scopeLabel(target)} (${held.skills.length} skill(s) moved to .trash; ${remaining.length} target(s) remain)`,
@@ -560,6 +578,7 @@ export class CcMarketplaceService {
     await this.writeManagedRows(kept)
     await this.store.saveInstalled({ plugins: kept })
     this.opts.onInstalledChanged?.()
+    await this.mirrorCurrentState()
     const skillCount = record.targets.reduce((sum, t) => sum + t.skills.length, 0)
     return {
       ok: true,
@@ -710,6 +729,7 @@ export class CcMarketplaceService {
       await this.store.saveInstalled({ plugins })
       this.opts.onInstalledChanged?.()
     }
+    await this.mirrorCurrentState()
     const saved = Object.entries(overrides).map(([alias, model]) => `${alias} -> ${model ?? 'inherit'}`)
     const message = [
       saved.length > 0
@@ -718,6 +738,135 @@ export class CcMarketplaceService {
       changes.length > 0 ? `${changes.length} agent row(s) re-resolved (${changes.join('; ')}); reload the profile to apply` : '',
     ].filter(Boolean).join('; ')
     return { ok: true, message, state: await this.state() }
+  }
+
+  // -------------------------------------------------------------------------
+  // Settings-document mirror (shareable setup)
+  // -------------------------------------------------------------------------
+
+  /** Write the whole setup into the settings document; best effort. */
+  private async mirrorCurrentState(): Promise<void> {
+    if (this.opts.settings === undefined) return
+    try {
+      const [marketplaces, installed, models] = await Promise.all([
+        this.store.listMarketplaces(),
+        this.store.readInstalled(),
+        this.store.readModelMap(),
+      ])
+      await this.opts.settings.write(renderMirror({ marketplaces, installed: installed.plugins, models }))
+    } catch (error) {
+      this.opts.logger?.warn?.(`dsh-next-cc-plugins settings mirror write failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  /**
+   * Adopt what the settings document carries that this machine lacks:
+   * missing marketplaces are added, missing plugins installed into their
+   * recorded targets (workspace targets only when the path exists on this
+   * machine), and model mappings adopted when nothing is saved locally.
+   * Removals are never inferred — uninstalls stay explicit through the
+   * panel. Runs at boot and on hot-published external edits; concurrent
+   * calls share one run.
+   */
+  async reconcileFromMirror(): Promise<ReconcileReport> {
+    if (this.reconcileInFlight !== undefined) return this.reconcileInFlight
+    const run = this.runReconcile().finally(() => {
+      if (this.reconcileInFlight === run) this.reconcileInFlight = undefined
+    })
+    this.reconcileInFlight = run
+    return run
+  }
+
+  private async runReconcile(): Promise<ReconcileReport> {
+    const report: ReconcileReport = { marketplacesAdded: [], installed: [], skipped: [] }
+    if (this.opts.settings === undefined) return report
+    let section
+    try {
+      section = parseMirror(this.opts.settings.read())
+    } catch (error) {
+      this.opts.logger?.warn?.(`dsh-next-cc-plugins settings mirror read failed: ${error instanceof Error ? error.message : String(error)}`)
+      return report
+    }
+
+    // 1. Marketplaces listed in the document but not configured locally.
+    const marketplaces = await this.store.listMarketplaces()
+    const bySpec = new Map(marketplaces.map((m) => [m.spec, m.id]))
+    for (const spec of section.marketplaces) {
+      if (bySpec.has(spec)) continue
+      const result = await this.addMarketplace(spec)
+      if (result.ok) {
+        report.marketplacesAdded.push(spec)
+        const parsed = parseMarketplaceSpec(spec)
+        if (!('error' in parsed)) bySpec.set(spec, parsed.id)
+      } else {
+        report.skipped.push(`marketplace ${spec}: ${result.error ?? 'add failed'}`)
+      }
+    }
+
+    // 2. Installs present in the document but not on this machine. A missing
+    //    marketplace that could not be added skips its plugins.
+    const installed = await this.store.readInstalled()
+    const installedKeys = new Set(installed.plugins.map((p) => p.key))
+    for (const entry of section.installs) {
+      const id = bySpec.get(entry.marketplace)
+      if (id === undefined) {
+        report.skipped.push(`plugin ${entry.marketplace}/${entry.plugin}: marketplace not configured`)
+        continue
+      }
+      const key = `${id}/${entry.plugin}`
+      if (installedKeys.has(key)) continue
+      const targets: TargetRequest[] = []
+      for (const raw of entry.targets) {
+        const t = decodeTarget(raw)
+        if (t === undefined) continue
+        if (t.scope === 'workspace') {
+          const path = t.workspacePath ?? ''
+          try {
+            const stat = await this.opts.fs.stat(path)
+            if (!stat.isDirectory()) throw new Error('not a directory')
+          } catch {
+            report.skipped.push(`plugin ${entry.plugin} target ${raw}: workspace path missing on this machine`)
+            continue
+          }
+        }
+        targets.push(t)
+      }
+      if (targets.length === 0) {
+        report.skipped.push(`plugin ${entry.marketplace}/${entry.plugin}: no usable targets`)
+        continue
+      }
+      const result = await this.installPlugin({ marketplaceId: id, plugin: entry.plugin, targets })
+      if (result.ok) report.installed.push(key)
+      else report.skipped.push(`plugin ${entry.plugin}: ${result.error ?? 'install failed'}`)
+    }
+
+    // 3. Model mappings seed a machine that has none saved locally.
+    const models = Object.entries(section.models)
+    if (models.length > 0 && Object.keys(await this.store.readModelMap()).length === 0) {
+      const decoded: Record<string, string | null> = {}
+      for (const [alias, model] of models) decoded[alias] = model === MIRROR_INHERIT ? null : model
+      const adopted = await this.setAgentModelOverrides(decoded)
+      if (adopted.ok) this.opts.logger?.info?.('dsh-next-cc-plugins adopted model mappings from the settings document')
+    }
+
+    // 4. A document with nothing to say backfills from local state, so the
+    //    mirror exists before the first panel mutation. (Deleting the section
+    //    does not uninstall; the mirror simply refills.)
+    if (section.marketplaces.length === 0 && section.installs.length === 0 && Object.keys(section.models).length === 0) {
+      const [marketplaces, installed, saved] = await Promise.all([
+        this.store.listMarketplaces(),
+        this.store.readInstalled(),
+        this.store.readModelMap(),
+      ])
+      if (marketplaces.length > 0 || installed.plugins.length > 0 || Object.keys(saved).length > 0) {
+        await this.mirrorCurrentState()
+      }
+    }
+
+    if (report.marketplacesAdded.length + report.installed.length + report.skipped.length > 0) {
+      this.opts.logger?.info?.(`dsh-next-cc-plugins settings reconcile: ${report.marketplacesAdded.length} marketplace(s) added, ${report.installed.length} plugin(s) installed, ${report.skipped.length} skipped`)
+    }
+    return report
   }
 
   // -------------------------------------------------------------------------

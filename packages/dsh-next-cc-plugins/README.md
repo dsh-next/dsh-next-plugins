@@ -140,6 +140,37 @@ Agent frontmatter translation notes:
 - Skill name collisions abort an install atomically; MCP server names and
   agent tool names are deduped across plugins and stay stable across updates.
 
+## Shareable settings mirror
+
+Marketplaces, installed plugins, and the model mappings are mirrored into
+the DSH user-settings document (`$DSH_HOME/settings.yaml`, the same file
+the Models page stores model providers in) under one `cc-plugins` section:
+
+```yaml
+cc-plugins:
+  marketplaces:
+    - holistics/skills
+  installs:
+    - marketplace: holistics/skills
+      plugin: holistics-reporting
+      targets:
+        - workspace:/Users/you/Projects/web
+  models:
+    haiku: deepseek-v4-flash
+    sonnet: inherit
+```
+
+Every panel mutation writes the section through (installs record presence
+only — versions follow upstream). At boot, and whenever the document
+changes on disk (the settings provider hot-publishes external edits), the
+plugin adopts what the document carries that the machine lacks: missing
+marketplaces are added, missing plugins installed into their recorded
+targets (workspace targets only when the path exists locally), and model
+mappings adopted when none are saved locally. Removals are never inferred —
+uninstalls stay explicit through the panel. Sharing one `settings.yaml`
+therefore reproduces the whole setup on a fresh machine, best effort and
+logged.
+
 ## Settings UI
 
 The browser half registers a top-level Settings section ("Claude Plugins")

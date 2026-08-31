@@ -9,6 +9,12 @@
 // Structural host faces
 // ---------------------------------------------------------------------------
 
+/** Structural shape of one install target (request or record entry). */
+export interface TargetLike {
+  scope: 'global' | 'workspace'
+  workspacePath?: string
+}
+
 export interface FsDirent {
   name: string
   isDirectory(): boolean

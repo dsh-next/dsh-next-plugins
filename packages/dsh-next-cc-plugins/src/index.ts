@@ -17,6 +17,10 @@ import Schema from '@deepseek-ai/schemastery'
 // Type-only: declares the `llm` service on Context for the Models tab's
 // live model discovery.
 import type {} from '@deepseek-ai/dsh-llm'
+// Loads the `settings` service declaration on Context (the shareable
+// user-settings document) plus the namespace brand helper.
+import { settingsNamespace } from '@deepseek-ai/dsh-settings'
+import type { SettingsMirror } from './core/mirror.ts'
 import { nodeFs } from './host/fs-adapter.ts'
 import { nodeHookRunner } from './host/hook-runner.ts'
 import { registerRpc } from './host/rpc.ts'
@@ -49,6 +53,23 @@ export const Config = Schema.object({
   }),
 })
 
+/**
+ * The `cc-plugins` settings-document section: the shareable mirror of this
+ * plugin's setup, written through on every panel mutation and read back at
+ * boot / on external edits (missing marketplaces and installs are adopted;
+ * removals are never inferred).
+ */
+const MirrorSettingsSchema = Schema.object({
+  marketplaces: Schema.array(Schema.string()).default([]).description('Marketplace specs (owner/repo shorthand, GitHub URL, or local path)'),
+  installs: Schema.array(Schema.object({
+    marketplace: Schema.string().description('The marketplace spec the plugin came from'),
+    plugin: Schema.string().description('Plugin name inside the marketplace index'),
+    targets: Schema.array(Schema.string()).default([]).description('Install targets: "global" or "workspace:<absolute path>"'),
+  })).default([]).description('Installed plugins (presence only; versions follow upstream)'),
+  // Cast as above: dict schemas trip declaration emit otherwise.
+  models: (Schema.dict(Schema.string()) as Schemastery<Record<string, string>>).description('Claude model alias to DSH model id; "inherit" = the delegating session\'s model'),
+})
+
 export function apply(ctx: Context, config: PluginConfig = {}): void {
   const dshHome = process.env.DSH_HOME ?? join(homedir(), '.dsh')
   const agentsHome = process.env.DSH_AGENTS_HOME ?? join(homedir(), '.agents')
@@ -72,6 +93,20 @@ export function apply(ctx: Context, config: PluginConfig = {}): void {
     logger: { warn: (message) => ctx.logger.warn(message) },
   })
 
+  // The shareable settings mirror: absent settings service (minimal boots)
+  // just disables mirroring; the panel and mutations work unchanged.
+  const settingsProvider = ctx.get('settings')
+  let settingsMirror: SettingsMirror | undefined
+  let watchSettings: ((onChange: () => void) => () => void) | undefined
+  if (settingsProvider !== undefined && typeof settingsProvider.register === 'function') {
+    const scope = settingsProvider.register(settingsNamespace('cc-plugins'), MirrorSettingsSchema)
+    settingsMirror = {
+      read: () => scope.get(),
+      write: async (section) => { await scope.replace(section as unknown as Record<string, unknown>) },
+    }
+    watchSettings = (onChange) => scope.watch(() => onChange())
+  }
+
   const service = new CcMarketplaceService({
     fs: nodeFs(),
     fetch: (url, init) => fetch(url, init),
@@ -81,6 +116,11 @@ export function apply(ctx: Context, config: PluginConfig = {}): void {
     store,
     agentsEnabled: config.runtime?.agents !== false,
     agentModelMap: config.runtime?.agentModelMap,
+    settings: settingsMirror,
+    logger: {
+      warn: (message) => { ctx.logger.warn(message) },
+      info: (message) => { ctx.logger.info(message) },
+    },
     listRuntimeModels: async () => {
       // Best effort: a composition without the llm service (or a provider
       // whose listing fails) degrades the Models tab to inherit-only pickers.
@@ -101,4 +141,11 @@ export function apply(ctx: Context, config: PluginConfig = {}): void {
 
   registerRpc(ctx, service)
   runtime.attach(ctx)
+
+  // Adopt what a shared settings document carries (boot + hot-published
+  // external edits); self-writes re-enter as no-op reconciles.
+  if (settingsMirror !== undefined && watchSettings !== undefined) {
+    ctx.effect(() => watchSettings(() => { void service.reconcileFromMirror() }))
+    void service.reconcileFromMirror()
+  }
 }

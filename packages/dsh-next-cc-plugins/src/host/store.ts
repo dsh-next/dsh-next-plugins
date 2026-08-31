@@ -109,12 +109,13 @@ export class Store {
     await this.writeJson(this.installedPath(), file)
   }
 
-  /** The panel's Claude-alias to DSH-model overrides (model-map.json). */
-  async readModelMap(): Promise<Record<string, string>> {
+  /** The panel's Claude-alias to DSH-model overrides (model-map.json);
+   *  `null` marks an alias as explicitly inheriting the session model. */
+  async readModelMap(): Promise<Record<string, string | null>> {
     return sanitizeModelMap(await this.readJson<unknown>(this.modelMapPath(), {}))
   }
 
-  async saveModelMap(map: Record<string, string>): Promise<void> {
+  async saveModelMap(map: Record<string, string | null>): Promise<void> {
     await this.writeJson(this.modelMapPath(), map)
   }
 

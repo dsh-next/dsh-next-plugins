@@ -386,6 +386,23 @@ describe('CcMarketplaceService install', () => {
       const state = await fix.service.state()
       expect(state.agentModelConfig).toEqual({ sonnet: 'dsh-pro' })
       expect(state.agentModelMap).toEqual({ haiku: 'dsh-fast', sonnet: 'dsh-pro' })
+      expect(state.agentModelOverrides).toEqual({ haiku: 'dsh-fast' })
+    })
+
+    it('an explicit inherit marker suppresses the config baseline', async () => {
+      const fix = await installEpisodic({ agentModelMap: { haiku: 'dsh-pro' } })
+      // Baseline resolves first.
+      expect((await fix.service.state()).installed[0].agents[0].model).toBe('dsh-pro')
+      const result = await fix.service.setAgentModelOverrides({ haiku: null })
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+      expect(result.message).toContain('haiku -> inherit')
+      expect(result.message).toContain('agent "search-conversations" inherits the session model')
+      const state = await fix.service.state()
+      expect(state.agentModelMap).toEqual({})
+      expect(state.agentModelOverrides).toEqual({ haiku: null })
+      expect(state.installed[0].agents[0].model).toBeUndefined()
+      expect((fix.fs.snapshot()[PATCH] ?? '')).not.toContain("model: 'dsh-pro'")
     })
 
     it('saving overrides re-resolves installed agent rows and rewrites the managed block', async () => {
@@ -413,12 +430,13 @@ describe('CcMarketplaceService install', () => {
       expect((fix.fs.snapshot()[PATCH] ?? '')).not.toContain("model: 'dsh-fast'")
     })
 
-    it('sanitizes the payload: non-strings and blank entries drop out', async () => {
+    it('sanitizes the payload: non-strings and blank entries drop out, null passes', async () => {
       const fix = await installEpisodic()
-      const result = await fix.service.setAgentModelOverrides({ haiku: ' dsh-fast ', '': 'x', opus: 42, sonnet: '' })
+      const result = await fix.service.setAgentModelOverrides({ haiku: ' dsh-fast ', '': 'x', opus: 42, sonnet: '', 'claude-3': null } as Record<string, unknown>)
       expect(result.ok).toBe(true)
       const state = await fix.service.state()
       expect(state.agentModelMap).toEqual({ haiku: 'dsh-fast' })
+      expect(state.agentModelOverrides).toEqual({ haiku: 'dsh-fast', 'claude-3': null })
       // Corrupt persisted files read as empty maps, never crash the panel.
       await fix.fs.writeFile('/home/u/.dsh/cc-plugins/model-map.json', '{not json')
       expect((await fix.service.state()).agentModelMap).toEqual({})

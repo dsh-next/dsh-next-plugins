@@ -283,6 +283,10 @@ export interface CcState {
   agentModelMap: Record<string, string>
   /** The composition-config baseline portion of {@link agentModelMap}. */
   agentModelConfig: Record<string, string>
+  /** The panel's saved overrides verbatim: a model id, or `null` marking an
+   *  alias as explicitly inheriting the session model (suppressing a config
+   *  baseline value). */
+  agentModelOverrides: Record<string, string | null>
   /** Every Claude model name worth offering a picker for: the classic
    *  families, mapped aliases, and names installed agents reference. */
   agentModelAliases: string[]

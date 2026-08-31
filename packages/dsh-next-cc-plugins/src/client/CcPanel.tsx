@@ -201,13 +201,24 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
     })
   }
 
-  /** Save the Models tab: draft selections over the effective map, '' = inherit. */
+  /**
+   * Save the Models tab as a delta over the saved overrides: only drafted
+   * aliases change, other saved entries persist verbatim. Choosing inherit
+   * on a config-mapped alias saves the explicit `null` marker (which
+   * suppresses the baseline); on an alias without a baseline it just drops
+   * the entry — inherit is already the default.
+   */
   const saveModels = async (): Promise<void> => {
-    const effective = state?.agentModelMap ?? {}
-    const map: Record<string, string> = {}
-    for (const alias of state?.agentModelAliases ?? []) {
-      const value = modelDraft[alias] !== undefined ? modelDraft[alias] : (effective[alias] ?? '')
-      if (value !== '') map[alias] = value
+    const overrides = state?.agentModelOverrides ?? {}
+    const config = state?.agentModelConfig ?? {}
+    const map: Record<string, string | null> = { ...overrides }
+    for (const [alias, value] of Object.entries(modelDraft)) {
+      if (value === '') {
+        if (config[alias] !== undefined) map[alias] = null
+        else delete map[alias]
+      } else {
+        map[alias] = value
+      }
     }
     await mutate('setAgentModelOverrides', { map })
     setModelDraft({})
@@ -520,12 +531,18 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
         <div className={styles.modelList} data-testid="cc-models">
           <div className={styles.hint}>
             Map the Claude model names your agents use onto models this runtime offers. Unmapped names inherit the
-            delegating session&apos;s model — the same default as Claude&apos;s `model: inherit`. Saving re-resolves installed
-            agent rows without reinstalling; reload the profile to apply them.
+            delegating session&apos;s model — the same default as Claude&apos;s `model: inherit` — and choosing inherit
+            explicitly overrides a config-baseline mapping. Saving re-resolves installed agent rows without
+            reinstalling; reload the profile to apply them.
           </div>
           {(state?.agentModelAliases ?? []).map((alias) => {
+            const override = (state?.agentModelOverrides ?? {})[alias]
             const effective = state?.agentModelMap[alias] ?? ''
-            const current = modelDraft[alias] !== undefined ? modelDraft[alias] : effective
+            // Display precedence: unsaved draft, then the saved override
+            // (null shows as inherit), then the config baseline, then inherit.
+            const current = modelDraft[alias] !== undefined
+              ? modelDraft[alias]
+              : override !== undefined ? (override ?? '') : effective
             const fromConfig = (state?.agentModelConfig ?? {})[alias] !== undefined && effective !== ''
             const known = uniqueModels.some((m) => m.id === current)
             return (

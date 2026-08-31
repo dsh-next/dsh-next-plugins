@@ -169,17 +169,25 @@ export interface ModelResolution {
 
 /**
  * Tolerant parse of a Claude-alias to DSH-model map (RPC payloads and the
- * persisted overrides file): non-object input, non-string values, and
- * blank keys or values drop out rather than failing the whole save.
+ * persisted overrides file): non-object input and non-string/non-null values
+ * drop out rather than failing the whole save. A string value maps the alias
+ * to that model; `null` is the explicit inherit marker that suppresses a
+ * config-baseline value for the alias (blank strings are not a marker —
+ * use null).
  */
-export function sanitizeModelMap(raw: unknown): Record<string, string> {
+export function sanitizeModelMap(raw: unknown): Record<string, string | null> {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return {}
-  const out: Record<string, string> = {}
+  const out: Record<string, string | null> = {}
   for (const [key, value] of Object.entries(raw)) {
-    if (typeof value !== 'string') continue
     const k = key.trim()
+    if (k === '') continue
+    if (value === null) {
+      out[k] = null
+      continue
+    }
+    if (typeof value !== 'string') continue
     const v = value.trim()
-    if (k === '' || v === '') continue
+    if (v === '') continue
     out[k] = v
   }
   return out

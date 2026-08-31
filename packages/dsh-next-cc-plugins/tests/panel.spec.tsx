@@ -15,13 +15,14 @@ import { CcPanel, formatLastSync } from '../src/client/CcPanel.tsx'
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 /** The Models-tab slice of the state envelope. */
-const MODEL_STATE: Pick<CcState, 'models' | 'agentModelMap' | 'agentModelConfig' | 'agentModelAliases'> = {
+const MODEL_STATE: Pick<CcState, 'models' | 'agentModelMap' | 'agentModelConfig' | 'agentModelOverrides' | 'agentModelAliases'> = {
   models: [
     { provider: 'deepseek-official', id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash' },
     { provider: 'deepseek-official', id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
   ],
   agentModelMap: { sonnet: 'deepseek-v4-pro' },
   agentModelConfig: { sonnet: 'deepseek-v4-pro' },
+  agentModelOverrides: {},
   agentModelAliases: ['haiku', 'opus', 'sonnet'],
 }
 
@@ -298,14 +299,47 @@ describe('CcPanel', () => {
     const sonnet = rows.find((r) => (r.textContent ?? '').startsWith('sonnet'))!
     expect(sonnet.textContent).toContain('config')
     expect((sonnet.querySelector('[data-testid="cc-model-select"]') as HTMLSelectElement).value).toBe('deepseek-v4-pro')
-    // Pick a model for haiku; save sends draft merged over the effective map.
+    // Pick a model for haiku; save sends only the drafted change.
     const haiku = rows.find((r) => (r.textContent ?? '').startsWith('haiku'))!
     await act(async () => { setSelect(haiku.querySelector('select')!, 'deepseek-v4-flash') })
     await act(async () => { button('Save model mappings').click() })
     expect(rpc).toHaveBeenCalledWith('setAgentModelOverrides', {
-      map: { haiku: 'deepseek-v4-flash', sonnet: 'deepseek-v4-pro' },
+      map: { haiku: 'deepseek-v4-flash' },
     })
     expect(document.querySelector('[data-testid="cc-message"]')?.textContent).toContain('done')
+  })
+
+  it('Models tab saves inherit explicitly against a config baseline (no silent revert)', async () => {
+    // Regression: choosing inherit on a config-mapped alias must persist an
+    // explicit marker, not silently let the baseline re-assert itself.
+    const state: CcState = {
+      ...MODEL_STATE,
+      installed: [],
+      marketplaces: [],
+    }
+    const rpc = rpcMock(state)
+    await renderAsync({ rpc })
+    await act(async () => { button('Models').click() })
+    const sonnet = [...container.querySelectorAll('[data-testid="cc-model-row"]')]
+      .find((r) => (r.textContent ?? '').startsWith('sonnet'))!
+    await act(async () => { setSelect(sonnet.querySelector('select')!, '') })
+    await act(async () => { button('Save model mappings').click() })
+    expect(rpc).toHaveBeenCalledWith('setAgentModelOverrides', { map: { sonnet: null } })
+
+    // With the saved marker round-tripped, the select renders inherit — even
+    // though the config baseline still maps the alias.
+    const after: CcState = {
+      ...state,
+      agentModelMap: {},
+      agentModelOverrides: { sonnet: null },
+    }
+    await act(async () => { render({ rpc: rpcMock(after) }) })
+    await act(async () => { button('Models').click() })
+    const sonnetAfter = [...container.querySelectorAll('[data-testid="cc-model-row"]')]
+      .find((r) => (r.textContent ?? '').startsWith('sonnet'))!
+    expect((sonnetAfter.querySelector('[data-testid="cc-model-select"]') as HTMLSelectElement).value).toBe('')
+    // The baseline chip hides while the marker suppresses it.
+    expect(sonnetAfter.textContent).not.toContain('config')
   })
 
   it('orders installed plugins first, then alphabetical by name', async () => {

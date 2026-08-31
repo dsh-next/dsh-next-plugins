@@ -128,11 +128,29 @@ export class CcMarketplaceService {
 
   /**
    * The effective Claude-alias to DSH-model map: the composition config
-   * (`runtime.agentModelMap`) is the baseline, the panel's saved overrides
-   * (`<root>/model-map.json`) layer on top key by key.
+   * (`runtime.agentModelMap`) is the baseline; the panel's saved overrides
+   * (`<root>/model-map.json`) layer on top key by key — a string replaces the
+   * baseline value, `null` (the explicit inherit marker) suppresses it.
    */
-  private effectiveModelMap(overrides: Record<string, string>): Record<string, string> {
-    return { ...sanitizeModelMap(this.opts.agentModelMap), ...overrides }
+  private effectiveModelMap(overrides: Record<string, string | null>): Record<string, string> {
+    const effective: Record<string, string> = this.configModelMap()
+    for (const [alias, model] of Object.entries(overrides)) {
+      if (model === null) delete effective[alias]
+      else effective[alias] = model
+    }
+    return effective
+  }
+
+  /**
+   * The composition config baseline as a plain string map: a null value in
+   * the composition (an empty yaml value) simply means "no mapping".
+   */
+  private configModelMap(): Record<string, string> {
+    const out: Record<string, string> = {}
+    for (const [alias, model] of Object.entries(sanitizeModelMap(this.opts.agentModelMap))) {
+      if (model !== null) out[alias] = model
+    }
+    return out
   }
 
   // -------------------------------------------------------------------------
@@ -170,8 +188,8 @@ export class CcMarketplaceService {
       this.store.readInstalled(),
       this.store.readModelMap(),
     ])
-    const configMap = sanitizeModelMap(this.opts.agentModelMap)
-    const effective = { ...configMap, ...overrides }
+    const configMap = this.configModelMap()
+    const effective = this.effectiveModelMap(overrides)
     const rows: MarketplaceViewRow[] = []
     const byKey = new Map(installed.plugins.map((p) => [p.key, p]))
     for (const m of [...marketplaces].sort((a, b) => a.spec.localeCompare(b.spec))) {
@@ -247,6 +265,8 @@ export class CcMarketplaceService {
       models,
       agentModelMap: effective,
       agentModelConfig: configMap,
+      /** The panel's saved overrides verbatim (string, or null = inherit). */
+      agentModelOverrides: overrides,
       agentModelAliases: [...aliases].sort(),
     }
   }
@@ -654,10 +674,11 @@ export class CcMarketplaceService {
 
   /**
    * Save the panel's Claude-alias to DSH-model overrides (wholesale replace
-   * of model-map.json, sanitized), then re-resolve every installed agent
-   * row's `model:` against the new effective map. Managed rows rewrite when
-   * anything changed; a profile reload applies them. Aliases left unmapped
-   * inherit the delegating session's model — DSH's default.
+   * of model-map.json, sanitized — `null` marks an alias as explicitly
+   * inheriting the session model, suppressing a config-baseline value), then
+   * re-resolve every installed agent row's `model:` against the new effective
+   * map. Managed rows rewrite when anything changed; a profile reload applies
+   * them.
    */
   async setAgentModelOverrides(raw: unknown): Promise<MutationResult> {
     const overrides = sanitizeModelMap(raw)
@@ -689,7 +710,7 @@ export class CcMarketplaceService {
       await this.store.saveInstalled({ plugins })
       this.opts.onInstalledChanged?.()
     }
-    const saved = Object.entries(overrides).map(([alias, model]) => `${alias} -> ${model}`)
+    const saved = Object.entries(overrides).map(([alias, model]) => `${alias} -> ${model ?? 'inherit'}`)
     const message = [
       saved.length > 0
         ? `saved model overrides: ${saved.join(', ')}`

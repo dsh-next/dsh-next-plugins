@@ -88,12 +88,13 @@ Agent frontmatter translation notes:
   discovers models live from the runtime's `llm` service — nothing is
   hardcoded — offers a picker for every Claude family, mapped alias, and
   model name your installed agents actually reference, and defaults every
-  alias to inheriting the delegating session's model. Saving re-resolves
-  installed agent rows without reinstalling (reload the profile to apply).
-  `model: inherit` and unmapped values leave the child on the delegating
-  parent's model — DSH's default — with an install note for unmapped names.
-  Claude model ids are never passed through raw: an unknown id would fail
-  every delegation at child creation.
+  alias to inheriting the delegating session's model; choosing inherit
+  explicitly (a saved `null`) suppresses a config-baseline value for that
+  alias. Saving re-resolves installed agent rows without reinstalling
+  (reload the profile to apply). `model: inherit` and unmapped values leave
+  the child on the delegating parent's model — DSH's default — with an
+  install note for unmapped names. Claude model ids are never passed
+  through raw: an unknown id would fail every delegation at child creation.
 - Claude's per-agent `description` / `when_to_use` (parent-side tool
   selection guidance) has no `dsh-tool-subagent` counterpart today; the
   parent picks the tool by its `cc-agent-<name>` name.

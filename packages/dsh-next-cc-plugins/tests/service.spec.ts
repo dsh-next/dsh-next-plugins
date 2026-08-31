@@ -228,6 +228,59 @@ describe('CcMarketplaceService marketplaces', () => {
     expect(updated.updateAvailable).toBeUndefined()
   })
 
+  it('falls back to the plugin.json version when the entry carries none', async () => {
+    const repo = {
+      '.claude-plugin/marketplace.json': JSON.stringify({
+        name: 'acme-tools',
+        plugins: [{ name: 'team-tools', source: './plugins/team-tools' }],
+      }),
+      'plugins/team-tools/.claude-plugin/plugin.json': JSON.stringify({ name: 'team-tools', version: '3.2.1' }),
+      'plugins/team-tools/skills/deploy/SKILL.md': SKILL('deploy', 'Deploys the app'),
+    }
+    f.gh.setRepo('o', 'r', repo)
+    await f.service.addMarketplace('o/r')
+    await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })
+
+    const state = await f.service.state()
+    // The card shows the effective catalog version (the manifest's), and the
+    // record stored it as the installed version.
+    expect(state.marketplaces[0].plugins[0].version).toBe('3.2.1')
+    expect(state.installed[0].version).toBe('3.2.1')
+    expect(state.installed[0].snapshotDigest).toBeDefined()
+    expect(state.marketplaces[0].plugins[0].updateAvailable).toBeUndefined()
+  })
+
+  it('flags version-less plugins through snapshot digest changes', async () => {
+    const repo = (): Record<string, string> => ({
+      '.claude-plugin/marketplace.json': JSON.stringify({
+        name: 'acme-tools',
+        plugins: [{ name: 'team-tools', source: './plugins/team-tools' }],
+      }),
+      'plugins/team-tools/skills/deploy/SKILL.md': SKILL('deploy', 'Deploys the app'),
+    })
+    f.gh.setRepo('o', 'r', repo())
+    await f.service.addMarketplace('o/r')
+    await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })
+
+    // No version anywhere: nothing to compare yet.
+    const fresh = (await f.service.state()).marketplaces[0].plugins[0]
+    expect(fresh.version).toBe('')
+    expect(fresh.updateAvailable).toBeUndefined()
+
+    // Content changes without any version appearing: the digest moves.
+    f.gh.setRepo('o', 'r', { ...repo(), 'plugins/team-tools/skills/deploy/SKILL.md': SKILL('deploy', 'Deploys v2') })
+    await f.service.refreshMarketplaces()
+    const changed = (await f.service.state()).marketplaces[0].plugins[0]
+    expect(changed.updateAvailable).toBe(true)
+
+    // Updating adopts the new digest and clears the flag.
+    const result = await f.service.updatePlugin('github:o/r/team-tools')
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.message).toContain('latest')
+    const updated = (await f.service.state()).marketplaces[0].plugins[0]
+    expect(updated.updateAvailable).toBeUndefined()
+  })
+
   it('removes an empty marketplace and refuses one with installed plugins', async () => {
     await f.service.addMarketplace('o/r')
     await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })

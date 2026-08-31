@@ -77,3 +77,46 @@ export function hasNewerVersion(installed: string, catalog: string): boolean {
   if (a !== undefined && b !== undefined) return compareParsed(b, a) > 0
   return installed !== catalog
 }
+
+/** The `.claude-plugin/plugin.json` version of a plugin's files ('' when absent). */
+export function manifestVersion(files: Record<string, string>): string {
+  const raw = files['.claude-plugin/plugin.json']
+  if (raw === undefined) return ''
+  try {
+    const data = JSON.parse(raw) as { version?: unknown }
+    return typeof data.version === 'string' ? data.version.trim() : ''
+  } catch {
+    return ''
+  }
+}
+
+export interface UpdateAvailability {
+  /** The installed record's version ('' when none was resolved at install). */
+  installedVersion: string
+  /** The marketplace index entry's `version` ('' when it carries none). */
+  entryVersion: string
+  /** The plugin's own `plugin.json` version from the snapshot, when the
+   *  plugin files resolve from the marketplace snapshot (relative sources). */
+  manifestVersion?: string
+  /** Digest of the marketplace snapshot at install time. */
+  installedDigest?: string
+  /** Digest of the marketplace snapshot now. */
+  catalogDigest?: string
+}
+
+/**
+ * Whether an installed plugin's card should offer Update, following Claude
+ * Code's precedence: the catalog version is the marketplace entry's
+ * `version`, falling back to the plugin's own `plugin.json` version, falling
+ * back to "the marketplace content changed" — Claude resolves version-less
+ * plugins to their source's commit SHA, and this bridge's snapshot digest is
+ * the closest same-machine signal (it also covers entry-only edits).
+ */
+export function isUpdateAvailable(args: UpdateAvailability): boolean {
+  const catalog = args.entryVersion !== '' ? args.entryVersion : args.manifestVersion ?? ''
+  if (catalog !== '') return hasNewerVersion(args.installedVersion, catalog)
+  if (args.installedDigest !== undefined && args.catalogDigest !== undefined) {
+    return args.installedDigest !== args.catalogDigest
+  }
+  return false
+}

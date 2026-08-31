@@ -29,7 +29,7 @@ import { applyManagedBlockText, expandMcpServerTemplates, normalizeMcpServers, r
 import { parseMarketplaceSpec } from '../core/source.ts'
 import { classifyMirrorTarget, MIRROR_INHERIT, parseMirror, renderMirror, type SettingsMirror } from '../core/mirror.ts'
 import { targetId, type TargetRequest } from '../core/targets.ts'
-import { hasNewerVersion, isSnapshotStale } from '../core/versions.ts'
+import { isSnapshotStale, isUpdateAvailable, manifestVersion } from '../core/versions.ts'
 import { isSkillName, sanitizeIdentifier } from '../core/name.ts'
 import { dirnamePath, isSafeRelativePath, joinPath } from '../core/path.ts'
 import { pluginInventory, pluginLevelReferenceNotes, readManifestPaths, skillFiles, type PluginFiles } from '../core/plugin-inventory.ts'
@@ -239,26 +239,39 @@ export class CcMarketplaceService {
       }
       const plugins: MarketplacePluginView[] = snapshot.index.plugins.map((plugin) => {
         const record = byKey.get(`${m.id}/${plugin.name}`)
+        // Claude's version precedence for the catalog side: the entry's
+        // version, then the plugin's own plugin.json (resolvable only for
+        // relative sources, whose files live inside the snapshot).
+        const snapshotFiles = plugin.source.kind === 'relative'
+          ? this.pluginSubMap(snapshot.files, plugin.source.path)
+          : undefined
+        const manifestVer = snapshotFiles !== undefined ? manifestVersion(snapshotFiles) : ''
+        const catalogVersion = plugin.version !== '' ? plugin.version : manifestVer
         const view: MarketplacePluginView = {
           name: plugin.name,
           description: plugin.description,
-          version: plugin.version,
+          version: catalogVersion,
           category: plugin.category,
           author: plugin.author,
           homepage: plugin.homepage,
           tags: plugin.tags,
           installed: record !== undefined,
           ...(record !== undefined && record.version !== '' ? { installedVersion: record.version } : {}),
-          ...(record !== undefined && hasNewerVersion(record.version, plugin.version) ? { updateAvailable: true } : {}),
+          ...(record !== undefined && isUpdateAvailable({
+            installedVersion: record.version,
+            entryVersion: plugin.version,
+            manifestVersion: manifestVer,
+            installedDigest: record.snapshotDigest,
+            catalogDigest: snapshot.digest,
+          }) ? { updateAvailable: true } : {}),
         }
         if (plugin.source.kind === 'unsupported') {
           view.sourceUnsupported = plugin.source.reason
         } else if (plugin.source.kind === 'relative') {
-          const files = this.pluginSubMap(snapshot.files, plugin.source.path)
-          if (files === undefined) {
+          if (snapshotFiles === undefined) {
             view.sourceUnsupported = `path "${plugin.source.path}" is missing from the marketplace snapshot`
           } else {
-            view.inventory = pluginInventory(files)
+            view.inventory = pluginInventory(snapshotFiles)
           }
         }
         return view
@@ -489,12 +502,17 @@ export class CcMarketplaceService {
 
     // 5. Registry record + managed-block rewrite from the registry.
     const now = new Date().toISOString()
+    // Claude's precedence: the marketplace entry's version, then the
+    // plugin's own plugin.json version; the snapshot digest is the update
+    // signal when neither carries one.
+    const effectiveVersion = resolved.entry.version !== '' ? resolved.entry.version : manifestVersion(resolved.files)
+    const snapshotDigest = (await this.store.readSnapshot(args.marketplaceId))?.digest
     const base: InstalledPlugin = existing ?? {
       key,
       marketplaceId: args.marketplaceId,
       marketplaceSpec: resolved.marketplaceSpec,
       pluginName: args.plugin,
-      version: resolved.entry.version,
+      version: effectiveVersion,
       installedAt: now,
       updatedAt: now,
       targets: [],
@@ -504,7 +522,8 @@ export class CcMarketplaceService {
     }
     const record: InstalledPlugin = {
       ...base,
-      version: resolved.entry.version,
+      version: effectiveVersion,
+      ...(snapshotDigest !== undefined ? { snapshotDigest } : {}),
       updatedAt: now,
       targets: [...base.targets, ...newTargets],
       mcpServers: mcp.rows,
@@ -677,9 +696,12 @@ export class CcMarketplaceService {
 
     await this.materializePlugin(key, resolved.files)
 
+    const effectiveVersion = resolved.entry.version !== '' ? resolved.entry.version : manifestVersion(resolved.files)
+    const snapshotDigest = (await this.store.readSnapshot(record.marketplaceId))?.digest
     const updated: InstalledPlugin = {
       ...record,
-      version: resolved.entry.version,
+      version: effectiveVersion,
+      ...(snapshotDigest !== undefined ? { snapshotDigest } : {}),
       updatedAt: new Date().toISOString(),
       targets: updatedTargets,
       mcpServers: mcp.rows,
@@ -696,7 +718,7 @@ export class CcMarketplaceService {
     this.opts.onInstalledChanged?.()
 
     const skipped = errors.length > 0 ? `; skipped: ${errors.join('; ')}` : ''
-    const versionText = resolved.entry.version !== '' ? resolved.entry.version : 'latest'
+    const versionText = effectiveVersion !== '' ? effectiveVersion : 'latest'
     const notes = [...mcp.notes, ...agents.notes, ...pluginLevelReferenceNotes(resolved.files, inventory.skills)]
     const message = notes.length > 0
       ? `updated "${record.pluginName}" to ${versionText}${skipped}; ${notes.join('; ')}`

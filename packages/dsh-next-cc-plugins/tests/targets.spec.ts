@@ -84,6 +84,15 @@ describe('normalizeInstalledRecord', () => {
   })
 })
 
+describe('snapshotDigest passthrough', () => {
+  it('keeps a string digest and drops non-string values', () => {
+    const base = { key: 'k', pluginName: 'p', scope: 'global', skills: [] }
+    expect(normalizeInstalledRecord({ ...base, snapshotDigest: 'd'.repeat(64) })?.snapshotDigest).toBe('d'.repeat(64))
+    expect(normalizeInstalledRecord({ ...base, snapshotDigest: 7 })?.snapshotDigest).toBeUndefined()
+    expect(normalizeInstalledRecord({ ...base })?.snapshotDigest).toBeUndefined()
+  })
+})
+
 describe('normalizeInstalledFile', () => {
   it('returns an empty file for junk and migrates every record', () => {
     expect(normalizeInstalledFile(null)).toEqual({ plugins: [] })

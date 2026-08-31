@@ -108,6 +108,7 @@ export function normalizeInstalledRecord(raw: unknown): InstalledPlugin | undefi
     marketplaceSpec: str(r.marketplaceSpec),
     pluginName,
     version: str(r.version),
+    ...(typeof r.snapshotDigest === 'string' && r.snapshotDigest !== '' ? { snapshotDigest: r.snapshotDigest } : {}),
     installedAt: str(r.installedAt),
     updatedAt: str(r.updatedAt),
     targets,

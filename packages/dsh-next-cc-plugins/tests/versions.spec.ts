@@ -4,7 +4,7 @@
  * marketplace auto-refresh TTL.
  */
 import { describe, expect, it } from 'vitest'
-import { hasNewerVersion, isSnapshotStale, MARKETPLACE_TTL_MS } from '../src/core/versions.ts'
+import { hasNewerVersion, isSnapshotStale, isUpdateAvailable, manifestVersion, MARKETPLACE_TTL_MS } from '../src/core/versions.ts'
 
 const DAY = 24 * 60 * 60 * 1000
 const NOW = Date.parse('2026-09-02T12:00:00.000Z')
@@ -79,5 +79,53 @@ describe('hasNewerVersion', () => {
     expect(hasNewerVersion('2025.01a', '2025.02a')).toBe(true)
     expect(hasNewerVersion('2025.02a', '2025.01a')).toBe(true) // differs, so offer the refresh
     expect(hasNewerVersion('beta-1', 'beta-1')).toBe(false)
+  })
+})
+
+describe('manifestVersion', () => {
+  it('reads the version from .claude-plugin/plugin.json', () => {
+    expect(manifestVersion({ '.claude-plugin/plugin.json': '{"name":"p","version":"3.2.1"}' })).toBe('3.2.1')
+    expect(manifestVersion({ '.claude-plugin/plugin.json': '{"version":" 2.0 "}' })).toBe('2.0')
+  })
+
+  it('returns empty for absent, malformed, or non-string versions', () => {
+    expect(manifestVersion({})).toBe('')
+    expect(manifestVersion({ '.claude-plugin/plugin.json': '{oops' })).toBe('')
+    expect(manifestVersion({ '.claude-plugin/plugin.json': '{"version":7}' })).toBe('')
+    expect(manifestVersion({ '.claude-plugin/plugin.json': '{"version":""}' })).toBe('')
+  })
+})
+
+describe('isUpdateAvailable', () => {
+  const DIGEST_A = 'a'.repeat(64)
+  const DIGEST_B = 'b'.repeat(64)
+
+  it('follows the entry version when one is carried', () => {
+    expect(isUpdateAvailable({ installedVersion: '1.0.0', entryVersion: '1.1.0' })).toBe(true)
+    expect(isUpdateAvailable({ installedVersion: '1.1.0', entryVersion: '1.1.0' })).toBe(false)
+    // Entry wins over manifest even when the manifest is newer.
+    expect(isUpdateAvailable({ installedVersion: '1.0.0', entryVersion: '1.0.0', manifestVersion: '2.0.0' })).toBe(false)
+  })
+
+  it('falls back to the manifest version for version-less entries', () => {
+    expect(isUpdateAvailable({ installedVersion: '1.0.0', entryVersion: '', manifestVersion: '1.1.0' })).toBe(true)
+    expect(isUpdateAvailable({ installedVersion: '1.1.0', entryVersion: '', manifestVersion: '1.1.0' })).toBe(false)
+    // An install with no resolved version treats any catalog version as new.
+    expect(isUpdateAvailable({ installedVersion: '', entryVersion: '', manifestVersion: '0.1.0' })).toBe(true)
+  })
+
+  it('falls back to snapshot digests when no version exists anywhere', () => {
+    expect(isUpdateAvailable({ installedVersion: '', entryVersion: '', installedDigest: DIGEST_A, catalogDigest: DIGEST_B })).toBe(true)
+    expect(isUpdateAvailable({ installedVersion: '', entryVersion: '', installedDigest: DIGEST_A, catalogDigest: DIGEST_A })).toBe(false)
+    // Missing digests mean no signal.
+    expect(isUpdateAvailable({ installedVersion: '', entryVersion: '' })).toBe(false)
+    expect(isUpdateAvailable({ installedVersion: '', entryVersion: '', catalogDigest: DIGEST_B })).toBe(false)
+  })
+
+  it('prefers a version signal over digests', () => {
+    // Same version but changed digest: a version-carrying plugin does not
+    // flag (Claude pins users to the version string); a version-less one
+    // would flag via the digest branch above.
+    expect(isUpdateAvailable({ installedVersion: '1.0.0', entryVersion: '1.0.0', installedDigest: DIGEST_A, catalogDigest: DIGEST_B })).toBe(false)
   })
 })

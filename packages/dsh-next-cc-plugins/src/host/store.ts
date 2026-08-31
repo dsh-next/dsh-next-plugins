@@ -8,6 +8,7 @@
  * `.claude-plugin/marketplace.json` index (`.grok-plugin/marketplace.json`
  * is honored as a Grok Build interop fallback).
  */
+import { createHash } from 'node:crypto'
 import { parseMarketplaceIndex } from '../core/marketplace-index.ts'
 import { sanitizeModelMap } from '../core/agents.ts'
 import { dirnamePath, isSafeRelativePath, joinPath } from '../core/path.ts'
@@ -37,6 +38,24 @@ export interface Snapshot {
   index: MarketplaceIndex
   /** Which index path the index was read from. */
   indexPath: string
+  /** sha256 over the canonical file map — the update signal for plugins the
+   *  index carries no version for. Older snapshots without it are re-derived
+   *  on read. */
+  digest: string
+}
+
+/** A stable digest over a file map: sorted paths, length-delimited contents. */
+export function digestOf(files: Record<string, string>): string {
+  const hash = createHash('sha256')
+  for (const key of Object.keys(files).sort()) {
+    hash.update(key)
+    hash.update('\0')
+    hash.update(String(files[key].length))
+    hash.update('\0')
+    hash.update(files[key])
+    hash.update('\0')
+  }
+  return hash.digest('hex')
 }
 
 export type SyncResult =
@@ -124,7 +143,13 @@ export class Store {
   }
 
   async readSnapshot(id: string): Promise<Snapshot | undefined> {
-    return this.readJson<Snapshot | undefined>(this.snapshotPath(id), undefined)
+    const snapshot = await this.readJson<Snapshot | undefined>(this.snapshotPath(id), undefined)
+    if (snapshot === undefined) return undefined
+    // Older snapshots carry no digest: derive it from the file map in place.
+    if (typeof snapshot.digest !== 'string' || snapshot.digest === '') {
+      return { ...snapshot, digest: digestOf(snapshot.files) }
+    }
+    return snapshot
   }
 
   /**
@@ -178,7 +203,7 @@ export class Store {
       if (raw === undefined) continue
       const parsed = parseMarketplaceIndex(raw, indexPath)
       if ('error' in parsed) return { error: parsed.error }
-      const snapshot: Snapshot = { fetchedAt: new Date().toISOString(), files, index: parsed.index, indexPath }
+      const snapshot: Snapshot = { fetchedAt: new Date().toISOString(), files, index: parsed.index, indexPath, digest: digestOf(files) }
       await this.saveSnapshot(id, snapshot)
       return { snapshot }
     }

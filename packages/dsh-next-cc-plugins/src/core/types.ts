@@ -218,7 +218,12 @@ export interface InstalledPlugin {
   marketplaceId: string
   marketplaceSpec: string
   pluginName: string
+  /** Effective version at install/update time: the marketplace entry's
+   *  `version`, falling back to the plugin's own `plugin.json` version. */
   version: string
+  /** Digest of the marketplace snapshot at install/update time — the update
+   *  signal for plugins no version is carried for. */
+  snapshotDigest?: string
   installedAt: string
   updatedAt: string
   targets: InstalledTarget[]

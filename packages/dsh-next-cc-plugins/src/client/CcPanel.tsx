@@ -167,6 +167,7 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
 
   const marketplaces: MarketplaceViewRow[] = state?.marketplaces ?? []
   const installed: InstalledPlugin[] = state?.installed ?? []
+  const models = state?.models ?? []
   const byKey = React.useMemo(() => new Map(installed.map((r) => [r.key, r])), [installed])
 
   const openModal = (marketplaceId: string, plugin: MarketplacePluginView): void => {
@@ -214,6 +215,18 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
 
   // The flat plugin catalog across every marketplace, filtered in-panel.
   const catalog = React.useMemo(() => marketplaces.flatMap((m) => m.plugins.map((p) => ({ marketplace: m, plugin: p }))), [marketplaces])
+  // Distinct model ids across providers (an id may ride several routes; the
+  // agent row carries the bare id, so one option per id is the honest set).
+  const uniqueModels = React.useMemo(() => {
+    const seen = new Set<string>()
+    const out: typeof models = []
+    for (const m of models) {
+      if (seen.has(m.id)) continue
+      seen.add(m.id)
+      out.push(m)
+    }
+    return out
+  }, [models])
   const filtered = React.useMemo(() => {
     const q = search.trim().toLowerCase()
     const hits = catalog.filter(({ marketplace, plugin }) => {
@@ -514,7 +527,7 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
             const effective = state?.agentModelMap[alias] ?? ''
             const current = modelDraft[alias] !== undefined ? modelDraft[alias] : effective
             const fromConfig = (state?.agentModelConfig ?? {})[alias] !== undefined && effective !== ''
-            const known = (state?.models ?? []).some((m) => m.id === current)
+            const known = uniqueModels.some((m) => m.id === current)
             return (
               <div key={alias} className={styles.optionRow} data-testid="cc-model-row">
                 <span className={styles.optionLabel}>{alias}</span>
@@ -527,7 +540,7 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
                   onChange={(e) => setModelDraft({ ...modelDraft, [alias]: e.target.value })}
                 >
                   <option value="">Inherit session model</option>
-                  {(state?.models ?? []).map((m) => (
+                  {uniqueModels.map((m) => (
                     <option key={`${m.provider}/${m.id}`} value={m.id}>{`${m.name} (${m.provider})`}</option>
                   ))}
                   {current !== '' && !known && <option value={current}>{current}</option>}

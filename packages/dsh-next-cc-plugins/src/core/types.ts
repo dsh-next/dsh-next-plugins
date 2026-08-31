@@ -1,0 +1,268 @@
+/**
+ * Shared types for the Claude Code marketplace bridge. Pure data only: the
+ * filesystem and fetch faces are structural doubles so host services are
+ * testable in-memory, and every view type here is what the browser panel
+ * consumes over the JSON RPC route.
+ */
+
+// ---------------------------------------------------------------------------
+// Structural host faces
+// ---------------------------------------------------------------------------
+
+export interface FsDirent {
+  name: string
+  isDirectory(): boolean
+}
+
+export interface FsLike {
+  readFile(path: string): Promise<string>
+  writeFile(path: string, content: string): Promise<void>
+  mkdir(path: string, opts?: { recursive?: boolean }): Promise<void>
+  readdir(path: string): Promise<FsDirent[]>
+  rm(path: string, opts?: { recursive?: boolean; force?: boolean }): Promise<void>
+  stat(path: string): Promise<{ isDirectory(): boolean }>
+  access(path: string): Promise<void>
+  rename(from: string, to: string): Promise<void>
+}
+
+export interface FetchResponse {
+  ok: boolean
+  status: number
+  json(): Promise<unknown>
+  text(): Promise<string>
+  bytes(): Promise<Uint8Array>
+}
+
+export type FetchLike = (url: string, init?: { headers?: Record<string, string>; signal?: AbortSignal }) => Promise<FetchResponse>
+
+// ---------------------------------------------------------------------------
+// Marketplace sources
+// ---------------------------------------------------------------------------
+
+/** A resolved marketplace source: a GitHub repository or a local directory. */
+export type MarketplaceSource =
+  | { kind: 'github'; owner: string; repo: string }
+  | { kind: 'local'; path: string }
+
+/** Result of parsing a user-typed marketplace spec. */
+export type SourceParseResult =
+  | { source: MarketplaceSource; canonical: string; id: string }
+  | { error: string }
+
+/** One configured marketplace, as persisted in `marketplaces.json`. */
+export interface StoredMarketplace {
+  id: string
+  /** The canonical spec (owner/repo or absolute path). */
+  spec: string
+  addedAt: string
+}
+
+// ---------------------------------------------------------------------------
+// Marketplace index (.claude-plugin/marketplace.json)
+// ---------------------------------------------------------------------------
+
+/** Where a marketplace entry's plugin files live. */
+export type PluginSource =
+  | { kind: 'relative'; path: string }
+  | { kind: 'github'; owner: string; repo: string; ref?: string }
+  | { kind: 'unsupported'; raw: string; reason: string }
+
+/** A normalized plugin entry from a marketplace index. */
+export interface MarketplacePlugin {
+  name: string
+  description: string
+  version: string
+  category: string
+  author: string
+  homepage: string
+  tags: string[]
+  source: PluginSource
+}
+
+/** A parsed marketplace index. */
+export interface MarketplaceIndex {
+  name: string
+  description: string
+  owner: string
+  plugins: MarketplacePlugin[]
+}
+
+// ---------------------------------------------------------------------------
+// Plugin component inventory
+// ---------------------------------------------------------------------------
+
+export interface SkillComponent {
+  /** Registry skill name (frontmatter `name` or directory base name). */
+  name: string
+  description: string
+  /** Plugin-relative directory of the skill (bundle form) or '' (flat). */
+  path: string
+}
+
+export interface CommandComponent {
+  /** Slash-command style name derived from the file path. */
+  name: string
+  description: string
+  path: string
+}
+
+export interface AgentComponent {
+  name: string
+  description: string
+  path: string
+  /** Raw `tools:` frontmatter (comma-separated Claude tool names), '' when absent. */
+  tools: string
+  /** Raw `model:` frontmatter (Claude model name or id), '' when absent. */
+  model: string
+}
+
+export type McpTransport =
+  | { transport: 'stdio'; command: string; args: string[]; env: Record<string, string> }
+  | { transport: 'streamable-http'; url: string; headers: Record<string, string> }
+
+export interface McpServerComponent {
+  /** Server name from .mcp.json (Claude's key). */
+  name: string
+  def: McpTransport
+}
+
+/** Everything a Claude Code plugin bundles, extracted from its files. */
+export interface PluginInventory {
+  skills: SkillComponent[]
+  commands: CommandComponent[]
+  agents: AgentComponent[]
+  /** Hook event names declared in hooks/hooks.json. */
+  hookEvents: string[]
+  mcpServers: McpServerComponent[]
+  /** Non-fatal notes (skipped components, unusual shapes). */
+  notes: string[]
+}
+
+// ---------------------------------------------------------------------------
+// Installed-plugin registry
+// ---------------------------------------------------------------------------
+
+/** One installed skill copy recorded in the registry. */
+export interface InstalledSkillRef {
+  name: string
+  /** Absolute path of the installed skill directory. */
+  directory: string
+}
+
+/** One installed MCP server row (managed-block content). */
+export interface InstalledMcpRow {
+  /** Composition row id inside the managed block. */
+  rowId: string
+  /** Resolved (deduped, sanitized) dsh-mcp-client serverName. */
+  serverName: string
+  /** Claude's original server key, kept for stable row ids across updates. */
+  claudeName: string
+  /** The full dsh-mcp-client config, persisted so the managed block can be
+   *  re-rendered from the registry alone. */
+  def: McpTransport
+}
+
+/** One installed agent delegation tool row (managed-block content). */
+export interface InstalledAgentRow {
+  /** Composition row id inside the managed block. */
+  rowId: string
+  /** Model-facing tool name (`cc-agent-<name>`, deduped across plugins). */
+  toolName: string
+  /** Claude's original agent name (the agents/*.md file name). */
+  claudeName: string
+  /** The full agent definition text (the dsh-tool-subagent persona), persisted
+   *  so the managed block can be re-rendered from the registry alone. */
+  persona: string
+  /** Translated DSH tool names for `toolFilter.allow`; undefined = no filter. */
+  toolFilter?: string[]
+  /** Resolved DSH model id for `agentOptions.model`; undefined = inherit. */
+  model?: string
+}
+
+/** Components recorded for the runtime bridge: commands register in-process
+ *  from the cached plugin files, hook events run only while `runtime.hooks`
+ *  is enabled (they execute third-party shell commands). */
+export interface PendingComponents {
+  commands: string[]
+  hookEvents: string[]
+}
+
+/** A persisted install record (installed.json value). */
+export interface InstalledPlugin {
+  /** `<marketplaceId>/<pluginName>`. */
+  key: string
+  marketplaceId: string
+  marketplaceSpec: string
+  pluginName: string
+  version: string
+  installedAt: string
+  updatedAt: string
+  scope: 'global' | 'workspace'
+  workspacePath?: string
+  skills: InstalledSkillRef[]
+  mcpServers: InstalledMcpRow[]
+  agents: InstalledAgentRow[]
+  pending: PendingComponents
+}
+
+export interface InstalledFile {
+  plugins: InstalledPlugin[]
+}
+
+// ---------------------------------------------------------------------------
+// RPC view shapes
+// ---------------------------------------------------------------------------
+
+export interface MutationResult {
+  ok: boolean
+  error?: string
+  /** Human-readable summary of what an install/update touched. */
+  message?: string
+  state?: CcState
+}
+
+/** Row shown in the Marketplaces tab. */
+export interface MarketplaceViewRow {
+  id: string
+  spec: string
+  name: string
+  description: string
+  owner: string
+  lastSync: string
+  error?: string
+  plugins: MarketplacePluginView[]
+}
+
+export interface MarketplacePluginView {
+  name: string
+  description: string
+  version: string
+  category: string
+  author: string
+  homepage: string
+  tags: string[]
+  /** Resolved inventory when the files are locally available (in-repo plugins). */
+  inventory?: PluginInventory
+  /** Set when the source form is not installable by this bridge version. */
+  sourceUnsupported?: string
+  installed: boolean
+}
+
+/** Full browser-facing state envelope. */
+export interface CcState {
+  installed: InstalledPlugin[]
+  marketplaces: MarketplaceViewRow[]
+}
+
+export interface PluginDetail {
+  name: string
+  description: string
+  inventory: PluginInventory
+}
+
+/** A workspace row extracted structurally on the client (see client/workspaces.ts). */
+export interface WorkspaceRow {
+  id: string
+  title: string
+  path: string
+}

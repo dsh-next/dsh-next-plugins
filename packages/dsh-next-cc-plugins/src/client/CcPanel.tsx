@@ -68,6 +68,7 @@ export function inventorySummary(inventory: PluginInventory): string {
     inventory.agents.length > 0 ? `${inventory.agents.length} agent tool${inventory.agents.length === 1 ? '' : 's'}` : '',
     inventory.hookEvents.length > 0 ? `${inventory.hookEvents.length} hook event${inventory.hookEvents.length === 1 ? '' : 's'} (enable runtime.hooks)` : '',
     unbridgedSummary(inventory.unbridged),
+    inventory.dependencies.length > 0 ? `requires: ${inventory.dependencies.join(', ')}` : '',
   ].filter(Boolean)
   return parts.length > 0 ? parts.join(', ') : 'no components'
 }

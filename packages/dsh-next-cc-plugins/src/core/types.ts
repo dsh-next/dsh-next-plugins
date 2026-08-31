@@ -161,6 +161,9 @@ export interface PluginInventory {
   mcpServers: McpServerComponent[]
   /** Recognized-but-unbridged component families and their counts. */
   unbridged: UnbridgedComponents
+  /** Other plugins this plugin declares a dependency on (`name` or
+   *  `name@range`); this bridge reports them, it does not auto-install. */
+  dependencies: string[]
   /** Non-fatal notes (skipped components, unusual shapes). */
   notes: string[]
 }

@@ -5,7 +5,7 @@
  * `pluginLevelReferenceNotes`.
  */
 import { describe, expect, it } from 'vitest'
-import { pluginInventory, pluginLevelReferenceNotes, hooksDocument, readManifestPaths, skillFiles, unbridgedNotes } from '../src/core/plugin-inventory.ts'
+import { dependencyNotes, pluginInventory, pluginLevelReferenceNotes, hooksDocument, readManifestPaths, skillFiles, unbridgedNotes } from '../src/core/plugin-inventory.ts'
 
 const SKILL = (name: string, description = 'does things'): string =>
   `---\nname: ${name}\ndescription: ${description}\n---\nbody\n`
@@ -376,5 +376,28 @@ describe('unbridged component families', () => {
       'bin/tool': 'x',
     }
     expect(pluginLevelReferenceNotes(files, pluginInventory(files).skills)).toEqual([])
+  })
+})
+
+describe('plugin dependencies', () => {
+  it('reads string and versioned object entries', () => {
+    const files = {
+      '.claude-plugin/plugin.json': JSON.stringify({
+        dependencies: ['helper-lib', { name: 'secrets-vault', version: '~2.1.0' }, { name: 'bare' }],
+      }),
+    }
+    expect(pluginInventory(files).dependencies).toEqual(['helper-lib', 'secrets-vault@~2.1.0', 'bare'])
+    expect(dependencyNotes(pluginInventory(files).dependencies)).toEqual([
+      'requires plugin(s) helper-lib, secrets-vault@~2.1.0, bare; this bridge does not auto-install dependencies',
+    ])
+  })
+
+  it('drops invalid entries and stays empty without the field', () => {
+    expect(pluginInventory({}).dependencies).toEqual([])
+    const files = {
+      '.claude-plugin/plugin.json': JSON.stringify({ dependencies: [7, null, { version: '1.0.0' }, '  ', 'ok'] }),
+    }
+    expect(pluginInventory(files).dependencies).toEqual(['ok'])
+    expect(dependencyNotes([])).toEqual([])
   })
 })

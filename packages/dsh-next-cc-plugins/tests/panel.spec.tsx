@@ -54,6 +54,7 @@ const STATE: CcState = {
             hookEvents: ['Stop'],
             mcpServers: [{ name: 'linear', def: { transport: 'stdio', command: 'npx', args: [], env: {} } }],
             unbridged: {},
+            dependencies: [],
             notes: [],
           },
           installed: false,
@@ -687,6 +688,7 @@ describe('unbridged summaries', () => {
       hookEvents: [],
       mcpServers: [],
       unbridged: { lspServers: 2, monitors: 1 },
+      dependencies: [],
       notes: [],
     })
     expect(summary).toBe('1 skill, not bridged: 2 LSP servers, 1 monitor')
@@ -701,5 +703,21 @@ describe('unbridged summaries', () => {
   it('unbridgedSummary is empty for an empty or zero-valued map', () => {
     expect(unbridgedSummary({})).toBe('')
     expect(unbridgedSummary({ monitors: 0 })).toBe('')
+  })
+})
+
+describe('dependency chip in summaries', () => {
+  it('inventorySummary lists required plugins last', () => {
+    const summary = inventorySummary({
+      skills: [{ name: 'a', description: '', path: 'skills/a' }],
+      commands: [],
+      agents: [],
+      hookEvents: [],
+      mcpServers: [],
+      unbridged: {},
+      dependencies: ['secrets-vault@~2.1.0', 'helper-lib'],
+      notes: [],
+    })
+    expect(summary).toBe('1 skill, requires: secrets-vault@~2.1.0, helper-lib')
   })
 })

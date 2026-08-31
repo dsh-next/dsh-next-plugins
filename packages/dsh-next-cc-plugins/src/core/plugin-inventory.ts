@@ -312,6 +312,39 @@ function extractMcp(files: PluginFiles, paths: readonly string[], explicit: bool
   return out
 }
 
+/**
+ * The plugin's declared dependencies (`dependencies` in plugin.json — Claude
+ * Code auto-installs them; this bridge only reports them). Entries render as
+ * `name` or `name@range`. Invalid entries drop out silently: a dependency
+ * list must never block the install it decorates.
+ */
+export function manifestDependencies(files: PluginFiles): string[] {
+  const manifest = readManifest(files)
+  const raw = manifest?.dependencies
+  if (!Array.isArray(raw)) return []
+  const out: string[] = []
+  for (const entry of raw) {
+    if (typeof entry === 'string') {
+      const name = entry.trim()
+      if (name !== '') out.push(name)
+      continue
+    }
+    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) continue
+    const e = entry as Record<string, unknown>
+    const name = typeof e.name === 'string' ? e.name.trim() : ''
+    if (name === '') continue
+    const version = typeof e.version === 'string' && e.version.trim() !== '' ? e.version.trim() : ''
+    out.push(version === '' ? name : `${name}@${version}`)
+  }
+  return out
+}
+
+/** Install note for a plugin's declared dependencies (none -> no note). */
+export function dependencyNotes(dependencies: readonly string[]): string[] {
+  if (dependencies.length === 0) return []
+  return [`requires plugin(s) ${dependencies.join(', ')}; this bridge does not auto-install dependencies`]
+}
+
 /** Compute the full component inventory of a plugin's files. */
 export function pluginInventory(files: PluginFiles): PluginInventory {
   const notes: string[] = []
@@ -323,6 +356,7 @@ export function pluginInventory(files: PluginFiles): PluginInventory {
     hookEvents: extractHookEvents(files, paths.hooks ?? DEFAULT_COMPONENT_PATHS.hooks, paths.hooks !== undefined, notes),
     mcpServers: extractMcp(files, paths.mcpServers ?? DEFAULT_COMPONENT_PATHS.mcpServers, paths.mcpServers !== undefined, notes),
     unbridged: extractUnbridged(files, notes),
+    dependencies: manifestDependencies(files),
     notes,
   }
   return inventory

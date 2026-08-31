@@ -345,6 +345,31 @@ describe('CcMarketplaceService install', () => {
     if (result.ok) expect(result.message).toContain('CLAUDE_PROJECT_DIR')
   })
 
+  it('notes declared plugin dependencies without auto-installing them', async () => {
+    f.gh.setRepo('o', 'r', {
+      '.claude-plugin/marketplace.json': JSON.stringify({
+        name: 'acme-tools',
+        plugins: [
+          { name: 'vault-user', source: './plugins/vault-user' },
+          { name: 'secrets-vault', source: './plugins/secrets-vault' },
+        ],
+      }),
+      'plugins/vault-user/.claude-plugin/plugin.json': JSON.stringify({
+        name: 'vault-user',
+        dependencies: ['secrets-vault'],
+      }),
+      'plugins/vault-user/skills/deploy/SKILL.md': SKILL('deploy', 'Deploys'),
+      'plugins/secrets-vault/skills/keep/SKILL.md': SKILL('keep', 'Keeps'),
+    })
+    await f.service.addMarketplace('o/r')
+    const result = await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'vault-user', targets: [{ scope: 'global' }] })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.message).toContain('requires plugin(s) secrets-vault; this bridge does not auto-install dependencies')
+    // Only the requested plugin installed.
+    expect((await f.service.state()).installed).toHaveLength(1)
+  })
+
   it('notes unbridged component families in the install message', async () => {
     f.gh.setRepo('o', 'r', {
       '.claude-plugin/marketplace.json': JSON.stringify({

@@ -134,6 +134,15 @@ describe('applyManagedBlock', () => {
     expect(applyManagedBlock(blockOnly, [])).toBe('[]\n')
   })
 
+  it('replaces the canonical empty array when the first block arrives', () => {
+    // Round trip of the removal placeholder: appending to `[]` must swap the
+    // placeholder out, never concatenate rows after the array's end.
+    const next = applyManagedBlock('[]\n', [{ rowId: 'r', serverName: 's', def: STDIO }])
+    expect(next.startsWith(MANAGED_BEGIN)).toBe(true)
+    expect(next).not.toContain('[]')
+    expect(applyManagedBlock(next, [])).toBe('[]\n')
+  })
+
   it('leaves a file without a block untouched when rows are empty', () => {
     expect(applyManagedBlock('x: 1\n', [])).toBe('x: 1\n')
   })

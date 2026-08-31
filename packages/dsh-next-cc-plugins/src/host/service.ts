@@ -22,6 +22,7 @@
  * All filesystem and network access flows through injected `fs`/`fetch`
  * faces so the service is fully testable with in-memory doubles.
  */
+import { createHash } from 'node:crypto'
 import { agentFrontmatter, resolveAgentModel, translateTools } from '../core/agents.ts'
 import { parseFrontmatter } from '../core/frontmatter.ts'
 import { applyManagedBlockText, normalizeMcpServers, renderManagedBlock, resolveServerName, type ManagedRow, type RawAgentRow, type RawMcpServer } from '../core/mcp.ts'
@@ -387,7 +388,7 @@ export class CcMarketplaceService {
     //    the agent markdown, translated tools/model frontmatter), only while
     //    runtime.agents is enabled.
     const agents = this.opts.agentsEnabled === true
-      ? this.buildAgentRows(key, resolved.files, inventory, others, existing?.agents)
+      ? this.buildAgentRows(key, args.plugin, resolved.files, inventory, others, mcp.rows, existing?.agents)
       : { rows: [] as InstalledAgentRow[], notes: [] as string[] }
 
     // 4. Materialize the plugin copy: the file cache drives the runtime
@@ -575,7 +576,7 @@ export class CcMarketplaceService {
     const others = installed.plugins.filter((p) => p.key !== key)
     const mcp = this.buildMcpRows(key, inventory, others, record.mcpServers)
     const agents = this.opts.agentsEnabled === true
-      ? this.buildAgentRows(key, resolved.files, inventory, others, record.agents)
+      ? this.buildAgentRows(key, record.pluginName, resolved.files, inventory, others, mcp.rows, record.agents)
       : { rows: [] as InstalledAgentRow[], notes: [] as string[] }
 
     await this.materializePlugin(key, resolved.files)
@@ -696,15 +697,19 @@ export class CcMarketplaceService {
    * Build the agent delegation-tool rows for one plugin: each agents/*.md
    * becomes a `dsh-tool-subagent` row whose child runs the agent markdown as
    * its persona. `tools:` frontmatter is translated into `toolFilter.allow`
-   * (DSH tool names; unmapped Claude tools drop with a note) and `model:`
-   * frontmatter is resolved through `agentModelMap` into `agentOptions.model`.
-   * `previous` (update path) keeps stable tool names.
+   * over DSH tool names — Claude built-ins through the well-known map,
+   * `mcp__` refs through this plugin's installed MCP rows (so name dedupe
+   * survives) — and `model:` frontmatter is resolved through
+   * `agentModelMap` into `agentOptions.model`. `previous` (update path)
+   * keeps stable tool names.
    */
   private buildAgentRows(
     key: string,
+    pluginName: string,
     files: PluginFiles,
     inventory: PluginInventory,
     others: readonly InstalledPlugin[],
+    mcpRows: readonly InstalledMcpRow[],
     previous?: readonly InstalledAgentRow[],
   ): { rows: InstalledAgentRow[]; notes: string[] } {
     const notes: string[] = []
@@ -728,7 +733,11 @@ export class CcMarketplaceService {
       }
       taken.add(toolName)
       const { tools, model } = agentFrontmatter(parseFrontmatter(persona))
-      const translated = translateTools(tools)
+      const translated = translateTools(tools, {
+        pluginName,
+        servers: mcpRows.map((row) => ({ claudeName: row.claudeName, serverName: row.serverName })),
+        digest: (input) => createHash('sha256').update(input).digest('hex'),
+      })
       notes.push(...translated.notes.map((note) => `agent "${agent.name}": ${note}`))
       const resolved = resolveAgentModel(model, this.opts.agentModelMap ?? {})
       if (resolved.note !== undefined) notes.push(`agent "${agent.name}": ${resolved.note}`)

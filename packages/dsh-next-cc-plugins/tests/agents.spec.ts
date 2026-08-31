@@ -1,10 +1,11 @@
 /**
  * Agent frontmatter translation: the Claude tool-name map, pattern and
- * unmapped-name handling, and model resolution against the user's
- * runtime.agentModelMap. Pure core coverage for `core/agents.ts`.
+ * unmapped-name handling, `mcp__` tool-ref resolution against the installed
+ * MCP rows, and model resolution against the user's runtime.agentModelMap.
+ * Pure core coverage for `core/agents.ts`.
  */
 import { describe, expect, it } from 'vitest'
-import { agentFrontmatter, CLAUDE_TOOL_MAP, resolveAgentModel, translateTools } from '../src/core/agents.ts'
+import { agentFrontmatter, CLAUDE_TOOL_MAP, dshMcpToolName, resolveAgentModel, translateTools } from '../src/core/agents.ts'
 import { parseFrontmatter } from '../src/core/frontmatter.ts'
 
 describe('translateTools', () => {
@@ -28,12 +29,10 @@ describe('translateTools', () => {
     expect(result.notes).toEqual(['tool pattern "Bash(git log:*)" maps to "Bash"; argument patterns are not enforced by DSH toolFilter'])
   })
 
-  it('drops unmapped tools with a note', () => {
+  it('drops unmapped tools with a note and passes foreign mcp refs through', () => {
     const result = translateTools('Bash, NotebookEdit, mcp__linear__create_issue')
-    expect(result.allow).toEqual(['bash'])
-    expect(result.notes[0]).toContain('NotebookEdit')
-    expect(result.notes[1]).toContain('mcp__linear__create_issue')
-    expect(result.notes.every((note) => note.includes('no DSH counterpart'))).toBe(true)
+    expect(result.allow).toEqual(['bash', 'mcp__linear__create_issue'])
+    expect(result.notes).toEqual(['tool "NotebookEdit" has no DSH counterpart; dropped from the agent\'s toolFilter'])
   })
 
   it('returns no filter for empty, wildcard, or fully-unmapped lists', () => {
@@ -55,6 +54,91 @@ describe('translateTools', () => {
     expect(CLAUDE_TOOL_MAP.AskUserQuestion).toBe('ask_user_question')
     expect(CLAUDE_TOOL_MAP.TodoWrite).toBe('todo_write')
     expect(CLAUDE_TOOL_MAP.ListAgents).toBe('list_agents')
+  })
+})
+
+describe('translateTools mcp__ refs', () => {
+  const EPISODIC = 'mcp__plugin_episodic-memory_episodic-memory__search, mcp__plugin_episodic-memory_episodic-memory__read'
+
+  it('resolves plugin-prefixed refs through the installed rows', () => {
+    const result = translateTools(`Read, ${EPISODIC}`, {
+      pluginName: 'episodic-memory',
+      servers: [{ claudeName: 'episodic-memory', serverName: 'episodic-memory' }],
+    })
+    expect(result.allow).toEqual(['mcp__episodic-memory__read', 'mcp__episodic-memory__search', 'read'])
+    expect(result.notes).toEqual([])
+  })
+
+  it('honors a deduped serverName so toolFilter matches the live tools', () => {
+    const result = translateTools('mcp__plugin_episodic-memory_episodic-memory__search', {
+      pluginName: 'episodic-memory',
+      servers: [{ claudeName: 'episodic-memory', serverName: 'episodic-memory-2' }],
+    })
+    expect(result.allow).toEqual(['mcp__episodic-memory-2__search'])
+  })
+
+  it('resolves bare server refs that name one of the plugin rows', () => {
+    const result = translateTools('mcp__linear__list_issues', {
+      pluginName: 'team-tools',
+      servers: [{ claudeName: 'linear', serverName: 'linear' }],
+    })
+    expect(result.allow).toEqual(['mcp__linear__list_issues'])
+    expect(result.notes).toEqual([])
+  })
+
+  it('drops plugin-prefixed refs whose server the plugin does not ship', () => {
+    const result = translateTools('mcp__plugin_team-tools_missing__query', {
+      pluginName: 'team-tools',
+      servers: [{ claudeName: 'linear', serverName: 'linear' }],
+    })
+    expect(result.allow).toBeUndefined() // fully-unmapped list = no filter
+    expect(result.notes).toEqual(['tool "mcp__plugin_team-tools_missing__query" has no DSH counterpart; dropped from the agent\'s toolFilter'])
+  })
+
+  it('drops malformed mcp refs with a note', () => {
+    const result = translateTools('mcp__server')
+    expect(result.allow).toBeUndefined()
+    expect(result.notes[0]).toContain('malformed')
+  })
+
+  it('normalizes exotic names with the digest and drops them without one', () => {
+    const ctx = {
+      pluginName: 'p',
+      servers: [{ claudeName: 'srv', serverName: 'srv' }],
+      digest: (input: string) => `digest-of-${input}`,
+    }
+    const resolved = translateTools('mcp__plugin_p_srv__to.ol', ctx)
+    expect(resolved.allow).toEqual(['mcp__srv__to_ol_digest-of-sr']) // the first 12 chars of the digest input's hash
+    expect(resolved.notes).toEqual([])
+
+    const dropped = translateTools('mcp__plugin_p_srv__to.ol', { pluginName: 'p', servers: ctx.servers })
+    expect(dropped.allow).toBeUndefined()
+    expect(dropped.notes[0]).toContain('exotic name')
+  })
+})
+
+describe('dshMcpToolName', () => {
+  const digest = (input: string): string => input.replace(/[^0-9a-f]/g, '').padEnd(64, '0')
+
+  it('is the verbatim server-qualified name for clean names', () => {
+    expect(dshMcpToolName('episodic-memory', 'search')).toBe('mcp__episodic-memory__search')
+  })
+
+  it('normalizes invalid characters and appends the 12-char digest slice', () => {
+    expect(dshMcpToolName('srv', 'to.ol', digest)).toBe('mcp__srv__to_ol_000000000000')
+  })
+
+  it('truncates overlong names to the 64-char contract', () => {
+    const long = 'a'.repeat(70)
+    const name = dshMcpToolName('srv', long, digest)
+    expect(name).toBeDefined()
+    expect(name).toHaveLength(64)
+    expect(name!.endsWith(digest(`srv\0${long}`).slice(0, 12))).toBe(true)
+  })
+
+  it('returns undefined for lossy names without a digest', () => {
+    expect(dshMcpToolName('srv', 'to.ol')).toBeUndefined()
+    expect(dshMcpToolName('srv', 'a'.repeat(70))).toBeUndefined()
   })
 })
 

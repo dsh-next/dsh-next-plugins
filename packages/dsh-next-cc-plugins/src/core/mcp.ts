@@ -214,7 +214,9 @@ export function applyManagedBlockText(text: string, blockText: string): string {
   if (existing === null) {
     if (blockText === '') return text
     const base = text.replace(/\s+$/, '')
-    if (base === '') return `${blockText}\n`
+    // `[]` is the canonical empty-array placeholder (see the removal path):
+    // the first appended block replaces it, never concatenates after it.
+    if (base === '' || base === '[]') return `${blockText}\n`
     return `${base}\n\n${blockText}\n`
   }
   if (blockText === '') {

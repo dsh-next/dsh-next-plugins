@@ -302,6 +302,32 @@ describe('CcMarketplaceService install', () => {
     expect((disabled.fs.snapshot()[PATCH] ?? '')).toContain('dsh-mcp-client')
   })
 
+  it('translates mcp__ tool refs in agent frontmatter to the installed server names', async () => {
+    f.gh.setRepo('o', 'episodic', {
+      '.claude-plugin/marketplace.json': JSON.stringify({
+        name: 'episodic-market',
+        plugins: [{ name: 'episodic-memory', description: 'Memory', version: '1.4.2', source: './plugins/episodic-memory' }],
+      }),
+      'plugins/episodic-memory/.mcp.json': JSON.stringify({
+        mcpServers: { 'episodic-memory': { command: 'npx', args: ['-y', 'episodic-memory-mcp'] } },
+      }),
+      'plugins/episodic-memory/agents/search-conversations.md':
+        '---\ndescription: Search past conversations\nmodel: haiku\ntools: Read, mcp__plugin_episodic-memory_episodic-memory__search, mcp__plugin_episodic-memory_episodic-memory__read\n---\nSearch.',
+    })
+    await f.service.addMarketplace('o/episodic')
+    const result = await f.service.installPlugin({ marketplaceId: 'github:o/episodic', plugin: 'episodic-memory', targets: [{ scope: 'global' }] })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    // The plugin-owned refs resolved through the installed row: no drop notes.
+    expect(result.message).not.toContain('no DSH counterpart')
+    expect(result.message).not.toContain('exotic name')
+    const record = (await f.service.state()).installed[0]
+    expect(record.agents[0].toolFilter).toEqual(['mcp__episodic-memory__read', 'mcp__episodic-memory__search', 'read'])
+    // The unmapped model note stays honest (no agentModelMap in this fixture).
+    expect(result.message).toContain('agent "search-conversations": agent model "haiku" has no mapping')
+    expect(record.agents[0].model).toBeUndefined()
+  })
+
   it('translates agent tools frontmatter into toolFilter and maps model through agentModelMap', async () => {
     f.gh.setRepo('o', 'agents-repo', {
       '.claude-plugin/marketplace.json': JSON.stringify({

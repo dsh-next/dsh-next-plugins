@@ -114,6 +114,9 @@ export function normalizeInstalledRecord(raw: unknown): InstalledPlugin | undefi
     targets,
     mcpServers: Array.isArray(r.mcpServers) ? (r.mcpServers as InstalledPlugin['mcpServers']) : [],
     agents: Array.isArray(r.agents) ? (r.agents as InstalledPlugin['agents']) : [],
+    ...(Array.isArray(r.notes) && r.notes.filter((n): n is string => typeof n === 'string').length > 0
+      ? { notes: r.notes.filter((n): n is string => typeof n === 'string') }
+      : {}),
     pending: {
       commands: Array.isArray(pending.commands) ? pending.commands.filter((c): c is string => typeof c === 'string') : [],
       hookEvents: Array.isArray(pending.hookEvents) ? pending.hookEvents.filter((c): c is string => typeof c === 'string') : [],

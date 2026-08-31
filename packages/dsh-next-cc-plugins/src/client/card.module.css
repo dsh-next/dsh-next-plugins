@@ -327,6 +327,19 @@
   white-space: nowrap;
 }
 
+/* Neutral pill flagging persisted install/update notes (hover for the list,
+   full text in the plugin detail view). */
+.notesChip {
+  border: 0;
+  border-radius: 999px;
+  background: var(--dsw-alias-state-warning-primary, #b45309);
+  color: var(--dsw-static-neutral-bluish-00, #fff);
+  font-size: 11px;
+  padding: 1px 8px;
+  white-space: nowrap;
+  cursor: help;
+}
+
 /* The Models tab's config-baseline chip stays neutral informational. */
 .configChip {
   border: 1px solid var(--dsw-alias-border-l2);

@@ -93,6 +93,16 @@ describe('snapshotDigest passthrough', () => {
   })
 })
 
+describe('notes passthrough', () => {
+  it('keeps string notes and drops non-strings or empty lists', () => {
+    const base = { key: 'k', pluginName: 'p', scope: 'global', skills: [] }
+    expect(normalizeInstalledRecord({ ...base, notes: ['a', 7, 'b'] })?.notes).toEqual(['a', 'b'])
+    expect(normalizeInstalledRecord({ ...base, notes: [] })?.notes).toBeUndefined()
+    expect(normalizeInstalledRecord({ ...base, notes: 'x' })?.notes).toBeUndefined()
+    expect(normalizeInstalledRecord({ ...base })?.notes).toBeUndefined()
+  })
+})
+
 describe('normalizeInstalledFile', () => {
   it('returns an empty file for junk and migrates every record', () => {
     expect(normalizeInstalledFile(null)).toEqual({ plugins: [] })

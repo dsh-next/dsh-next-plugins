@@ -500,7 +500,10 @@ export class CcMarketplaceService {
     //    bridge, and the on-disk copy gives hooks a real CLAUDE_PLUGIN_ROOT.
     await this.materializePlugin(key, resolved.files)
 
-    // 5. Registry record + managed-block rewrite from the registry.
+    // 5. Registry record + managed-block rewrite from the registry. The
+    //    install notes persist on the record so they stay reviewable long
+    //    after the panel toast is gone.
+    const notes = [...mcp.notes, ...agents.notes, ...unbridgedNotes(inventory.unbridged), ...dependencyNotes(inventory.dependencies), ...skillSemanticNotes(resolved.files, inventory.skills), ...pluginLevelReferenceNotes(resolved.files, inventory.skills)]
     const now = new Date().toISOString()
     // Claude's precedence: the marketplace entry's version, then the
     // plugin's own plugin.json version; the snapshot digest is the update
@@ -532,6 +535,7 @@ export class CcMarketplaceService {
         commands: inventory.commands.map((c) => c.name),
         hookEvents: inventory.hookEvents,
       },
+      ...(notes.length > 0 ? { notes } : {}),
     }
     const plugins = existing === undefined
       ? [...installed.plugins, record]
@@ -560,7 +564,6 @@ export class CcMarketplaceService {
       `targets: ${args.targets.map((t) => this.scopeLabel(t)).join(' + ')}`,
     ].filter(Boolean)
     const summary = parts.join('; ')
-    const notes = [...mcp.notes, ...agents.notes, ...unbridgedNotes(inventory.unbridged), ...dependencyNotes(inventory.dependencies), ...skillSemanticNotes(resolved.files, inventory.skills), ...pluginLevelReferenceNotes(resolved.files, inventory.skills)]
     const verb = existing === undefined ? 'installed' : 'added targets to'
     const message = notes.length > 0 ? `${verb} "${args.plugin}": ${summary}; ${notes.join('; ')}` : `${verb} "${args.plugin}": ${summary}`
     return { ok: true, message, state: await this.state() }
@@ -698,6 +701,7 @@ export class CcMarketplaceService {
 
     const effectiveVersion = resolved.entry.version !== '' ? resolved.entry.version : manifestVersion(resolved.files)
     const snapshotDigest = (await this.store.readSnapshot(record.marketplaceId))?.digest
+    const notes = [...mcp.notes, ...agents.notes, ...unbridgedNotes(inventory.unbridged), ...dependencyNotes(inventory.dependencies), ...skillSemanticNotes(resolved.files, inventory.skills), ...pluginLevelReferenceNotes(resolved.files, inventory.skills)]
     const updated: InstalledPlugin = {
       ...record,
       version: effectiveVersion,
@@ -710,6 +714,7 @@ export class CcMarketplaceService {
         commands: inventory.commands.map((c) => c.name),
         hookEvents: inventory.hookEvents,
       },
+      ...(notes.length > 0 ? { notes } : {}),
     }
     const plugins = installed.plugins.map((p) => (p.key === key ? updated : p))
     await this.writeManagedRows(plugins)
@@ -719,7 +724,6 @@ export class CcMarketplaceService {
 
     const skipped = errors.length > 0 ? `; skipped: ${errors.join('; ')}` : ''
     const versionText = effectiveVersion !== '' ? effectiveVersion : 'latest'
-    const notes = [...mcp.notes, ...agents.notes, ...unbridgedNotes(inventory.unbridged), ...dependencyNotes(inventory.dependencies), ...skillSemanticNotes(resolved.files, inventory.skills), ...pluginLevelReferenceNotes(resolved.files, inventory.skills)]
     const message = notes.length > 0
       ? `updated "${record.pluginName}" to ${versionText}${skipped}; ${notes.join('; ')}`
       : `updated "${record.pluginName}" to ${versionText}${skipped}`

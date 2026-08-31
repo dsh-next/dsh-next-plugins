@@ -478,6 +478,11 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
                           {`installed ${plugin.installedVersion}`}
                         </span>
                       )}
+                      {(record.notes ?? []).length > 0 && (
+                        <span className={styles.notesChip} data-testid="cc-notes-chip" title={(record.notes ?? []).join('\n')}>
+                          {`${(record.notes ?? []).length} install note${(record.notes ?? []).length === 1 ? '' : 's'}`}
+                        </span>
+                      )}
                     </div>
                   )}
                 </div>

@@ -248,6 +248,9 @@ export interface InstalledPlugin {
   mcpServers: InstalledMcpRow[]
   agents: InstalledAgentRow[]
   pending: PendingComponents
+  /** Non-fatal notes from the last install/update (unbridged families,
+   *  renamed servers, unresolved templates, ...), kept for later review. */
+  notes?: string[]
 }
 
 export interface InstalledFile {

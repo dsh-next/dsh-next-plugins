@@ -721,3 +721,24 @@ describe('dependency chip in summaries', () => {
     expect(summary).toBe('1 skill, requires: secrets-vault@~2.1.0, helper-lib')
   })
 })
+
+describe('install-notes chip', () => {
+  it('shows a notes chip with a hover list when the record carries notes', async () => {
+    await renderAsync({ rpc: rpcMock({
+      ...STATE,
+      installed: [installedRecord({ notes: ['ships 1 LSP server; no DSH bridge, not installed', 'MCP server "x" renamed to "y"'] })],
+    }) })
+    const chip = container.querySelector('[data-testid="cc-notes-chip"]') as HTMLElement | null
+    expect(chip).not.toBeNull()
+    expect(chip?.textContent).toBe('2 install notes')
+    expect(chip?.getAttribute('title')).toContain('ships 1 LSP server')
+  })
+
+  it('hides the chip without notes; a single note reads singular', async () => {
+    await renderAsync({ rpc: rpcMock({ ...STATE, installed: [installedRecord()] }) })
+    expect(container.querySelector('[data-testid="cc-notes-chip"]')).toBeNull()
+    await act(async () => { root?.unmount(); document.body.appendChild(container); root = createRoot(container) })
+    await renderAsync({ rpc: rpcMock({ ...STATE, installed: [installedRecord({ notes: ['only note'] })] }) })
+    expect(container.querySelector('[data-testid="cc-notes-chip"]')?.textContent).toBe('1 install note')
+  })
+})

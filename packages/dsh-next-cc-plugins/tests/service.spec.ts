@@ -345,6 +345,29 @@ describe('CcMarketplaceService install', () => {
     if (result.ok) expect(result.message).toContain('CLAUDE_PROJECT_DIR')
   })
 
+  it('persists install notes on the record for later review', async () => {
+    f.gh.setRepo('o', 'r', {
+      '.claude-plugin/marketplace.json': JSON.stringify({
+        name: 'acme-tools',
+        plugins: [{ name: 'rich', source: './plugins/rich' }],
+      }),
+      'plugins/rich/.lsp.json': JSON.stringify({ go: { command: 'gopls' } }),
+      'plugins/rich/skills/deploy/SKILL.md': SKILL('deploy', 'Deploys'),
+    })
+    await f.service.addMarketplace('o/r')
+    await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'rich', targets: [{ scope: 'global' }] })
+    const record = (await f.service.state()).installed[0]
+    expect(record.notes).toEqual(['ships 1 LSP server; no DSH bridge, not installed'])
+    // A noteless install persists no empty array. (Workspace target so the
+    // shared "deploy" skill does not collide with the install above.)
+    f.gh.setRepo('x', 'clean', TEAM_TOOLS_V1)
+    await f.service.addMarketplace('x/clean')
+    await f.service.installPlugin({ marketplaceId: 'github:x/clean', plugin: 'team-tools', targets: [{ scope: 'workspace', workspacePath: '/w1' }] })
+    const clean = (await f.service.state()).installed.find((p) => p.key === 'github:x/clean/team-tools')
+    expect(clean).toBeDefined()
+    expect(clean?.notes).toBeUndefined()
+  })
+
   it('notes declared plugin dependencies without auto-installing them', async () => {
     f.gh.setRepo('o', 'r', {
       '.claude-plugin/marketplace.json': JSON.stringify({

@@ -116,6 +116,8 @@ export class CcMarketplaceService {
   private readonly store: Store
   /** The settings-document mirror; wireable late (the settings fiber may start after this service). */
   private settings: SettingsMirror | undefined
+  /** Skip notes from the last settings import this machine could not fully satisfy. */
+  private lastImportSkipped: string[] = []
   /** Serialized reconcile runs (boot + external settings edits). */
   private reconcileInFlight: Promise<ReconcileReport> | undefined
 
@@ -293,6 +295,7 @@ export class CcMarketplaceService {
       /** The panel's saved overrides verbatim (string, or null = inherit). */
       agentModelOverrides: overrides,
       agentModelAliases: [...aliases].sort(),
+      importSkipped: [...this.lastImportSkipped],
     }
   }
 
@@ -781,9 +784,15 @@ export class CcMarketplaceService {
    */
   async reconcileFromMirror(): Promise<ReconcileReport> {
     if (this.reconcileInFlight !== undefined) return this.reconcileInFlight
-    const run = this.runReconcile().finally(() => {
-      if (this.reconcileInFlight === run) this.reconcileInFlight = undefined
-    })
+    const run = this.runReconcile()
+      .then((report) => {
+        // The panel surfaces these as "could not import here" notes.
+        this.lastImportSkipped = report.skipped
+        return report
+      })
+      .finally(() => {
+        if (this.reconcileInFlight === run) this.reconcileInFlight = undefined
+      })
     this.reconcileInFlight = run
     return run
   }

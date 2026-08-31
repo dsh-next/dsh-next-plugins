@@ -165,6 +165,10 @@ every machine. On import, each name is resolved against that machine's
 workspace registry (registered workspaces whose folder matches; ambiguous
 or unknown names skip with a log note), and absolute paths
 (`workspace:/abs/path`) still work when hand-written and present locally.
+A machine that cannot satisfy part of the file keeps everything else —
+marketplaces and `global` targets still import — and the Plugins tab shows
+which imports skipped and why (`cc-import-skipped`), so the missing pieces
+are installed deliberately through the Add modal rather than guessed.
 
 Every panel mutation writes the section through (installs record presence
 only — versions follow upstream). At boot, and whenever the document

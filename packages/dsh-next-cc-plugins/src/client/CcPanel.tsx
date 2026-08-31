@@ -380,6 +380,12 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
         <div className={message.ok ? styles.noticeOk : styles.noticeErr} data-testid="cc-message">{message.text}</div>
       )}
 
+      {(state?.importSkipped ?? []).length > 0 && (
+        <div className={styles.empty} data-testid="cc-import-skipped">
+          {`${state?.importSkipped.length} import(s) from the settings file skipped on this machine (missing workspace names or sources): ${state?.importSkipped.join('; ')}. Add the workspace or install through the panel.`}
+        </div>
+      )}
+
       {tab === 'plugins' && (
         <div className={styles.filterRow}>
           <input

@@ -15,7 +15,7 @@ import { CcPanel, formatLastSync } from '../src/client/CcPanel.tsx'
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 /** The Models-tab slice of the state envelope. */
-const MODEL_STATE: Pick<CcState, 'models' | 'agentModelMap' | 'agentModelConfig' | 'agentModelOverrides' | 'agentModelAliases'> = {
+const MODEL_STATE: Pick<CcState, 'models' | 'agentModelMap' | 'agentModelConfig' | 'agentModelOverrides' | 'agentModelAliases' | 'importSkipped'> = {
   models: [
     { provider: 'deepseek-official', id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash' },
     { provider: 'deepseek-official', id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
@@ -24,6 +24,7 @@ const MODEL_STATE: Pick<CcState, 'models' | 'agentModelMap' | 'agentModelConfig'
   agentModelConfig: { sonnet: 'deepseek-v4-pro' },
   agentModelOverrides: {},
   agentModelAliases: ['haiku', 'opus', 'sonnet'],
+  importSkipped: [],
 }
 
 const STATE: CcState = {
@@ -252,6 +253,24 @@ describe('CcPanel', () => {
     // The installed card carries the presence badge and a Manage button.
     expect(pluginCards()[0].textContent).toContain('in global')
     expect(pluginCards()[0].textContent).toContain('Manage')
+  })
+
+  it('surfaces imports the settings file could not satisfy on this machine', async () => {
+    const state: CcState = {
+      ...MODEL_STATE,
+      installed: [],
+      marketplaces: [],
+      importSkipped: ['plugin team-tools target workspace:web: no workspace "web" registered on this machine'],
+    }
+    await renderAsync({ rpc: rpcMock(state) })
+    const notice = document.querySelector('[data-testid="cc-import-skipped"]')
+    expect(notice).not.toBeNull()
+    expect(notice?.textContent).toContain('1 import(s) from the settings file skipped')
+    expect(notice?.textContent).toContain('no workspace "web" registered')
+
+    // A machine that satisfies everything shows no notice.
+    await renderAsync({ rpc: rpcMock() })
+    expect(document.querySelector('[data-testid="cc-import-skipped"]')).toBeNull()
   })
 
   it('Marketplaces tab lists sources and dispatches addMarketplace', async () => {

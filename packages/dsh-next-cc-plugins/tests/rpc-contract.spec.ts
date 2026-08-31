@@ -43,6 +43,7 @@ describe('cc-plugins state() RPC contract', () => {
     expect(state).toHaveProperty('agentModelConfig')
     expect(state).toHaveProperty('agentModelOverrides')
     expect(state).toHaveProperty('agentModelAliases')
+    expect(state).toHaveProperty('importSkipped')
     // Raw persistence keys must NOT sit at the envelope's top level.
     expect(state).not.toHaveProperty('plugins')
     expect(state).not.toHaveProperty('files')

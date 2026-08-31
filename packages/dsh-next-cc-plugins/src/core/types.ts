@@ -296,6 +296,9 @@ export interface CcState {
   /** Every Claude model name worth offering a picker for: the classic
    *  families, mapped aliases, and names installed agents reference. */
   agentModelAliases: string[]
+  /** Human-readable notes from the last settings-document import that this
+   *  machine could not fully satisfy (e.g. missing workspace names). */
+  importSkipped: string[]
 }
 
 export interface PluginDetail {

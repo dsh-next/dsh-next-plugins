@@ -254,6 +254,8 @@ describe('CcMarketplaceService reconcileFromMirror', () => {
     expect(report.skipped.join('\n')).toContain('no usable targets')
     expect(report.skipped.join('\n')).toContain('marketplace not configured')
     expect(report.skipped.join('\n')).toContain('o/missing')
+    // The panel surfaces the same notes through the state envelope.
+    expect((await f.service.state()).importSkipped).toEqual(report.skipped)
     expect((await f.service.state()).installed).toEqual([])
   })
 

@@ -68,8 +68,7 @@ describe('pluginInventory', () => {
       'bundle/agents/bot.md': '---\ndescription: Bot\n---\n',
       'bundle/hooks/hooks.json': JSON.stringify({ Stop: [] }),
       'bundle/.mcp.json': JSON.stringify({ mcpServers: { s: { command: 'run' } } }),
-      'skills/ignored/SKILL.md': SKILL('ignored'),
-    }
+      'skills/ignored/SKILL.md': SKILL('ignored'),    }
     const inv = pluginInventory(files)
     expect(inv.skills.map((s) => s.name)).toEqual(['x'])
     expect(inv.commands.map((c) => c.name)).toEqual(['go'])
@@ -180,5 +179,36 @@ describe('pluginLevelReferenceNotes', () => {
     }
     const inv = pluginInventory(files)
     expect(pluginLevelReferenceNotes(files, inv.skills)).toEqual([])
+  })
+})
+
+describe('inline plugin.json mcpServers', () => {
+  const INLINE = (): Record<string, string> => ({
+    '.claude-plugin/plugin.json': JSON.stringify({
+      name: 'cdt',
+      version: '1.8.0',
+      mcpServers: { 'chrome-devtools': { command: 'npx', args: ['chrome-devtools-mcp@1.8.0'] } },
+    }),
+    'skills/audit/SKILL.md': SKILL('audit'),
+  })
+
+  it('inventories MCP servers declared inline in plugin.json (no .mcp.json)', () => {
+    const inv = pluginInventory(INLINE())
+    expect(inv.mcpServers).toEqual([{
+      name: 'chrome-devtools',
+      def: { transport: 'stdio', command: 'npx', args: ['chrome-devtools-mcp@1.8.0'], env: {} },
+    }])
+    expect(inv.notes).toEqual([])
+  })
+
+  it('prefers a .mcp.json file over the inline manifest declaration', () => {
+    const inv = pluginInventory({ ...INLINE(), '.mcp.json': JSON.stringify({ mcpServers: { file: { command: 'run' } } }) })
+    expect(inv.mcpServers.map((s) => s.name)).toEqual(['file'])
+  })
+
+  it('stays quiet when neither form is present or the manifest is malformed', () => {
+    expect(pluginInventory({ 'skills/a/SKILL.md': SKILL('a') }).mcpServers).toEqual([])
+    expect(pluginInventory({ '.claude-plugin/plugin.json': '{oops', 'skills/a/SKILL.md': SKILL('a') }).mcpServers).toEqual([])
+    expect(pluginInventory({ '.claude-plugin/plugin.json': '{"mcpServers": "not-an-object"}', 'skills/a/SKILL.md': SKILL('a') }).mcpServers).toEqual([])
   })
 })

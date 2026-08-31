@@ -157,7 +157,24 @@ function extractHookEvents(files: PluginFiles, path: string, notes: string[]): s
 
 function extractMcp(files: PluginFiles, path: string, notes: string[]): McpServerComponent[] {
   const raw = files[trimDir(path)]
-  if (raw === undefined) return []
+  if (raw === undefined) {
+    // Claude Code also allows the MCP servers inline in
+    // `.claude-plugin/plugin.json` under `mcpServers` (the form
+    // ChromeDevTools/chrome-devtools-mcp ships) instead of a separate file.
+    const manifest = files['.claude-plugin/plugin.json']
+    if (manifest === undefined) return []
+    let inline: unknown
+    try {
+      inline = JSON.parse(manifest)
+    } catch {
+      return []
+    }
+    const servers = (inline !== null && typeof inline === 'object' && !Array.isArray(inline))
+      ? (inline as Record<string, unknown>).mcpServers
+      : undefined
+    if (servers === undefined) return []
+    return normalizeMcpServers(servers, notes).servers
+  }
   let data: unknown
   try {
     data = JSON.parse(raw)

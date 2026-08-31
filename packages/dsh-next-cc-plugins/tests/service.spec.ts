@@ -325,6 +325,40 @@ describe('CcMarketplaceService install', () => {
     expect(result.message).toContain('do not resolve from the installed skills root')
   })
 
+  it('installs a root-source plugin (the marketplace repo IS the plugin) with inline manifest MCP servers', async () => {
+    f.gh.setRepo('o', 'cdt-mcp', {
+      '.claude-plugin/marketplace.json': JSON.stringify({
+        name: 'cdt-plugins',
+        description: 'Bundled plugins for actuating Chrome.',
+        plugins: [{ name: 'cdt-mcp', description: 'Chrome DevTools', version: '1.8.0', source: './' }],
+      }),
+      '.claude-plugin/plugin.json': JSON.stringify({
+        name: 'cdt-mcp',
+        version: '1.8.0',
+        mcpServers: { 'chrome-devtools': { command: 'npx', args: ['chrome-devtools-mcp@1.8.0'] } },
+      }),
+      'skills/audit/SKILL.md': SKILL('audit', 'Audits pages'),
+    })
+    await f.service.addMarketplace('o/cdt-mcp')
+    // The panel view resolves the root source to an inventory, not an error.
+    const before = await f.service.state()
+    expect(before.marketplaces[0].plugins[0].sourceUnsupported).toBeUndefined()
+    expect(before.marketplaces[0].plugins[0].inventory?.skills.map((s) => s.name)).toEqual(['audit'])
+    expect(before.marketplaces[0].plugins[0].inventory?.mcpServers.map((s) => s.name)).toEqual(['chrome-devtools'])
+
+    const result = await f.service.installPlugin({ marketplaceId: 'github:o/cdt-mcp', plugin: 'cdt-mcp', scope: 'global' })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.message).toContain('1 skill(s)')
+    expect(result.message).toContain('1 MCP server')
+    expect(f.fs.has('/home/u/.agents/skills/audit/SKILL.md')).toBe(true)
+    const patch = f.fs.snapshot()[PATCH] ?? ''
+    expect(patch).toContain("'@deepseek-ai/dsh-mcp-client'")
+    expect(patch).toContain("serverName: 'chrome-devtools'")
+    expect(patch).toContain("command: 'npx'")
+    expect(patch).toContain("args: ['chrome-devtools-mcp@1.8.0']")
+  })
+
   it('preserves foreign patch rows around the managed block', async () => {
     f.fs.writeFile(PATCH, "- insert:\n    - id: foreign-row\n      name: 'some-plugin'\n")
     await f.service.addMarketplace('o/r')

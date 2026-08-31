@@ -172,8 +172,13 @@ export class CcMarketplaceService {
     return { installed: installed.plugins, marketplaces: rows }
   }
 
-  /** The sub-map of a marketplace snapshot below one plugin directory. */
+  /**
+   * The sub-map of a marketplace snapshot below one plugin directory. A
+   * root-source plugin (`"./"` — the marketplace repository IS the plugin,
+   * e.g. ChromeDevTools/chrome-devtools-mcp) maps to the whole snapshot.
+   */
   private pluginSubMap(files: Record<string, string>, dir: string): PluginFiles | undefined {
+    if (dir === '' || dir === '.') return Object.keys(files).length > 0 ? { ...files } : undefined
     const prefix = `${dir}/`
     const out: PluginFiles = {}
     let any = false

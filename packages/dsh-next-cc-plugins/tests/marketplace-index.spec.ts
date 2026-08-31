@@ -147,6 +147,11 @@ describe('normalizePluginSource', () => {
     expect(normalizePluginSource({ type: 'local', path: './plugins/gdrive' }, '')).toEqual({ kind: 'relative', path: 'plugins/gdrive' })
   })
 
+  it('normalizes a root source ("./" — the marketplace repo IS the plugin)', () => {
+    expect(normalizePluginSource('./', '')).toEqual({ kind: 'relative', path: '' })
+    expect(normalizePluginSource('.', '')).toEqual({ kind: 'relative', path: '.' })
+  })
+
   it('normalizes grok url sources with a sha as github when GitHub-hosted', () => {
     expect(normalizePluginSource({ source: 'url', url: 'https://github.com/my-org/gdrive' }, '')).toEqual({ kind: 'github', owner: 'my-org', repo: 'gdrive' })
   })

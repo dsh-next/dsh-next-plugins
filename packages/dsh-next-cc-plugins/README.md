@@ -80,6 +80,12 @@ Agent frontmatter translation notes:
 - The marketplace description is read from the top level or from
   `metadata.description` (the nested form some marketplaces, e.g.
   `holistics/skills`, use).
+- Root-source plugins (`"source": "./"` — the marketplace repository IS
+  the plugin, e.g. `ChromeDevTools/chrome-devtools-mcp`) install the
+  whole snapshot as the plugin.
+- MCP servers may be declared in a `.mcp.json` file or inline in
+  `.claude-plugin/plugin.json` under `mcpServers` (the ChromeDevTools
+  form); the file wins when both are present.
 - Skills that reference **plugin-level directories** (`references/`,
   `assets/`, ... — files that sit beside `skills/`, not inside a skill)
   install with a note: Claude Code runs skills from the plugin root so

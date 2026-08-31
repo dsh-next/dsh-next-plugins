@@ -17,7 +17,8 @@ with a built-in runtime for the components DSH activates in-process.
   (best-effort: a failed refresh keeps the cached catalog), each source shows
   its last-synced age, and Refresh all forces a re-sync now.
 - **Browse and install plugins** — the Plugins tab lists every plugin across
-  all marketplaces in a two-column card grid with search, a marketplace
+  all marketplaces in a two-column card grid (installed plugins first, each
+  group alphabetical by name) with search, a marketplace
   filter, and an installed-only toggle. Installed cards show their installed
   version and, whenever the marketplace carries a newer one, an Update
   button (update also re-syncs that marketplace first, so it always pulls

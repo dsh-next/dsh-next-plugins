@@ -185,6 +185,13 @@ function pluginCards(): Element[] {
   return [...container.querySelectorAll('[data-testid="cc-plugin"]')]
 }
 
+/** The Add/Manage button of one plugin (buttons carry the plugin key). */
+function addButton(key: string): HTMLElement {
+  const el = [...container.querySelectorAll('[data-testid="cc-add"]')].find((b) => b.getAttribute('title') === key)
+  expect(el, `Add button for ${key}`).toBeDefined()
+  return el as HTMLElement
+}
+
 describe('CcPanel', () => {
   it('renders the Plugins grid with cards, summaries, and marketplace chips', async () => {
     await renderAsync()
@@ -266,22 +273,54 @@ describe('CcPanel', () => {
     expect(card.querySelector('[data-testid="cc-update"]')).toBeNull()
   })
 
+  it('orders installed plugins first, then alphabetical by name', async () => {
+    const names = ['zzz-live', 'mmm', 'aaa', 'bbb-live']
+    const isInstalled = (name: string): boolean => name === 'zzz-live' || name === 'bbb-live'
+    const state: CcState = {
+      installed: names.filter(isInstalled).map((name) => installedRecord({ key: `github:o/r/${name}`, pluginName: name })),
+      marketplaces: [{
+        ...STATE.marketplaces[0],
+        plugins: names.map((name) => ({
+          name,
+          description: '',
+          version: '',
+          category: '',
+          author: '',
+          homepage: '',
+          tags: [],
+          installed: isInstalled(name),
+        })),
+      }],
+    }
+    await renderAsync({ rpc: rpcMock(state) })
+    // The Add/Manage button's title is the plugin key: read the grid order.
+    const order = pluginCards().map((c) => c.querySelector('[data-testid="cc-add"]')?.getAttribute('title'))
+    expect(order).toEqual([
+      'github:o/r/bbb-live', // installed group sorts by name asc
+      'github:o/r/zzz-live',
+      'github:o/r/aaa', // then the non-installed group, name asc
+      'github:o/r/mmm',
+    ])
+  })
+
   it('Add modal installs to multiple selected targets', async () => {
     const rpc = rpcMock()
     const notify = vi.fn()
     await renderAsync({ rpc, notifyInstalledChanged: notify })
-    await act(async () => { (pluginCards()[0].querySelector('[data-testid="cc-add"]') as HTMLElement).click() })
+    await act(async () => { addButton('github:o/r/team-tools').click() })
     const modal = document.querySelector('[data-testid="cc-modal"]')
     expect(modal).not.toBeNull()
     expect(modal?.textContent).toContain('activate globally once')
     // Both targets selectable; footer reflects the count.
     const targets = [...container.querySelectorAll('[data-testid="cc-target"] input[type="checkbox"]')]
     expect(targets).toHaveLength(2)
+    const footerAdd = () => document.querySelector('[data-testid="cc-modal-add"]') as HTMLButtonElement
     await act(async () => { check(targets[0], true) })
-    expect(button('Add').disabled).toBe(false)
+    expect(footerAdd().disabled).toBe(false)
     await act(async () => { check(targets[1], true) })
-    expect(button('Add to 2 targets').disabled).toBe(false)
-    await act(async () => { button('Add to 2 targets').click() })
+    expect(footerAdd().textContent).toBe('Add to 2 targets')
+    expect(footerAdd().disabled).toBe(false)
+    await act(async () => { footerAdd().click() })
     expect(rpc).toHaveBeenCalledWith('installPlugin', {
       marketplaceId: 'github:o/r',
       plugin: 'team-tools',
@@ -295,7 +334,7 @@ describe('CcPanel', () => {
     const state: CcState = { ...STATE, installed: [installedRecord()] }
     const rpc = rpcMock(state)
     await renderAsync({ rpc })
-    await act(async () => { (pluginCards()[0].querySelector('[data-testid="cc-add"]') as HTMLElement).click() })
+    await act(async () => { addButton('github:o/r/team-tools').click() })
     const modal = document.querySelector('[data-testid="cc-modal"]')!
     // The global row is locked with an added badge and its own uninstall.
     const rows = [...container.querySelectorAll('[data-testid="cc-target"]')]
@@ -309,7 +348,7 @@ describe('CcPanel', () => {
     await act(async () => { button('Update everywhere').click() })
     expect(rpc).toHaveBeenCalledWith('updatePlugin', { key: 'github:o/r/team-tools' })
     // Per-target uninstall is a two-step confirm and sends the target.
-    await act(async () => { (pluginCards()[0].querySelector('[data-testid="cc-add"]') as HTMLElement).click() })
+    await act(async () => { addButton('github:o/r/team-tools').click() })
     await act(async () => { button('Uninstall').click() })
     await act(async () => { button('Confirm').click() })
     expect(rpc).toHaveBeenCalledWith('uninstallPlugin', {

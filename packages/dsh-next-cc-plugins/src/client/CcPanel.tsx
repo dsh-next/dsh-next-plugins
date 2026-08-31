@@ -3,7 +3,8 @@
  * a whole settings page with two tabs over the Host JSON RPC.
  *
  *  - Plugins: every plugin across all marketplaces in a two-column card grid
- *    with a provider (marketplace) filter, a search box, and an
+ *    (installed plugins first, each group alphabetical by name) with a
+ *    provider (marketplace) filter, a search box, and an
  *    installed-only toggle. Installed cards carry their installed version and
  *    an Update button whenever the (auto-refreshed) marketplace snapshot
  *    offers a newer one. Each card opens the Add/Manage modal: pick any
@@ -196,11 +197,21 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
   const catalog = React.useMemo(() => marketplaces.flatMap((m) => m.plugins.map((p) => ({ marketplace: m, plugin: p }))), [marketplaces])
   const filtered = React.useMemo(() => {
     const q = search.trim().toLowerCase()
-    return catalog.filter(({ marketplace, plugin }) => {
+    const hits = catalog.filter(({ marketplace, plugin }) => {
       if (providerFilter !== '' && marketplace.id !== providerFilter) return false
       if (installedOnly && !byKey.has(`${marketplace.id}/${plugin.name}`)) return false
       if (q !== '' && !`${plugin.name} ${plugin.description} ${marketplace.name}`.toLowerCase().includes(q)) return false
       return true
+    })
+    // Installed plugins first; within each group by name asc, with the
+    // marketplace id as a stable tie-break for one name in two marketplaces.
+    return [...hits].sort((a, b) => {
+      const ai = byKey.has(`${a.marketplace.id}/${a.plugin.name}`) ? 0 : 1
+      const bi = byKey.has(`${b.marketplace.id}/${b.plugin.name}`) ? 0 : 1
+      if (ai !== bi) return ai - bi
+      const byName = a.plugin.name.localeCompare(b.plugin.name)
+      if (byName !== 0) return byName
+      return a.marketplace.id.localeCompare(b.marketplace.id)
     })
   }, [catalog, providerFilter, installedOnly, search, byKey])
 

@@ -83,7 +83,7 @@ export function commandsFromFiles(
       name,
       claudeName,
       description: parsed?.description !== undefined && parsed.description !== '' ? parsed.description : `Claude command ${claudeName}`,
-      hint: '',
+      hint: parsed?.scalars['argument-hint'] ?? '',
       template: parsed?.body ?? content,
     })
   }

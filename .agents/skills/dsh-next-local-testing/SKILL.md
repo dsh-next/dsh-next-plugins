@@ -46,24 +46,37 @@ dialogs, so markers use `dismissOnboarding()` first.
 
 ## 3. Manual live install (see it in the GUI)
 
+Use **one dev profile per plugin**: `dev-<slug>` (e.g. `dev-git`). A profile is
+a whole directory (its own `package.json`, `cordis.patch.yml`, `node_modules`),
+so a single shared `dev` profile makes parallel sessions collide: every
+concurrently tested plugin composes into one boot (no failure attribution — one
+broken plugin takes down everyone's GUI), and concurrent `dsh plugin add` runs
+race `pnpm` inside the same profile directory.
+
 ```sh
 # build first (lib/index.js + lib/client.js)
 pnpm build
 
-# link a source checkout into a dev profile (no repack per iteration)
-dsh plugin --profile dev add link:$(pwd)/packages/dsh-next-<slug>
+# link a source checkout into the plugin's dev profile (no repack per iteration)
+dsh plugin --profile dev-<slug> add link:$(pwd)/packages/dsh-next-<slug>
 
 # or install from a packed tarball (what CI/consumers get)
 (cd packages/dsh-next-<slug> && pnpm pack)
-dsh plugin --profile dev add file:$(pwd)/packages/dsh-next-<slug>/dsh-next-<slug>-0.1.0.tgz
+dsh plugin --profile dev-<slug> add file:$(pwd)/packages/dsh-next-<slug>/dsh-next-<slug>-0.1.0.tgz
 
 # inspect the composed profile tree BEFORE booting (verify the row resolved)
-dsh --profile dev --dump-config
+dsh --profile dev-<slug> --dump-config
 
-# boot the DEV profile and look at the GUI (NOT `dsh web`, which is a
+# boot the plugin's dev profile and look at the GUI (NOT `dsh web`, which is a
 # hardcoded alias for --profile web and would boot the wrong profile)
-dsh --profile dev --no-open
+dsh --profile dev-<slug> --no-open
 ```
+
+Booting several dev profiles at once is fine, but a profile name does not
+reserve a port: give each concurrently booted instance a distinct `--port`
+(or `--port 0` and read the assigned URL from the output). Two sessions
+iterating the *same* plugin still share its `dev-<slug>` — for that case use a
+session-suffixed profile name or the scratch-home loop below.
 
 `dsh plugin add` runs `pnpm add` in the profile dir, then reconciles packages
 that declare `dsh.bundle.patch` into `dsh.profile.bundles` automatically — you

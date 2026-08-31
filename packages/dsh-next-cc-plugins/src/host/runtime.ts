@@ -204,6 +204,9 @@ export class CcRuntime {
               const off = ctx.commands.register({
                 name: command.name,
                 description: command.description,
+                // Claude's `argument-hint` frontmatter, passed through as the
+                // composer placeholder when the command declares one.
+                ...(command.hint !== '' ? { input: { hint: command.hint } } : {}),
                 handler: (invocation) => {
                   const text = expandTemplate(command.template, invocation.rawInput)
                   invocation.agent.followup(createUserMessage({

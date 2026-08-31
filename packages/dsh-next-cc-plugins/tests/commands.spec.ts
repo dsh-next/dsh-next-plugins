@@ -33,6 +33,15 @@ describe('commandsFromFiles', () => {
     expect(notes).toEqual([])
   })
 
+  it('passes argument-hint frontmatter through as the command hint', () => {
+    const { commands } = commandsFromFiles({
+      'commands/issue.md': '---\ndescription: Work an issue\nargument-hint: [issue-number]\n---\nFix $ARGUMENTS.',
+      'commands/quoted.md': '---\nargument-hint: "[filename] [format]"\n---\nBody.',
+    }, 'team-tools')
+    expect(commands.find((c) => c.name === 'issue')?.hint).toBe('[issue-number]')
+    expect(commands.find((c) => c.name === 'quoted')?.hint).toBe('[filename] [format]')
+  })
+
   it('skips nested commands with a note and derives qualified names for invalid ones', () => {
     const { commands, notes } = commandsFromFiles({
       'commands/group/deep.md': 'x',

@@ -15,6 +15,7 @@ import { createMemFs, type MemFs } from './helpers/memfs.ts'
 interface RegisteredCommand {
   name: string
   description: string
+  input?: { hint: string }
   handler: (invocation: {
     commandId: unknown
     rawInput: string
@@ -137,6 +138,17 @@ describe('CcRuntime commands', () => {
     f.runtime.attach(f.fake.ctx)
     await vi.waitFor(() => expect(f.fake.commands.map((c) => c.name)).toEqual(['cc-team-tools-review', 'ship']))
     expect(f.fake.commands.find((c) => c.name === 'ship')?.description).toBe('Ship it')
+  })
+
+  it('passes argument-hint frontmatter through as the composer input hint', async () => {
+    await seedInstalled(f.store, {
+      ...FILES,
+      'commands/ship.md': '---\ndescription: Ship it\nargument-hint: [target]\n---\nShip $ARGUMENTS to production.',
+    })
+    f.runtime.attach(f.fake.ctx)
+    await vi.waitFor(() => expect(f.fake.commands.length).toBe(2))
+    expect(f.fake.commands.find((c) => c.name === 'ship')?.input).toEqual({ hint: '[target]' })
+    expect(f.fake.commands.find((c) => c.name === 'cc-team-tools-review')?.input).toBeUndefined()
   })
 
   it('the handler expands $ARGUMENTS and submits a user turn to the agent', async () => {

@@ -16,6 +16,11 @@ export interface Frontmatter {
   /** Raw `model:` scalar (a Claude model name or id), '' when absent. */
   model: string
   body: string
+  /** Every parsed scalar key (first value wins), for fields beyond the
+   * well-known ones (`argument-hint`, `allowed-tools`, ...). */
+  scalars: Record<string, string>
+  /** Every block-list key and its items (`tools:` list form, ...). */
+  lists: Record<string, string[]>
 }
 
 function unquote(value: string): string {
@@ -68,5 +73,7 @@ export function parseFrontmatter(content: string): Frontmatter | undefined {
     tools: scalars.tools ?? listOf('tools'),
     model: scalars.model ?? '',
     body: lines.slice(close + 1).join(eol),
+    scalars,
+    lists,
   }
 }

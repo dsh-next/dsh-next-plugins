@@ -195,4 +195,14 @@ describe('agentFrontmatter', () => {
     expect(agentFrontmatter(undefined)).toEqual({ tools: '', model: '' })
     expect(agentFrontmatter(parseFrontmatter('---\ndescription: x\n---\nbody'))).toEqual({ tools: '', model: '' })
   })
+
+  it('exposes every scalar and list key for fields beyond the well-known ones', () => {
+    const parsed = parseFrontmatter('---\nargument-hint: "[issue-number]"\nallowed-tools:\n  - Read\n  - Grep\nmodel: sonnet\n---\nbody')
+    expect(parsed?.scalars['argument-hint']).toBe('[issue-number]')
+    expect(parsed?.scalars.model).toBe('sonnet')
+    expect(parsed?.lists['allowed-tools']).toEqual(['Read', 'Grep'])
+    // A key given twice keeps its first value, matching Claude's behavior.
+    const dup = parseFrontmatter('---\nmodel: sonnet\nmodel: opus\n---\nbody')
+    expect(dup?.scalars.model).toBe('sonnet')
+  })
 })

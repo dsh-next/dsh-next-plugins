@@ -84,8 +84,9 @@ mise tasks delegate to it, never re-implement commands.
 - For implementation and maintenance tasks, load the focused skill under
   `.agents/skills/`.
 - To test a plugin locally, load `dsh-next-local-testing` (static gate →
-  `mise run e2e` → manual `dsh plugin --profile dev add` → `--dump-config` →
-  `dsh web`).
+  `mise run e2e` → manual `dsh plugin --profile dev-<slug> add` →
+  `--dump-config` → `dsh --profile dev-<slug> --no-open`); one dev profile per
+  plugin keeps parallel plugin sessions from colliding.
 - Record every non-trivial change as an Agent Note under `.agents/notes/` in
   the same change. Lifecycle, classes, and format rules live in
   `.agents/notes/README.md`.

@@ -27,3 +27,4 @@ test-results/
 
 # Build output (tsdown)
 packages/*/lib/
+.dsh-next-skills-smoke/

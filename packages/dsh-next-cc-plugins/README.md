@@ -28,7 +28,10 @@ with a built-in runtime for the components DSH activates in-process.
   with their own uninstall; Update refreshes every target. Skills land per
   selected target; MCP servers, agent rows, commands, and hooks are
   plugin-level and activate once regardless of target count (the modal says
-  so). Pre-targets registry records migrate to the new shape on read.
+  so). Clicking a plugin's name opens a **detail modal**: metadata, the
+  full component listing (including the families this bridge does not
+  install), declared dependencies, and the install notes persisted on the
+  record. Pre-targets registry records migrate to the new shape on read.
 - **Install plugins** — each plugin's components land on the DSH surface
   that natively consumes it:
 
@@ -44,11 +47,51 @@ with a built-in runtime for the components DSH activates in-process.
   re-copied, removed skills recoverably trashed, managed rows re-rendered
   with stable server/tool names) and uninstall it (skills move to the
   root's `.trash`, managed rows and the materialized plugin copy drop out).
+  Install and update notes (unbridged families, renamed servers, unresolved
+  templates, dependency requirements, skill frontmatter differences) are
+  persisted on the install record: the card carries an "install notes" chip
+  with the list on hover, and the detail modal shows them in full.
 
 Plugin sources inside a marketplace index follow the Claude Code schema:
 relative paths (`"./plugins/foo"`, bare names under `metadata.pluginRoot`),
 `{"source": "github", "repo": "owner/repo"}`, and GitHub `url` sources.
 npm, archive, and git-subdir sources are listed as not installable.
+
+Component and version fidelity follows Claude Code's current reference:
+
+- **Manifest overrides** may be a directory path, a single file path, or an
+  array mixing both, for every component (`skills`, `commands`, `agents`,
+  `hooks`, `mcpServers`); multiple hooks or MCP files merge (first name
+  wins, duplicates noted).
+- **`argument-hint`** command frontmatter passes through as the DSH
+  composer's input hint.
+- **MCP template expansion** — `${CLAUDE_PLUGIN_ROOT}`, `${CLAUDE_PLUGIN_DATA}`,
+  and `${ENV_VAR}` references in server definitions are expanded at install
+  time against the plugin's materialized root and the host environment
+  (DSH's MCP client does no substitution). `${CLAUDE_PROJECT_DIR}` stays as
+  written with a note (it has no single value across install targets), as do
+  references to unset variables.
+- **Version precedence** — the catalog side is the marketplace entry's
+  `version`, then the plugin's own `plugin.json` version (resolvable for
+  relative sources), then no version at all; version-less plugins get their
+  Update signal from the marketplace snapshot digest (Claude resolves them
+  to the source's commit SHA; the digest is this bridge's same-machine
+  equivalent, and it also catches entry-only edits).
+- **Recognized-but-unbridged families** — LSP servers (`.lsp.json` or
+  manifest `lspServers`), background monitors, output styles, themes,
+  workflows, `bin/` executables, and plugin `settings.json` are counted and
+  reported ("not bridged") on the card and in the detail modal, and noted at
+  install; nothing from them is executed or installed.
+- **Plugin dependencies** (`dependencies` in `plugin.json`) are surfaced as
+  `requires:` on the card and as an install note. This bridge never
+  auto-installs them — Claude Code does — installs stay explicit here.
+- **Skill frontmatter** — DSH's own skill runtime honors
+  `disable-model-invocation` and `user-invocable` (same kebab-case names),
+  so those pass through working. `allowed-tools`, `disallowed-tools`,
+  `model`, `effort`, `context`, `agent`, `background`, and skill-level
+  `hooks` have no DSH counterpart and install with a note naming them.
+- **Non-command hook types** (`http`, `mcp_tool`, `prompt`, `agent`) are
+  reported as unsupported by type, not as parse errors.
 
 ## Configuration
 
@@ -186,11 +229,13 @@ logged.
 The browser half registers a top-level Settings section ("Claude Plugins")
 with three tabs: **Plugins** (every marketplace's plugins in a card grid with
 search, marketplace filter, and installed-only toggle; installed version and
-Update button per card; Add/Manage opens the multi-target picker modal),
-**Marketplaces** (add/refresh/remove sources with per-source last-synced
-age; snapshots older than 24 hours re-sync when the panel opens), and
-**Models** (map Claude model names onto the models this runtime offers,
-live-discovered — unmapped names inherit the session's model).
+Update button per card; an install-notes chip when the record carries notes;
+the plugin name opens a detail modal with metadata, the full component
+listing, dependencies, and notes; Add/Manage opens the multi-target picker
+modal), **Marketplaces** (add/refresh/remove sources with per-source
+last-synced age; snapshots older than 24 hours re-sync when the panel
+opens), and **Models** (map Claude model names onto the models this runtime
+offers, live-discovered — unmapped names inherit the session's model).
 
 ## Install
 

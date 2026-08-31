@@ -11,7 +11,7 @@
  * `src/core/` (pure); this entry stays thin.
  */
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 // Type-only: declares the `llm` service on Context for the Models tab's
@@ -20,6 +20,9 @@ import type {} from '@deepseek-ai/dsh-llm'
 // Loads the `settings` service declaration on Context (the shareable
 // user-settings document) plus the namespace brand helper.
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
+// Type-only: declares the `workspaceRegistry` service on Context for the
+// portable mirror-target resolver.
+import type {} from '@deepseek-ai/dsh-workspace'
 import type { SettingsMirror } from './core/mirror.ts'
 import { nodeFs } from './host/fs-adapter.ts'
 import { nodeHookRunner } from './host/hook-runner.ts'
@@ -120,6 +123,20 @@ export function apply(ctx: Context, config: PluginConfig = {}): void {
         }
       }))
       return lists.flat().map((model) => ({ provider: model.provider, id: model.id, name: model.name }))
+    },
+    resolveWorkspace: async (name) => {
+      // Portable mirror targets carry a folder name; this machine's
+      // workspace registry resolves it. Ambiguous or unknown names resolve
+      // to undefined and reconcile skips the target with a note. Read at
+      // call time: the registry may activate after this plugin.
+      const registry = ctx.get('workspaceRegistry')
+      if (registry === undefined || typeof registry.list !== 'function') return undefined
+      try {
+        const matches = (await registry.list()).filter((w) => basename(w.path) === name)
+        return matches.length === 1 ? matches[0].path : undefined
+      } catch {
+        return undefined
+      }
     },
     onInstalledChanged: () => void runtime.refresh(),
   })

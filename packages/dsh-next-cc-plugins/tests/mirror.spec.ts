@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest'
 import type { FetchLike, InstalledPlugin } from '../src/core/types.ts'
 import {
-  decodeTarget,
+  classifyMirrorTarget,
   encodeTarget,
   MIRROR_INHERIT,
   parseMirror,
@@ -31,17 +31,18 @@ const TEAM_TOOLS: Record<string, string> = {
 }
 
 describe('mirror target encoding', () => {
-  it('round-trips global and workspace targets', () => {
+  it('round-trips global and workspace targets, writing folder names only', () => {
     expect(encodeTarget({ scope: 'global' })).toBe('global')
-    expect(encodeTarget({ scope: 'workspace', workspacePath: '/w1' })).toBe('workspace:/w1')
-    expect(decodeTarget('global')).toEqual({ scope: 'global' })
-    expect(decodeTarget('workspace:/w1')).toEqual({ scope: 'workspace', workspacePath: '/w1' })
+    expect(encodeTarget({ scope: 'workspace', workspacePath: '/Users/x/Projects/web' })).toBe('workspace:web')
   })
 
-  it('rejects malformed target strings', () => {
-    expect(decodeTarget('workspace:')).toBeUndefined()
-    expect(decodeTarget('nonsense')).toBeUndefined()
-    expect(decodeTarget('')).toBeUndefined()
+  it('classifies global, name-form, path-form, and malformed targets', () => {
+    expect(classifyMirrorTarget('global')).toEqual({ kind: 'global' })
+    expect(classifyMirrorTarget('workspace:web')).toEqual({ kind: 'workspace-name', name: 'web' })
+    expect(classifyMirrorTarget('workspace:/abs/path')).toEqual({ kind: 'workspace-path', path: '/abs/path' })
+    expect(classifyMirrorTarget('workspace:')).toBeUndefined()
+    expect(classifyMirrorTarget('nonsense')).toBeUndefined()
+    expect(classifyMirrorTarget('')).toBeUndefined()
   })
 })
 
@@ -63,7 +64,7 @@ describe('renderMirror', () => {
       models: { haiku: 'dsh-fast', sonnet: null },
     })).toEqual({
       marketplaces: ['o/first', 'o/second'],
-      installs: [{ marketplace: 'o/r', plugin: 'team-tools', targets: ['global', 'workspace:/w1'] }],
+      installs: [{ marketplace: 'o/r', plugin: 'team-tools', targets: ['global', 'workspace:w1'] }],
       models: { haiku: 'dsh-fast', sonnet: MIRROR_INHERIT },
     })
   })
@@ -126,7 +127,10 @@ interface Fixture {
   mirror: MirrorDouble
 }
 
-function makeFixture(seed: Record<string, string> = {}): Fixture {
+function makeFixture(
+  seed: Record<string, string> = {},
+  over: { resolveWorkspace?: (name: string) => Promise<string | undefined> } = {},
+): Fixture {
   const fs = createMemFs(seed)
   const gh = createGhDouble({ 'o/r': TEAM_TOOLS })
   const mirror = makeMirror()
@@ -138,6 +142,7 @@ function makeFixture(seed: Record<string, string> = {}): Fixture {
     home: '/home/u',
     cordisPatchPath: '/home/u/.dsh/cordis.patch.yml',
     settings: mirror.mirror,
+    resolveWorkspace: over.resolveWorkspace,
   })
   return { fs, gh, service, mirror }
 }
@@ -158,16 +163,17 @@ describe('CcMarketplaceService settings mirror write-through', () => {
       targets: [{ scope: 'global' }, { scope: 'workspace', workspacePath: '/w1' }],
     })
     expect(ok.ok).toBe(true)
+    // Workspace targets mirror as folder names: paths differ per machine.
     expect(f.mirror.writes.at(-1)).toEqual({
       marketplaces: ['o/r'],
-      installs: [{ marketplace: 'o/r', plugin: 'team-tools', targets: ['global', 'workspace:/w1'] }],
+      installs: [{ marketplace: 'o/r', plugin: 'team-tools', targets: ['global', 'workspace:w1'] }],
       models: {},
     })
 
     // A per-target uninstall shrinks the mirrored targets; the last one
     // removes the entry.
     await f.service.uninstallPlugin('github:o/r/team-tools', { scope: 'global' })
-    expect(f.mirror.writes.at(-1)?.installs[0].targets).toEqual(['workspace:/w1'])
+    expect(f.mirror.writes.at(-1)?.installs[0].targets).toEqual(['workspace:w1'])
     await f.service.uninstallPlugin('github:o/r/team-tools', { scope: 'workspace', workspacePath: '/w1' })
     expect(f.mirror.writes.at(-1)?.installs).toEqual([])
   })
@@ -207,6 +213,27 @@ describe('CcMarketplaceService reconcileFromMirror', () => {
     // Model mappings were adopted, inherit word decoded back to null.
     expect(state.agentModelMap).toEqual({ haiku: 'dsh-fast' })
     expect(state.agentModelOverrides).toEqual({ haiku: 'dsh-fast', sonnet: null })
+  })
+
+  it('resolves portable folder-name targets through the workspace registry', async () => {
+    const f = makeFixture(
+      { '/home/u/Projects/web/.keep': '' },
+      { resolveWorkspace: async (name) => (name === 'web' ? '/home/u/Projects/web' : undefined) },
+    )
+    f.mirror.set({
+      marketplaces: ['o/r'],
+      installs: [{ marketplace: 'o/r', plugin: 'team-tools', targets: ['workspace:web', 'workspace:ghost'] }],
+      models: {},
+    })
+    const report = await f.service.reconcileFromMirror()
+    // The registered name resolved; the unknown one skipped with a note.
+    expect(report.installed).toEqual(['github:o/r/team-tools'])
+    expect(report.skipped).toEqual(['plugin team-tools target workspace:ghost: no workspace "ghost" registered on this machine'])
+    const record = (await f.service.state()).installed[0]
+    expect(record.targets).toHaveLength(1)
+    expect(record.targets[0].scope).toBe('workspace')
+    expect(record.targets[0].workspacePath).toBe('/home/u/Projects/web')
+    expect(f.fs.has('/home/u/Projects/web/.agents/skills/deploy/SKILL.md')).toBe(true)
   })
 
   it('skips missing workspace paths, unknown marketplaces, and failed adds', async () => {

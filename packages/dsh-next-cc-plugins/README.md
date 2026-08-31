@@ -154,11 +154,17 @@ cc-plugins:
     - marketplace: holistics/skills
       plugin: holistics-reporting
       targets:
-        - workspace:/Users/you/Projects/web
+        - workspace:web
   models:
     haiku: deepseek-v4-flash
     sonnet: inherit
 ```
+
+Workspace targets carry only the folder name — absolute paths differ on
+every machine. On import, each name is resolved against that machine's
+workspace registry (registered workspaces whose folder matches; ambiguous
+or unknown names skip with a log note), and absolute paths
+(`workspace:/abs/path`) still work when hand-written and present locally.
 
 Every panel mutation writes the section through (installs record presence
 only — versions follow upstream). At boot, and whenever the document

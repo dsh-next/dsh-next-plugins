@@ -13,8 +13,10 @@
  * never uninstalls anything.
  *
  * Encoding stays YAML-friendly plain data: install targets render as
- * `global` / `workspace:<abs path>` strings, and the model map's explicit
- * inherit marker (`null`) renders as the word `inherit`.
+ * `global` / `workspace:<folder name>` strings (folder names travel across
+ * machines; each machine resolves them against its own workspace registry,
+ * and absolute paths are still accepted when hand-written), and the model
+ * map's explicit inherit marker (`null`) renders as the word `inherit`.
  */
 import type { InstalledPlugin, TargetLike } from './types.ts'
 
@@ -39,18 +41,37 @@ export interface MirrorSection {
   models: Record<string, string>
 }
 
-/** Encode one install target for the settings document. */
+/** One decoded mirror target string. */
+export type MirrorTarget =
+  | { kind: 'global' }
+  | { kind: 'workspace-path'; path: string }
+  | { kind: 'workspace-name'; name: string }
+
+/**
+ * Encode one install target for the settings document. Workspace targets
+ * write only the folder name (`workspace:web`): absolute paths differ on
+ * every machine, so the shared file stays portable and reconcile matches
+ * the name against the local workspace registry.
+ */
 export function encodeTarget(target: TargetLike): string {
   if (target.scope !== 'workspace') return 'global'
-  return `workspace:${target.workspacePath ?? ''}`
+  const path = target.workspacePath ?? ''
+  const name = path.split('/').filter(Boolean).pop() ?? path
+  return `workspace:${name}`
 }
 
-/** Decode one settings-document target string; undefined when malformed. */
-export function decodeTarget(raw: string): TargetLike | undefined {
-  if (raw === 'global') return { scope: 'global' }
+/**
+ * Classify one settings-document target string. Absolute paths
+ * (`workspace:/abs/path`, the pre-portable form) stay supported for
+ * hand-written files and exactness; malformed strings return undefined.
+ */
+export function classifyMirrorTarget(raw: string): MirrorTarget | undefined {
+  if (raw === 'global') return { kind: 'global' }
   if (raw.startsWith('workspace:')) {
-    const path = raw.slice('workspace:'.length)
-    return path !== '' ? { scope: 'workspace', workspacePath: path } : undefined
+    const inner = raw.slice('workspace:'.length)
+    if (inner === '') return undefined
+    if (inner.startsWith('/')) return { kind: 'workspace-path', path: inner }
+    return { kind: 'workspace-name', name: inner }
   }
   return undefined
 }

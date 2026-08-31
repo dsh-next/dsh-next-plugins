@@ -27,7 +27,7 @@ import { agentFrontmatter, resolveAgentModel, sanitizeModelMap, translateTools }
 import { parseFrontmatter } from '../core/frontmatter.ts'
 import { applyManagedBlockText, normalizeMcpServers, renderManagedBlock, resolveServerName, type ManagedRow, type RawAgentRow, type RawMcpServer } from '../core/mcp.ts'
 import { parseMarketplaceSpec } from '../core/source.ts'
-import { decodeTarget, MIRROR_INHERIT, parseMirror, renderMirror, type SettingsMirror } from '../core/mirror.ts'
+import { classifyMirrorTarget, MIRROR_INHERIT, parseMirror, renderMirror, type SettingsMirror } from '../core/mirror.ts'
 import { targetId, type TargetRequest } from '../core/targets.ts'
 import { hasNewerVersion, isSnapshotStale } from '../core/versions.ts'
 import { isSkillName, sanitizeIdentifier } from '../core/name.ts'
@@ -89,6 +89,9 @@ export interface ServiceOptions {
   listRuntimeModels?: () => Promise<RuntimeModel[]>
   /** The settings-document mirror (host entry injects a registered scope). */
   settings?: SettingsMirror
+  /** Resolve a mirrored workspace folder name to a local workspace path
+   *  (host entry injects the workspace registry lookup). */
+  resolveWorkspace?: (name: string) => Promise<string | undefined>
   /** Diagnostics sink for best-effort mirror and reconcile reporting. */
   logger?: { warn?: (message: string) => void; info?: (message: string) => void }
   /** Notified after every install/uninstall/update persists (runtime refresh). */
@@ -825,19 +828,37 @@ export class CcMarketplaceService {
       if (installedKeys.has(key)) continue
       const targets: TargetRequest[] = []
       for (const raw of entry.targets) {
-        const t = decodeTarget(raw)
+        const t = classifyMirrorTarget(raw)
         if (t === undefined) continue
-        if (t.scope === 'workspace') {
-          const path = t.workspacePath ?? ''
+        if (t.kind === 'global') {
+          targets.push({ scope: 'global' })
+          continue
+        }
+        if (t.kind === 'workspace-name') {
+          // Portable form: resolve the folder name against this machine's
+          // workspace registry (the host entry injects the resolver).
+          let resolved: string | undefined
           try {
-            const stat = await this.opts.fs.stat(path)
-            if (!stat.isDirectory()) throw new Error('not a directory')
+            resolved = this.opts.resolveWorkspace !== undefined ? await this.opts.resolveWorkspace(t.name) : undefined
           } catch {
-            report.skipped.push(`plugin ${entry.plugin} target ${raw}: workspace path missing on this machine`)
+            resolved = undefined
+          }
+          if (resolved === undefined) {
+            report.skipped.push(`plugin ${entry.plugin} target ${raw}: no workspace "${t.name}" registered on this machine`)
             continue
           }
+          targets.push({ scope: 'workspace', workspacePath: resolved })
+          continue
         }
-        targets.push(t)
+        // Absolute path form: used only when the directory exists locally.
+        try {
+          const stat = await this.opts.fs.stat(t.path)
+          if (!stat.isDirectory()) throw new Error('not a directory')
+        } catch {
+          report.skipped.push(`plugin ${entry.plugin} target ${raw}: workspace path missing on this machine`)
+          continue
+        }
+        targets.push({ scope: 'workspace', workspacePath: t.path })
       }
       if (targets.length === 0) {
         report.skipped.push(`plugin ${entry.marketplace}/${entry.plugin}: no usable targets`)

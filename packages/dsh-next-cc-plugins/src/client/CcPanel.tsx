@@ -548,7 +548,7 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
             return (
               <div key={alias} className={styles.optionRow} data-testid="cc-model-row">
                 <span className={styles.optionLabel}>{alias}</span>
-                {fromConfig && <span className={styles.installedChip}>config</span>}
+                {fromConfig && <span className={styles.configChip}>config</span>}
                 <select
                   className={styles.select}
                   aria-label={`Model for ${alias}`}

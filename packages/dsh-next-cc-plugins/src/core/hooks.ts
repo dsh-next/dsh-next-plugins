@@ -15,6 +15,8 @@
  *  - `SubagentStop`     -> `subagent/end` (observe only)
  * Every other Claude hook event (PreCompact, Notification, SessionEnd, ...)
  * has no faithful DSH counterpart here yet and is reported as unsupported.
+ * Non-`command` hook types (http, mcp_tool, prompt, agent) are equally
+ * unsupported and reported by type.
  */
 export interface HookEntry {
   /** Tool-name matcher: a regex source, or '' / '*' for every tool. */
@@ -108,16 +110,28 @@ export function parseHookSet(rawHooksJson: string): HookSet {
       const e = entry as Record<string, unknown>
       const hooks = Array.isArray(e.hooks) ? e.hooks : []
       let any = false
+      let sawTyped = false
       for (const hook of hooks) {
         if (hook === null || typeof hook !== 'object' || Array.isArray(hook)) continue
         const h = hook as Record<string, unknown>
         const command = typeof h.command === 'string' ? h.command : ''
-        if (command === '') continue
-        const parsed: HookEntry = { matcher: matcherOf(e.matcher), command, timeoutMs: timeoutOf(h.timeout) }
-        out[SUPPORTED_EVENTS[event as SupportedEvent]].push(parsed)
-        any = true
+        if (command !== '') {
+          const parsed: HookEntry = { matcher: matcherOf(e.matcher), command, timeoutMs: timeoutOf(h.timeout) }
+          out[SUPPORTED_EVENTS[event as SupportedEvent]].push(parsed)
+          any = true
+          continue
+        }
+        // Claude also runs http, mcp_tool, prompt, and agent hooks; only
+        // command hooks have a DSH counterpart, so typed non-command hooks
+        // are reported as unsupported by type, not as parse problems.
+        const type = typeof h.type === 'string' ? h.type.trim().toLowerCase() : ''
+        if (type !== '' && type !== 'command') {
+          const label = `${event} (type ${type})`
+          if (!out.unsupported.includes(label)) out.unsupported.push(label)
+          sawTyped = true
+        }
       }
-      if (!any) out.notes.push(`hooks event "${event}" entry has no command hook; skipped`)
+      if (!any && !sawTyped) out.notes.push(`hooks event "${event}" entry has no command hook; skipped`)
     }
   }
   return out

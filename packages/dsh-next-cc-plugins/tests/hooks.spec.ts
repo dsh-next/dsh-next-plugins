@@ -58,6 +58,32 @@ describe('parseHookSet', () => {
     expect(set.notes).toEqual([])
   })
 
+  it('reports non-command hook types as unsupported by type, without notes', () => {
+    const set = parseHookSet(JSON.stringify({
+      PreToolUse: [
+        { matcher: 'Bash', hooks: [{ type: 'http', url: 'https://x' }] },
+        { hooks: [{ type: 'mcp_tool', server: 'srv', tool: 't' }, { type: 'MCP_TOOL', server: 'srv', tool: 't2' }] },
+      ],
+      Stop: [{ hooks: [{ type: 'prompt', prompt: 'check' }] }],
+      SessionStart: [{ hooks: [{ type: 'agent', prompt: 'verify' }] }],
+    }))
+    expect(set.pre).toEqual([])
+    expect(set.stop).toEqual([])
+    expect(set.sessionStart).toEqual([])
+    // Case-normalized and deduplicated.
+    expect(set.unsupported).toEqual(['PreToolUse (type http)', 'PreToolUse (type mcp_tool)', 'Stop (type prompt)', 'SessionStart (type agent)'])
+    expect(set.notes).toEqual([])
+  })
+
+  it('runs the command half of an entry that mixes command and non-command hooks', () => {
+    const set = parseHookSet(JSON.stringify({
+      PostToolUse: [{ hooks: [{ type: 'http', url: 'https://x' }, { command: 'log.sh' }] }],
+    }))
+    expect(set.post).toEqual([{ matcher: '', command: 'log.sh', timeoutMs: DEFAULT_HOOK_TIMEOUT_MS }])
+    expect(set.unsupported).toEqual(['PostToolUse (type http)'])
+    expect(set.notes).toEqual([])
+  })
+
   it('treats a "*" matcher as match-everything', () => {
     const set = parseHookSet(JSON.stringify({ PreToolUse: [{ matcher: '*', hooks: [{ command: 'x' }] }] }))
     expect(set.pre[0].matcher).toBe('')

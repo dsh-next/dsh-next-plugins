@@ -492,3 +492,32 @@
 .optionAction {
   flex: none;
 }
+
+/* The plugin name doubles as the detail-modal trigger: looks like text. */
+.nameButton {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-weight: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.nameButton:hover {
+  text-decoration: underline;
+}
+
+/* Dense two-column-free list used by the detail modal's meta and
+   component sections. */
+.detailList {
+  margin: 4px 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.detailList li {
+  word-break: break-word;
+}

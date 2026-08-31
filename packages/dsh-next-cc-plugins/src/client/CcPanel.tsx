@@ -133,6 +133,8 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
   const [installedOnly, setInstalledOnly] = React.useState(false)
   /** The open Add/Manage modal's plugin (marketplace + catalog entry). */
   const [modal, setModal] = React.useState<{ marketplaceId: string; plugin: MarketplacePluginView } | undefined>()
+  /** The open detail modal's plugin (same identity shape). */
+  const [detail, setDetail] = React.useState<{ marketplaceId: string; plugin: MarketplacePluginView } | undefined>()
   const [selection, setSelection] = React.useState<Set<string>>(new Set())
   /** Two-step uninstall confirm inside the modal, by target id. */
   const [confirmTarget, setConfirmTarget] = React.useState<string | undefined>()
@@ -154,13 +156,13 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
   }, [refresh])
 
   React.useEffect(() => {
-    if (modal === undefined) return
+    if (modal === undefined && detail === undefined) return
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') { setModal(undefined); setSelection(new Set()); setConfirmTarget(undefined) }
+      if (e.key === 'Escape') { setModal(undefined); setSelection(new Set()); setConfirmTarget(undefined); setDetail(undefined) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [modal])
+  }, [modal, detail])
 
   const mutate = async (method: string, args?: unknown): Promise<void> => {
     setBusy(true)
@@ -374,6 +376,81 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
     )
   }
 
+  /**
+   * The detail modal: everything the catalog and the installed record know
+   * about one plugin — metadata, the full component listing (including the
+   * families this bridge does not install), and the persisted notes.
+   */
+  const detailDialog = (): React.ReactElement | null => {
+    if (detail === undefined) return null
+    const key = `${detail.marketplaceId}/${detail.plugin.name}`
+    const record = byKey.get(key)
+    const inv = detail.plugin.inventory
+    const marketplace = marketplaces.find((m) => m.id === detail.marketplaceId)
+    const section = (label: string, values: readonly string[]): React.ReactElement | null =>
+      values.length === 0 ? null : (
+        <li><strong>{label}:</strong> {values.join(', ')}</li>
+      )
+    return (
+      <div className={styles.overlay} role="presentation" onClick={() => setDetail(undefined)}>
+        <div
+          className={styles.modal}
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Plugin details "${detail.plugin.name}"`}
+          data-testid="cc-plugin-detail"
+          onClick={(e: React.MouseEvent) => e.stopPropagation()}
+        >
+          <p className={styles.modalTitle}>{detail.plugin.name}</p>
+          <p className={styles.modalHint}>
+            {[
+              detail.plugin.version !== '' ? `version ${detail.plugin.version}` : '',
+              record !== undefined && record.version !== '' ? `installed ${record.version}` : 'not installed',
+              marketplace !== undefined ? `from ${marketplace.name}` : '',
+            ].filter(Boolean).join(' — ')}
+          </p>
+          {detail.plugin.description !== '' && <p className={styles.modalHint}>{detail.plugin.description}</p>}
+          <ul className={styles.detailList}>
+            {detail.plugin.author !== '' ? <li><strong>author:</strong> {detail.plugin.author}</li> : null}
+            {detail.plugin.homepage !== '' ? <li><strong>homepage:</strong> {detail.plugin.homepage}</li> : null}
+            {detail.plugin.category !== '' ? <li><strong>category:</strong> {detail.plugin.category}</li> : null}
+            {detail.plugin.tags.length > 0 ? <li><strong>tags:</strong> {detail.plugin.tags.join(', ')}</li> : null}
+          </ul>
+          {detail.plugin.sourceUnsupported !== undefined && (
+            <p className={styles.modalHint}>not installable: {detail.plugin.sourceUnsupported}</p>
+          )}
+          {inv === undefined ? (
+            <p className={styles.modalHint}>components resolve on install</p>
+          ) : (
+            <ul className={styles.detailList} data-testid="cc-detail-components">
+              {section('skills', inv.skills.map((s) => s.name))}
+              {section('commands', inv.commands.map((c) => c.name))}
+              {section('agents', inv.agents.map((a) => a.name))}
+              {section('MCP servers', inv.mcpServers.map((m) => m.name))}
+              {section('hook events', inv.hookEvents)}
+              {unbridgedSummary(inv.unbridged) !== '' ? <li><strong>not bridged:</strong> {unbridgedSummary(inv.unbridged).replace('not bridged: ', '')}</li> : null}
+              {section('requires', inv.dependencies)}
+              {section('inventory notes', inv.notes)}
+            </ul>
+          )}
+          {record !== undefined && (
+            <>
+              <p className={styles.modalHint}>{presenceLabel(record, workspaces)}</p>
+              {(record.notes ?? []).length > 0 && (
+                <ul className={styles.detailList} data-testid="cc-detail-notes">
+                  {(record.notes ?? []).map((note) => <li key={note}>{note}</li>)}
+                </ul>
+              )}
+            </>
+          )}
+          <div className={styles.modalActions}>
+            <button type="button" className={styles.ghost} onClick={() => setDetail(undefined)} data-testid="cc-detail-close">Close</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className={styles.page}>
       <div className={styles.tabs} role="tablist">
@@ -460,7 +537,13 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
                 <div className={styles.pluginCardTop}>
                   <div className={styles.headText}>
                     <div className={styles.pluginName}>
-                      {plugin.name}
+                      <button
+                        type="button"
+                        className={styles.nameButton}
+                        title={`details for ${key}`}
+                        onClick={() => setDetail({ marketplaceId: marketplace.id, plugin })}
+                        data-testid="cc-detail"
+                      >{plugin.name}</button>
                       {plugin.version !== '' && <span className={styles.version}> {plugin.version}</span>}
                     </div>
                     <div className={styles.desc}>{plugin.description !== '' ? plugin.description : 'no description'}</div>
@@ -613,6 +696,7 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
       )}
 
       {modalDialog()}
+      {detailDialog()}
     </div>
   )
 }

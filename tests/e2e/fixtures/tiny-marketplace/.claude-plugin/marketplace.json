@@ -1,0 +1,12 @@
+{
+  "name": "tiny-tools",
+  "description": "Offline fixture marketplace for the mount smoke",
+  "plugins": [
+    {
+      "name": "demo-tools",
+      "description": "Demo plugin for the mount smoke",
+      "version": "1.0.0",
+      "source": "./plugins/demo"
+    }
+  ]
+}

@@ -17,6 +17,7 @@
  *      mismatch between a Host RPC and its card). Add an entry per plugin as
  *      they gain UI.
  */
+import { join } from 'node:path'
 import { test, expect, type Page } from '@playwright/test'
 
 const BASE_URL = process.env.DSH_E2E_URL
@@ -197,18 +198,39 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
   // handles a closed or Plugins-view Settings shell.
   'dsh-next-cc-plugins': async (page) => {
     await openCcSection(page)
+    // Tab clicks stay scoped to the Settings dialog: the app's own sidebar
+    // also has "Plugins" and "Models" pages an unscoped text locator hits.
+    const settings = page.getByRole('dialog', { name: 'Settings' })
     await expect(page.getByText('Plugins', { exact: true }).first()).toBeVisible()
     await expect(page.getByText('Marketplaces', { exact: true }).first()).toBeVisible()
     await expect(page.getByText('No marketplaces added yet', { exact: false }).first()).toBeVisible()
     await expect(page.getByTestId('cc-search').first()).toBeVisible()
     await expect(page.getByTestId('cc-installed-only').first()).toBeVisible()
-    await page.getByText('Marketplaces', { exact: true }).first().click({ force: true })
+    await settings.getByRole('tab', { name: 'Marketplaces' }).click({ force: true })
     await expect(page.locator('input[placeholder*="owner/repo"]').first()).toBeVisible()
     await expect(page.getByText('refresh automatically', { exact: false }).first()).toBeVisible()
+    // A local-fixture marketplace drives the real add -> card -> detail flow
+    // offline: the panel lists its plugin, and the detail modal shows the
+    // component inventory including the not-bridged LSP family.
+    const fixture = join(process.cwd(), 'tests/e2e/fixtures/tiny-marketplace')
+    await page.getByTestId('cc-add-input').first().fill(fixture)
+    await page.getByRole('button', { name: 'Add marketplace' }).first().click()
+    await expect(page.getByText('tiny-tools', { exact: false }).first()).toBeVisible()
+    // Plugin cards live on the Plugins tab.
+    await settings.getByRole('tab', { name: 'Plugins' }).click({ force: true })
+    await expect(page.getByTestId('cc-plugin').first()).toBeVisible()
+    await page.getByTestId('cc-detail').first().click()
+    await expect(page.getByTestId('cc-plugin-detail')).toBeVisible()
+    await expect(page.getByTestId('cc-detail-components')).toContainText('skills: demo-skill')
+    await expect(page.getByTestId('cc-detail-components')).toContainText('commands: hello')
+    await expect(page.getByTestId('cc-detail-components')).toContainText('LSP server')
+    await page.getByTestId('cc-detail-close').click()
+    await expect(page.getByTestId('cc-plugin-detail')).toHaveCount(0)
+    // Remove the fixture marketplace so the scratch home stays pristine.
+    await settings.getByRole('tab', { name: 'Marketplaces' }).click({ force: true })
+    await page.getByRole('button', { name: 'Remove', exact: true }).first().click()
+    await expect(page.getByText('No marketplaces added yet', { exact: false }).first()).toBeVisible()
     // The Models tab offers alias pickers over the runtime's live models.
-    // Scoped to the dialog's tablist: the app's own Settings sidebar also has
-    // a "Models" page, and an unscoped text locator clicks that instead.
-    const settings = page.getByRole('dialog', { name: 'Settings' })
     await settings.getByRole('tab', { name: 'Models' }).click({ force: true })
     await expect(page.getByTestId('cc-model-row').first()).toBeVisible()
     await expect(page.getByTestId('cc-model-select').first()).toBeVisible()

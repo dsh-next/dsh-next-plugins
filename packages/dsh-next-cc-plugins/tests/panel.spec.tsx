@@ -742,3 +742,76 @@ describe('install-notes chip', () => {
     expect(container.querySelector('[data-testid="cc-notes-chip"]')?.textContent).toBe('1 install note')
   })
 })
+
+describe('plugin detail modal', () => {
+  it('opens from the card name and lists metadata, components, and notes', async () => {
+    const state: CcState = {
+      ...STATE,
+      installed: [installedRecord({ notes: ['ships 1 LSP server; no DSH bridge, not installed'] })],
+    }
+    await renderAsync({ rpc: rpcMock(state) })
+    await act(async () => { button('team-tools').click() })
+    const modal = container.querySelector('[data-testid="cc-plugin-detail"]')
+    expect(modal).not.toBeNull()
+    expect(modal?.textContent).toContain('version 1.0.0')
+    expect(modal?.textContent).toContain('installed 1.0.0')
+    expect(modal?.textContent).toContain('from acme')
+    const components = container.querySelector('[data-testid="cc-detail-components"]')
+    expect(components?.textContent).toContain('skills: deploy')
+    expect(components?.textContent).toContain('commands: ship')
+    expect(components?.textContent).toContain('MCP servers: linear')
+    expect(components?.textContent).toContain('hook events: Stop')
+    const notes = container.querySelector('[data-testid="cc-detail-notes"]')
+    expect(notes?.textContent).toContain('ships 1 LSP server')
+    // Close via the button.
+    await act(async () => { (container.querySelector('[data-testid="cc-detail-close"]') as HTMLButtonElement).click() })
+    expect(container.querySelector('[data-testid="cc-plugin-detail"]')).toBeNull()
+  })
+
+  it('closes on Escape and the overlay, and shows source/resolve fallbacks', async () => {
+    await renderAsync()
+    // npm-source plugin: detail explains why it is not installable.
+    await act(async () => { button('packed').click() })
+    let modal = container.querySelector('[data-testid="cc-plugin-detail"]')
+    expect(modal?.textContent).toContain('not installable: npm plugin sources are not supported yet')
+    await act(async () => { (container.querySelector('[data-testid="cc-detail-close"]') as HTMLButtonElement).click() })
+    // github-source plugin without an inventory snapshot.
+    await act(async () => { button('searchable-thing').click() })
+    modal = container.querySelector('[data-testid="cc-plugin-detail"]')
+    expect(modal?.textContent).toContain('components resolve on install')
+    // Escape closes.
+    await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })) })
+    expect(container.querySelector('[data-testid="cc-plugin-detail"]')).toBeNull()
+    // Overlay click closes too.
+    await act(async () => { button('searchable-thing').click() })
+    await act(async () => { (container.querySelector('[data-testid="cc-plugin-detail"]')?.parentElement as HTMLElement).click() })
+    expect(container.querySelector('[data-testid="cc-plugin-detail"]')).toBeNull()
+  })
+
+  it('reports unbridged families and dependencies in the component listing', async () => {
+    const state: CcState = {
+      ...STATE,
+      marketplaces: STATE.marketplaces.map((m, i) => i === 0 ? {
+        ...m,
+        plugins: [{
+          ...m.plugins[0],
+          inventory: {
+            skills: [],
+            commands: [],
+            agents: [],
+            hookEvents: [],
+            mcpServers: [],
+            unbridged: { lspServers: 2, monitors: 1 },
+            dependencies: ['secrets-vault@~2.1.0'],
+            notes: [],
+          },
+        }],
+      } : m),
+    }
+    await renderAsync({ rpc: rpcMock(state) })
+    await act(async () => { button('team-tools').click() })
+    const components = container.querySelector('[data-testid="cc-detail-components"]')
+    expect(components?.textContent).toContain('not bridged: 2 LSP servers, 1 monitor')
+    expect(components?.textContent).toContain('requires: secrets-vault@~2.1.0')
+  })
+})

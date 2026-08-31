@@ -24,6 +24,7 @@ import type {
   McpServerComponent,
   PluginInventory,
   SkillComponent,
+  UnbridgedComponents,
 } from './types.ts'
 
 /** A plugin's files: plugin-relative path to UTF-8 content. */
@@ -321,9 +322,154 @@ export function pluginInventory(files: PluginFiles): PluginInventory {
     agents: extractAgents(files, paths.agents ?? DEFAULT_COMPONENT_PATHS.agents),
     hookEvents: extractHookEvents(files, paths.hooks ?? DEFAULT_COMPONENT_PATHS.hooks, paths.hooks !== undefined, notes),
     mcpServers: extractMcp(files, paths.mcpServers ?? DEFAULT_COMPONENT_PATHS.mcpServers, paths.mcpServers !== undefined, notes),
+    unbridged: extractUnbridged(files, notes),
     notes,
   }
   return inventory
+}
+
+// ---------------------------------------------------------------------------
+// Recognized-but-unbridged component families (reported, never installed)
+// ---------------------------------------------------------------------------
+
+/** Parse a JSON file from the map, or undefined when absent/invalid. */
+function parseJsonFile(files: PluginFiles, path: string, notes: string[], what: string): unknown {
+  const raw = files[trimDir(path)]
+  if (raw === undefined) return undefined
+  try {
+    return JSON.parse(raw)
+  } catch {
+    notes.push(`${what} file "${trimDir(path)}" is not valid JSON; not counted`)
+    return undefined
+  }
+}
+
+/** The parsed manifest object, or undefined when absent/malformed. */
+function readManifest(files: PluginFiles): Record<string, unknown> | undefined {
+  const raw = files['.claude-plugin/plugin.json']
+  if (raw === undefined) return undefined
+  try {
+    const data = JSON.parse(raw)
+    return data !== null && typeof data === 'object' && !Array.isArray(data) ? data as Record<string, unknown> : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function countObjectKeys(data: unknown): number {
+  return data !== null && typeof data === 'object' && !Array.isArray(data) ? Object.keys(data).length : 0
+}
+
+/** Count files under one root directory matching a suffix filter. */
+function countUnderRoot(files: PluginFiles, rootRaw: string, suffix: string): number {
+  const root = trimDir(rootRaw)
+  const prefix = root === '' ? '' : `${root}/`
+  let count = 0
+  for (const path of Object.keys(files)) {
+    if (!path.startsWith(prefix)) continue
+    if (path.slice(prefix.length).endsWith(suffix)) count++
+  }
+  return count
+}
+
+/**
+ * Detect the component families Claude Code ships that this bridge has no
+ * DSH surface for (LSP servers, monitors, output styles, themes, workflows,
+ * bin executables, plugin settings). They are counted so the panel can say
+ * what an install deliberately leaves out; nothing here ever fails one.
+ */
+export function extractUnbridged(files: PluginFiles, notes: string[]): UnbridgedComponents {
+  const manifest = readManifest(files)
+  const experimental = (manifest?.experimental !== null && typeof manifest?.experimental === 'object' && !Array.isArray(manifest.experimental))
+    ? manifest.experimental as Record<string, unknown>
+    : {}
+  const out: UnbridgedComponents = {}
+
+  // LSP servers: `.lcp.json`/`.lsp.json` at the root, a manifest path, or an
+  // inline manifest object, all keyed by server name.
+  const lspRaw = manifest?.lspServers
+  let lspCount = 0
+  if (typeof lspRaw === 'string') {
+    lspCount = countObjectKeys(parseJsonFile(files, lspRaw, notes, 'LSP servers'))
+  } else if (lspRaw !== null && typeof lspRaw === 'object' && !Array.isArray(lspRaw)) {
+    lspCount = countObjectKeys(lspRaw)
+  } else {
+    for (const candidate of ['.lsp.json', '.lcp.json']) {
+      const data = parseJsonFile(files, candidate, notes, 'LSP servers')
+      if (data !== undefined) {
+        lspCount = countObjectKeys(data)
+        break
+      }
+    }
+  }
+  if (lspCount > 0) out.lspServers = lspCount
+
+  // Monitors: monitors/monitors.json (an array), a manifest path, or inline.
+  const monitorsRaw = manifest?.monitors ?? experimental.monitors
+  let monitors = 0
+  if (typeof monitorsRaw === 'string') {
+    const data = parseJsonFile(files, monitorsRaw, notes, 'Monitors')
+    monitors = Array.isArray(data) ? data.length : 0
+  } else if (Array.isArray(monitorsRaw)) {
+    monitors = monitorsRaw.length
+  } else {
+    const data = parseJsonFile(files, 'monitors/monitors.json', notes, 'Monitors')
+    monitors = Array.isArray(data) ? data.length : 0
+  }
+  if (monitors > 0) out.monitors = monitors
+
+  // Output styles: a directory of markdown files (manifest path or default).
+  const outputStylesRaw = manifest?.outputStyles
+  const outputStyles = typeof outputStylesRaw === 'string'
+    ? (files[trimDir(outputStylesRaw)] !== undefined ? 1 : countUnderRoot(files, outputStylesRaw, '.md'))
+    : countUnderRoot(files, 'output-styles', '.md')
+  if (outputStyles > 0) out.outputStyles = outputStyles
+
+  // Themes: a directory of JSON files (experimental manifest path or default).
+  const themesRaw = experimental.themes
+  const themes = typeof themesRaw === 'string'
+    ? (files[trimDir(themesRaw)] !== undefined ? 1 : countUnderRoot(files, themesRaw, '.json'))
+    : countUnderRoot(files, 'themes', '.json')
+  if (themes > 0) out.themes = themes
+
+  // Workflows and bin executables: any file below the directory counts.
+  const workflows = countUnderRoot(files, 'workflows', '')
+  if (workflows > 0) out.workflows = workflows
+  const executables = countUnderRoot(files, 'bin', '')
+  if (executables > 0) out.executables = executables
+
+  // Plugin settings.json: only the agent/subagentStatusLine keys exist.
+  if (files['settings.json'] !== undefined) out.settings = 1
+  return out
+}
+
+/** Human labels for {@link UnbridgedComponents} keys, singular and plural. */
+export const UNBRIDGED_LABELS: Record<keyof UnbridgedComponents & string, [string, string]> = {
+  lspServers: ['LSP server', 'LSP servers'],
+  monitors: ['monitor', 'monitors'],
+  outputStyles: ['output style', 'output styles'],
+  themes: ['theme', 'themes'],
+  workflows: ['workflow', 'workflows'],
+  executables: ['executable', 'executables'],
+  settings: ['settings file', 'settings files'],
+}
+
+/**
+ * Install notes for the unbridged families one plugin ships, in a stable
+ * order: each names the count and says plainly that this bridge does not
+ * install it onto a DSH surface.
+ */
+export function unbridgedNotes(unbridged: UnbridgedComponents): string[] {
+  const order: Array<keyof UnbridgedComponents & string> = ['lspServers', 'monitors', 'outputStyles', 'themes', 'workflows', 'executables', 'settings']
+  const notes: string[] = []
+  for (const key of order) {
+    const count = unbridged[key]
+    if (count === undefined || count <= 0) continue
+    const [one, many] = UNBRIDGED_LABELS[key]
+    const label = count === 1 ? one : many
+    notes.push(`ships ${count} ${label}; no DSH bridge, not installed`)
+  }
+  return notes
 }
 
 /**
@@ -360,7 +506,7 @@ export function hooksDocument(files: PluginFiles): string {
 }
 
 /** Roots this bridge consumes as components; never counted as stray assets. */
-const COMPONENT_ROOTS = new Set(['.claude-plugin', '.mcp.json', 'skills', 'commands', 'agents', 'hooks'])
+const COMPONENT_ROOTS = new Set(['.claude-plugin', '.mcp.json', 'skills', 'commands', 'agents', 'hooks', 'output-styles', 'themes', 'workflows', 'monitors', 'bin'])
 
 /**
  * Notes for skills whose SKILL.md references plugin-level directories that

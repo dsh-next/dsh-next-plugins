@@ -32,7 +32,7 @@ import { targetId, type TargetRequest } from '../core/targets.ts'
 import { isSnapshotStale, isUpdateAvailable, manifestVersion } from '../core/versions.ts'
 import { isSkillName, sanitizeIdentifier } from '../core/name.ts'
 import { dirnamePath, isSafeRelativePath, joinPath } from '../core/path.ts'
-import { pluginInventory, pluginLevelReferenceNotes, readManifestPaths, skillFiles, type PluginFiles } from '../core/plugin-inventory.ts'
+import { pluginInventory, pluginLevelReferenceNotes, readManifestPaths, skillFiles, unbridgedNotes, type PluginFiles } from '../core/plugin-inventory.ts'
 import { extractTarEntries } from './tarball.ts'
 import { fetchRepoTarball } from './github-client.ts'
 import { Store, safeDirId } from './store.ts'
@@ -560,7 +560,7 @@ export class CcMarketplaceService {
       `targets: ${args.targets.map((t) => this.scopeLabel(t)).join(' + ')}`,
     ].filter(Boolean)
     const summary = parts.join('; ')
-    const notes = [...mcp.notes, ...agents.notes, ...pluginLevelReferenceNotes(resolved.files, inventory.skills)]
+    const notes = [...mcp.notes, ...agents.notes, ...unbridgedNotes(inventory.unbridged), ...pluginLevelReferenceNotes(resolved.files, inventory.skills)]
     const verb = existing === undefined ? 'installed' : 'added targets to'
     const message = notes.length > 0 ? `${verb} "${args.plugin}": ${summary}; ${notes.join('; ')}` : `${verb} "${args.plugin}": ${summary}`
     return { ok: true, message, state: await this.state() }
@@ -719,7 +719,7 @@ export class CcMarketplaceService {
 
     const skipped = errors.length > 0 ? `; skipped: ${errors.join('; ')}` : ''
     const versionText = effectiveVersion !== '' ? effectiveVersion : 'latest'
-    const notes = [...mcp.notes, ...agents.notes, ...pluginLevelReferenceNotes(resolved.files, inventory.skills)]
+    const notes = [...mcp.notes, ...agents.notes, ...unbridgedNotes(inventory.unbridged), ...pluginLevelReferenceNotes(resolved.files, inventory.skills)]
     const message = notes.length > 0
       ? `updated "${record.pluginName}" to ${versionText}${skipped}; ${notes.join('; ')}`
       : `updated "${record.pluginName}" to ${versionText}${skipped}`

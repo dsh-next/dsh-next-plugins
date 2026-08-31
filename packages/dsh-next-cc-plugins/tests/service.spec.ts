@@ -345,6 +345,27 @@ describe('CcMarketplaceService install', () => {
     if (result.ok) expect(result.message).toContain('CLAUDE_PROJECT_DIR')
   })
 
+  it('notes unbridged component families in the install message', async () => {
+    f.gh.setRepo('o', 'r', {
+      '.claude-plugin/marketplace.json': JSON.stringify({
+        name: 'acme-tools',
+        plugins: [{ name: 'rich', source: './plugins/rich' }],
+      }),
+      'plugins/rich/.lsp.json': JSON.stringify({ go: { command: 'gopls' } }),
+      'plugins/rich/monitors/monitors.json': JSON.stringify([{ name: 'm' }]),
+      'plugins/rich/skills/deploy/SKILL.md': SKILL('deploy', 'Deploys'),
+    })
+    await f.service.addMarketplace('o/r')
+    const result = await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'rich', targets: [{ scope: 'global' }] })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.message).toContain('ships 1 LSP server; no DSH bridge, not installed')
+    expect(result.message).toContain('ships 1 monitor; no DSH bridge, not installed')
+    // The view carries the counts for the card summary.
+    const view = (await f.service.state()).marketplaces[0].plugins[0]
+    expect(view.inventory?.unbridged).toEqual({ lspServers: 1, monitors: 1 })
+  })
+
   it('notes MCP templates that resolve nowhere instead of failing the install', async () => {
     const none = makeFixture()
     none.gh.setRepo('o', 'r', {

@@ -57,7 +57,9 @@ function errMsg(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-/** Component-count summary line, e.g. "2 skills, 1 MCP server, 3 commands pending". */
+/** Component-count summary line, e.g. "2 skills, 1 MCP server, not bridged:
+ *  1 LSP server". The trailing group names the Claude Code component
+ *  families an install deliberately leaves out. */
 export function inventorySummary(inventory: PluginInventory): string {
   const parts = [
     inventory.skills.length > 0 ? `${inventory.skills.length} skill${inventory.skills.length === 1 ? '' : 's'}` : '',
@@ -65,8 +67,29 @@ export function inventorySummary(inventory: PluginInventory): string {
     inventory.commands.length > 0 ? `${inventory.commands.length} command${inventory.commands.length === 1 ? '' : 's'}` : '',
     inventory.agents.length > 0 ? `${inventory.agents.length} agent tool${inventory.agents.length === 1 ? '' : 's'}` : '',
     inventory.hookEvents.length > 0 ? `${inventory.hookEvents.length} hook event${inventory.hookEvents.length === 1 ? '' : 's'} (enable runtime.hooks)` : '',
+    unbridgedSummary(inventory.unbridged),
   ].filter(Boolean)
   return parts.length > 0 ? parts.join(', ') : 'no components'
+}
+
+/** "not bridged: 2 LSP servers, 1 monitor" — '' when everything bridges. */
+export function unbridgedSummary(unbridged: PluginInventory['unbridged']): string {
+  const labels: Array<[keyof PluginInventory['unbridged'] & string, [string, string]]> = [
+    ['lspServers', ['LSP server', 'LSP servers']],
+    ['monitors', ['monitor', 'monitors']],
+    ['outputStyles', ['output style', 'output styles']],
+    ['themes', ['theme', 'themes']],
+    ['workflows', ['workflow', 'workflows']],
+    ['executables', ['executable', 'executables']],
+    ['settings', ['settings file', 'settings files']],
+  ]
+  const parts: string[] = []
+  for (const [key, [one, many]] of labels) {
+    const count = unbridged[key]
+    if (count === undefined || count <= 0) continue
+    parts.push(`${count} ${count === 1 ? one : many}`)
+  }
+  return parts.length > 0 ? `not bridged: ${parts.join(', ')}` : ''
 }
 
 /** Where a plugin's skills are installed, across every target. */

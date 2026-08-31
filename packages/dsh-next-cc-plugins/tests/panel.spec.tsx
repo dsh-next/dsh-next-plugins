@@ -10,7 +10,7 @@ import * as React from 'react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import type { CcState, InstalledPlugin, MarketplacePluginView, MutationResult, WorkspaceRow } from '../src/core/types.ts'
-import { CcPanel, formatLastSync, presenceLabel } from '../src/client/CcPanel.tsx'
+import { CcPanel, formatLastSync, inventorySummary, presenceLabel, unbridgedSummary } from '../src/client/CcPanel.tsx'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -53,6 +53,7 @@ const STATE: CcState = {
             agents: [],
             hookEvents: ['Stop'],
             mcpServers: [{ name: 'linear', def: { transport: 'stdio', command: 'npx', args: [], env: {} } }],
+            unbridged: {},
             notes: [],
           },
           installed: false,
@@ -674,5 +675,31 @@ describe('formatLastSync', () => {
     expect(formatLastSync(new Date(NOW - 3 * 3_600_000).toISOString(), NOW)).toBe('3h ago')
     expect(formatLastSync(new Date(NOW - 2 * 86_400_000).toISOString(), NOW)).toBe('2d ago')
     expect(formatLastSync(new Date(NOW - 30 * 86_400_000).toISOString(), NOW)).toBe('2026-08-03')
+  })
+})
+
+describe('unbridged summaries', () => {
+  it('inventorySummary appends the not-bridged group after bridged counts', () => {
+    const summary = inventorySummary({
+      skills: [{ name: 'a', description: '', path: 'skills/a' }],
+      commands: [],
+      agents: [],
+      hookEvents: [],
+      mcpServers: [],
+      unbridged: { lspServers: 2, monitors: 1 },
+      notes: [],
+    })
+    expect(summary).toBe('1 skill, not bridged: 2 LSP servers, 1 monitor')
+  })
+
+  it('unbridgedSummary renders singular and plural labels per family', () => {
+    expect(unbridgedSummary({ themes: 1 })).toBe('not bridged: 1 theme')
+    expect(unbridgedSummary({ outputStyles: 2, executables: 3 })).toBe('not bridged: 2 output styles, 3 executables')
+    expect(unbridgedSummary({ settings: 1 })).toBe('not bridged: 1 settings file')
+  })
+
+  it('unbridgedSummary is empty for an empty or zero-valued map', () => {
+    expect(unbridgedSummary({})).toBe('')
+    expect(unbridgedSummary({ monitors: 0 })).toBe('')
   })
 })

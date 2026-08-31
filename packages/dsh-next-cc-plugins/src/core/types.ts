@@ -139,6 +139,19 @@ export interface McpServerComponent {
 }
 
 /** Everything a Claude Code plugin bundles, extracted from its files. */
+/** Component families Claude Code plugins may ship that this bridge
+ *  recognizes but does not install onto any DSH surface, with counts. */
+export type UnbridgedKind =
+  | 'lspServers'
+  | 'monitors'
+  | 'outputStyles'
+  | 'themes'
+  | 'workflows'
+  | 'executables'
+  | 'settings'
+
+export type UnbridgedComponents = Partial<Record<UnbridgedKind, number>>
+
 export interface PluginInventory {
   skills: SkillComponent[]
   commands: CommandComponent[]
@@ -146,6 +159,8 @@ export interface PluginInventory {
   /** Hook event names declared in hooks/hooks.json. */
   hookEvents: string[]
   mcpServers: McpServerComponent[]
+  /** Recognized-but-unbridged component families and their counts. */
+  unbridged: UnbridgedComponents
   /** Non-fatal notes (skipped components, unusual shapes). */
   notes: string[]
 }

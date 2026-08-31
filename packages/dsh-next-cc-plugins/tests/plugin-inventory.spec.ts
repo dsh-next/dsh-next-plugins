@@ -5,7 +5,7 @@
  * `pluginLevelReferenceNotes`.
  */
 import { describe, expect, it } from 'vitest'
-import { pluginInventory, pluginLevelReferenceNotes, hooksDocument, readManifestPaths, skillFiles } from '../src/core/plugin-inventory.ts'
+import { pluginInventory, pluginLevelReferenceNotes, hooksDocument, readManifestPaths, skillFiles, unbridgedNotes } from '../src/core/plugin-inventory.ts'
 
 const SKILL = (name: string, description = 'does things'): string =>
   `---\nname: ${name}\ndescription: ${description}\n---\nbody\n`
@@ -304,5 +304,77 @@ describe('inline plugin.json mcpServers', () => {
     expect(pluginInventory({ 'skills/a/SKILL.md': SKILL('a') }).mcpServers).toEqual([])
     expect(pluginInventory({ '.claude-plugin/plugin.json': '{oops', 'skills/a/SKILL.md': SKILL('a') }).mcpServers).toEqual([])
     expect(pluginInventory({ '.claude-plugin/plugin.json': '{"mcpServers": "not-an-object"}', 'skills/a/SKILL.md': SKILL('a') }).mcpServers).toEqual([])
+  })
+})
+
+describe('unbridged component families', () => {
+  it('counts every family from the default layout', () => {
+    const inv = pluginInventory({
+      '.claude-plugin/plugin.json': JSON.stringify({ name: 'rich' }),
+      '.lsp.json': JSON.stringify({ go: { command: 'gopls' }, ts: { command: 'tsserver' } }),
+      'monitors/monitors.json': JSON.stringify([{ name: 'deploy-status' }]),
+      'output-styles/terse.md': '# Terse',
+      'output-styles/verbose.md': '# Verbose',
+      'themes/dracula.json': '{"name":"dracula"}',
+      'workflows/release-audit.js': 'x',
+      'bin/my-tool': '#!/bin/sh',
+      'settings.json': JSON.stringify({ agent: 'editor' }),
+      'skills/a/SKILL.md': SKILL('a'),
+    })
+    expect(inv.unbridged).toEqual({
+      lspServers: 2,
+      monitors: 1,
+      outputStyles: 2,
+      themes: 1,
+      workflows: 1,
+      executables: 1,
+      settings: 1,
+    })
+    expect(unbridgedNotes(inv.unbridged)).toEqual([
+      'ships 2 LSP servers; no DSH bridge, not installed',
+      'ships 1 monitor; no DSH bridge, not installed',
+      'ships 2 output styles; no DSH bridge, not installed',
+      'ships 1 theme; no DSH bridge, not installed',
+      'ships 1 workflow; no DSH bridge, not installed',
+      'ships 1 executable; no DSH bridge, not installed',
+      'ships 1 settings file; no DSH bridge, not installed',
+    ])
+  })
+
+  it('reads manifest paths and inline declarations', () => {
+    const inv = pluginInventory({
+      '.claude-plugin/plugin.json': JSON.stringify({
+        lspServers: { python: { command: 'pyright' } },
+        outputStyles: './styles/terse.md',
+        experimental: { themes: './skins', monitors: './watch/m.json' },
+      }),
+      'styles/terse.md': 'x',
+      'skins/dark.json': '{}',
+      'skins/light.json': '{}',
+      'watch/m.json': JSON.stringify([{ name: 'a' }, { name: 'b' }]),
+    })
+    expect(inv.unbridged).toEqual({ lspServers: 1, outputStyles: 1, themes: 2, monitors: 2 })
+  })
+
+  it('stays empty and noteless for a plugin without those families', () => {
+    const inv = pluginInventory({ 'skills/a/SKILL.md': SKILL('a') })
+    expect(inv.unbridged).toEqual({})
+    expect(unbridgedNotes(inv.unbridged)).toEqual([])
+  })
+
+  it('notes malformed family JSON instead of failing', () => {
+    const inv = pluginInventory({ '.lsp.json': '{oops', 'monitors/monitors.json': '[nope' })
+    expect(inv.unbridged).toEqual({})
+    expect(inv.notes.join(' ')).toContain('LSP servers file ".lsp.json" is not valid JSON')
+    expect(inv.notes.join(' ')).toContain('Monitors file "monitors/monitors.json" is not valid JSON')
+  })
+
+  it('never treats unbridged roots as plugin-level skill references', () => {
+    const files = {
+      'skills/a/SKILL.md': '---\nname: a\ndescription: d\n---\nSee themes/dark.json and bin/tool.',
+      'themes/dark.json': '{}',
+      'bin/tool': 'x',
+    }
+    expect(pluginLevelReferenceNotes(files, pluginInventory(files).skills)).toEqual([])
   })
 })

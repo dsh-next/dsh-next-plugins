@@ -10,7 +10,7 @@ import * as React from 'react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import type { CcState, InstalledPlugin, MarketplacePluginView, MutationResult, WorkspaceRow } from '../src/core/types.ts'
-import { CcPanel, formatLastSync } from '../src/client/CcPanel.tsx'
+import { CcPanel, formatLastSync, presenceLabel } from '../src/client/CcPanel.tsx'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -460,6 +460,203 @@ describe('CcPanel', () => {
     await act(async () => { button('Marketplaces').click() })
     await act(async () => { button('Refresh all').click() })
     expect(document.querySelector('[data-testid="cc-message"]')?.textContent).toContain('boom')
+  })
+
+  it('surfaces thrown RPC errors from load and mutations', async () => {
+    const rpc = vi.fn<RpcFn>(async () => { throw new Error('network down') })
+    await renderAsync({ rpc })
+    expect(document.querySelector('[data-testid="cc-message"]')?.textContent).toContain('network down')
+
+    const rpc2 = vi.fn<RpcFn>(async (method: string) => {
+      if (method === 'getState') return STATE
+      throw new Error('rpc exploded')
+    })
+    await renderAsync({ rpc: rpc2 })
+    await act(async () => { button('Marketplaces').click() })
+    await act(async () => { button('Refresh all').click() })
+    expect(document.querySelector('[data-testid="cc-message"]')?.textContent).toContain('rpc exploded')
+  })
+
+  it('combines filters and shows the no-match empty state', async () => {
+    const state: CcState = { ...STATE, installed: [installedRecord()] }
+    await renderAsync({ rpc: rpcMock(state) })
+    // Search matches names, descriptions, and marketplace names.
+    const search = document.querySelector('[data-testid="cc-search"]')!
+    await act(async () => { setValue(search, 'very specific') })
+    expect(pluginCards()).toHaveLength(1) // description match
+    await act(async () => { setValue(search, 'other-mkt') })
+    expect(pluginCards()).toHaveLength(1) // marketplace name match
+    await act(async () => { setValue(search, 'nothing matches this') })
+    expect(pluginCards()).toHaveLength(0)
+    expect(document.querySelector('[data-testid="cc-empty"]')?.textContent).toContain('No plugins match')
+
+    // Filters stack: provider + installed-only leaves nothing while search
+    // still excludes the installed plugin.
+    await act(async () => { setValue(search, '') })
+    const provider = document.querySelector('[data-testid="cc-provider"]') as HTMLSelectElement
+    await act(async () => { setSelect(provider, 'github:o/other') })
+    const toggle = document.querySelector('[data-testid="cc-installed-only"]')!
+    await act(async () => { check(toggle, true) })
+    expect(pluginCards()).toHaveLength(0)
+    // Clearing the provider filter brings the installed card back.
+    await act(async () => { setSelect(provider, '') })
+    expect(pluginCards()).toHaveLength(1)
+    expect(pluginCards()[0].textContent).toContain('team-tools')
+  })
+
+  it('modal closes via Cancel, Escape, and overlay click, resetting the draft', async () => {
+    await renderAsync()
+    await act(async () => { addButton('github:o/r/team-tools').click() })
+    const modal = () => document.querySelector('[data-testid="cc-modal"]')
+    expect(modal()).not.toBeNull()
+
+    // Footer Add is disabled until at least one target is selected.
+    const footerAdd = () => document.querySelector('[data-testid="cc-modal-add"]') as HTMLButtonElement
+    expect(footerAdd().disabled).toBe(true)
+
+    await act(async () => { button('Cancel').click() })
+    expect(modal()).toBeNull()
+
+    // Escape closes too.
+    await act(async () => { addButton('github:o/r/team-tools').click() })
+    await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })) })
+    expect(modal()).toBeNull()
+
+    // Clicking the scrim (the overlay around the dialog) closes.
+    await act(async () => { addButton('github:o/r/team-tools').click() })
+    await act(async () => { (modal()!.parentElement as HTMLElement).click() })
+    expect(modal()).toBeNull()
+
+    // The selection draft did not leak into the next open.
+    await act(async () => { addButton('github:o/r/team-tools').click() })
+    expect(footerAdd().disabled).toBe(true)
+  })
+
+  it('footer reflects selecting then deselecting targets', async () => {
+    await renderAsync()
+    await act(async () => { addButton('github:o/r/team-tools').click() })
+    const footerAdd = () => document.querySelector('[data-testid="cc-modal-add"]') as HTMLButtonElement
+    const boxes = [...container.querySelectorAll('[data-testid="cc-target"] input[type="checkbox"]')]
+    await act(async () => { check(boxes[0], true) })
+    expect(footerAdd().textContent).toBe('Add')
+    expect(footerAdd().disabled).toBe(false)
+    await act(async () => { check(boxes[1], true) })
+    expect(footerAdd().textContent).toBe('Add to 2 targets')
+    await act(async () => { check(boxes[0], false) })
+    expect(footerAdd().textContent).toBe('Add')
+    await act(async () => { check(boxes[1], false) })
+    expect(footerAdd().disabled).toBe(true)
+  })
+
+  it('modal title shows the installed and available versions on an update', async () => {
+    await renderAsync({ rpc: rpcMock(stateWithInstall('1.1.0', true)) })
+    await act(async () => { addButton('github:o/r/team-tools').click() })
+    const title = document.querySelector('[data-testid="cc-modal"]')?.querySelector('p')?.textContent ?? ''
+    expect(title).toContain('team-tools')
+    expect(title).toContain('(installed 1.0.0)')
+    expect(title).toContain('1.1.0 available')
+  })
+
+  it('Marketplaces tab: Enter submits, empty input disables Add, Remove dispatches, Refresh disabled without sources', async () => {
+    const rpc = rpcMock()
+    await renderAsync({ rpc })
+    await act(async () => { button('Marketplaces').click() })
+    const input = document.querySelector('[data-testid="cc-add-input"]') as HTMLInputElement
+    expect(button('Add marketplace').disabled).toBe(true)
+    await act(async () => { setValue(input, 'anthropics/claude-code') })
+    expect(button('Add marketplace').disabled).toBe(false)
+    await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })) })
+    expect(rpc).toHaveBeenCalledWith('addMarketplace', { spec: 'anthropics/claude-code' })
+
+    await act(async () => { button('Remove').click() })
+    expect(rpc).toHaveBeenCalledWith('removeMarketplace', { marketplaceId: 'github:o/r' })
+
+    // No sources configured: Refresh all is disabled and the empty state shows.
+    await renderAsync({ rpc: rpcMock({ ...MODEL_STATE, installed: [], marketplaces: [] }) })
+    await act(async () => { button('Marketplaces').click() })
+    expect(button('Refresh all').disabled).toBe(true)
+    expect(document.body.textContent).toContain('No marketplaces added yet')
+  })
+
+  it('locks every card action while a mutation is in flight', async () => {
+    let resolveUpdate: (value: unknown) => void = () => {}
+    const state = stateWithInstall('1.1.0', true)
+    const rpc = vi.fn<RpcFn>(async (method: string) => {
+      if (method === 'getState') return state
+      if (method === 'updatePlugin') return new Promise((resolve) => { resolveUpdate = resolve })
+      const result: MutationResult = { ok: true, message: 'done', state }
+      return result
+    })
+    await renderAsync({ rpc })
+    const card = pluginCards()[0]
+    await act(async () => { (card.querySelector('[data-testid="cc-update"]') as HTMLElement).click() })
+    // While the update hangs: every card button is disabled.
+    await act(async () => {})
+    const disabledAdds = [...container.querySelectorAll('[data-testid="cc-add"]')].every((b) => (b as HTMLButtonElement).disabled)
+    const disabledUpdates = [...container.querySelectorAll('[data-testid="cc-update"]')].every((b) => (b as HTMLButtonElement).disabled)
+    expect(disabledAdds).toBe(true)
+    expect(disabledUpdates).toBe(true)
+
+    await act(async () => { resolveUpdate({ ok: true, message: 'updated to 1.1.0', state }) })
+    await act(async () => {})
+    expect(document.querySelector('[data-testid="cc-message"]')?.textContent).toContain('updated to 1.1.0')
+    expect([...container.querySelectorAll('[data-testid="cc-add"]')].every((b) => (b as HTMLButtonElement).disabled)).toBe(false)
+  })
+
+  it('notifies the browser catalog after uninstall and update mutations', async () => {
+    const state = stateWithInstall('1.1.0', true)
+    const rpc = rpcMock(state)
+    const notify = vi.fn()
+    await renderAsync({ rpc, notifyInstalledChanged: notify })
+    const card = pluginCards()[0]
+    await act(async () => { (card.querySelector('[data-testid="cc-update"]') as HTMLElement).click() })
+    expect(notify).toHaveBeenCalledTimes(1)
+
+    await act(async () => { addButton('github:o/r/team-tools').click() })
+    await act(async () => { button('Uninstall').click() })
+    await act(async () => { button('Confirm').click() })
+    expect(notify).toHaveBeenCalledTimes(2)
+  })
+
+  it('Models tab renders an unknown current value as its own option', async () => {
+    const state: CcState = {
+      ...MODEL_STATE,
+      agentModelMap: { sonnet: 'mystery-model' },
+      agentModelConfig: { sonnet: 'mystery-model' },
+      agentModelOverrides: { sonnet: 'mystery-model' },
+      installed: [],
+      marketplaces: [],
+    }
+    await renderAsync({ rpc: rpcMock(state) })
+    await act(async () => { button('Models').click() })
+    const sonnet = [...container.querySelectorAll('[data-testid="cc-model-row"]')]
+      .find((r) => (r.textContent ?? '').startsWith('sonnet'))!
+    const select = sonnet.querySelector('[data-testid="cc-model-select"]') as HTMLSelectElement
+    expect(select.value).toBe('mystery-model')
+    const option = [...select.querySelectorAll('option')].find((o) => o.value === 'mystery-model')
+    expect(option).toBeDefined()
+    expect(option?.textContent).toBe('mystery-model')
+  })
+})
+
+describe('presenceLabel', () => {
+  const WS: WorkspaceRow[] = [{ id: 'w1', title: 'Project One', path: '/w1' }]
+
+  it('names global and registered workspaces', () => {
+    expect(presenceLabel(installedRecord(), WS)).toBe('in global')
+    expect(presenceLabel(installedRecord({
+      targets: [{ scope: 'workspace', workspacePath: '/w1', skills: [] }],
+    }), WS)).toBe('in Project One')
+  })
+
+  it('falls back to a generic label for workspaces the registry no longer has', () => {
+    expect(presenceLabel(installedRecord({
+      targets: [{ scope: 'workspace', workspacePath: '/gone', skills: [] }],
+    }), WS)).toBe('in workspace')
+  })
+
+  it('says installed when a record somehow has no targets', () => {
+    expect(presenceLabel(installedRecord({ targets: [] }), WS)).toBe('installed')
   })
 })
 

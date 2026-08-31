@@ -240,12 +240,19 @@
   gap: 8px;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  /* One line always: the search box shrinks (min-width: 0) instead of the
+   * installed-only toggle wrapping below the filters. */
+  flex-wrap: nowrap;
 }
 
 .filterRow .input {
   flex: 1;
-  min-width: 200px;
+  min-width: 0;
+}
+
+.filterRow .select,
+.filterRow .toggleWrap {
+  flex: none;
 }
 
 .toggleWrap {

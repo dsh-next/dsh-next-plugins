@@ -10,6 +10,7 @@ import {
   MANAGED_END,
   applyManagedBlock,
   applyManagedBlockText,
+  expandMcpServerTemplates,
   extractManagedBlock,
   normalizeMcpServers,
   renderManagedBlock,
@@ -192,5 +193,96 @@ describe('resolveServerName', () => {
     expect(resolveServerName('github')).toEqual({ name: 'github', sanitized: false })
     expect(resolveServerName('my server!')).toEqual({ name: 'my-server', sanitized: true })
     expect(resolveServerName('a'.repeat(40)).name.length).toBeLessThanOrEqual(32)
+  })
+})
+
+describe('expandMcpServerTemplates', () => {
+  const VARS = { pluginRoot: '/root/plugin', pluginData: '/root/data', env: { TOKEN: 't1', EMPTY: '' } as Record<string, string | undefined> }
+
+  it('expands plugin paths and env names in every stdio string field', () => {
+    const { server, notes } = expandMcpServerTemplates(
+      {
+        name: 'db',
+        def: {
+          transport: 'stdio',
+          command: '${CLAUDE_PLUGIN_ROOT}/servers/db.js',
+          args: ['--cfg', '${CLAUDE_PLUGIN_DATA}/config.json'],
+          env: { TOKEN: '${TOKEN}', EMPTY: '${EMPTY}' },
+        },
+      },
+      VARS,
+    )
+    expect(server.def).toEqual({
+      transport: 'stdio',
+      command: '/root/plugin/servers/db.js',
+      args: ['--cfg', '/root/data/config.json'],
+      env: { TOKEN: 't1', EMPTY: '' },
+    })
+    expect(notes).toEqual([])
+  })
+
+  it('expands url and header values for remote servers', () => {
+    const { server, notes } = expandMcpServerTemplates(
+      {
+        name: 'web',
+        def: {
+          transport: 'streamable-http',
+          url: 'https://mcp.test/${TOKEN}/mcp',
+          headers: { Authorization: 'Bearer ${TOKEN}' },
+        },
+      },
+      VARS,
+    )
+    expect(server.def).toEqual({
+      transport: 'streamable-http',
+      url: 'https://mcp.test/t1/mcp',
+      headers: { Authorization: 'Bearer t1' },
+    })
+    expect(notes).toEqual([])
+  })
+
+  it('leaves unset names literal with one note per name, sorted', () => {
+    const { server, notes } = expandMcpServerTemplates(
+      {
+        name: 'odd',
+        def: { transport: 'stdio', command: '${ZZZ} ${AAA}', args: ['${AAA}', '${ZZZ}'], env: {} },
+      },
+      VARS,
+    )
+    if (server.def.transport !== 'stdio') throw new Error('unreachable')
+    expect(server.def.command).toBe('${ZZZ} ${AAA}')
+    expect(notes).toEqual([
+      'MCP server "odd" references ${AAA} which is not set in the environment; left as written',
+      'MCP server "odd" references ${ZZZ} which is not set in the environment; left as written',
+    ])
+  })
+
+  it('explains CLAUDE_PROJECT_DIR separately and keeps it literal', () => {
+    const { server, notes } = expandMcpServerTemplates(
+      { name: 'ws', def: { transport: 'stdio', command: '${CLAUDE_PROJECT_DIR}/tool', args: [], env: {} } },
+      VARS,
+    )
+    if (server.def.transport !== 'stdio') throw new Error('unreachable')
+    expect(server.def.command).toBe('${CLAUDE_PROJECT_DIR}/tool')
+    expect(notes).toEqual([
+      'MCP server "ws" references ${CLAUDE_PROJECT_DIR}, which has no single value across install targets; left as written',
+    ])
+  })
+
+  it('returns the definition values unchanged when no template is present', () => {
+    const def = { transport: 'streamable-http' as const, url: 'https://x.test/mcp', headers: {} }
+    const { server, notes } = expandMcpServerTemplates({ name: 'plain', def }, VARS)
+    expect(server.def).toEqual(def)
+    expect(notes).toEqual([])
+  })
+
+  it('never treats env or header keys as templates', () => {
+    const { server } = expandMcpServerTemplates(
+      { name: 'k', def: { transport: 'stdio', command: 'x', args: [], env: { '${TOKEN}': '${TOKEN}' } } },
+      VARS,
+    )
+    if (server.def.transport !== 'stdio') throw new Error('unreachable')
+    expect(Object.keys(server.def.env)).toEqual(['${TOKEN}'])
+    expect(server.def.env['${TOKEN}']).toBe('t1')
   })
 })

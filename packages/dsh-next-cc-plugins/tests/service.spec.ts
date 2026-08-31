@@ -59,7 +59,7 @@ interface Fixture {
 
 function makeFixture(
   seed: Record<string, string> = {},
-  over: { agentsEnabled?: boolean; agentModelMap?: Record<string, string>; listRuntimeModels?: () => Promise<Array<{ provider: string; id: string; name: string }>> } = {},
+  over: { agentsEnabled?: boolean; agentModelMap?: Record<string, string>; listRuntimeModels?: () => Promise<Array<{ provider: string; id: string; name: string }>>; env?: Record<string, string | undefined> } = {},
 ): Fixture {
   const fs = createMemFs(seed)
   const gh = createGhDouble({ 'o/r': TEAM_TOOLS_V1, 'x/external': EXTERNAL_FILES })
@@ -73,6 +73,7 @@ function makeFixture(
     agentsEnabled: over.agentsEnabled !== false,
     agentModelMap: over.agentModelMap,
     listRuntimeModels: over.listRuntimeModels,
+    env: over.env,
   })
   return { fs, gh, service }
 }
@@ -243,6 +244,77 @@ describe('CcMarketplaceService marketplaces', () => {
 describe('CcMarketplaceService install', () => {
   let f: Fixture
   beforeEach(() => { f = makeFixture() })
+
+  it('expands ${...} templates in MCP definitions against the plugin root and host env', async () => {
+    const repo = {
+      '.claude-plugin/marketplace.json': JSON.stringify({
+        name: 'acme-tools',
+        plugins: [{ name: 'db-plugin', source: './plugins/db' }],
+      }),
+      'plugins/db/.mcp.json': JSON.stringify({
+        mcpServers: {
+          'db-server': {
+            command: 'node',
+            args: ['${CLAUDE_PLUGIN_ROOT}/servers/db-server.js'],
+            env: { DB_PATH: '${CLAUDE_PLUGIN_DATA}/db', TOKEN: '${DB_TOKEN}', HOME_DIR: '${CLAUDE_PROJECT_DIR}/x' },
+          },
+          'web-hooks': { type: 'http', url: 'https://${MCP_HOST}/mcp', headers: { Authorization: 'Bearer ${MCP_TOKEN}' } },
+        },
+      }),
+    }
+    const env = makeFixture({}, { env: { DB_TOKEN: 'tok-1', MCP_HOST: 'mcp.acme.test', MCP_TOKEN: 'mtok' } })
+    env.gh.setRepo('o', 'r', repo)
+    await env.service.addMarketplace('o/r')
+    const result = await env.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'db-plugin', targets: [{ scope: 'global' }] })
+    expect(result.ok).toBe(true)
+
+    const record = (await env.service.state()).installed[0]
+    const stdio = record.mcpServers.find((s) => s.claudeName === 'db-server')?.def
+    expect(stdio?.transport).toBe('stdio')
+    if (stdio?.transport === 'stdio') {
+      expect(stdio.args).toEqual(['/home/u/.dsh/cc-plugins/plugins/github_o_r_db-plugin/servers/db-server.js'])
+      expect(stdio.env.DB_PATH).toBe('/home/u/.dsh/cc-plugins/data/github_o_r_db-plugin/db')
+      expect(stdio.env.TOKEN).toBe('tok-1')
+      // No single project dir across targets: left literal, with a note.
+      expect(stdio.env.HOME_DIR).toBe('${CLAUDE_PROJECT_DIR}/x')
+    }
+    const http = record.mcpServers.find((s) => s.claudeName === 'web-hooks')?.def
+    expect(http?.transport).toBe('streamable-http')
+    if (http?.transport === 'streamable-http') {
+      expect(http.url).toBe('https://mcp.acme.test/mcp')
+      expect(http.headers.Authorization).toBe('Bearer mtok')
+    }
+
+    // The managed patch row carries the expanded command path, and the
+    // unresolvable CLAUDE_PROJECT_DIR surfaced in the install notes.
+    const patch = env.fs.snapshot()[PATCH] ?? ''
+    expect(patch).toContain('/servers/db-server.js')
+    if (result.ok) expect(result.message).toContain('CLAUDE_PROJECT_DIR')
+  })
+
+  it('notes MCP templates that resolve nowhere instead of failing the install', async () => {
+    const none = makeFixture()
+    none.gh.setRepo('o', 'r', {
+      '.claude-plugin/marketplace.json': JSON.stringify({
+        name: 'acme-tools',
+        plugins: [{ name: 'db-plugin', source: './plugins/db' }],
+      }),
+      'plugins/db/.mcp.json': JSON.stringify({
+        mcpServers: { lonely: { command: '${MISSING_BIN}', args: [] } },
+      }),
+    })
+    await none.service.addMarketplace('o/r')
+    const result = await none.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'db-plugin', targets: [{ scope: 'global' }] })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.message).toContain('${MISSING_BIN} which is not set')
+    const record = (await none.service.state()).installed[0]
+    expect(record.mcpServers[0].def.transport).toBe('stdio')
+    if (record.mcpServers[0].def.transport === 'stdio') {
+      expect(record.mcpServers[0].def.command).toBe('${MISSING_BIN}')
+    }
+  })
+
 
   it('installs skills natively, writes MCP and agent rows, and materializes the plugin copy', async () => {
     await f.service.addMarketplace('o/r')

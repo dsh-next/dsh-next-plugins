@@ -25,7 +25,7 @@
 import { createHash } from 'node:crypto'
 import { agentFrontmatter, resolveAgentModel, sanitizeModelMap, translateTools } from '../core/agents.ts'
 import { parseFrontmatter } from '../core/frontmatter.ts'
-import { applyManagedBlockText, normalizeMcpServers, renderManagedBlock, resolveServerName, type ManagedRow, type RawAgentRow, type RawMcpServer } from '../core/mcp.ts'
+import { applyManagedBlockText, expandMcpServerTemplates, normalizeMcpServers, renderManagedBlock, resolveServerName, type ManagedRow, type RawAgentRow, type RawMcpServer } from '../core/mcp.ts'
 import { parseMarketplaceSpec } from '../core/source.ts'
 import { classifyMirrorTarget, MIRROR_INHERIT, parseMirror, renderMirror, type SettingsMirror } from '../core/mirror.ts'
 import { targetId, type TargetRequest } from '../core/targets.ts'
@@ -92,6 +92,9 @@ export interface ServiceOptions {
   /** Resolve a mirrored workspace folder name to a local workspace path
    *  (host entry injects the workspace registry lookup). */
   resolveWorkspace?: (name: string) => Promise<string | undefined>
+  /** Host environment for `${NAME}` expansion in MCP server definitions
+   *  (the host entry passes `process.env`; tests inject doubles). */
+  env?: Readonly<Record<string, string | undefined>>
   /** Diagnostics sink for best-effort mirror and reconcile reporting. */
   logger?: { warn?: (message: string) => void; info?: (message: string) => void }
   /** Notified after every install/uninstall/update persists (runtime refresh). */
@@ -955,6 +958,9 @@ export class CcMarketplaceService {
   /**
    * Build the MCP rows for one plugin from its inventory. `previous` (update
    * path) preserves already-resolved server names for unchanged Claude keys.
+   * Each definition's `${...}` templates are expanded against this plugin's
+   * materialized root and the host environment first (Claude expands them at
+   * load time; DSH's MCP client does not).
    */
   private buildMcpRows(
     key: string,
@@ -964,7 +970,14 @@ export class CcMarketplaceService {
   ): { rows: InstalledMcpRow[]; notes: string[] } {
     const notes: string[] = []
     const rows: InstalledMcpRow[] = []
-    for (const server of inventory.mcpServers) {
+    for (const raw of inventory.mcpServers) {
+      const expanded = expandMcpServerTemplates(raw, {
+        pluginRoot: this.pluginRootOf(key),
+        pluginData: this.pluginDataOf(key),
+        env: this.opts.env ?? {},
+      })
+      notes.push(...expanded.notes)
+      const server = expanded.server
       const { name: resolvedName, sanitized } = resolveServerName(server.name)
       let name = resolvedName
       if (sanitized) notes.push(`MCP server "${server.name}" renamed to "${name}" (invalid serverName characters)`)
@@ -1075,6 +1088,16 @@ export class CcMarketplaceService {
 
   private pluginDataRoot(): string {
     return joinPath(this.opts.dshHome, 'cc-plugins')
+  }
+
+  /** The materialized plugin copy's absolute path (CLAUDE_PLUGIN_ROOT twin). */
+  private pluginRootOf(key: string): string {
+    return joinPath(this.pluginDataRoot(), 'plugins', safeDirId(key))
+  }
+
+  /** The plugin's writable data directory (CLAUDE_PLUGIN_DATA twin). */
+  private pluginDataOf(key: string): string {
+    return joinPath(this.pluginDataRoot(), 'data', safeDirId(key))
   }
 
   /** Re-render the managed block from the full registry and splice the patch file. */

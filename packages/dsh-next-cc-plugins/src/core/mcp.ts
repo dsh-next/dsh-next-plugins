@@ -250,3 +250,65 @@ export function resolveServerName(claudeName: string): { name: string; sanitized
   if (isMcpServerName(claudeName)) return { name: claudeName, sanitized: false }
   return { name: sanitizeIdentifier(claudeName), sanitized: true }
 }
+
+// ---------------------------------------------------------------------------
+// ${VAR} template expansion (Claude's MCP substitution surface)
+// ---------------------------------------------------------------------------
+
+/** Values Claude Code expands inside plugin MCP server definitions. */
+export interface McpTemplateVars {
+  /** This plugin's materialized install root (`${CLAUDE_PLUGIN_ROOT}`). */
+  pluginRoot: string
+  /** This plugin's writable data directory (`${CLAUDE_PLUGIN_DATA}`). */
+  pluginData: string
+  /** Host environment every other `${NAME}` resolves from. */
+  env: Readonly<Record<string, string | undefined>>
+}
+
+export interface ExpandedMcpServer {
+  server: McpServerComponent
+  notes: string[]
+}
+
+const TEMPLATE_TOKEN = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g
+
+/**
+ * Expand `${NAME}` templates in one server definition the way Claude Code
+ * does at load time: `CLAUDE_PLUGIN_ROOT`/`CLAUDE_PLUGIN_DATA` resolve to
+ * this plugin's install paths on this machine, and every other name
+ * resolves from the host environment. `${CLAUDE_PROJECT_DIR}` and names
+ * that are not set stay as written, each with a note: DSH's MCP client
+ * performs no substitution, so an unexpanded token must be visible to the
+ * user rather than silently broken at connect time. Expansion touches
+ * exactly the string fields dsh-mcp-client consumes — env and header
+ * *names* are never templates, only their values.
+ */
+export function expandMcpServerTemplates(server: McpServerComponent, vars: McpTemplateVars): ExpandedMcpServer {
+  const unresolved = new Set<string>()
+  const expand = (text: string): string =>
+    text.replace(TEMPLATE_TOKEN, (whole, name: string) => {
+      if (name === 'CLAUDE_PLUGIN_ROOT') return vars.pluginRoot
+      if (name === 'CLAUDE_PLUGIN_DATA') return vars.pluginData
+      const value = vars.env[name]
+      if (value !== undefined) return value
+      unresolved.add(name)
+      return whole
+    })
+  const expandMap = (map: Record<string, string>): Record<string, string> => {
+    const out: Record<string, string> = {}
+    for (const [k, v] of Object.entries(map)) out[k] = expand(v)
+    return out
+  }
+  const def = server.def
+  const next: McpTransport = def.transport === 'stdio'
+    ? { transport: 'stdio', command: expand(def.command), args: def.args.map(expand), env: expandMap(def.env) }
+    : { transport: 'streamable-http', url: expand(def.url), headers: expandMap(def.headers) }
+  const notes: string[] = []
+  if (unresolved.has('CLAUDE_PROJECT_DIR')) {
+    notes.push(`MCP server "${server.name}" references \${CLAUDE_PROJECT_DIR}, which has no single value across install targets; left as written`)
+  }
+  for (const name of [...unresolved].filter((n) => n !== 'CLAUDE_PROJECT_DIR').sort()) {
+    notes.push(`MCP server "${server.name}" references \${${name}} which is not set in the environment; left as written`)
+  }
+  return { server: { ...server, def: next }, notes }
+}

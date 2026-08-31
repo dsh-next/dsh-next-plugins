@@ -138,6 +138,7 @@ export function apply(ctx: Context, config: PluginConfig = {}): void {
         return undefined
       }
     },
+    env: process.env,
     onInstalledChanged: () => void runtime.refresh(),
   })
 

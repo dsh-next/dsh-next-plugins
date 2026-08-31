@@ -165,7 +165,9 @@ export function parseMarketplaceIndex(text: string, where: string): IndexParseRe
   return {
     index: {
       name,
-      description: str(raw.description),
+      // Claude's index shape allows the description at the top level or
+      // nested under `metadata` (the form e.g. holistics/skills uses).
+      description: str(raw.description) !== '' ? str(raw.description) : str(metadata.description),
       owner,
       plugins,
     },

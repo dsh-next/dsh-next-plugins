@@ -304,6 +304,27 @@ describe('CcMarketplaceService install', () => {
     expect(patch).toContain("          model: 'glm-4.7'")
   })
 
+  it('surfaces skill references to plugin-level directories and the nested marketplace description', async () => {
+    f.gh.setRepo('o', 'refs-repo', {
+      '.claude-plugin/marketplace.json': JSON.stringify({
+        name: 'refs-mkt',
+        metadata: { description: 'Nested description form' },
+        plugins: [{ name: 'refsy', description: '', version: '1.0.0', source: './plugins/refsy' }],
+      }),
+      'plugins/refsy/skills/deep/SKILL.md': '---\nname: deep\ndescription: d\n---\nRead ../references/guide.md.',
+      'plugins/refsy/references/guide.md': 'content',
+    })
+    await f.service.addMarketplace('o/refs-repo')
+    // The nested metadata.description form is surfaced on the marketplace row.
+    const before = await f.service.state()
+    expect(before.marketplaces.find((m) => m.id === 'github:o/refs-repo')?.description).toBe('Nested description form')
+    const result = await f.service.installPlugin({ marketplaceId: 'github:o/refs-repo', plugin: 'refsy', scope: 'global' })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.message).toContain('1 skill(s) reference plugin-level "references/"')
+    expect(result.message).toContain('do not resolve from the installed skills root')
+  })
+
   it('preserves foreign patch rows around the managed block', async () => {
     f.fs.writeFile(PATCH, "- insert:\n    - id: foreign-row\n      name: 'some-plugin'\n")
     await f.service.addMarketplace('o/r')

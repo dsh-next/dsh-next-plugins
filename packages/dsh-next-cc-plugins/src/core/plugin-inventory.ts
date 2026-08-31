@@ -206,3 +206,40 @@ export function skillFiles(files: PluginFiles, skill: SkillComponent): PluginFil
   }
   return out
 }
+
+/** Roots this bridge consumes as components; never counted as stray assets. */
+const COMPONENT_ROOTS = new Set(['.claude-plugin', '.mcp.json', 'skills', 'commands', 'agents', 'hooks'])
+
+/**
+ * Notes for skills whose SKILL.md references plugin-level directories that
+ * exist in the plugin but are not part of any skill directory (the
+ * `references/` convention several marketplaces use, `assets/`, ...).
+ * Claude Code runs skills from the plugin root, so those links resolve
+ * there; in DSH each skill lands standalone in the skills root and they do
+ * not. The detection is a path-shape match (`dir/...` or `../dir/...`) over
+ * the SKILL.md text against directories that actually exist at the plugin
+ * level, so prose mentions without a backing directory never note.
+ */
+export function pluginLevelReferenceNotes(files: PluginFiles, skills: readonly SkillComponent[]): string[] {
+  const roots = new Set<string>()
+  for (const path of Object.keys(files)) {
+    const segment = path.split('/')[0]
+    if (segment === path) continue // a top-level file, not a directory
+    if (!COMPONENT_ROOTS.has(segment)) roots.add(segment)
+  }
+  if (roots.size === 0) return []
+  const byDir = new Map<string, number>()
+  for (const skill of skills) {
+    const map = skillFiles(files, skill)
+    const text = map['SKILL.md'] ?? ''
+    if (text === '') continue
+    for (const dir of roots) {
+      const pattern = new RegExp(`(?:\\.\\./|(^|[^A-Za-z0-9_.-]))${dir}/[A-Za-z0-9_./-]`)
+      if (pattern.test(text)) byDir.set(dir, (byDir.get(dir) ?? 0) + 1)
+    }
+  }
+  return [...byDir.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([dir, count]) =>
+      `${count} skill(s) reference plugin-level "${dir}/"; those paths do not resolve from the installed skills root`)
+}

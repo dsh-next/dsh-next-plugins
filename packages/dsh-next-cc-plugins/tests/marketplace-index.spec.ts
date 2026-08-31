@@ -41,6 +41,22 @@ describe('parseMarketplaceIndex', () => {
     })
   })
 
+  it('falls back to metadata.description when the top level has none', () => {
+    const doc = indexDoc({ description: undefined, metadata: { description: 'Nested form', pluginRoot: './bundle' } })
+    const result = parseMarketplaceIndex(doc, WHERE)
+    expect('error' in result).toBe(false)
+    if ('error' in result) return
+    expect(result.index.description).toBe('Nested form')
+  })
+
+  it('prefers the top-level description over metadata.description', () => {
+    const doc = indexDoc({ metadata: { description: 'Nested form' } })
+    const result = parseMarketplaceIndex(doc, WHERE)
+    expect('error' in result).toBe(false)
+    if ('error' in result) return
+    expect(result.index.description).toBe('Internal tools')
+  })
+
   it('rejects invalid JSON', () => {
     const result = parseMarketplaceIndex('{ not json', WHERE)
     expect('error' in result).toBe(true)

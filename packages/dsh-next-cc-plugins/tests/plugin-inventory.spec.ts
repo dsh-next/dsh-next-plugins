@@ -1,10 +1,11 @@
 /**
  * Plugin component inventory: every component type, manifest path overrides,
- * malformed inputs, and the skill-file sub-map. Pure core coverage for
- * `pluginInventory` / `skillFiles`.
+ * malformed inputs, the skill-file sub-map, and plugin-level reference
+ * detection. Pure core coverage for `pluginInventory` / `skillFiles` /
+ * `pluginLevelReferenceNotes`.
  */
 import { describe, expect, it } from 'vitest'
-import { pluginInventory, readManifestPaths, skillFiles } from '../src/core/plugin-inventory.ts'
+import { pluginInventory, pluginLevelReferenceNotes, readManifestPaths, skillFiles } from '../src/core/plugin-inventory.ts'
 
 const SKILL = (name: string, description = 'does things'): string =>
   `---\nname: ${name}\ndescription: ${description}\n---\nbody\n`
@@ -139,5 +140,45 @@ describe('skillFiles', () => {
     expect(skillFiles({ 'skills/quick.md': SKILL('quick') }, { name: 'quick', description: '', path: '' })).toEqual({
       'SKILL.md': SKILL('quick'),
     })
+  })
+})
+
+describe('pluginLevelReferenceNotes', () => {
+  const REF_PLUGIN = (): Record<string, string> => ({
+    'skills/analyze/SKILL.md': '---\nname: analyze\ndescription: d\n---\nRead ../references/aql.md first.',
+    'skills/visualize/SKILL.md': '---\nname: visualize\ndescription: d\n---\nSee references/chart-types.md.',
+    'skills/self-contained/SKILL.md': SKILL('self-contained'),
+    'references/aql.md': 'content',
+    'references/chart-types.md': 'content',
+    '.claude-plugin/plugin.json': '{}',
+  })
+
+  it('notes plugin-level directories the skills actually reference', () => {
+    const files = REF_PLUGIN()
+    const inv = pluginInventory(files)
+    expect(pluginLevelReferenceNotes(files, inv.skills)).toEqual([
+      '2 skill(s) reference plugin-level "references/"; those paths do not resolve from the installed skills root',
+    ])
+  })
+
+  it('stays silent when the directory does not exist or the mention is prose', () => {
+    // No references/ directory at all: the ../references mention is prose.
+    const prose = { 'skills/analyze/SKILL.md': REF_PLUGIN()['skills/analyze/SKILL.md'] }
+    const inv = pluginInventory(prose)
+    expect(pluginLevelReferenceNotes(prose, inv.skills)).toEqual([])
+    // The directory exists but no skill mentions it.
+    const unused = { 'skills/only/SKILL.md': SKILL('only'), 'assets/logo.svg': 'x' }
+    const inv2 = pluginInventory(unused)
+    expect(pluginLevelReferenceNotes(unused, inv2.skills)).toEqual([])
+  })
+
+  it('never treats component roots as plugin-level references', () => {
+    const files = {
+      'skills/a/SKILL.md': '---\nname: a\ndescription: d\n---\nSee skills/b/SKILL.md and commands/run.md.',
+      'skills/b/SKILL.md': SKILL('b'),
+      'commands/run.md': '---\ndescription: d\n---\nRun.',
+    }
+    const inv = pluginInventory(files)
+    expect(pluginLevelReferenceNotes(files, inv.skills)).toEqual([])
   })
 })

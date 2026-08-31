@@ -75,6 +75,26 @@ Agent frontmatter translation notes:
   faithful DSH event and remain reported as unsupported (post-compact is
   visible as a `SessionStart` with source `compact`).
 
+## Marketplace fidelity notes
+
+- The marketplace description is read from the top level or from
+  `metadata.description` (the nested form some marketplaces, e.g.
+  `holistics/skills`, use).
+- Skills that reference **plugin-level directories** (`references/`,
+  `assets/`, ... — files that sit beside `skills/`, not inside a skill)
+  install with a note: Claude Code runs skills from the plugin root so
+  those links resolve there, but DSH installs each skill standalone in the
+  skills root and the referenced paths do not resolve. The full plugin
+  copy stays materialized under `$DSH_HOME/cc-plugins/plugins/` for hook
+  commands; skill bodies needing those files must be read from there.
+- A skill may assume an MCP server the plugin itself does not ship (no
+  `.mcp.json`, only prose like "set up the Holistics MCP"). Nothing
+  auto-configures in that case — add the server yourself (this plugin's
+  managed MCP rows or the profile composition).
+- Plugins present in a marketplace repository but absent from its index
+  (for example a shared `plugins/<name>-common` library) are correctly
+  never offered.
+
 ## Security notes
 
 - Skills and composition rows land in user-owned files; nothing executable

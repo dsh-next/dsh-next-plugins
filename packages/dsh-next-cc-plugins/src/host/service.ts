@@ -28,7 +28,7 @@ import { applyManagedBlockText, normalizeMcpServers, renderManagedBlock, resolve
 import { parseMarketplaceSpec } from '../core/source.ts'
 import { isSkillName, sanitizeIdentifier } from '../core/name.ts'
 import { dirnamePath, isSafeRelativePath, joinPath } from '../core/path.ts'
-import { pluginInventory, readManifestPaths, skillFiles, type PluginFiles } from '../core/plugin-inventory.ts'
+import { pluginInventory, pluginLevelReferenceNotes, readManifestPaths, skillFiles, type PluginFiles } from '../core/plugin-inventory.ts'
 import { extractTarEntries } from './tarball.ts'
 import { fetchRepoTarball } from './github-client.ts'
 import { Store, safeDirId } from './store.ts'
@@ -364,7 +364,7 @@ export class CcMarketplaceService {
       pendingBits.length > 0 ? pendingBits.join(', ') : '',
     ].filter(Boolean)
     const summary = parts.length > 0 ? parts.join('; ') : 'no installable components found'
-    const notes = [...mcp.notes, ...agents.notes]
+    const notes = [...mcp.notes, ...agents.notes, ...pluginLevelReferenceNotes(resolved.files, inventory.skills)]
     const message = notes.length > 0 ? `installed "${args.plugin}": ${summary}; ${notes.join('; ')}` : `installed "${args.plugin}": ${summary}`
     return { ok: true, message, state: await this.state() }
   }
@@ -476,7 +476,7 @@ export class CcMarketplaceService {
 
     const skipped = errors.length > 0 ? `; skipped: ${errors.join('; ')}` : ''
     const versionText = resolved.entry.version !== '' ? resolved.entry.version : 'latest'
-    const notes = [...mcp.notes, ...agents.notes]
+    const notes = [...mcp.notes, ...agents.notes, ...pluginLevelReferenceNotes(resolved.files, inventory.skills)]
     const message = notes.length > 0
       ? `updated "${record.pluginName}" to ${versionText}${skipped}; ${notes.join('; ')}`
       : `updated "${record.pluginName}" to ${versionText}${skipped}`

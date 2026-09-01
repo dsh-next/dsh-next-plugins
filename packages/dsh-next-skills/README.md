@@ -1,5 +1,7 @@
 # @dsh-next/dsh-next-skills
 
+English | [中文](README.zh.md)
+
 DeepSeek Harness plugin that manages agent skills from the Web GUI: add
 GitHub repositories as skill providers, search their skills locally, and
 install them globally or per workspace.

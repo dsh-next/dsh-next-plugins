@@ -1,5 +1,7 @@
 # cc-plugins
 
+English | [中文](README.zh.md)
+
 DeepSeek Harness plugin: add [Claude Code](https://code.claude.com/docs/en/plugins)
 plugin marketplaces and run their plugins inside DSH — the same app-store
 flow Claude Code (`/plugin marketplace add`) and Grok Build

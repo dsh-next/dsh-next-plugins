@@ -1,5 +1,7 @@
 # dsh-next-notifier
 
+English | [中文](README.zh.md)
+
 A DeepSeek Harness plugin that shows a **browser (web) notification** when the
 agent finishes its turn, needs your approval, or asks you a question, plus a
 configuration card in **Settings → Plugins** with a curated sound library.

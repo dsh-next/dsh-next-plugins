@@ -1,5 +1,7 @@
 # git
 
+English | [中文](README.zh.md)
+
 DeepSeek Harness plugin — scaffolded from `scripts/plugin-template`. Replace
 this with a description of what the plugin does.
 

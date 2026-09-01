@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+#MISE description="Verify plugin UI translation consistency (pnpm i18n:check)"
+pnpm i18n:check

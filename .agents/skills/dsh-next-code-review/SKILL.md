@@ -29,6 +29,10 @@ Review changes against these checks:
    (`README.md`, `README.zh.md`, `README.i18n.yaml`); a behavior change that
    touches one side of a pair must mirror into the other and end with
    `pnpm docs:write-pair <slug>` so `pnpm docs:check` stays green.
-8. **Style** — English, no emoji, Conventional Commit subject.
+8. **UI translation** — user-facing browser strings come from the package's
+   locale dictionaries (`docs/i18n.md`); new en keys carry their zh mirror in
+   the same change, `pnpm i18n:check` is green, and no CJK text leaks into
+   non-dictionary client files.
+9. **Style** — English, no emoji, Conventional Commit subject.
 
 Report findings with file paths and concrete fix suggestions.

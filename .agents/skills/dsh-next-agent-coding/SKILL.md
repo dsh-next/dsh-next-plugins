@@ -31,13 +31,15 @@ Read `AGENTS.md` and `docs/plugins.md` first, then follow these steps.
    `tests/e2e/mount.e2e.ts` (keyed by the bare slug) that drives into the UI and
    asserts real behavior — the crash-marker layer cannot catch a silent
    payload-shape mismatch. Use `dismissOnboarding()` first for a fresh scratch
-   home.
+   home. Every user-facing string goes through the package's locale
+   dictionaries (`src/client/dictionaries/en.ts` + `zh.ts`, wired per
+   `docs/i18n.md`) — add the en key and the zh translation in the same change.
 7. Keep the package's bilingual README pair consistent (`docs/i18n.md`): a
    change that alters behavior described in `README.md` must mirror the edit
    into `README.zh.md` in the same change and re-record the pairing hashes
    with `pnpm docs:write-pair <slug>`. New packages are scaffolded with the
    full triplet by `pnpm plugin:new`.
 8. Run the full gate before merging: `pnpm typecheck && pnpm test && pnpm build`
-   then `bash scripts/e2e-mount.sh`. Confirm **every** existing test still
-   passes and the mount smoke (with the DOM markers) is green.
+   then `pnpm i18n:check` and `bash scripts/e2e-mount.sh`. Confirm **every**
+   existing test still passes and the mount smoke (with the DOM markers) is green.
 9. Record the change as an Agent Note under `.agents/notes/`.

@@ -61,6 +61,9 @@ jobs:
       - name: Documentation consistency
         run: pnpm docs:check
 
+      - name: UI translation consistency
+        run: pnpm i18n:check
+
       - name: No emoji rule
         run: |
           python3 - <<'PY'

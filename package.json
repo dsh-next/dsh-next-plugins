@@ -14,6 +14,8 @@
     "docs:check": "node scripts/verify-docs.mjs",
     "docs:list": "node scripts/verify-docs.mjs --list",
     "docs:write-pair": "node scripts/verify-docs.mjs --write",
+    "i18n:check": "node scripts/i18n-check.mjs",
+    "i18n:list": "node scripts/i18n-check.mjs --list",
     "plugin:new": "node scripts/dsh-plugin-new.mjs",
     "runtime-deps:check": "node scripts/runtime-deps-check.mjs",
     "test:scripts": "node --test scripts/*.test.mjs"

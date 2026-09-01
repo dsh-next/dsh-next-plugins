@@ -39,7 +39,7 @@ pnpm runtime-deps:check
 pnpm docs:check
 ```
 
-Before merging, run at least `pnpm typecheck && pnpm test && pnpm docs:check`.
+Before merging, run at least `pnpm typecheck && pnpm test && pnpm docs:check && pnpm i18n:check`.
 
 Tests are a **completeness** gate, not a smoke: they must cover every exported
 behavior (including edge/error branches) and prove nothing pre-existing broke.
@@ -81,6 +81,11 @@ mise tasks delegate to it, never re-implement commands.
   `README.zh.md` + a `README.i18n.yaml` pairing record); the contract and
   maintenance flow live in `docs/i18n.md`. All other documentation is English
   only.
+- Every user-facing string in a plugin's browser half comes from the
+  package's locale dictionaries (`src/client/dictionaries/en.ts` key source +
+  `zh.ts` Simplified Chinese mirror), translated through the platform `locale`
+  service. `pnpm i18n:check` enforces dictionary parity and leak-free client
+  code; host-side strings stay English. See `docs/i18n.md`.
 
 ## Development Workflow
 

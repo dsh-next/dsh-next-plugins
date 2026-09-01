@@ -44,6 +44,15 @@ crash-marker check cannot see. When adding UI to a plugin, add (or verify) its
 marker and confirm the lane stays green. A fresh scratch home shows onboarding
 dialogs, so markers use `dismissOnboarding()` first.
 
+The scratch home comes with **two preseeded workspaces** so every marker can
+drive workspace-scoped flows: `scripts/e2e-mount.sh` registers them through
+the reusable `scripts/e2e-seed-workspaces.sh <DSH_HOME> <dir>...` (idempotent,
+merges into `storages/workspace.json`, safe on any home — use it to preseed
+dev-profile homes too) and exports the canonical paths as
+`DSH_E2E_WORKSPACE_A` / `DSH_E2E_WORKSPACE_B`. Markers must read those env
+vars — never hardcode machine paths (the workspace plugin stores realpaths,
+which on macOS differ from `/tmp/...`).
+
 ## 3. Manual live install (see it in the GUI)
 
 Use **one dev profile per plugin**: `dev-<slug>` (e.g. `dev-git`). A profile is

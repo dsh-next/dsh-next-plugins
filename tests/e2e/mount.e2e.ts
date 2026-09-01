@@ -5,7 +5,10 @@
  * The server is booted by `scripts/e2e-mount.sh`; the base URL arrives via
  * `DSH_E2E_URL` and the plugin list via `DSH_E2E_PLUGINS` (comma-separated
  * npm package names `@dsh-next/dsh-next-<slug>`) so the same spec works as
- * packages gain UI.
+ * packages gain UI. The script also preseeds two scratch workspaces into
+ * the home's registry (reusable `scripts/e2e-seed-workspaces.sh`) and
+ * exports their canonical paths as `DSH_E2E_WORKSPACE_A` / `_B` so any
+ * marker can drive workspace-scoped flows without machine-specific paths.
  *
  * Two layers:
  *   1. Every plugin: the shell renders, the client bundle is served, and no
@@ -18,7 +21,7 @@
  *      they gain UI.
  */
 import { join } from 'node:path'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { test, expect, type Page } from '@playwright/test'
 
 const BASE_URL = process.env.DSH_E2E_URL
@@ -174,10 +177,14 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     const modal = page.getByTestId('skills-scope-modal')
     await expect(modal).toBeVisible()
     await expect(page.getByTestId('skills-scope-global').locator('input')).toBeChecked()
-    // The workspaces radio reveals the checklist; the seeded scratch home has
-    // no registered workspaces, so the empty note shows.
+    // The workspaces radio reveals the checklist, listing the workspaces
+    // e2e-mount.sh preseeded into the home's registry (canonical paths via
+    // env — the same reusable seeding every marker can drive). Scoped to
+    // the checklist: the preseeded workspaces also show in the sidebar.
     await page.getByTestId('skills-scope-workspaces').click()
-    await expect(page.getByText('No workspaces registered yet.')).toBeVisible()
+    const wsList = page.getByTestId('skills-workspaces')
+    await expect(wsList).toContainText('workspace-a')
+    await expect(wsList).toContainText('workspace-b')
     // Two-step remove drives the real host service; the card disappears.
     await modal.locator('[data-testid="skills-remove"]').click()
     await modal.locator('[data-testid="skills-remove-confirm"]').click()
@@ -302,6 +309,51 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await page.getByTestId('cc-uninstall').click()
     await page.getByTestId('cc-uninstall-confirm').click()
     await expect(depCard).not.toContainText('Manage')
+    // The Workspaces radio path, against the workspaces e2e-mount.sh
+    // preseeded into the scratch home's registry (canonical paths arrive
+    // via env — never machine-specific literals). Install demo-tools into
+    // workspace-a only, verify the copy landed in the workspace's own
+    // skills root, then re-scope to global and watch the copy move.
+    const workspaceA = process.env.DSH_E2E_WORKSPACE_A
+    if (!workspaceA) throw new Error('DSH_E2E_WORKSPACE_A is not set — run through scripts/e2e-mount.sh, which preseeds the workspaces')
+    const workspaceB = process.env.DSH_E2E_WORKSPACE_B ?? ''
+    await demoCard.locator('[data-testid="cc-add"]').click()
+    await expect(page.getByTestId('cc-modal')).toBeVisible()
+    await page.getByTestId('cc-scope-workspaces').locator('input').click()
+    const checklist = page.getByTestId('cc-workspaces')
+    await expect(checklist).toBeVisible()
+    // Both preseeded workspaces offer themselves in the checklist.
+    await expect(checklist).toContainText('workspace-a')
+    if (workspaceB !== '') await expect(checklist).toContainText('workspace-b')
+    await checklist.locator('[data-testid="cc-workspace"]').filter({ hasText: 'workspace-a' }).first().locator('input[type="checkbox"]').click()
+    await page.getByTestId('cc-modal-confirm').click()
+    await expect(demoCard).toContainText('Manage')
+    await expect(demoCard).toContainText('in workspace-a')
+    // The skill copy landed in the workspace's own root, not the global one.
+    await expect.poll(() => {
+      try {
+        readFileSync(join(workspaceA, '.agents', 'skills', 'demo-skill', 'SKILL.md'), 'utf8')
+        return true
+      } catch {
+        return false
+      }
+    }).toBe(true)
+    expect(readFileSync(join(workspaceA, '.agents', 'skills', 'demo-skill', 'SKILL.md'), 'utf8')).toContain('demo')
+    await expect.poll(() => !existsSync(join(agentsHome, 'skills', 'demo-skill'))).toBe(true)
+    // Manage re-opens on the workspace scope; Save scope moves the copy to
+    // the global root and clears the workspace one (recoverably).
+    await demoCard.locator('[data-testid="cc-add"]').click()
+    await expect(page.getByTestId('cc-scope-workspaces').locator('input')).toBeChecked()
+    await page.getByTestId('cc-scope-global').locator('input').click()
+    await page.getByTestId('cc-modal-confirm').click()
+    await expect.poll(() => existsSync(join(agentsHome, 'skills', 'demo-skill', 'SKILL.md'))).toBe(true)
+    await expect.poll(() => !existsSync(join(workspaceA, '.agents', 'skills', 'demo-skill'))).toBe(true)
+    await expect(demoCard).toContainText('in global')
+    // Full uninstall from the global scope; the marketplace can go after.
+    await demoCard.locator('[data-testid="cc-add"]').click()
+    await page.getByTestId('cc-uninstall').click()
+    await page.getByTestId('cc-uninstall-confirm').click()
+    await expect(demoCard).not.toContainText('Manage')
     // Remove the fixture marketplace; the seeded official one remains
     // (the Remove button inside the tiny-tools row, not a foreign one).
     await settings.getByRole('tab', { name: 'Marketplaces' }).click({ force: true })

@@ -128,6 +128,21 @@ dsh-next-skills:
   scopes: {}
 EOF
 
+# Pre-register two scratch workspaces in the home's storage registry so
+# every plugin's DOM marker can drive workspace-scoped flows (the
+# cc-plugins scope modal, workspace-rooted skills, ...). The seeding is the
+# reusable scripts/e2e-seed-workspaces.sh — idempotent and safe on any
+# home. Paths are canonicalized (pwd -P) because the workspace plugin
+# stores realpaths and on macOS /tmp is really /private/tmp; the specs
+# receive the same canonical paths via these env vars, never hardcoded
+# machine paths.
+mkdir -p "$SCRATCH/workspace-a" "$SCRATCH/workspace-b"
+DSH_E2E_WORKSPACE_A=$(cd "$SCRATCH/workspace-a" && pwd -P)
+DSH_E2E_WORKSPACE_B=$(cd "$SCRATCH/workspace-b" && pwd -P)
+export DSH_E2E_WORKSPACE_A DSH_E2E_WORKSPACE_B
+bash scripts/e2e-seed-workspaces.sh "$DSH_HOME" "$DSH_E2E_WORKSPACE_A" "$DSH_E2E_WORKSPACE_B"
+say "preseeded workspaces: $DSH_E2E_WORKSPACE_A , $DSH_E2E_WORKSPACE_B"
+
 
 SERVER_PID=""
 cleanup() {

@@ -200,6 +200,9 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
   // handles a closed or Plugins-view Settings shell.
   'dsh-next-cc-plugins': async (page) => {
     await openCcSection(page)
+    // The section label is a locale-service function label; under the
+    // default (en) locale it must still read exactly "Claude Plugins".
+    await expect(page.getByRole('button', { name: 'Claude Plugins', exact: true }).first()).toBeVisible()
     // Tab clicks stay scoped to the Settings dialog: the app's own sidebar
     // also has "Plugins" and "Models" pages an unscoped text locator hits.
     const settings = page.getByRole('dialog', { name: 'Settings' })

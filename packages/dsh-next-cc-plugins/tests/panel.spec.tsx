@@ -11,6 +11,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import type { CcState, InstalledPlugin, MarketplacePluginView, MutationResult, WorkspaceRow } from '../src/core/types.ts'
 import { CcPanel, formatLastSync, inventorySummary, presenceLabel, unbridgedSummary } from '../src/client/CcPanel.tsx'
+import { interpolate, zh } from '../src/client/dictionaries.ts'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -154,6 +155,7 @@ function render(deps: Partial<Parameters<typeof CcPanel>[0]>): void {
       rpc: deps.rpc ?? rpcMock(),
       getWorkspaces: deps.getWorkspaces ?? (() => WS),
       notifyInstalledChanged: deps.notifyInstalledChanged,
+      t: deps.t,
     }),
   )
 }
@@ -813,5 +815,42 @@ describe('plugin detail modal', () => {
     const components = container.querySelector('[data-testid="cc-detail-components"]')
     expect(components?.textContent).toContain('not bridged: 2 LSP servers, 1 monitor')
     expect(components?.textContent).toContain('requires: secrets-vault@~2.1.0')
+  })
+})
+
+describe('Chinese localization', () => {
+  const zhT = (key: keyof typeof zh, params?: Record<string, string | number>): string => interpolate(zh[key], params)
+
+  it('renders the panel chrome in Chinese under a zh-bound translator', async () => {
+    await renderAsync({ rpc: rpcMock(STATE), t: zhT })
+    const text = container.textContent ?? ''
+    expect(text).toContain('插件')
+    expect(text).toContain('市场')
+    expect(text).toContain('模型')
+    expect(container.querySelector('[data-testid="cc-search"]')?.getAttribute('placeholder')).toBe('搜索插件…')
+    expect(text).toContain('仅显示已安装')
+    // The first card summary line localizes through the same translator.
+    expect(text).toContain('1 个技能')
+    // Switch to Marketplaces: buttons and the hint localize too.
+    await act(async () => { button('市场').click() })
+    expect(button('添加市场')).toBeDefined()
+    expect(button('全部刷新')).toBeDefined()
+    expect(container.textContent).toContain('上次同步')
+  })
+
+  it('localizes the no-match empty state and modal chrome', async () => {
+    await renderAsync({ rpc: rpcMock(STATE), t: zhT })
+    await act(async () => { setValue(container.querySelector('[data-testid="cc-search"]')!, 'zzz-no-match') })
+    expect(container.querySelector('[data-testid="cc-empty"]')?.textContent).toBe('没有符合当前筛选条件的插件。')
+    await act(async () => { setValue(container.querySelector('[data-testid="cc-search"]')!, '') })
+    // team-tools' Add (the first alphabetical card, packed, is disabled).
+    const card = [...container.querySelectorAll('[data-testid="cc-plugin"]')]
+      .find((c) => c.querySelector('[data-testid="cc-detail"]')?.textContent === 'team-tools')
+    await act(async () => { (card?.querySelector('[data-testid="cc-add"]') as HTMLButtonElement).click() })
+    const modal = container.querySelector('[data-testid="cc-modal"]')
+    expect(modal?.textContent).toContain('选择添加位置')
+    expect(modal?.textContent).toContain('全局')
+    expect(modal?.textContent).toContain('取消')
+    expect(modal?.getAttribute('aria-label')).toBe('管理插件“team-tools”')
   })
 })

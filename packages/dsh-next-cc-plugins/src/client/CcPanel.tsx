@@ -24,6 +24,11 @@
  * Skills land per selected target; MCP servers, agent rows, commands, and
  * hooks are plugin-level and activate once regardless of target count — the
  * modal states this so the scope picker never over-promises.
+ *
+ * Every user-facing string rides the `t` translator (the platform locale
+ * service bound to this package's namespace; English without it). The
+ * exported formatters take `t` as an optional last argument defaulting to
+ * English, so their standalone behavior is unchanged.
  */
 import * as React from 'react'
 import type {
@@ -35,13 +40,19 @@ import type {
   PluginInventory,
   WorkspaceRow,
 } from '../core/types.ts'
+import { englishTranslate, type MessageKey } from './dictionaries.ts'
 import styles from './card.module.css'
+
+/** Translates a dictionary key with `{name}` params (platform semantics). */
+export type Translate = (key: MessageKey, params?: Record<string, string | number>) => string
 
 export interface CcPanelDeps {
   rpc: (method: string, args?: unknown) => Promise<unknown>
   getWorkspaces: () => WorkspaceRow[]
   /** Signals the browser that the installed skill catalog changed. */
   notifyInstalledChanged?: () => void
+  /** Locale-bound translator; defaults to English when omitted (tests). */
+  t?: Translate
 }
 
 type Tab = 'plugins' | 'marketplaces' | 'models'
@@ -57,72 +68,78 @@ function errMsg(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/** `{count}` plural pick: one vs many key, count passed for interpolation. */
+function countOf(t: Translate, n: number, one: MessageKey, many: MessageKey): string {
+  return t(n === 1 ? one : many, { count: n })
+}
+
 /** Component-count summary line, e.g. "2 skills, 1 MCP server, not bridged:
  *  1 LSP server". The trailing group names the Claude Code component
  *  families an install deliberately leaves out. */
-export function inventorySummary(inventory: PluginInventory): string {
+export function inventorySummary(inventory: PluginInventory, t: Translate = englishTranslate): string {
   const parts = [
-    inventory.skills.length > 0 ? `${inventory.skills.length} skill${inventory.skills.length === 1 ? '' : 's'}` : '',
-    inventory.mcpServers.length > 0 ? `${inventory.mcpServers.length} MCP server${inventory.mcpServers.length === 1 ? '' : 's'}` : '',
-    inventory.commands.length > 0 ? `${inventory.commands.length} command${inventory.commands.length === 1 ? '' : 's'}` : '',
-    inventory.agents.length > 0 ? `${inventory.agents.length} agent tool${inventory.agents.length === 1 ? '' : 's'}` : '',
-    inventory.hookEvents.length > 0 ? `${inventory.hookEvents.length} hook event${inventory.hookEvents.length === 1 ? '' : 's'} (enable runtime.hooks)` : '',
-    unbridgedSummary(inventory.unbridged),
-    inventory.dependencies.length > 0 ? `requires: ${inventory.dependencies.join(', ')}` : '',
+    inventory.skills.length > 0 ? countOf(t, inventory.skills.length, 'summary.skill.one', 'summary.skill.many') : '',
+    inventory.mcpServers.length > 0 ? countOf(t, inventory.mcpServers.length, 'summary.mcp.one', 'summary.mcp.many') : '',
+    inventory.commands.length > 0 ? countOf(t, inventory.commands.length, 'summary.command.one', 'summary.command.many') : '',
+    inventory.agents.length > 0 ? countOf(t, inventory.agents.length, 'summary.agent.one', 'summary.agent.many') : '',
+    inventory.hookEvents.length > 0 ? countOf(t, inventory.hookEvents.length, 'summary.hook.one', 'summary.hook.many') : '',
+    unbridgedSummary(inventory.unbridged, t),
+    inventory.dependencies.length > 0 ? t('summary.requires', { deps: inventory.dependencies.join(', ') }) : '',
   ].filter(Boolean)
-  return parts.length > 0 ? parts.join(', ') : 'no components'
+  return parts.length > 0 ? parts.join(', ') : t('summary.noComponents')
 }
 
 /** "not bridged: 2 LSP servers, 1 monitor" — '' when everything bridges. */
-export function unbridgedSummary(unbridged: PluginInventory['unbridged']): string {
-  const labels: Array<[keyof PluginInventory['unbridged'] & string, [string, string]]> = [
-    ['lspServers', ['LSP server', 'LSP servers']],
-    ['monitors', ['monitor', 'monitors']],
-    ['outputStyles', ['output style', 'output styles']],
-    ['themes', ['theme', 'themes']],
-    ['workflows', ['workflow', 'workflows']],
-    ['executables', ['executable', 'executables']],
-    ['settings', ['settings file', 'settings files']],
+export function unbridgedSummary(unbridged: PluginInventory['unbridged'], t: Translate = englishTranslate): string {
+  const labels: Array<[keyof PluginInventory['unbridged'] & string, [MessageKey, MessageKey]]> = [
+    ['lspServers', ['unbridged.lsp.one', 'unbridged.lsp.many']],
+    ['monitors', ['unbridged.monitors.one', 'unbridged.monitors.many']],
+    ['outputStyles', ['unbridged.outputStyles.one', 'unbridged.outputStyles.many']],
+    ['themes', ['unbridged.themes.one', 'unbridged.themes.many']],
+    ['workflows', ['unbridged.workflows.one', 'unbridged.workflows.many']],
+    ['executables', ['unbridged.executables.one', 'unbridged.executables.many']],
+    ['settings', ['unbridged.settings.one', 'unbridged.settings.many']],
   ]
   const parts: string[] = []
   for (const [key, [one, many]] of labels) {
     const count = unbridged[key]
     if (count === undefined || count <= 0) continue
-    parts.push(`${count} ${count === 1 ? one : many}`)
+    parts.push(countOf(t, count, one, many))
   }
-  return parts.length > 0 ? `not bridged: ${parts.join(', ')}` : ''
+  return parts.length > 0 ? t('unbridged.prefix') + parts.join(', ') : ''
 }
 
 /** Where a plugin's skills are installed, across every target. */
-export function presenceLabel(record: InstalledPlugin, workspaces: ReadonlyArray<WorkspaceRow>): string {
+export function presenceLabel(record: InstalledPlugin, workspaces: ReadonlyArray<WorkspaceRow>, t: Translate = englishTranslate): string {
   const parts: string[] = []
-  const global = record.targets.some((t) => t.scope === 'global')
-  const ws = record.targets.filter((t) => t.scope === 'workspace')
-  if (global) parts.push('global')
+  const global = record.targets.some((target) => target.scope === 'global')
+  const ws = record.targets.filter((target) => target.scope === 'workspace')
+  if (global) parts.push(t('presence.global'))
   if (ws.length > 0) {
-    const titles = ws.map((t) => workspaces.find((w) => w.path === t.workspacePath)?.title ?? 'workspace')
+    const titles = ws.map((target) => workspaces.find((w) => w.path === target.workspacePath)?.title ?? t('presence.workspace'))
     parts.push(...titles)
   }
-  return parts.length > 0 ? `in ${parts.join(' + ')}` : 'installed'
+  return parts.length > 0 ? t('presence.in', { targets: parts.join(' + ') }) : t('presence.installed')
 }
 
 /** Relative age of a marketplace's last sync, e.g. "3h ago" or "never". */
-export function formatLastSync(iso: string, now: number = Date.now()): string {
-  if (iso === '') return 'never'
+export function formatLastSync(iso: string, now: number = Date.now(), t: Translate = englishTranslate): string {
+  if (iso === '') return t('sync.never')
   const at = Date.parse(iso)
-  if (Number.isNaN(at)) return 'unknown'
+  if (Number.isNaN(at)) return t('sync.unknown')
   const diff = now - at
-  if (diff < 60_000) return 'just now'
+  if (diff < 60_000) return t('sync.justNow')
   const minutes = Math.floor(diff / 60_000)
-  if (minutes < 60) return `${minutes}m ago`
+  if (minutes < 60) return t('sync.minutesAgo', { count: minutes })
   const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
+  if (hours < 24) return t('sync.hoursAgo', { count: hours })
   const days = Math.floor(hours / 24)
-  if (days < 7) return `${days}d ago`
+  if (days < 7) return t('sync.daysAgo', { count: days })
   return iso.slice(0, 10)
 }
 
 export function CcPanel(deps: CcPanelDeps): React.ReactElement {
+  const t = deps.t ?? englishTranslate
   const [tab, setTab] = React.useState<Tab>('plugins')
   const [state, setState] = React.useState<CcState | undefined>()
   const [busy, setBusy] = React.useState(false)
@@ -289,9 +306,9 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
     if (modal === undefined) return null
     const key = `${modal.marketplaceId}/${modal.plugin.name}`
     const record = byKey.get(key)
-    const heldIds = new Set((record?.targets ?? []).map((t) => (t.scope === 'workspace' ? (t.workspacePath ?? '') : '')))
+    const heldIds = new Set((record?.targets ?? []).map((target) => (target.scope === 'workspace' ? (target.workspacePath ?? '') : '')))
     const options: Array<{ id: string; label: string; installed: boolean }> = [
-      { id: '', label: 'Global', installed: heldIds.has('') },
+      { id: '', label: t('modal.target.global'), installed: heldIds.has('') },
       ...workspaces.map((w) => ({ id: w.path, label: w.title, installed: heldIds.has(w.path) })),
     ]
     return (
@@ -300,17 +317,14 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
           className={styles.modal}
           role="dialog"
           aria-modal="true"
-          aria-label={`Manage plugin "${modal.plugin.name}"`}
+          aria-label={t('modal.aria', { name: modal.plugin.name })}
           data-testid="cc-modal"
           onClick={(e: React.MouseEvent) => e.stopPropagation()}
         >
           <p className={styles.modalTitle}>
-            {`${modal.plugin.name}${record !== undefined && record.version !== '' ? ` (installed ${record.version})` : ''}${modal.plugin.updateAvailable === true && modal.plugin.version !== '' ? ` — ${modal.plugin.version} available` : ''}`}
+            {`${modal.plugin.name}${record !== undefined && record.version !== '' ? ` (${t('card.installedVersion', { version: record.version })})` : ''}${modal.plugin.updateAvailable === true && modal.plugin.version !== '' ? ` — ${t('modal.available', { version: modal.plugin.version })}` : ''}`}
           </p>
-          <p className={styles.modalHint}>
-            Choose where to add it. Skills install per target; MCP servers, agents, commands, and hooks activate globally once.
-            Targets already holding the plugin are marked and locked.
-          </p>
+          <p className={styles.modalHint}>{t('modal.hint')}</p>
           <div className={styles.optionList}>
             {options.map((option) => (
               <label
@@ -324,24 +338,24 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
                   disabled={busy || option.installed}
                   onChange={() => toggleTarget(option.id)}
                 />
-                <span className={styles.optionLabel}>{option.id === '' ? `Global ${option.label}` : option.label}</span>
+                <span className={styles.optionLabel}>{option.label}</span>
                 {option.installed && (
                   <>
-                    <span className={styles.addedBadge}>added</span>
+                    <span className={styles.addedBadge}>{t('modal.added')}</span>
                     {confirmTarget === option.id ? (
                       <button
                         type="button"
                         className={`${styles.danger} ${styles.optionAction}`}
                         disabled={busy}
                         onClick={() => uninstallTarget(key, option.id)}
-                      >Confirm</button>
+                      >{t('modal.confirm')}</button>
                     ) : (
                       <button
                         type="button"
                         className={`${styles.ghostDanger} ${styles.optionAction}`}
                         disabled={busy}
                         onClick={() => setConfirmTarget(option.id)}
-                      >Uninstall</button>
+                      >{t('modal.uninstall')}</button>
                     )}
                   </>
                 )}
@@ -354,14 +368,14 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
               className={styles.ghost}
               disabled={busy}
               onClick={() => { setModal(undefined); setSelection(new Set()); setConfirmTarget(undefined) }}
-            >Cancel</button>
+            >{t('modal.cancel')}</button>
             {record !== undefined && (
               <button
                 type="button"
                 className={styles.ghost}
                 disabled={busy}
                 onClick={() => { void mutate('updatePlugin', { key }); setModal(undefined) }}
-              >Update everywhere</button>
+              >{t('modal.updateEverywhere')}</button>
             )}
             <button
               type="button"
@@ -369,7 +383,7 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
               disabled={busy || selection.size === 0}
               onClick={confirmInstall}
               data-testid="cc-modal-add"
-            >{selection.size > 1 ? `Add to ${selection.size} targets` : 'Add'}</button>
+            >{selection.size > 1 ? t('modal.addTargets', { count: selection.size }) : t('card.add')}</button>
           </div>
         </div>
       </div>
@@ -397,45 +411,45 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
           className={styles.modal}
           role="dialog"
           aria-modal="true"
-          aria-label={`Plugin details "${detail.plugin.name}"`}
+          aria-label={t('detail.aria', { name: detail.plugin.name })}
           data-testid="cc-plugin-detail"
           onClick={(e: React.MouseEvent) => e.stopPropagation()}
         >
           <p className={styles.modalTitle}>{detail.plugin.name}</p>
           <p className={styles.modalHint}>
             {[
-              detail.plugin.version !== '' ? `version ${detail.plugin.version}` : '',
-              record !== undefined && record.version !== '' ? `installed ${record.version}` : 'not installed',
-              marketplace !== undefined ? `from ${marketplace.name}` : '',
+              detail.plugin.version !== '' ? t('detail.version', { version: detail.plugin.version }) : '',
+              record !== undefined && record.version !== '' ? t('card.installedVersion', { version: record.version }) : t('detail.notInstalled'),
+              marketplace !== undefined ? t('detail.from', { marketplace: marketplace.name }) : '',
             ].filter(Boolean).join(' — ')}
           </p>
           {detail.plugin.description !== '' && <p className={styles.modalHint}>{detail.plugin.description}</p>}
           <ul className={styles.detailList}>
-            {detail.plugin.author !== '' ? <li><strong>author:</strong> {detail.plugin.author}</li> : null}
-            {detail.plugin.homepage !== '' ? <li><strong>homepage:</strong> {detail.plugin.homepage}</li> : null}
-            {detail.plugin.category !== '' ? <li><strong>category:</strong> {detail.plugin.category}</li> : null}
-            {detail.plugin.tags.length > 0 ? <li><strong>tags:</strong> {detail.plugin.tags.join(', ')}</li> : null}
+            {detail.plugin.author !== '' ? <li><strong>{t('detail.author')}:</strong> {detail.plugin.author}</li> : null}
+            {detail.plugin.homepage !== '' ? <li><strong>{t('detail.homepage')}:</strong> {detail.plugin.homepage}</li> : null}
+            {detail.plugin.category !== '' ? <li><strong>{t('detail.category')}:</strong> {detail.plugin.category}</li> : null}
+            {detail.plugin.tags.length > 0 ? <li><strong>{t('detail.tags')}:</strong> {detail.plugin.tags.join(', ')}</li> : null}
           </ul>
           {detail.plugin.sourceUnsupported !== undefined && (
-            <p className={styles.modalHint}>not installable: {detail.plugin.sourceUnsupported}</p>
+            <p className={styles.modalHint}>{t('card.notInstallable', { reason: detail.plugin.sourceUnsupported })}</p>
           )}
           {inv === undefined ? (
-            <p className={styles.modalHint}>components resolve on install</p>
+            <p className={styles.modalHint}>{t('card.resolveOnInstall')}</p>
           ) : (
             <ul className={styles.detailList} data-testid="cc-detail-components">
-              {section('skills', inv.skills.map((s) => s.name))}
-              {section('commands', inv.commands.map((c) => c.name))}
-              {section('agents', inv.agents.map((a) => a.name))}
-              {section('MCP servers', inv.mcpServers.map((m) => m.name))}
-              {section('hook events', inv.hookEvents)}
-              {unbridgedSummary(inv.unbridged) !== '' ? <li><strong>not bridged:</strong> {unbridgedSummary(inv.unbridged).replace('not bridged: ', '')}</li> : null}
-              {section('requires', inv.dependencies)}
-              {section('inventory notes', inv.notes)}
+              {section(t('detail.skills'), inv.skills.map((s) => s.name))}
+              {section(t('detail.commands'), inv.commands.map((c) => c.name))}
+              {section(t('detail.agents'), inv.agents.map((a) => a.name))}
+              {section(t('detail.mcpServers'), inv.mcpServers.map((m) => m.name))}
+              {section(t('detail.hookEvents'), inv.hookEvents)}
+              {unbridgedSummary(inv.unbridged, t) !== '' ? <li><strong>{t('detail.notBridged')}:</strong> {unbridgedSummary(inv.unbridged, t).replace(t('unbridged.prefix'), '')}</li> : null}
+              {section(t('detail.requires'), inv.dependencies)}
+              {section(t('detail.inventoryNotes'), inv.notes)}
             </ul>
           )}
           {record !== undefined && (
             <>
-              <p className={styles.modalHint}>{presenceLabel(record, workspaces)}</p>
+              <p className={styles.modalHint}>{presenceLabel(record, workspaces, t)}</p>
               {(record.notes ?? []).length > 0 && (
                 <ul className={styles.detailList} data-testid="cc-detail-notes">
                   {(record.notes ?? []).map((note) => <li key={note}>{note}</li>)}
@@ -444,7 +458,7 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
             </>
           )}
           <div className={styles.modalActions}>
-            <button type="button" className={styles.ghost} onClick={() => setDetail(undefined)} data-testid="cc-detail-close">Close</button>
+            <button type="button" className={styles.ghost} onClick={() => setDetail(undefined)} data-testid="cc-detail-close">{t('detail.close')}</button>
           </div>
         </div>
       </div>
@@ -460,21 +474,21 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
           aria-selected={tab === 'plugins'}
           className={tab === 'plugins' ? styles.tabActive : styles.tab}
           onClick={() => setTab('plugins')}
-        >Plugins</button>
+        >{t('tab.plugins')}</button>
         <button
           type="button"
           role="tab"
           aria-selected={tab === 'marketplaces'}
           className={tab === 'marketplaces' ? styles.tabActive : styles.tab}
           onClick={() => setTab('marketplaces')}
-        >Marketplaces</button>
+        >{t('tab.marketplaces')}</button>
         <button
           type="button"
           role="tab"
           aria-selected={tab === 'models'}
           className={tab === 'models' ? styles.tabActive : styles.tab}
           onClick={() => setTab('models')}
-        >Models</button>
+        >{t('tab.models')}</button>
       </div>
 
       {message !== undefined && (
@@ -483,7 +497,7 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
 
       {(state?.importSkipped ?? []).length > 0 && (
         <div className={styles.empty} data-testid="cc-import-skipped">
-          {`${state?.importSkipped.length} import(s) from the settings file skipped on this machine (missing workspace names or sources): ${state?.importSkipped.join('; ')}. Add the workspace or install through the panel.`}
+          {t('import.skipped', { count: state?.importSkipped.length ?? 0, items: (state?.importSkipped ?? []).join('; ') })}
         </div>
       )}
 
@@ -492,7 +506,7 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
           <input
             type="search"
             className={styles.input}
-            placeholder="Search plugins…"
+            placeholder={t('search.placeholder')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             data-testid="cc-search"
@@ -501,10 +515,10 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
             className={styles.select}
             value={providerFilter}
             onChange={(e) => setProviderFilter(e.target.value)}
-            aria-label="Marketplace"
+            aria-label={t('provider.aria')}
             data-testid="cc-provider"
           >
-            <option value="">All marketplaces</option>
+            <option value="">{t('provider.all')}</option>
             {marketplaces.map((m) => (
               <option key={m.id} value={m.id}>{m.spec}</option>
             ))}
@@ -516,17 +530,17 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
               onChange={(e) => setInstalledOnly(e.target.checked)}
               data-testid="cc-installed-only"
             />
-            Installed only
+            {t('filter.installedOnly')}
           </label>
         </div>
       )}
 
       {tab === 'plugins' && (marketplaces.length === 0 ? (
         <div className={styles.empty} data-testid="cc-empty">
-          No marketplaces added yet. Add one in the Marketplaces tab (owner/repo GitHub shorthand, a GitHub URL, or a local path).
+          {t('empty.noMarketplacesPlugins')}
         </div>
       ) : filtered.length === 0 ? (
-        <div className={styles.empty} data-testid="cc-empty">No plugins match the current filters.</div>
+        <div className={styles.empty} data-testid="cc-empty">{t('empty.noMatch')}</div>
       ) : (
         <div className={styles.pluginGrid} data-testid="cc-plugins">
           {filtered.map(({ marketplace, plugin }) => {
@@ -540,30 +554,30 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
                       <button
                         type="button"
                         className={styles.nameButton}
-                        title={`details for ${key}`}
+                        title={t('card.detailsTitle', { key })}
                         onClick={() => setDetail({ marketplaceId: marketplace.id, plugin })}
                         data-testid="cc-detail"
                       >{plugin.name}</button>
                       {plugin.version !== '' && <span className={styles.version}> {plugin.version}</span>}
                     </div>
-                    <div className={styles.desc}>{plugin.description !== '' ? plugin.description : 'no description'}</div>
+                    <div className={styles.desc}>{plugin.description !== '' ? plugin.description : t('card.noDescription')}</div>
                     <div className={styles.desc}>
-                      {plugin.inventory !== undefined ? inventorySummary(plugin.inventory)
-                        : plugin.sourceUnsupported !== undefined ? `not installable: ${plugin.sourceUnsupported}`
-                          : 'components resolve on install'}
+                      {plugin.inventory !== undefined ? inventorySummary(plugin.inventory, t)
+                        : plugin.sourceUnsupported !== undefined ? t('card.notInstallable', { reason: plugin.sourceUnsupported })
+                          : t('card.resolveOnInstall')}
                     </div>
                   </div>
                   {record !== undefined && (
                     <div className={styles.badges}>
-                      <span className={styles.presenceBadge}>{presenceLabel(record, workspaces)}</span>
+                      <span className={styles.presenceBadge}>{presenceLabel(record, workspaces, t)}</span>
                       {plugin.installedVersion !== undefined && (
                         <span className={styles.installedChip} data-testid="cc-installed-version">
-                          {`installed ${plugin.installedVersion}`}
+                          {t('card.installedVersion', { version: plugin.installedVersion })}
                         </span>
                       )}
                       {(record.notes ?? []).length > 0 && (
                         <span className={styles.notesChip} data-testid="cc-notes-chip" title={(record.notes ?? []).join('\n')}>
-                          {`${(record.notes ?? []).length} install note${(record.notes ?? []).length === 1 ? '' : 's'}`}
+                          {countOf(t, (record.notes ?? []).length, 'card.noteCount.one', 'card.noteCount.many')}
                         </span>
                       )}
                     </div>
@@ -577,10 +591,10 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
                         type="button"
                         className={styles.ghost}
                         disabled={busy}
-                        title={`update ${key} to ${plugin.version !== '' ? plugin.version : 'latest'}`}
+                        title={t('card.updateTitle', { key, version: plugin.version !== '' ? plugin.version : 'latest' })}
                         onClick={() => { void mutate('updatePlugin', { key }) }}
                         data-testid="cc-update"
-                      >Update</button>
+                      >{t('card.update')}</button>
                     )}
                     <button
                       type="button"
@@ -589,7 +603,7 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
                       title={key}
                       onClick={() => openModal(marketplace.id, plugin)}
                       data-testid="cc-add"
-                    >{record !== undefined ? 'Manage' : 'Add'}</button>
+                    >{record !== undefined ? t('card.manage') : t('card.add')}</button>
                   </div>
                 </div>
               </div>
@@ -602,7 +616,7 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
         <div className={styles.addRow}>
           <input
             className={styles.input}
-            placeholder="owner/repo, a GitHub URL, or a local path"
+            placeholder={t('marketplaces.placeholder')}
             value={spec}
             onChange={(e) => setSpec(e.target.value)}
             onKeyDown={(e) => {
@@ -610,17 +624,17 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
             }}
             data-testid="cc-add-input"
           />
-          <button type="button" className={styles.primary} disabled={busy || spec.trim() === ''} onClick={() => void addMarketplace()}>Add marketplace</button>
-          <button type="button" className={styles.ghost} disabled={busy || marketplaces.length === 0} onClick={() => void mutate('refreshMarketplaces')}>Refresh all</button>
+          <button type="button" className={styles.primary} disabled={busy || spec.trim() === ''} onClick={() => void addMarketplace()}>{t('marketplaces.add')}</button>
+          <button type="button" className={styles.ghost} disabled={busy || marketplaces.length === 0} onClick={() => void mutate('refreshMarketplaces')}>{t('marketplaces.refreshAll')}</button>
         </div>
       )}
 
       {tab === 'marketplaces' && (
-        <div className={styles.hint}>Snapshots older than 24 hours refresh automatically when this panel opens; Refresh all forces it now. Update buttons appear when a marketplace carries a newer version than the installed one.</div>
+        <div className={styles.hint}>{t('marketplaces.hint')}</div>
       )}
 
       {tab === 'marketplaces' && (marketplaces.length === 0 ? (
-        <div className={styles.empty} data-testid="cc-empty">No marketplaces added yet. Add one with an owner/repo GitHub shorthand, a GitHub URL, or a local path.</div>
+        <div className={styles.empty} data-testid="cc-empty">{t('empty.noMarketplacesSources')}</div>
       ) : marketplaces.map((m) => (
         <div key={m.id} className={styles.card} data-testid="cc-marketplace">
           <div className={styles.marketHead}>
@@ -629,9 +643,9 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
               <div className={styles.desc}>
                 {m.spec}
                 {m.description !== '' ? ` — ${m.description}` : ''}
-                {m.owner !== '' ? ` by ${m.owner}` : ''}
-                {` · ${m.plugins.length} plugin${m.plugins.length === 1 ? '' : 's'}`}
-                {` · last synced ${formatLastSync(m.lastSync)}`}
+                {m.owner !== '' ? ` ${t('marketplaces.by', { owner: m.owner })}` : ''}
+                {` · ${countOf(t, m.plugins.length, 'marketplaces.pluginCount.one', 'marketplaces.pluginCount.many')}`}
+                {` · ${t('marketplaces.lastSynced', { age: formatLastSync(m.lastSync, Date.now(), t) })}`}
               </div>
               {m.error !== undefined && <div className={styles.errText}>{m.error}</div>}
             </div>
@@ -640,7 +654,7 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
               className={styles.ghostDanger}
               disabled={busy}
               onClick={() => void mutate('removeMarketplace', { marketplaceId: m.id })}
-            >Remove</button>
+            >{t('marketplaces.remove')}</button>
           </div>
         </div>
       )))}
@@ -648,10 +662,7 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
       {tab === 'models' && (
         <div className={styles.modelList} data-testid="cc-models">
           <div className={styles.hint}>
-            Map the Claude model names your agents use onto models this runtime offers. Unmapped names inherit the
-            delegating session&apos;s model — the same default as Claude&apos;s `model: inherit` — and choosing inherit
-            explicitly overrides a config-baseline mapping. Saving re-resolves installed agent rows without
-            reinstalling; reload the profile to apply them.
+            {t('models.hint')}
           </div>
           {(state?.agentModelAliases ?? []).map((alias) => {
             const override = (state?.agentModelOverrides ?? {})[alias]
@@ -666,15 +677,15 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
             return (
               <div key={alias} className={styles.optionRow} data-testid="cc-model-row">
                 <span className={styles.optionLabel}>{alias}</span>
-                {fromConfig && <span className={styles.configChip}>config</span>}
+                {fromConfig && <span className={styles.configChip}>{t('models.config')}</span>}
                 <select
                   className={styles.select}
-                  aria-label={`Model for ${alias}`}
+                  aria-label={t('models.selectAria', { alias })}
                   data-testid="cc-model-select"
                   value={current}
                   onChange={(e) => setModelDraft({ ...modelDraft, [alias]: e.target.value })}
                 >
-                  <option value="">Inherit session model</option>
+                  <option value="">{t('models.inherit')}</option>
                   {uniqueModels.map((m) => (
                     <option key={`${m.provider}/${m.id}`} value={m.id}>{`${m.name} (${m.provider})`}</option>
                   ))}
@@ -690,7 +701,7 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
               disabled={busy}
               onClick={() => void saveModels()}
               data-testid="cc-model-save"
-            >Save model mappings</button>
+            >{t('models.save')}</button>
           </div>
         </div>
       )}

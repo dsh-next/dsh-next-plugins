@@ -251,6 +251,12 @@ last-synced age; snapshots older than 24 hours re-sync when the panel
 opens), and **Models** (map Claude model names onto the models this runtime
 offers, live-discovered — unmapped names inherit the session's model).
 
+The panel follows the DSH locale setting (English / Simplified Chinese)
+through the platform `locale` service — dictionaries live in the client
+bundle under the `cc-plugins` namespace, and the section label re-resolves
+on language switches. Host-generated messages (install notes, errors) stay
+English: they are persisted on install records and quoted in diagnostics.
+
 ## Install
 
 ```sh

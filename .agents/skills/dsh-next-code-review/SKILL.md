@@ -19,7 +19,10 @@ Review changes against these checks:
    suite covers every exported behavior with its edge/error branches (pure
    `core/` logic, the Host RPC response shape via a contract test, and any
    client wiring under jsdom). UI plugins must register a per-plugin DOM marker
-   in `tests/e2e/mount.e2e.ts`. Flag any exported function or public behavior
+   in `tests/e2e/mount.e2e.ts`; markers must take workspace paths from the
+   `DSH_E2E_WORKSPACE_A/B` env vars, never hardcoded machine paths, and prefer
+   on-disk assertions (`DSH_HOME`/`DSH_AGENTS_HOME`) for install/mutation
+   effects. Flag any exported function or public behavior
    with no test. See `docs/plugins.md` → "The completeness contract".
 6. **Non-regression** — the change must keep every existing test green. Call
    out whether the change could affect other packages or shared code, and

@@ -81,6 +81,17 @@ marker (keyed by the bare slug) that drives to the UI and asserts real behavior
 (e.g. open the settings card and assert its body renders). Handle the initial
 onboarding dialogs with `dismissOnboarding()` before driving the sidebar.
 
+The lane provides two fixtures every marker may use:
+
+- **Preseeded workspaces** — `scripts/e2e-mount.sh` registers two scratch
+  workspaces through the reusable `scripts/e2e-seed-workspaces.sh` and
+  exports their canonical paths as `DSH_E2E_WORKSPACE_A` / `_B`, so
+  markers can drive workspace-scoped UI without machine-specific paths.
+- **On-disk assertions** — the spec process receives `DSH_HOME` and
+  `DSH_AGENTS_HOME`, so a marker can assert real filesystem effects of
+  the flows it drives (installed skill copies, `cordis.patch.yml` rows).
+  Poll (`expect.poll`) for paths a just-triggered mutation writes.
+
 ## Bundle patch (`cordis.patch.yml`)
 
 A plugin's `cordis.patch.yml` declares what the bundle contributes to the

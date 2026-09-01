@@ -31,9 +31,12 @@ Read `AGENTS.md` and `docs/plugins.md` first, then follow these steps.
    `tests/e2e/mount.e2e.ts` (keyed by the bare slug) that drives into the UI and
    asserts real behavior — the crash-marker layer cannot catch a silent
    payload-shape mismatch. Use `dismissOnboarding()` first for a fresh scratch
-   home. Every user-facing string goes through the package's locale
-   dictionaries (`src/client/dictionaries/en.ts` + `zh.ts`, wired per
-   `docs/i18n.md`) — add the en key and the zh translation in the same change.
+   home. Workspace-scoped UI drives the preseeded workspaces via the
+   `DSH_E2E_WORKSPACE_A/B` env vars — never hardcoded paths (see
+   `dsh-next-local-testing`). Every user-facing string goes through the
+   package's locale dictionaries (`src/client/dictionaries/en.ts` + `zh.ts`,
+   wired per `docs/i18n.md`) — add the en key and the zh translation in the
+   same change.
 7. Keep the package's bilingual README pair consistent (`docs/i18n.md`): a
    change that alters behavior described in `README.md` must mirror the edit
    into `README.zh.md` in the same change and re-record the pairing hashes

@@ -254,6 +254,25 @@ describe('pluginLevelReferenceNotes', () => {
     ])
   })
 
+  it('appends the readable location when the materialized root is known', () => {
+    const files = REF_PLUGIN()
+    const inv = pluginInventory(files)
+    expect(pluginLevelReferenceNotes(files, inv.skills, '/home/u/.dsh/cc-plugins/plugins/github_o_r_refsy')).toEqual([
+      '2 skill(s) reference plugin-level "references/"; those paths do not resolve from the installed skills root; read them from /home/u/.dsh/cc-plugins/plugins/github_o_r_refsy/references instead',
+    ])
+  })
+
+  it('counts bare directory links like [](../../references/)', () => {
+    const files = {
+      'skills/search/SKILL.md': '---\nname: search\ndescription: d\n---\nSee [](../../references/).',
+      'references/holistics.md': 'content',
+    }
+    const inv = pluginInventory(files)
+    expect(pluginLevelReferenceNotes(files, inv.skills, '/plugin/root')).toEqual([
+      '1 skill(s) reference plugin-level "references/"; those paths do not resolve from the installed skills root; read them from /plugin/root/references instead',
+    ])
+  })
+
   it('stays silent when the directory does not exist or the mention is prose', () => {
     // No references/ directory at all: the ../references mention is prose.
     const prose = { 'skills/analyze/SKILL.md': REF_PLUGIN()['skills/analyze/SKILL.md'] }

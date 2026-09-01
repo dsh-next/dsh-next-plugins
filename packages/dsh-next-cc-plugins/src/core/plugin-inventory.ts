@@ -575,9 +575,11 @@ const COMPONENT_ROOTS = new Set(['.claude-plugin', '.mcp.json', 'skills', 'comma
  * there; in DSH each skill lands standalone in the skills root and they do
  * not. The detection is a path-shape match (`dir/...` or `../dir/...`) over
  * the SKILL.md text against directories that actually exist at the plugin
- * level, so prose mentions without a backing directory never note.
+ * level, so prose mentions without a backing directory never note. When
+ * `readFrom` is given (the materialized plugin copy's absolute path), the
+ * note names the directory the referenced files can actually be read from.
  */
-export function pluginLevelReferenceNotes(files: PluginFiles, skills: readonly SkillComponent[]): string[] {
+export function pluginLevelReferenceNotes(files: PluginFiles, skills: readonly SkillComponent[], readFrom?: string): string[] {
   const roots = new Set<string>()
   for (const path of Object.keys(files)) {
     const segment = path.split('/')[0]
@@ -591,12 +593,14 @@ export function pluginLevelReferenceNotes(files: PluginFiles, skills: readonly S
     const text = map['SKILL.md'] ?? ''
     if (text === '') continue
     for (const dir of roots) {
-      const pattern = new RegExp(`(?:\\.\\./|(^|[^A-Za-z0-9_.-]))${dir}/[A-Za-z0-9_./-]`)
+      // The trailing path part is optional so bare directory links
+      // (`[](../../references/)`) count as references too.
+      const pattern = new RegExp(`(?:\\.\\./|(^|[^A-Za-z0-9_.-]))${dir}/[A-Za-z0-9_./-]*`)
       if (pattern.test(text)) byDir.set(dir, (byDir.get(dir) ?? 0) + 1)
     }
   }
   return [...byDir.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([dir, count]) =>
-      `${count} skill(s) reference plugin-level "${dir}/"; those paths do not resolve from the installed skills root`)
+      `${count} skill(s) reference plugin-level "${dir}/"; those paths do not resolve from the installed skills root${readFrom !== undefined ? `; read them from ${readFrom}/${dir} instead` : ''}`)
 }

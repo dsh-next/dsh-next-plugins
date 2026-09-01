@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm docs:write-pair <slug>
-README.md: 7326069a2d72d42f343da8cfc52dd82c90201766
-README.zh.md: f6b9145dfc47a7352386c3fa1c4e146f7477dfaa
+README.md: 6b20a3e95958275bd3ff9efe5228394eecb69b8a
+README.zh.md: 8f8440981cb94a0d0bf5ef9aa1370f7e127ba0bf

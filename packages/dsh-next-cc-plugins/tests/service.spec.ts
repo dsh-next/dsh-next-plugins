@@ -855,6 +855,9 @@ describe('CcMarketplaceService install', () => {
     if (!result.ok) return
     expect(result.message).toContain('1 skill(s) reference plugin-level "references/"')
     expect(result.message).toContain('do not resolve from the installed skills root')
+    // The note names the materialized copy the referenced files live in.
+    expect(result.message).toContain('read them from /home/u/.dsh/cc-plugins/plugins/github_o_refs-repo_refsy/references instead')
+    expect((await f.service.state()).installed[0].notes?.[0]).toContain('read them from /home/u/.dsh/cc-plugins/plugins/github_o_refs-repo_refsy/references instead')
   })
 
   it('installs a root-source plugin (the marketplace repo IS the plugin) with inline manifest MCP servers', async () => {

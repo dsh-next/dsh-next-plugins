@@ -528,7 +528,7 @@ export class CcMarketplaceService {
     // 5. Registry record + managed-block rewrite from the registry. The
     //    install notes persist on the record so they stay reviewable long
     //    after the panel toast is gone.
-    const notes = [materializeNote, ...mcp.notes, ...agents.notes, ...unbridgedNotes(inventory.unbridged), ...dependencyNotes(inventory.dependencies), ...skillSemanticNotes(resolved.files, inventory.skills), ...pluginLevelReferenceNotes(resolved.files, inventory.skills)].filter((n): n is string => n !== undefined)
+    const notes = [materializeNote, ...mcp.notes, ...agents.notes, ...unbridgedNotes(inventory.unbridged), ...dependencyNotes(inventory.dependencies), ...skillSemanticNotes(resolved.files, inventory.skills), ...pluginLevelReferenceNotes(resolved.files, inventory.skills, this.pluginRootOf(key))].filter((n): n is string => n !== undefined)
     const now = new Date().toISOString()
     // Claude's precedence: the marketplace entry's version, then the
     // plugin's own plugin.json version; the snapshot digest is the update
@@ -784,7 +784,7 @@ export class CcMarketplaceService {
 
     const effectiveVersion = resolved.entry.version !== '' ? resolved.entry.version : manifestVersion(resolved.files)
     const snapshotDigest = (await this.store.readSnapshot(record.marketplaceId))?.digest
-    const notes = [materializeNote, ...mcp.notes, ...agents.notes, ...unbridgedNotes(inventory.unbridged), ...dependencyNotes(inventory.dependencies), ...skillSemanticNotes(resolved.files, inventory.skills), ...pluginLevelReferenceNotes(resolved.files, inventory.skills)].filter((n): n is string => n !== undefined)
+    const notes = [materializeNote, ...mcp.notes, ...agents.notes, ...unbridgedNotes(inventory.unbridged), ...dependencyNotes(inventory.dependencies), ...skillSemanticNotes(resolved.files, inventory.skills), ...pluginLevelReferenceNotes(resolved.files, inventory.skills, this.pluginRootOf(key))].filter((n): n is string => n !== undefined)
     const updated: InstalledPlugin = {
       ...record,
       version: effectiveVersion,

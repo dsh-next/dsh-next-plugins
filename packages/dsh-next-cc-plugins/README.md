@@ -188,9 +188,10 @@ Agent frontmatter translation notes:
   `assets/`, ... — files that sit beside `skills/`, not inside a skill)
   install with a note: Claude Code runs skills from the plugin root so
   those links resolve there, but DSH installs each skill standalone in the
-  skills root and the referenced paths do not resolve. The full plugin
-  copy stays materialized under `$DSH_HOME/cc-plugins/plugins/` for hook
-  commands; skill bodies needing those files must be read from there.
+  skills root and the referenced paths do not resolve. The note names the
+  exact readable location — the same directory inside the materialized
+  plugin copy under `$DSH_HOME/cc-plugins/plugins/` (kept for hook
+  commands); skill bodies needing those files must be read from there.
 - A skill may assume an MCP server the plugin itself does not ship (no
   `.mcp.json`, only prose like "set up the Holistics MCP"). Nothing
   auto-configures in that case — add the server yourself (this plugin's

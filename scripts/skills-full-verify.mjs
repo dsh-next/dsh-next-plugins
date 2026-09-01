@@ -21,7 +21,7 @@
  */
 import { chromium } from '@playwright/test'
 import { mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync, realpathSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import process from 'node:process'
 
 const BASE_URL = process.argv[2]
@@ -97,15 +97,19 @@ async function noErrorShown() {
   if (count > 0) throw new Error('error banner visible: ' + (await page.locator('[data-testid="skills-message"]').first().textContent()))
 }
 
-/** Like noErrorShown, but tolerates GitHub rate-limit banners: unauthenticated
- *  API quota is environmental (60 req/hr shared across every boot this
- *  machine makes), not a product regression. Any other banner still fails. */
+/** Like noErrorShown, but tolerates refresh failures that are environmental
+ *  or upstream rather than product regressions: GitHub rate limits (60
+ *  req/hr shared across the whole machine unauthenticated) and providers
+ *  that grew past the 500-skill cap (surfaced per provider by design). Any
+ *  other banner still fails. */
 async function noErrorExceptRateLimit() {
   const count = await page.locator('[data-testid="skills-message"][class*="noticeErr"]').count()
   if (count === 0) return
   const text = await page.locator('[data-testid="skills-message"]').first().textContent()
-  if (!text.includes('rate limit')) throw new Error('error banner visible: ' + text)
-  console.log('  (tolerated environmental rate limit)')
+  if (!text.includes('rate limit') && !/exposes \d+ skills \(limit/.test(text)) {
+    throw new Error('error banner visible: ' + text)
+  }
+  console.log('  (tolerated environmental/upstream refresh failure)')
 }
 const manifestPath = (base, name) => join(base, name, '.dsh-next-provider.json')
 
@@ -357,8 +361,8 @@ await check('Scope modal: re-scope to a workspace whitelist and back', async () 
     (await skillCard('find-skills').locator('[data-testid="skills-presence"]').textContent()) === '1 workspace')
   const s = await rpc('getState')
   const scope = s.config.scopes['find-skills']
-  if (!scope || scope.kind !== 'workspaces' || scope.workspacePaths.length !== 1) {
-    throw new Error('whitelist scope not recorded: ' + JSON.stringify(scope))
+  if (!Array.isArray(scope) || scope.length !== 1 || scope[0] !== 'ws-alpha') {
+    throw new Error('whitelist scope not recorded as folder names: ' + JSON.stringify(scope))
   }
   await shot('07-scope-whitelisted')
   // Back to Everywhere: the scope entry clears from settings.
@@ -470,30 +474,28 @@ await check('Skills: reinstall find-skills with a workspace-restricted scope', a
 await check('Scope RPC: installs are global-only even with a workspace scope', async () => {
   // The workspace registry stores canon (realpath) paths — on macOS /tmp is
   // a symlink to /private/tmp, so compare against the resolved form.
-  const WS_A = realpathSync(join(SCRATCH, 'ws-alpha'))
+  const WS_A = basename(realpathSync(join(SCRATCH, 'ws-alpha')))
   const state = await rpc('getState')
   const record = state.config.installed.find((r) => r.name === 'find-skills')
   if (!record) throw new Error('install record missing')
   // The files landed in the global root only.
   if (!existsSync(join(AGENT_SKILLS, 'find-skills', 'SKILL.md'))) throw new Error('global copy missing')
   if (existsSync(join(WS_A, '.agents', 'skills', 'find-skills'))) throw new Error('a workspace copy exists — installs must be global-only')
-  // The scope whitelist names the workspace in settings.
+  // The scope whitelist stores the workspace folder NAME (portable).
   const scope = state.config.scopes['find-skills']
-  if (!scope || scope.kind !== 'workspaces' || !scope.workspacePaths.includes(WS_A)) {
-    throw new Error('whitelist not recorded: ' + JSON.stringify(scope))
+  if (!Array.isArray(scope) || !scope.includes(WS_A)) {
+    throw new Error('whitelist not recorded as folder names: ' + JSON.stringify(scope))
   }
   // Reset to the everywhere default for a clean final state.
-  const reset = await rpc('setScope', { name: 'find-skills', scope: { kind: 'global' } })
+  const reset = await rpc('setScope', { name: 'find-skills', workspaces: null })
   if (reset.ok !== true) throw new Error('setScope reset failed: ' + reset.error)
   if (reset.state.config.scopes['find-skills'] !== undefined) throw new Error('scope not cleared')
 })
 await check('Scope RPC: setScope refuses invalid input without writing', async () => {
-  const bad = await rpc('setScope', { name: 'not a name', scope: { kind: 'global' } })
+  const bad = await rpc('setScope', { name: 'not a name', workspaces: null })
   if (bad.ok !== false) throw new Error('invalid name accepted')
-  const rel = await rpc('setScope', { name: 'find-skills', scope: { kind: 'workspaces', workspacePaths: ['relative'] } })
-  if (rel.ok !== false) throw new Error('relative path accepted')
   const s = await rpc('getState')
-  if (s.config.scopes['find-skills'] !== undefined) throw new Error('a refused write still landed')
+  if (s.config.scopes['find-skills'] !== undefined) throw new Error('unexpected scope after the refused write')
 })
 
 // ---- Providers: remove, then bare spec re-add ----------------------------

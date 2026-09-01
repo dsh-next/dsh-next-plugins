@@ -111,6 +111,15 @@ req/hr instead of the shared 60/hr unauthenticated budget) — the full
 functional verify repeatedly tripped the shared unauthenticated quota.
 Documented in both READMEs; covered by token header tests.
 
+Scope format follow-up (user request): scopes now store the workspace
+DIRECTORY NAMES under each skill (`scopes: { find-skills: [web, api] }`,
+empty list = off everywhere, absent = everywhere) instead of absolute
+paths, so the settings section is portable between developers with
+different checkout locations. Matching compares the session cwd's
+basename against the names; legacy full-path entries and the old
+`{ kind, workspacePaths }` objects normalize into name lists on first
+read, and the panel checkbox flow stores names through the same path.
+
 ## Validation
 
 - Package: 199 tests pass (17 files), `tsc --noEmit` clean, tsdown build ok.

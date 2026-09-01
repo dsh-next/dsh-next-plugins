@@ -16,14 +16,13 @@
 import { catalogSkillViews, parseCatalog, parseManifest, providerViews } from '../core/catalog.ts'
 import { isShadowSkill, parseSkillFile, stripDisabledFlags } from '../core/frontmatter.ts'
 import { isSkillName } from '../core/name.ts'
-import { dirnamePath, isSafeRelativePath, joinPath } from '../core/path.ts'
+import { basenamePath, dirnamePath, isSafeRelativePath, joinPath } from '../core/path.ts'
 import { providerId, providerSpec } from '../core/provider.ts'
 import { globalSkillsRoot, resolveSkillRoots, sortRootsByPrecedence, type SkillRoot } from '../core/scope.ts'
 import { mergeInstalled } from '../core/skill-list.ts'
 import {
   configForStorage,
   normalizeSkillsConfig,
-  parseScopeSetting,
   withScope,
   type InstalledRecord,
   type ProviderRecord,
@@ -255,7 +254,7 @@ export class SkillsService {
         managed,
         ...(providerSpecLabel !== undefined ? { provider: providerSpecLabel } : {}),
         ...(updateAvailable !== undefined ? { updateAvailable } : {}),
-        ...(config.scopes[skill.name] !== undefined ? { configScope: parseScopeSetting(config.scopes[skill.name]) } : {}),
+        ...(config.scopes[skill.name] !== undefined ? { configScope: config.scopes[skill.name] } : {}),
       }
     }))
   }
@@ -343,20 +342,18 @@ export class SkillsService {
   }
 
   /**
-   * Set the enablement scope for one skill name. Pure config: no skill file
-   * is touched. `undefined` scope and an explicit global both clear the
-   * stored entry (absent = the everywhere default).
+   * Set the enablement scope for one skill name: the workspace DIRECTORY
+   * NAMES where it is enabled (entries may arrive as full paths and are
+   * normalized to their basename, so the settings section stays portable
+   * between developers). Pure config: no skill file is touched.
+   * `undefined`/null clears the stored entry (absent = the everywhere
+   * default); an empty list disables the skill everywhere.
    */
-  async setScope(args: { name: string; scope?: SkillScopeSetting }): Promise<MutationResult> {
+  async setScope(args: { name: string; workspaces?: readonly string[] | null }): Promise<MutationResult> {
     if (!isSkillName(args.name)) return { ok: false, error: `invalid skill name "${args.name}"` }
-    let scope = args.scope
-    if (scope !== undefined && scope.kind === 'global') scope = undefined
-    if (scope !== undefined && scope.kind === 'workspaces') {
-      const paths = [...new Set(scope.workspacePaths.map((p) => p.trim()).filter((p) => p !== ''))]
-      for (const p of paths) {
-        if (!p.startsWith('/')) return { ok: false, error: `workspace path "${p}" is not absolute` }
-      }
-      scope = { kind: 'workspaces', workspacePaths: paths }
+    let scope: SkillScopeSetting | undefined
+    if (args.workspaces !== undefined && args.workspaces !== null) {
+      scope = [...new Set(args.workspaces.map((p) => basenamePath(p.trim())).filter((p) => p !== ''))]
     }
     const config = this.config()
     const scopes = withScope(config.scopes, args.name, scope)
@@ -432,13 +429,13 @@ export class SkillsService {
 
   /**
    * Install a catalog skill from the cache into the GLOBAL root and record it
-   * in settings (with an optional initial scope). Skills never install into
-   * projects.
+   * in settings (with an optional initial workspace-name whitelist). Skills
+   * never install into projects.
    */
   async installSkill(args: {
     providerId: string
     skillPath: string
-    scope?: SkillScopeSetting
+    workspaces?: readonly string[] | null
   }): Promise<MutationResult> {
     const catalog = await this.store.readCatalog()
     const provider = catalog.providers.find((p) => p.id === args.providerId)
@@ -470,9 +467,10 @@ export class SkillsService {
         installedAt: manifest.installedAt,
       },
     ]
-    const scopes = args.scope !== undefined
-      ? withScope(config.scopes, skill.name, args.scope)
-      : config.scopes
+    const initialScope: SkillScopeSetting | undefined = args.workspaces !== undefined && args.workspaces !== null
+      ? [...new Set(args.workspaces.map((p) => basenamePath(p.trim())).filter((p) => p !== ''))]
+      : undefined
+    const scopes = withScope(config.scopes, skill.name, initialScope)
     await this.writeConfig({ ...config, installed, scopes })
     return { ok: true, state: await this.state() }
   }

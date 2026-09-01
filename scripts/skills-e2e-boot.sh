@@ -158,9 +158,7 @@ dsh-next-skills:
       version: seed-v1
       installedAt: "$NOW_BOOT"
   scopes:
-    opentofu:
-      kind: workspaces
-      workspacePaths: []
+    opentofu: []
 EOF
 
 # Mount ONLY the skills plugin (link to the already-built package).

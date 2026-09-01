@@ -91,10 +91,10 @@ describe('listInstalled / state', () => {
     const h = makeHarness({
       '/home/u/.agents/skills/s/SKILL.md': SKILL('s'),
     }, {
-      scopes: { s: { kind: 'workspaces', workspacePaths: ['/repo'] } },
+      scopes: { s: ['repo'] },
     })
     const state = await h.service.state()
-    expect(state.installed.find((x) => x.name === 's')!.configScope).toEqual({ kind: 'workspaces', workspacePaths: ['/repo'] })
+    expect(state.installed.find((x) => x.name === 's')!.configScope).toEqual(['repo'])
     expect(state.config.scopes.s).toBeDefined()
     expect(Array.isArray(state.providers)).toBe(true)
     expect(Array.isArray(state.catalog)).toBe(true)
@@ -133,11 +133,11 @@ describe('installSkill (global-only)', () => {
     await seedCatalog(h)
     const result = await h.service.installSkill({
       providerId: 'o-r', skillPath: 'skills/find-skills',
-      scope: { kind: 'workspaces', workspacePaths: ['/repo'] },
+      workspaces: ['/Users/x/Projects/repo'],
     })
     expect(result.ok).toBe(true)
     expect(h.fs.has('/repo/.agents/skills/find-skills/SKILL.md')).toBe(false)
-    expect((h.config.raw().scopes as Record<string, unknown>)['find-skills']).toEqual({ kind: 'workspaces', workspacePaths: ['/repo'] })
+    expect((h.config.raw().scopes as Record<string, unknown>)['find-skills']).toEqual(['repo'])
   })
 
   it('refuses a duplicate install and unknown catalog entries', async () => {
@@ -155,22 +155,23 @@ describe('setScope (pure config)', () => {
   it('writes a whitelist scope without touching any file', async () => {
     const h = makeHarness({ '/home/u/.agents/skills/s/SKILL.md': SKILL('s') })
     const before = h.fs.snapshot()
-    const result = await h.service.setScope({ name: 's', scope: { kind: 'workspaces', workspacePaths: ['/repo'] } })
+    const result = await h.service.setScope({ name: 's', workspaces: ['/Users/x/Projects/repo'] })
     expect(result.ok).toBe(true)
     expect(h.fs.snapshot()).toEqual(before)
-    expect((h.config.raw().scopes as Record<string, unknown>).s).toEqual({ kind: 'workspaces', workspacePaths: ['/repo'] })
+    expect((h.config.raw().scopes as Record<string, unknown>).s).toEqual(['repo'])
   })
 
   it('a global scope clears the entry (absent means everywhere)', async () => {
-    const h = makeHarness({}, { scopes: { s: { kind: 'workspaces', workspacePaths: [] } } })
-    await h.service.setScope({ name: 's', scope: { kind: 'global' } })
+    const h = makeHarness({}, { scopes: { s: [] } })
+    await h.service.setScope({ name: 's', workspaces: null })
     expect(h.config.raw().scopes).toEqual({})
   })
 
   it('validates the skill name and workspace paths', async () => {
     const h = makeHarness()
     expect(await h.service.setScope({ name: 'not a name' })).toMatchObject({ ok: false })
-    expect(await h.service.setScope({ name: 'ok', scope: { kind: 'workspaces', workspacePaths: ['relative/path'] } })).toMatchObject({ ok: false })
+    await h.service.setScope({ name: 'ok', workspaces: ['/x/repo', 'repo', 'other'] })
+    expect((h.config.raw().scopes as Record<string, unknown>)['ok']).toEqual(['repo', 'other'])
   })
 })
 
@@ -208,7 +209,8 @@ describe('remove (managed, global, recoverable)', () => {
     const h = makeHarness()
     await seedCatalog(h)
     await h.service.installSkill({ providerId: 'o-r', skillPath: 'skills/find-skills' })
-    await h.service.setScope({ name: 'find-skills', scope: { kind: 'workspaces', workspacePaths: [] } })
+    await h.service.setScope({ name: 'find-skills', workspaces: [] })
+    await h.service.setScope({ name: 'find-skills', workspaces: [] })
     expect((await h.service.remove({ name: 'find-skills' })).ok).toBe(true)
     expect(h.fs.has('/home/u/.agents/skills/find-skills/SKILL.md')).toBe(false)
     expect(h.fs.has('/home/u/.agents/skills/.trash')).toBe(true)
@@ -327,8 +329,8 @@ describe('migrateLegacy', () => {
       expect.objectContaining({ name: 'm' }),
     ])
     expect(config.scopes as Record<string, unknown>).toEqual({
-      g: { kind: 'workspaces', workspacePaths: [] },
-      shadow: { kind: 'workspaces', workspacePaths: [] },
+      g: [],
+      shadow: [],
     })
     // The moved copy landed globally; the shadow is gone; the manual skill stayed.
     expect(h.fs.has('/home/u/.agents/skills/m/SKILL.md')).toBe(true)

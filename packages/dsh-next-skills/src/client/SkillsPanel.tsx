@@ -36,6 +36,7 @@ import type {
   WorkspaceRow,
 } from '../core/types.ts'
 import type { SkillScopeSetting } from '../core/settings.ts'
+import { basenamePath } from '../core/path.ts'
 import styles from './card.module.css'
 import { englishTranslate, type MessageKey } from './dictionaries.ts'
 import { renderMarkdown } from './markdown.tsx'
@@ -91,9 +92,9 @@ export function formatLastSync(iso: string, now: number = Date.now(), t: Transla
 
 /** The presence badge label for a row's config scope (undefined = default). */
 export function presenceLabel(scope: SkillScopeSetting | undefined, t: Translate = englishTranslate): string {
-  if (scope === undefined || scope.kind === 'global') return t('presence.everywhere')
-  if (scope.workspacePaths.length === 0) return t('presence.off')
-  return countOf(t, scope.workspacePaths.length, 'presence.workspaces.one', 'presence.workspaces.many')
+  if (scope === undefined) return t('presence.everywhere')
+  if (scope.length === 0) return t('presence.off')
+  return countOf(t, scope.length, 'presence.workspaces.one', 'presence.workspaces.many')
 }
 
 /** One card in the skills grid: a discovered row, a catalog skill, or both. */
@@ -285,9 +286,9 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
   const openModal = (entry: GridEntry): void => {
     setModal(entry)
     const scope = entry.row?.configScope
-    if (scope?.kind === 'workspaces') {
+    if (scope !== undefined) {
       setScopeMode('workspaces')
-      setChecked(new Set(scope.workspacePaths))
+      setChecked(new Set(scope))
     } else {
       setScopeMode('global')
       setChecked(new Set())
@@ -308,12 +309,14 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
    *  A workspaces draft with zero checked boxes means off everywhere. */
   const confirmModal = (): void => {
     if (modal === undefined) return
-    const scope = scopeMode === 'global'
-      ? { kind: 'global' }
-      : { kind: 'workspaces', workspacePaths: [...checked] }
-    if (modal.row !== undefined) void mutate('setScope', { name: modal.name, scope })
+    const workspaces = scopeMode === 'global' ? null : [...checked]
+    if (modal.row !== undefined) void mutate('setScope', { name: modal.name, workspaces })
     else if (modal.catalog !== undefined) {
-      void mutate('installSkill', { providerId: modal.catalog.providerId, skillPath: modal.catalog.skillPath, scope })
+      void mutate('installSkill', {
+        providerId: modal.catalog.providerId,
+        skillPath: modal.catalog.skillPath,
+        ...(workspaces !== null ? { workspaces } : {}),
+      })
     }
     closeModal()
   }
@@ -327,20 +330,25 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
     const canUpdate = removable === true && row?.updateAvailable === true && row.scope === 'global'
     // Checklist rows: the registry's workspaces plus any recorded path the
     // registry no longer knows (so it stays visible and can be unchecked).
-    const recordedPaths = row?.configScope?.kind === 'workspaces' ? row.configScope.workspacePaths : []
-    const rows: Array<{ path: string; title: string; missing: boolean }> = [
-      ...workspaces.map((w) => ({ path: w.path, title: w.title, missing: false })),
-      ...recordedPaths
-        .filter((p) => !workspaces.some((w) => w.path === p))
-        .map((p) => ({ path: p, title: p, missing: true })),
+    const recordedNames = row?.configScope ?? []
+    const rows: Array<{ name: string; title: string; missing: boolean }> = [
+      ...workspaces.map((w) => ({ name: basenamePath(w.path), title: w.title, missing: false })),
+      ...recordedNames
+        .filter((n) => !workspaces.some((w) => basenamePath(w.path) === n))
+        .map((n) => ({ name: n, title: n, missing: true })),
     ]
+    // Both handlers set an ABSOLUTE value, so onClick (which label-forwarded
+    // clicks deliver reliably) and onChange (which React's change detection
+    // delivers) can run in any combination without double effects.
+    const pick = (mode: 'global' | 'workspaces') => () => { setScopeMode(mode); setConfirmRemove(false) }
     const globalRadio = React.createElement('label', { className: styles.optionRow, 'data-testid': 'skills-scope-global' },
       React.createElement('input', {
         type: 'radio',
         name: 'skills-scope-mode',
         checked: scopeMode === 'global',
         disabled: busy,
-        onChange: () => { setScopeMode('global'); setConfirmRemove(false) },
+        onClick: pick('global'),
+        onChange: pick('global'),
       }),
       React.createElement('span', { className: styles.optionLabel }, t('modal.scope.global')),
     )
@@ -350,19 +358,20 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
         name: 'skills-scope-mode',
         checked: scopeMode === 'workspaces',
         disabled: busy,
-        onChange: () => { setScopeMode('workspaces'); setConfirmRemove(false) },
+        onClick: pick('workspaces'),
+        onChange: pick('workspaces'),
       }),
       React.createElement('span', { className: styles.optionLabel }, t('modal.scope.workspaces')),
     )
     const checklist = scopeMode !== 'workspaces' ? null : React.createElement('div', { className: styles.optionList, 'data-testid': 'skills-workspaces' },
       rows.length === 0
         ? React.createElement('p', { className: styles.modalHint }, t('modal.workspaces.empty'))
-        : rows.map((workspace) => React.createElement('label', { key: workspace.path, className: styles.optionRow, 'data-testid': 'skills-workspace' },
+        : rows.map((workspace) => React.createElement('label', { key: workspace.name, className: styles.optionRow, 'data-testid': 'skills-workspace' },
           React.createElement('input', {
             type: 'checkbox',
-            checked: checked.has(workspace.path),
+            checked: checked.has(workspace.name),
             disabled: busy,
-            onChange: () => toggleWorkspace(workspace.path),
+            onChange: () => toggleWorkspace(workspace.name),
           }),
           React.createElement('span', { className: styles.optionLabel }, workspace.title),
           workspace.missing ? React.createElement('span', { className: styles.addedBadge }, t('modal.workspaceMissing')) : null,
@@ -537,8 +546,8 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
     const installedHere = row !== undefined
     const project = row !== undefined && row.scope === 'workspace'
     const unmanagedCustom = row !== undefined && !project && row.managed === false && row.provider === undefined && entry.catalog === undefined
-    const presenceTitle = row !== undefined && row.configScope?.kind === 'workspaces'
-      ? row.configScope.workspacePaths.join('\n')
+    const presenceTitle = row !== undefined && row.configScope !== undefined
+      ? row.configScope.join('\n')
       : undefined
     const titleLine = React.createElement('div', { className: styles.pluginName },
       React.createElement('button', {

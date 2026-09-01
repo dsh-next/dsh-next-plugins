@@ -14,52 +14,62 @@ import {
 } from '../src/core/settings.ts'
 
 describe('parseScopeSetting', () => {
-  it('parses workspaces whitelists and trims/dedupes paths', () => {
-    const scope = parseScopeSetting({ kind: 'workspaces', workspacePaths: [' /a ', '/a', '', '/b'] })
-    expect(scope).toEqual({ kind: 'workspaces', workspacePaths: ['/a', '/b'] })
+  it('normalizes entries to deduped directory names', () => {
+    expect(parseScopeSetting(['web', ' api ', 'web', ''])).toEqual(['web', 'api'])
   })
-  it('falls back to global for junk shapes', () => {
-    expect(parseScopeSetting(undefined)).toEqual({ kind: 'global' })
-    expect(parseScopeSetting(null)).toEqual({ kind: 'global' })
-    expect(parseScopeSetting({ kind: 'galaxy' })).toEqual({ kind: 'global' })
-    expect(parseScopeSetting({ kind: 'workspaces' })).toEqual({ kind: 'workspaces', workspacePaths: [] })
-    expect(parseScopeSetting({ kind: 'workspaces', workspacePaths: 'nope' })).toEqual({ kind: 'workspaces', workspacePaths: [] })
+  it('accepts full paths and keeps only the directory name (portable scope keys)', () => {
+    expect(parseScopeSetting(['/Users/x/Projects/web', '/home/other/api'])).toEqual(['web', 'api'])
+  })
+  it('reads the legacy { kind, workspacePaths } shape', () => {
+    expect(parseScopeSetting({ kind: 'workspaces', workspacePaths: ['/a/b/one', 'two'] })).toEqual(['one', 'two'])
+  })
+  it('returns undefined for everywhere-meaning values', () => {
+    expect(parseScopeSetting(undefined)).toBeUndefined()
+    expect(parseScopeSetting(null)).toBeUndefined()
+    expect(parseScopeSetting({ kind: 'global' })).toBeUndefined()
+    expect(parseScopeSetting({ kind: 'galaxy' })).toBeUndefined()
+    expect(parseScopeSetting('nope')).toBeUndefined()
+  })
+  it('keeps an empty list (off everywhere)', () => {
+    expect(parseScopeSetting([])).toEqual([])
+    expect(parseScopeSetting({ kind: 'workspaces', workspacePaths: [] })).toEqual([])
   })
 })
 
 describe('isScopeEnabled', () => {
-  it('treats absent and global scopes as enabled everywhere', () => {
+  it('treats an absent scope as enabled everywhere', () => {
     expect(isScopeEnabled(undefined, '/a')).toBe(true)
     expect(isScopeEnabled(undefined, undefined)).toBe(true)
-    expect(isScopeEnabled({ kind: 'global' }, '/a')).toBe(true)
-    expect(isScopeEnabled({ kind: 'global' }, undefined)).toBe(true)
   })
-  it('enables a whitelist only inside its workspaces', () => {
-    const scope = { kind: 'workspaces' as const, workspacePaths: ['/repo/a', '/repo/b'] }
-    expect(isScopeEnabled(scope, '/repo/a')).toBe(true)
-    expect(isScopeEnabled(scope, '/repo/b/')).toBe(true)
-    expect(isScopeEnabled(scope, '/repo/c')).toBe(false)
+  it('matches the workspace directory basename against the stored names', () => {
+    const scope = ['web', 'api']
+    expect(isScopeEnabled(scope, '/Users/x/Projects/web')).toBe(true)
+    expect(isScopeEnabled(scope, '/home/dev/api/')).toBe(true)
+    expect(isScopeEnabled(scope, '/Users/x/Projects/other')).toBe(false)
   })
-  it('an empty whitelist disables everywhere, including without a cwd', () => {
-    const scope = { kind: 'workspaces' as const, workspacePaths: [] }
-    expect(isScopeEnabled(scope, '/repo/a')).toBe(false)
-    expect(isScopeEnabled(scope, undefined)).toBe(false)
+  it('a name matches regardless of where the checkout lives (portability)', () => {
+    const scope = ['web']
+    expect(isScopeEnabled(scope, '/Users/rok/Projects/web')).toBe(true)
+    expect(isScopeEnabled(scope, '/home/teammate/code/web')).toBe(true)
+  })
+  it('an empty list disables everywhere, including without a cwd', () => {
+    expect(isScopeEnabled([], '/repo/a')).toBe(false)
+    expect(isScopeEnabled([], undefined)).toBe(false)
   })
   it('a whitelist never enables for an undefined cwd', () => {
-    const scope = { kind: 'workspaces' as const, workspacePaths: ['/repo/a'] }
-    expect(isScopeEnabled(scope, undefined)).toBe(false)
-    expect(isScopeEnabled(scope, '')).toBe(false)
+    expect(isScopeEnabled(['web'], undefined)).toBe(false)
+    expect(isScopeEnabled(['web'], '')).toBe(false)
   })
   it('normalizes trailing slashes for comparisons', () => {
     expect(normalizePathForCompare('/repo/a/')).toBe('/repo/a')
-    expect(isScopeEnabled({ kind: 'workspaces', workspacePaths: ['/repo/a/'] }, '/repo/a')).toBe(true)
+    expect(isScopeEnabled(['a'], '/repo/a/')).toBe(true)
   })
 })
 
 describe('scopeForName', () => {
-  it('reads the stored scope and normalizes it', () => {
-    const scopes = { foo: { kind: 'workspaces', workspacePaths: ['/a', 42] } } as unknown as SkillsConfig['scopes']
-    expect(scopeForName(scopes, 'foo')).toEqual({ kind: 'workspaces', workspacePaths: ['/a'] })
+  it('reads the stored scope list', () => {
+    const scopes = { foo: ['one', 'two'] } as SkillsConfig['scopes']
+    expect(scopeForName(scopes, 'foo')).toEqual(['one', 'two'])
     expect(scopeForName(scopes, 'bar')).toBeUndefined()
   })
 })
@@ -73,13 +83,13 @@ describe('normalizeSkillsConfig', () => {
   it('keeps valid providers and drops broken ones', () => {
     const config = normalizeSkillsConfig({
       providers: [
-        { id: 'github.com/o/r', spec: 'o/r', addedAt: 't' },
+        { id: 'o-r', spec: 'o/r', addedAt: 't' },
         { id: '', spec: 'x' },
         { spec: 'no-id' },
         'junk',
       ],
     })
-    expect(config.providers).toEqual([{ id: 'github.com/o/r', spec: 'o/r', addedAt: 't' }])
+    expect(config.providers).toEqual([{ id: 'o-r', spec: 'o/r', addedAt: 't' }])
   })
   it('dedupes installed records by name (last wins) and drops unusable ones', () => {
     const config = normalizeSkillsConfig({
@@ -94,29 +104,23 @@ describe('normalizeSkillsConfig', () => {
       { name: 'a', providerId: 'p', providerSpec: 'o/r', skillPath: 'skills/a', version: 'v2', installedAt: 't2' },
     ])
   })
-  it('keeps only workspaces whitelist scopes', () => {
+  it('normalizes scopes to name lists and drops everywhere-meaning values', () => {
     const config = normalizeSkillsConfig({
       scopes: {
-        off: { kind: 'workspaces', workspacePaths: [] },
+        off: [],
+        legacy: { kind: 'workspaces', workspacePaths: ['/x/legacy'] },
         junk: { kind: 'wat' },
-        fine: { kind: 'global' },
+        globalMarker: { kind: 'global' },
       },
     })
-    expect(config.scopes).toEqual({ off: { kind: 'workspaces', workspacePaths: [] } })
-  })
-  it('drops installed records whose provider vanished is NOT done here (records are independent)', () => {
-    const config = normalizeSkillsConfig({
-      providers: [],
-      installed: [{ name: 'a', providerId: 'p', providerSpec: 'o/r', skillPath: 's', version: 'v', installedAt: 't' }],
-    })
-    expect(config.installed).toHaveLength(1)
+    expect(config.scopes).toEqual({ off: [], legacy: ['legacy'] })
   })
 })
 
 describe('withScope', () => {
   it('sets, replaces, and clears entries without mutating the input', () => {
-    const base = { a: { kind: 'workspaces', workspacePaths: ['/a'] } } as SkillsConfig['scopes']
-    const withB = withScope(base, 'b', { kind: 'global' })
+    const base = { a: ['x'] } as SkillsConfig['scopes']
+    const withB = withScope(base, 'b', ['y'])
     expect(Object.keys(withB)).toEqual(['a', 'b'])
     const cleared = withScope(withB, 'a', undefined)
     expect('a' in cleared).toBe(false)
@@ -132,10 +136,11 @@ describe('configForStorage', () => {
         { name: 'z', providerId: 'p', providerSpec: 'o/r', skillPath: 's', version: 'v', installedAt: 't' },
         { name: 'a', providerId: 'p', providerSpec: 'o/r', skillPath: 's', version: 'v', installedAt: 't' },
       ],
-      scopes: { k: { kind: 'workspaces', workspacePaths: ['/a'] } },
+      scopes: { k: ['web', 'api'] },
     })
     expect(stored.providers.map((p) => p.id)).toEqual(['a', 'b'])
     expect(stored.installed.map((r) => r.name)).toEqual(['a', 'z'])
+    expect(stored.scopes).toEqual({ k: ['web', 'api'] })
     expect(JSON.parse(JSON.stringify(stored))).toEqual(stored)
   })
 })

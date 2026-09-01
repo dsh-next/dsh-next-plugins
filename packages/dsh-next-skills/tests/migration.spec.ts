@@ -72,7 +72,7 @@ describe('planMigration', () => {
       ],
     })
     expect(plan.deleteDirs).toEqual(['/repo/.agents/skills/s'])
-    expect(plan.config.scopes.s).toEqual({ kind: 'workspaces', workspacePaths: [] })
+    expect(plan.config.scopes.s).toEqual([])
     // The shadow carried no manifest; the global copy provides the record.
     expect(plan.config.installed).toEqual([{ name: 's', ...manifest }])
   })
@@ -84,7 +84,7 @@ describe('planMigration', () => {
       globalSkills: [skill('d', { fileModelInvocable: false, fileUserInvocable: false, manifest })],
       workspaces: [],
     })
-    expect(plan.config.scopes.d).toEqual({ kind: 'workspaces', workspacePaths: [] })
+    expect(plan.config.scopes.d).toEqual([])
     expect(plan.stripFlags).toEqual([`/x/d/SKILL.md`])
   })
 

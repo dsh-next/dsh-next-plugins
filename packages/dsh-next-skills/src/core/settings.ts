@@ -1,3 +1,5 @@
+import { basenamePath } from './path.ts'
+
 /**
  * The `dsh-next-skills` settings section: the shareable configuration the
  * plugin persists under its own namespace in the harness `settings.yaml`
@@ -8,18 +10,32 @@
  *  - `installed`: one record per skill the plugin installed into the global
  *    root, so the list is readable, copyable between developers, and a fresh
  *    machine can reconcile missing copies from the provider caches.
- *  - `scopes`: per-skill-name enablement — `global` (enabled everywhere, the
- *    default when absent) or a workspace whitelist. Scope is pure config:
- *    enabling and disabling never writes skill files.
+ *  - `scopes`: per-skill-name enablement, stored as the workspace DIRECTORY
+ *    NAMES where the skill is enabled — names, not absolute paths, so the
+ *    section is portable between developers whose checkouts live in
+ *    different places:
+ *
+ *        scopes:
+ *          find-skills:        # enabled only in a workspace named "web"
+ *            - web
+ *          opentofu: []        # empty list = off everywhere
+ *          # absent (or an empty scopes map) = enabled everywhere
+ *
+ * Matching compares the basename of the session's workspace path against
+ * these names; two registered workspaces sharing a folder name therefore
+ * share their enablement (the price of portability).
  *
  * All access flows through pure, defensive normalizers so a hand-edited yaml
- * document can never crash the host.
+ * document can never crash the host, and legacy shapes (full paths, the old
+ * `{ kind, workspacePaths }` objects) normalize into the name lists on read.
  */
 
-/** Enablement scope for one skill name. */
-export type SkillScopeSetting =
-  | { kind: 'global' }
-  | { kind: 'workspaces'; workspacePaths: readonly string[] }
+/**
+ * Enablement scope for one skill name: the workspace directory NAMES where
+ * it is enabled. `undefined` (no entry) = everywhere; an empty list = off
+ * everywhere.
+ */
+export type SkillScopeSetting = readonly string[]
 
 /** One configured skill provider (GitHub `owner/repo`). */
 export interface ProviderRecord {
@@ -54,13 +70,31 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
-/** Normalize one raw scope value; anything else falls back to global. */
-export function parseScopeSetting(raw: unknown): SkillScopeSetting {
-  if (!isRecord(raw) || raw.kind !== 'workspaces') return { kind: 'global' }
-  const paths = Array.isArray(raw.workspacePaths)
-    ? [...new Set(raw.workspacePaths.filter((p): p is string => typeof p === 'string' && p.trim() !== '').map((p) => p.trim()))]
-    : []
-  return { kind: 'workspaces', workspacePaths: paths }
+/** Normalize one workspace entry to a directory name (accepts full paths). */
+function toWorkspaceName(entry: unknown): string | undefined {
+  if (typeof entry !== 'string') return undefined
+  const trimmed = entry.trim()
+  if (trimmed === '') return undefined
+  return basenamePath(trimmed)
+}
+
+/**
+ * Normalize one raw scope value into a workspace-name list; `undefined` when
+ * the value means "everywhere" (absent, an explicit global marker, or junk).
+ * Legacy shapes — full paths and the old `{ kind, workspacePaths }`
+ * objects — normalize into the name lists.
+ */
+export function parseScopeSetting(raw: unknown): SkillScopeSetting | undefined {
+  let entries: readonly unknown[]
+  if (Array.isArray(raw)) {
+    entries = raw
+  } else if (isRecord(raw) && raw.kind === 'workspaces') {
+    entries = Array.isArray(raw.workspacePaths) ? raw.workspacePaths : []
+  } else {
+    return undefined
+  }
+  const names = [...new Set(entries.map(toWorkspaceName).filter((n): n is string => n !== undefined))]
+  return names
 }
 
 /** Normalize one raw installed record; undefined when unusable. */
@@ -95,26 +129,22 @@ export function normalizePathForCompare(path: string): string {
   return out
 }
 
-function samePath(a: string, b: string): boolean {
-  return normalizePathForCompare(a) === normalizePathForCompare(b)
-}
-
 /**
  * Whether a skill with `scope` is enabled for the workspace at `cwd`.
- * Absent scope and `global` are enabled everywhere; a workspace whitelist is
- * enabled only inside one of its paths (an empty list disables everywhere).
- * `undefined` cwd (no workspace in context) only sees global scopes.
+ * Absent scope = enabled everywhere; a name list is enabled only when the
+ * workspace directory's basename is in the list (an empty list disables
+ * everywhere, including without a cwd).
  */
 export function isScopeEnabled(scope: SkillScopeSetting | undefined, cwd: string | undefined): boolean {
-  if (scope === undefined || scope.kind === 'global') return true
+  if (scope === undefined) return true
   if (cwd === undefined || cwd === '') return false
-  return scope.workspacePaths.some((path) => samePath(path, cwd))
+  // basenamePath ignores trailing slashes and empty segments on its own.
+  return scope.includes(basenamePath(cwd))
 }
 
-/** Read the stored scope for a skill name (undefined = unset = global). */
+/** Read the stored scope for a skill name (undefined = unset = everywhere). */
 export function scopeForName(scopes: SkillsConfig['scopes'], name: string): SkillScopeSetting | undefined {
-  const raw = scopes[name]
-  return raw === undefined ? undefined : parseScopeSetting(raw)
+  return scopes[name]
 }
 
 /** Defensive whole-section normalizer: drops junk, keeps known shapes. */
@@ -131,15 +161,14 @@ export function normalizeSkillsConfig(raw: unknown): SkillsConfig {
       if (record !== undefined) installedByName.set(record.name, record)
     }
   }
-  const providerIds = new Set(providers.map((p) => p.id))
   const scopes: Record<string, SkillScopeSetting> = {}
   if (isRecord(raw.scopes)) {
     for (const [name, value] of Object.entries(raw.scopes)) {
       if (typeof name !== 'string' || name === '') continue
       const parsed = parseScopeSetting(value)
-      // Only persist meaningful entries: a workspaces scope (the whitelist),
-      // or an explicit global marker. Junk shapes become global = drop.
-      if (parsed.kind === 'workspaces') scopes[name] = parsed
+      // An explicit everywhere (junk or a global marker) carries no
+      // information — drop it; absent already means everywhere.
+      if (parsed !== undefined) scopes[name] = parsed
     }
   }
   return {
@@ -149,7 +178,7 @@ export function normalizeSkillsConfig(raw: unknown): SkillsConfig {
   }
 }
 
-/** Canonical JSON-able config for persistence (scopes keep explicit globals). */
+/** Canonical JSON-able config for persistence (scopes keep name lists). */
 export function configForStorage(config: SkillsConfig): {
   providers: ProviderRecord[]
   installed: InstalledRecord[]
@@ -158,11 +187,11 @@ export function configForStorage(config: SkillsConfig): {
   return {
     providers: [...config.providers].sort((a, b) => a.id.localeCompare(b.id)),
     installed: [...config.installed].sort((a, b) => a.name.localeCompare(b.name)),
-    scopes: Object.fromEntries(Object.entries(config.scopes).map(([name, scope]) => [name, parseScopeSetting(scope)])),
+    scopes: Object.fromEntries(Object.entries(config.scopes).map(([name, names]) => [name, [...names]])),
   }
 }
 
-/** Deduplicate helper used by mutations: merge one scope map over another. */
+/** Set, replace, or clear one skill's scope without mutating the input. */
 export function withScope(
   scopes: SkillsConfig['scopes'],
   name: string,
@@ -170,11 +199,6 @@ export function withScope(
 ): SkillsConfig['scopes'] {
   const next: SkillsConfig['scopes'] = { ...scopes }
   if (scope === undefined) delete next[name]
-  else next[name] = scope
+  else next[name] = [...scope]
   return next
-}
-
-/** Readable presence label inputs: how many workspaces a whitelist holds. */
-export function scopeWorkspaceCount(scope: SkillScopeSetting | undefined): number {
-  return scope?.kind === 'workspaces' ? scope.workspacePaths.length : 0
 }

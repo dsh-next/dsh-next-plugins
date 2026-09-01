@@ -149,10 +149,9 @@ describe('grid composition (buildGridEntries + filterEntries)', () => {
 describe('formatters', () => {
   it('presenceLabel reads the scope setting', () => {
     expect(presenceLabel(undefined)).toBe('Everywhere')
-    expect(presenceLabel({ kind: 'global' })).toBe('Everywhere')
-    expect(presenceLabel({ kind: 'workspaces', workspacePaths: [] })).toBe('Off')
-    expect(presenceLabel({ kind: 'workspaces', workspacePaths: ['/a', '/b'] })).toBe('2 workspaces')
-    expect(presenceLabel({ kind: 'workspaces', workspacePaths: ['/a'] })).toBe('1 workspace')
+    expect(presenceLabel([])).toBe('Off')
+    expect(presenceLabel(['web', 'api'])).toBe('2 workspaces')
+    expect(presenceLabel(['web'])).toBe('1 workspace')
   })
   it('formatLastSync renders relative ages', () => {
     const now = Date.parse('2026-09-01T12:00:00Z')
@@ -220,7 +219,7 @@ describe('scope modal: add + re-scope + remove', () => {
     expect(scope.textContent).toContain('deploy-helper')
     await click(button(scope, 'Add'))
     const call = rpcCalls(rpc).find(([m]) => m === 'installSkill')
-    expect(call![1]).toEqual({ providerId: 'o-r', skillPath: 'skills/deploy-helper', scope: { kind: 'global' } })
+    expect(call![1]).toEqual({ providerId: 'o-r', skillPath: 'skills/deploy-helper' })
     expect(notify).toHaveBeenCalled()
     await unmount()
   })
@@ -246,15 +245,15 @@ describe('scope modal: add + re-scope + remove', () => {
     expect(box('Project One').checked).toBe(true)
     await click(button(byTestId(container, 'skills-scope-modal'), 'Save'))
     const call = rpcCalls(rpc).find(([m]) => m === 'setScope')
-    expect(call![1]).toEqual({ name: 'security-review', scope: { kind: 'workspaces', workspacePaths: ['/w1'] } })
+    expect(call![1]).toEqual({ name: 'security-review', workspaces: ['w1'] })
     await unmount()
   })
 
   it('an installed row opens on its current scope', async () => {
     const state: SkillsState = {
       ...STATE,
-      installed: [{ ...skill, configScope: { kind: 'workspaces', workspacePaths: ['/w2'] } }],
-      config: { ...STATE.config, scopes: { 'security-review': { kind: 'workspaces', workspacePaths: ['/w2'] } } },
+      installed: [{ ...skill, configScope: ['w2'] }],
+      config: { ...STATE.config, scopes: { 'security-review': ['w2'] } },
     }
     const { container, unmount } = await render(rpcMock(state), WS)
     await click(byTestId(container, 'skills-manage'))
@@ -287,7 +286,7 @@ describe('scope modal: add + re-scope + remove', () => {
     await click(radioByName(scope, 'skills-scope-workspaces'))
     await click(button(scope, 'Save'))
     const call = rpcCalls(rpc).find(([m]) => m === 'setScope')
-    expect(call![1]).toEqual({ name: 'security-review', scope: { kind: 'workspaces', workspacePaths: [] } })
+    expect(call![1]).toEqual({ name: 'security-review', workspaces: [] })
     await unmount()
   })
 

@@ -161,7 +161,7 @@ export function planMigration(input: {
   // Enablement: any skill that was disabled anywhere becomes an explicit
   // "enabled nowhere" whitelist so migration never silently turns a skill on.
   for (const name of disabledEverywhere) {
-    const scope: SkillScopeSetting = { kind: 'workspaces', workspacePaths: [] }
+    const scope: SkillScopeSetting = []
     config.scopes = withScope(config.scopes, name, scope)
   }
 

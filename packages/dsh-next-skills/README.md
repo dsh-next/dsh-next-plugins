@@ -44,9 +44,12 @@ never writes skill files into a project; a workspace's `.agents/skills/`
 project skills appear in the grid with a `project` chip.
 
 **Enablement is configuration.** Per skill name, a scope setting decides
-where the skill is enabled: absent (or Everywhere) means enabled in every
-workspace; a workspaces whitelist enables it only inside the checked
-workspaces; an empty whitelist disables it everywhere. The plugin publishes
+where the skill is enabled: absent means enabled in every workspace; a list
+of workspace directory names enables it only inside workspaces whose folder
+matches one of those names; an empty list disables it everywhere. Scopes
+store folder names — not absolute paths — so the settings section keeps
+working when teammates check the repos out somewhere else. (Two registered
+workspaces sharing a folder name share their enablement.) The plugin publishes
 the skill catalog through its own `ctx.skills` provider (each candidate one
 rank above the filesystem provider's equal entry, so project skills still
 outrank same-name global ones) and resolves the invocation flags per lookup

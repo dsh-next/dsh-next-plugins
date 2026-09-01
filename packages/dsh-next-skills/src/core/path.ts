@@ -18,6 +18,15 @@ export function dirnamePath(p: string): string {
   return p.slice(0, idx)
 }
 
+/** The last non-empty segment of a path: `basenamePath('/a/b/web')` is `web`. */
+export function basenamePath(p: string): string {
+  const segments = p.split('/')
+  for (let i = segments.length - 1; i >= 0; i--) {
+    if (segments[i] !== '') return segments[i]
+  }
+  return p
+}
+
 /**
  * Whether a path is a safe relative sub-path (no leading slash, no empty/`.`/`..`
  * segments). Used to reject path traversal in registry-provided file paths.

@@ -64,7 +64,7 @@ describe('createManagedSkillProvider', () => {
       '/home/u/.agents/skills/off/SKILL.md': SKILL('off'),
       '/home/u/.agents/skills/restricted/SKILL.md': SKILL('restricted', 'user-invocable: false\n'),
     }, {
-      off: { kind: 'workspaces', workspacePaths: [] },
+      off: [],
     })
     const candidates = await provider.list(lookup()) as readonly SkillCandidate[]
     const byName = new Map(candidates.map((c) => [c.name, c]))
@@ -74,11 +74,11 @@ describe('createManagedSkillProvider', () => {
     expect(byName.get('restricted')!.invocation).toEqual({ modelInvocable: true, userInvocable: false })
   })
 
-  it('a whitelist disables the skill only inside other workspaces', async () => {
+  it('a name whitelist disables the skill outside matching workspace folders', async () => {
     const { provider } = makeProvider({
       '/home/u/.agents/skills/w/SKILL.md': SKILL('w'),
     }, {
-      w: { kind: 'workspaces', workspacePaths: ['/repo/a'] },
+      w: ['a'],
     })
     const inScope = await provider.list(lookup('/repo/a')) as readonly SkillCandidate[]
     const outScope = await provider.list(lookup('/repo/b')) as readonly SkillCandidate[]
@@ -100,7 +100,7 @@ describe('createManagedSkillProvider', () => {
     expect(loaded!.provider).toBe(MANAGED_PROVIDER_NAME)
 
     // Flip the scope off; get() must honor it at load time.
-    config.setSection({ scopes: { g: { kind: 'workspaces', workspacePaths: [] } } })
+    config.setSection({ scopes: { g: [] } })
     const disabled = await provider.get(candidate, lookup())
     expect(disabled!.invocation).toEqual({ modelInvocable: false, userInvocable: false })
   })

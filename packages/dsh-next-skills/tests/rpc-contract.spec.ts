@@ -58,22 +58,32 @@ describe('skills state() RPC contract', () => {
 
   it('a setScope write persists through the settings scope face and reads back', async () => {
     const { service, config } = makeService()
-    const result = await service.setScope({ name: 'foo', scope: { kind: 'workspaces', workspacePaths: ['/repo'] } })
+    const result = await service.setScope({ name: 'foo', workspaces: ['/Users/x/repo'] })
     expect(result).toHaveProperty('ok', true)
     expect(result).toHaveProperty('state')
-    // The settings face (settings.yaml section) received the scopes map.
-    expect(config.raw().scopes).toEqual({ foo: { kind: 'workspaces', workspacePaths: ['/repo'] } })
+    // The settings face (settings.yaml section) received the name list.
+    expect(config.raw().scopes).toEqual({ foo: ['repo'] })
     // A fresh read observes the write (round-trip).
     const state = await service.state() as SkillsState
-    expect(state.config.scopes.foo).toEqual({ kind: 'workspaces', workspacePaths: ['/repo'] })
-    expect(state.installed.find((s) => s.name === 'foo')!.configScope).toEqual({ kind: 'workspaces', workspacePaths: ['/repo'] })
+    expect(state.config.scopes.foo).toEqual(['repo'])
+    expect(state.installed.find((s) => s.name === 'foo')!.configScope).toEqual(['repo'])
+  })
+
+  it('a null workspaces list clears the scope (distinct from an empty list)', async () => {
+    const { service } = makeService()
+    await service.setScope({ name: 'foo', workspaces: [] })
+    expect((await service.state()).config.scopes.foo).toEqual([]) // off everywhere
+    // Through the same path the browser uses, null means "clear".
+    const cleared = await service.setScope({ name: 'foo', workspaces: null })
+    expect(cleared).toHaveProperty('ok', true)
+    expect((await service.state()).config.scopes.foo).toBeUndefined()
   })
 
   it('mutation failures carry { ok: false, error } and success { ok: true, state }', async () => {
     const { service } = makeService()
     const fail = await service.remove({ name: 'missing' })
     expect(fail).toEqual({ ok: false, error: 'skill "missing" not found' })
-    const ok = await service.setScope({ name: 'foo', scope: { kind: 'global' } })
+    const ok = await service.setScope({ name: 'foo', workspaces: null })
     expect(ok).toHaveProperty('ok', true)
     expect(ok).toHaveProperty('state')
   })

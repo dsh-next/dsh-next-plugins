@@ -5,6 +5,18 @@
  */
 import type { ConfigScopeFace } from '../../src/host/skills-service.ts'
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+/** Mirror the real provider's merge semantics: objects merge recursively. */
+function deepMerge(base: unknown, patch: unknown): unknown {
+  if (!isPlainObject(base) || !isPlainObject(patch)) return patch
+  const out: Record<string, unknown> = { ...base }
+  for (const [key, value] of Object.entries(patch)) out[key] = deepMerge(base[key], value)
+  return out
+}
+
 export class MemConfigFace implements ConfigScopeFace {
   private section: Record<string, unknown> = {}
   readonly watchers: Array<(next: unknown, prev: unknown) => void> = []
@@ -17,7 +29,10 @@ export class MemConfigFace implements ConfigScopeFace {
 
   async update(patch: object): Promise<void> {
     this.updateCalls++
-    this.section = { ...this.section, ...(patch as Record<string, unknown>) }
+    // Deep-merge like the real SettingsProvider: a patch key that is an
+    // object merges per sub-key and NEVER deletes absent ones. Services
+    // that need to remove a key must replace() the whole section.
+    this.section = deepMerge(this.section, patch) as Record<string, unknown>
   }
 
   async replace(section: object): Promise<void> {

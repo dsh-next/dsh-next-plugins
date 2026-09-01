@@ -90,6 +90,27 @@ payload are gone.
 - `tests/e2e/mount.e2e.ts`: the dsh-next-skills marker drives the new tabs,
   the scope modal radios, and the two-step remove.
 
+Two further defects surfaced only by the full functional e2e (all unit
+tests were green against in-memory doubles):
+
+- `setScope` persisted through `SettingsScope.update()`, whose patch merge is
+  DEEP - a cleared scope key silently survived inside the scopes map. The
+  service now replaces the whole section (only a wholesale replace can delete
+  a key), and the MemConfigFace test double deep-merges like the real
+  provider so this class cannot hide again.
+- The panel re-read workspaces on every render into a fresh array; every
+  callback and effect keyed on that identity re-ran each render, refetching
+  state in a loop and resetting the detail modal to "Working..." forever.
+  The workspacePaths memo is now keyed on the joined paths. A regression
+  test renders with an unstable getWorkspaces and pins exactly one detail
+  RPC per open.
+
+Follow-up during live verification: the GitHub client now authenticates
+metadata calls with `DSH_GITHUB_TOKEN` or `GITHUB_TOKEN` when set (5000
+req/hr instead of the shared 60/hr unauthenticated budget) — the full
+functional verify repeatedly tripped the shared unauthenticated quota.
+Documented in both READMEs; covered by token header tests.
+
 ## Validation
 
 - Package: 199 tests pass (17 files), `tsc --noEmit` clean, tsdown build ok.

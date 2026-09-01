@@ -360,7 +360,10 @@ export class SkillsService {
     }
     const config = this.config()
     const scopes = withScope(config.scopes, args.name, scope)
-    await this.opts.config.update({ scopes: configForStorage({ ...config, scopes }).scopes })
+    // Persist the WHOLE section: the settings provider deep-merges update()
+    // patches, so a cleared entry would silently survive inside the scopes
+    // map. Only a wholesale replace can delete a key.
+    await this.writeConfig({ ...config, scopes })
     return { ok: true, state: await this.state() }
   }
 

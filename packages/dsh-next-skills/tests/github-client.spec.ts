@@ -21,6 +21,38 @@ describe('fetchRepoInfo', () => {
     const gh = createGhDouble({ repoStatus: 403 })
     await expect(fetchRepoInfo(gh.fetch, 'o', 'r')).rejects.toThrow(/rate limit/)
   })
+  it('sends an Authorization header when GITHUB_TOKEN is set', async () => {
+    process.env.GITHUB_TOKEN = 'tok-123'
+    try {
+      const gh = createGhDouble()
+      await fetchRepoInfo(gh.fetch, 'o', 'r')
+      expect(gh.calls[0]?.headers?.authorization).toBe('Bearer tok-123')
+    } finally {
+      delete process.env.GITHUB_TOKEN
+    }
+  })
+
+  it('prefers DSH_GITHUB_TOKEN when both token variables are set', async () => {
+    process.env.GITHUB_TOKEN = 'generic'
+    process.env.DSH_GITHUB_TOKEN = 'dsh-specific'
+    try {
+      const gh = createGhDouble()
+      await fetchRepoInfo(gh.fetch, 'o', 'r')
+      expect(gh.calls[0]?.headers?.authorization).toBe('Bearer dsh-specific')
+    } finally {
+      delete process.env.GITHUB_TOKEN
+      delete process.env.DSH_GITHUB_TOKEN
+    }
+  })
+
+  it('omits the Authorization header without a token', async () => {
+    delete process.env.GITHUB_TOKEN
+    delete process.env.DSH_GITHUB_TOKEN
+    const gh = createGhDouble()
+    await fetchRepoInfo(gh.fetch, 'o', 'r')
+    expect(gh.calls[0]?.headers?.authorization).toBeUndefined()
+  })
+
   it('sends the API metadata headers', async () => {
     const gh = createGhDouble()
     await fetchRepoInfo(gh.fetch, 'o', 'r')

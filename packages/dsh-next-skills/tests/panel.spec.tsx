@@ -322,6 +322,34 @@ describe('detail modal', () => {
     await unmount()
   })
 
+  it('an unstable getWorkspaces (fresh array per call) cannot loop the detail body away', async () => {
+    // The real workspace reader returns a new array on every call; the panel
+    // must key its effects on the paths, not the array identity.
+    const rpc = rpcMock()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root: Root = createRoot(container)
+    await act(async () => {
+      root.render(React.createElement(SkillsPanel, {
+        rpc,
+        getWorkspaces: () => WS.slice(),
+      }))
+    })
+    await act(async () => {})
+    const baseCalls = rpcCalls(rpc).length
+    await click(byTestId(container, 'skills-detail-open'))
+    await act(async () => {})
+    const detail = byTestId(container, 'skills-detail')
+    const body = byTestId(detail, 'skills-detail-body')
+    expect(body.querySelector('h1')?.textContent).toBe('Heading')
+    // No render loop: the detail RPC fired exactly once for this open.
+    const detailCalls = rpcCalls(rpc).filter(([m]) => m === 'getInstalledSkillDetail').length
+    expect(detailCalls).toBe(1)
+    void baseCalls
+    await act(async () => root.unmount())
+    container.remove()
+  })
+
   it('a catalog-only entry loads through the catalog detail RPC', async () => {
     const rpc = rpcMock()
     const { container, unmount } = await render(rpc)

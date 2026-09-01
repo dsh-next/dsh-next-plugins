@@ -71,6 +71,11 @@ nextlevelbuilder/ui-ux-pro-max-skill、addyosmani/agent-skills、
 Leonxlnx/taste-skill），并在启动后不久同步一次，因此无需任何设置，
 Skills 标签页即已有内容。移除默认提供方会持久生效——它们不会回来。
 
+**速率限制。** 设置了 `DSH_GITHUB_TOKEN` 或 `GITHUB_TOKEN`
+环境变量（每次同步都会重新读取）时，元数据请求会携带认证——配额为每小时
+5000 次，而不是整台机器共享的未认证每小时 60 次。快照下载本身走 CDN，
+无论如何都不占用该配额。
+
 添加提供方时，所有技能都会被下载到插件自有的缓存目录
 `$DSH_HOME/skills-market/` —— 它刻意位于 `$DSH_HOME/skills` 之外
 （后者由 DSH 文件系统提供方扫描），因此缓存中的技能绝不会自行激活。

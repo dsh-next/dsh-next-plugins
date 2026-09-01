@@ -189,7 +189,16 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
   const [detailData, setDetailData] = React.useState<SkillDetail | undefined>()
   const [addSpec, setAddSpec] = React.useState('')
   const workspaces = deps.getWorkspaces()
-  const workspacePaths = React.useMemo(() => workspaces.map((w) => w.path), [workspaces])
+  // Key the memo on the joined paths, not the array: the workspace reader
+  // returns a fresh array on every call, so an identity dep would re-run
+  // every callback and effect on every render (an endless refetch loop the
+  // detail modal once died in).
+  const workspacePathsKey = workspaces.map((w) => w.path).join('\n')
+  const workspacePaths = React.useMemo(
+    () => workspaces.map((w) => w.path),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [workspacePathsKey],
+  )
 
   const refresh = React.useCallback(async (): Promise<void> => {
     try {

@@ -124,7 +124,16 @@ EOF
 
 # Settings-backed state: record the seeded skills as plugin-managed so the
 # panel's remove flow accepts them, and pin one explicit whitelist scope for
-# the verify script's presence-badge checks.
+# the verify script's presence-badge checks. One extra skill is seeded
+# WITHOUT a record so the orange custom chip keeps real visual coverage.
+mkdir -p "$DSH_AGENTS_HOME/skills/hand-made"
+cat > "$DSH_AGENTS_HOME/skills/hand-made/SKILL.md" <<'EOF'
+---
+name: hand-made
+description: Hand-created skill with no settings record (renders the custom chip).
+---
+# Hand
+EOF
 NOW_BOOT="$(date -u +%FT%TZ)"
 cat >> "$DSH_HOME/settings.yaml" <<EOF
 dsh-next-skills:

@@ -87,6 +87,12 @@ Leonxlnx/taste-skill) and syncs them once shortly after boot, so the Skills
 tab is populated without any setup. Removing a default persists — they never
 come back.
 
+**Rate limits.** Metadata calls authenticate with `DSH_GITHUB_TOKEN` or
+`GITHUB_TOKEN` (either environment variable, read again on every sync) when
+set — 5000 requests/hour instead of the 60/hour unauthenticated budget the
+whole machine shares. The snapshot download itself is CDN-backed and outside
+that budget either way.
+
 Adding a provider downloads every skill into a plugin-owned cache at
 `$DSH_HOME/skills-market/` — deliberately outside `$DSH_HOME/skills`, which the
 DSH filesystem provider scans, so cached skills never activate by themselves.

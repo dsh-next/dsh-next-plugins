@@ -6,8 +6,10 @@
  *   GET https://api.github.com/repos/{owner}/{repo}   -> description + stars
  *   GET https://codeload.github.com/{owner}/{repo}/tar.gz/HEAD -> full snapshot
  *
- * The snapshot is a single CDN download (not part of the 60 req/hr unauthenticated
- * API budget), so skills sync in seconds instead of one raw request per file.
+ * The snapshot is a single CDN download (not part of the API budget), so
+ * skills sync in seconds instead of one raw request per file. Metadata calls
+ * authenticate with `DSH_GITHUB_TOKEN` or `GITHUB_TOKEN` when set, raising
+ * the rate limit from 60 req/hr (whole IP, unauthenticated) to 5000/hr.
  */
 import type { FetchLike } from '../core/types.ts'
 
@@ -34,11 +36,17 @@ export interface GhTreeEntry {
 }
 
 function apiHeaders(): Record<string, string> {
-  return {
+  const headers: Record<string, string> = {
     accept: 'application/vnd.github+json',
     'user-agent': USER_AGENT,
     'x-github-api-version': '2022-11-28',
   }
+  // Optional authenticated API budget (5000 req/hr instead of 60 for the
+  // whole shared IP). Read per call so a token added to the environment
+  // later is picked up on the next sync.
+  const token = (process.env.DSH_GITHUB_TOKEN ?? process.env.GITHUB_TOKEN ?? '').trim()
+  if (token !== '') headers.authorization = `Bearer ${token}`
+  return headers
 }
 
 function messageFor(status: number, what: string): string {

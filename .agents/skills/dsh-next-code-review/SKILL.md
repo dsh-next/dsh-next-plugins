@@ -25,6 +25,10 @@ Review changes against these checks:
    out whether the change could affect other packages or shared code, and
    require `pnpm typecheck && pnpm test && pnpm build` plus the mount smoke
    (`bash scripts/e2e-mount.sh`) as evidence.
-7. **Style** — English, no emoji, Conventional Commit subject.
+7. **README pairing** — every package ships the `docs/i18n.md` triplet
+   (`README.md`, `README.zh.md`, `README.i18n.yaml`); a behavior change that
+   touches one side of a pair must mirror into the other and end with
+   `pnpm docs:write-pair <slug>` so `pnpm docs:check` stays green.
+8. **Style** — English, no emoji, Conventional Commit subject.
 
 Report findings with file paths and concrete fix suggestions.

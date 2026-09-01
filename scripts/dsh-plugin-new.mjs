@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
@@ -37,6 +38,8 @@ async function copyTemplate(name) {
     'vitest.config.ts',
     'cordis.patch.yml',
     'README.md',
+    'README.zh.md',
+    'README.i18n.yaml',
     '.gitignore',
     'src/index.ts',
     'src/client/index.ts',
@@ -58,6 +61,9 @@ async function copyTemplate(name) {
     }
     await writeFile(out, content, 'utf8')
   }
+  // Record the bilingual README pairing hashes (docs/i18n.md) so a fresh
+  // scaffold passes `pnpm docs:check` immediately.
+  execFileSync(process.execPath, [join(ROOT, 'scripts', 'verify-docs.mjs'), '--write', id], { stdio: 'inherit' })
   console.log(`created packages/dsh-next-${id}/`)
 }
 

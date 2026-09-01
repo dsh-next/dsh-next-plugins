@@ -77,7 +77,10 @@ mise tasks delegate to it, never re-implement commands.
   commit messages.
 - Keep each fact in its owning document. Update documentation when behavior
   changes; put temporary handoffs or validation snapshots in `docs/archive/`.
-- Package READMEs are English only.
+- Package READMEs are bilingual English/Chinese pairs (`README.md` +
+  `README.zh.md` + a `README.i18n.yaml` pairing record); the contract and
+  maintenance flow live in `docs/i18n.md`. All other documentation is English
+  only.
 
 ## Development Workflow
 

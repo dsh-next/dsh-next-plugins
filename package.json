@@ -13,6 +13,7 @@
     "typecheck": "pnpm -r typecheck",
     "docs:check": "node scripts/verify-docs.mjs",
     "docs:list": "node scripts/verify-docs.mjs --list",
+    "docs:write-pair": "node scripts/verify-docs.mjs --write",
     "plugin:new": "node scripts/dsh-plugin-new.mjs",
     "runtime-deps:check": "node scripts/runtime-deps-check.mjs",
     "test:scripts": "node --test scripts/*.test.mjs"

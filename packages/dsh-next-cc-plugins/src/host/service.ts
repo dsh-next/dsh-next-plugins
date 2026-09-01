@@ -498,12 +498,13 @@ export class CcMarketplaceService {
 
     // 4. Materialize the plugin copy: the file cache drives the runtime
     //    bridge, and the on-disk copy gives hooks a real CLAUDE_PLUGIN_ROOT.
-    await this.materializePlugin(key, resolved.files)
+    //    A previously installed node_modules survives the rewrite.
+    const materializeNote = await this.materializePlugin(key, resolved.files)
 
     // 5. Registry record + managed-block rewrite from the registry. The
     //    install notes persist on the record so they stay reviewable long
     //    after the panel toast is gone.
-    const notes = [...mcp.notes, ...agents.notes, ...unbridgedNotes(inventory.unbridged), ...dependencyNotes(inventory.dependencies), ...skillSemanticNotes(resolved.files, inventory.skills), ...pluginLevelReferenceNotes(resolved.files, inventory.skills)]
+    const notes = [materializeNote, ...mcp.notes, ...agents.notes, ...unbridgedNotes(inventory.unbridged), ...dependencyNotes(inventory.dependencies), ...skillSemanticNotes(resolved.files, inventory.skills), ...pluginLevelReferenceNotes(resolved.files, inventory.skills)].filter((n): n is string => n !== undefined)
     const now = new Date().toISOString()
     // Claude's precedence: the marketplace entry's version, then the
     // plugin's own plugin.json version; the snapshot digest is the update
@@ -697,11 +698,12 @@ export class CcMarketplaceService {
       ? this.buildAgentRows(key, record.pluginName, resolved.files, inventory, others, mcp.rows, modelMap, record.agents)
       : { rows: [] as InstalledAgentRow[], notes: [] as string[] }
 
-    await this.materializePlugin(key, resolved.files)
+    // The rewrite preserves node_modules; a manifest drift is noted.
+    const materializeNote = await this.materializePlugin(key, resolved.files)
 
     const effectiveVersion = resolved.entry.version !== '' ? resolved.entry.version : manifestVersion(resolved.files)
     const snapshotDigest = (await this.store.readSnapshot(record.marketplaceId))?.digest
-    const notes = [...mcp.notes, ...agents.notes, ...unbridgedNotes(inventory.unbridged), ...dependencyNotes(inventory.dependencies), ...skillSemanticNotes(resolved.files, inventory.skills), ...pluginLevelReferenceNotes(resolved.files, inventory.skills)]
+    const notes = [materializeNote, ...mcp.notes, ...agents.notes, ...unbridgedNotes(inventory.unbridged), ...dependencyNotes(inventory.dependencies), ...skillSemanticNotes(resolved.files, inventory.skills), ...pluginLevelReferenceNotes(resolved.files, inventory.skills)].filter((n): n is string => n !== undefined)
     const updated: InstalledPlugin = {
       ...record,
       version: effectiveVersion,
@@ -1091,21 +1093,67 @@ export class CcMarketplaceService {
   }
 
   /**
-   * Write the plugin's files under the plugin data root: `<root>/plugins/<key>`.
-   * This on-disk copy is the CLAUDE_PLUGIN_ROOT hook commands see.
+   * Write the plugin's files under the plugin data root:
+   * `<root>/plugins/<key>`. This on-disk copy is the CLAUDE_PLUGIN_ROOT hook
+   * commands and MCP servers see. The rewrite preserves a previously
+   * installed `node_modules` (Claude Code keeps installed dependencies
+   * across plugin versions): everything except that directory is cleared,
+   * then the new file map lands on top — an incoming file always wins over
+   * preserved content. Returns a note when preserved dependencies may now
+   * mismatch the incoming `package.json`; undefined otherwise.
    */
-  private async materializePlugin(key: string, files: PluginFiles): Promise<void> {
+  private async materializePlugin(key: string, files: PluginFiles): Promise<string | undefined> {
     const dir = joinPath(this.pluginDataRoot(), 'plugins', safeDirId(key))
-    await this.opts.fs.rm(dir, { recursive: true, force: true }).catch(() => {})
+    const previousManifest = await this.readFileIfPresent(joinPath(dir, 'package.json'))
+    const hadNodeModules = await this.pathExists(joinPath(dir, 'node_modules'))
+    await this.clearDirPreserving(dir, new Set(['node_modules']))
     for (const [rel, content] of Object.entries(files)) {
       if (!isSafeRelativePath(rel)) continue
       const dest = joinPath(dir, rel)
       await this.opts.fs.mkdir(dirnamePath(dest), { recursive: true })
       await this.opts.fs.writeFile(dest, content)
     }
+    if (!hadNodeModules) return undefined
+    return previousManifest !== (files['package.json'] ?? '')
+      ? 'dependencies (node_modules) were preserved from the previous version, but package.json changed; the plugin may need its dependency bootstrap rerun'
+      : undefined
+  }
+
+  /** Remove every entry of a directory except the named ones (best effort). */
+  private async clearDirPreserving(dir: string, preserve: ReadonlySet<string>): Promise<void> {
+    let entries
+    try {
+      entries = await this.opts.fs.readdir(dir)
+    } catch {
+      return // nothing to clear
+    }
+    for (const entry of entries) {
+      if (preserve.has(entry.name)) continue
+      await this.opts.fs.rm(joinPath(dir, entry.name), { recursive: true, force: true }).catch(() => {})
+    }
+  }
+
+  /** A file's content, or undefined when it does not exist / is unreadable. */
+  private async readFileIfPresent(path: string): Promise<string | undefined> {
+    try {
+      return await this.opts.fs.readFile(path)
+    } catch {
+      return undefined
+    }
+  }
+
+  /** Whether a path exists on the injected filesystem. */
+  private async pathExists(path: string): Promise<boolean> {
+    try {
+      await this.opts.fs.access(path)
+      return true
+    } catch {
+      return false
+    }
   }
 
   private async removeMaterializedPlugin(key: string): Promise<void> {
+    // Uninstall is a full wipe: nothing of the plugin copy survives.
     const dir = joinPath(this.pluginDataRoot(), 'plugins', safeDirId(key))
     await this.opts.fs.rm(dir, { recursive: true, force: true }).catch(() => {})
   }

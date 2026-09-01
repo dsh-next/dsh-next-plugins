@@ -345,6 +345,94 @@ describe('CcMarketplaceService install', () => {
     if (result.ok) expect(result.message).toContain('CLAUDE_PROJECT_DIR')
   })
 
+  describe('node_modules preservation across updates', () => {
+    const ROOT = '/home/u/.dsh/cc-plugins/plugins/github_o_r_team-tools'
+    const REPO_WITH_MANIFEST = (version: string): Record<string, string> => ({
+      '.claude-plugin/marketplace.json': JSON.stringify({
+        name: 'acme-tools',
+        plugins: [{ name: 'team-tools', source: './plugins/team-tools', version: '1.0.0' }],
+      }),
+      'plugins/team-tools/package.json': JSON.stringify({ name: 'team-tools', version }),
+      'plugins/team-tools/skills/deploy/SKILL.md': SKILL('deploy', 'Deploys the app'),
+    })
+
+    it('preserves node_modules and stays silent when package.json is unchanged', async () => {
+      f.gh.setRepo('o', 'r', REPO_WITH_MANIFEST('1.0.0'))
+      await f.service.addMarketplace('o/r')
+      await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })
+      // The plugin's dependency bootstrap installed something.
+      await f.fs.writeFile(`${ROOT}/node_modules/dep/index.js`, 'module.exports = 1')
+      await f.fs.writeFile(`${ROOT}/stale-artifact.txt`, 'from the old version')
+
+      const result = await f.service.updatePlugin('github:o/r/team-tools')
+      expect(result.ok).toBe(true)
+      const snap = f.fs.snapshot()
+      expect(snap[`${ROOT}/node_modules/dep/index.js`]).toBe('module.exports = 1')
+      expect(snap[`${ROOT}/skills/deploy/SKILL.md`]).toBeDefined()
+      // Files not in the new map are cleared; node_modules is not.
+      expect(snap[`${ROOT}/stale-artifact.txt`]).toBeUndefined()
+      if (result.ok) expect(result.message).not.toContain('node_modules')
+      expect((await f.service.state()).installed[0].notes).toBeUndefined()
+    })
+
+    it('preserves node_modules but notes a changed package.json', async () => {
+      f.gh.setRepo('o', 'r', REPO_WITH_MANIFEST('1.0.0'))
+      await f.service.addMarketplace('o/r')
+      await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })
+      await f.fs.writeFile(`${ROOT}/node_modules/dep/index.js`, 'x')
+
+      f.gh.setRepo('o', 'r', {
+        ...REPO_WITH_MANIFEST('2.0.0'),
+        'plugins/team-tools/package.json': JSON.stringify({ name: 'team-tools', version: '2.0.0', dependencies: { dep: '^2' } }),
+      })
+      const result = await f.service.updatePlugin('github:o/r/team-tools')
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+      expect(result.message).toContain('dependencies (node_modules) were preserved')
+      expect(result.message).toContain('package.json changed')
+      expect(f.fs.snapshot()[`${ROOT}/node_modules/dep/index.js`]).toBe('x')
+      // The note persists on the record (chip + detail modal show it).
+      expect((await f.service.state()).installed[0].notes).toEqual([
+        'dependencies (node_modules) were preserved from the previous version, but package.json changed; the plugin may need its dependency bootstrap rerun',
+      ])
+    })
+
+    it('lets incoming files overwrite preserved node_modules content', async () => {
+      f.gh.setRepo('o', 'r', REPO_WITH_MANIFEST('1.0.0'))
+      await f.service.addMarketplace('o/r')
+      await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })
+      await f.fs.writeFile(`${ROOT}/node_modules/dep/index.js`, 'installed')
+
+      f.gh.setRepo('o', 'r', {
+        ...REPO_WITH_MANIFEST('1.1.0'),
+        'plugins/team-tools/package.json': JSON.stringify({ name: 'team-tools', version: '1.1.0' }),
+        'plugins/team-tools/node_modules/dep/index.js': 'vendored',
+      })
+      const result = await f.service.updatePlugin('github:o/r/team-tools')
+      expect(result.ok).toBe(true)
+      expect(f.fs.snapshot()[`${ROOT}/node_modules/dep/index.js`]).toBe('vendored')
+      // The manifest drifted, so the preservation note appears alongside.
+      if (result.ok) expect(result.message).toContain('package.json changed')
+    })
+
+    it('uninstalls wipe node_modules with the rest of the copy', async () => {
+      f.gh.setRepo('o', 'r', REPO_WITH_MANIFEST('1.0.0'))
+      await f.service.addMarketplace('o/r')
+      await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })
+      await f.fs.writeFile(`${ROOT}/node_modules/dep/index.js`, 'x')
+      await f.service.uninstallPlugin('github:o/r/team-tools')
+      expect(f.fs.snapshot()[`${ROOT}/node_modules/dep/index.js`]).toBeUndefined()
+    })
+
+    it('fresh installs note nothing (no previous dependencies exist)', async () => {
+      f.gh.setRepo('o', 'r', REPO_WITH_MANIFEST('1.0.0'))
+      await f.service.addMarketplace('o/r')
+      const result = await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })
+      expect(result.ok).toBe(true)
+      if (result.ok) expect(result.message).not.toContain('node_modules')
+    })
+  })
+
   it('persists install notes on the record for later review', async () => {
     f.gh.setRepo('o', 'r', {
       '.claude-plugin/marketplace.json': JSON.stringify({

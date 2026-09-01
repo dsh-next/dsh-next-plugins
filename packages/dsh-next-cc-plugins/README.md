@@ -47,10 +47,15 @@ with a built-in runtime for the components DSH activates in-process.
   re-copied, removed skills recoverably trashed, managed rows re-rendered
   with stable server/tool names) and uninstall it (skills move to the
   root's `.trash`, managed rows and the materialized plugin copy drop out).
-  Install and update notes (unbridged families, renamed servers, unresolved
-  templates, dependency requirements, skill frontmatter differences) are
-  persisted on the install record: the card carries an "install notes" chip
-  with the list on hover, and the detail modal shows them in full.
+  The materialized plugin copy rewrites **preserving `node_modules`** (as
+  Claude Code does across plugin versions), so a plugin whose MCP server or
+  hooks installed dependencies keeps them working after an Update; a
+  changed `package.json` is noted so the plugin's own dependency bootstrap
+  can refresh them, and an uninstall wipes everything. Install and update
+  notes (unbridged families, renamed servers, unresolved templates,
+  dependency requirements, skill frontmatter differences) are persisted on
+  the install record: the card carries an "install notes" chip with the
+  list on hover, and the detail modal shows them in full.
 
 Plugin sources inside a marketplace index follow the Claude Code schema:
 relative paths (`"./plugins/foo"`, bare names under `metadata.pluginRoot`),

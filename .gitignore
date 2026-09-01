@@ -28,3 +28,8 @@ test-results/
 # Build output (tsdown)
 packages/*/lib/
 .dsh-next-skills-smoke/
+
+# Runtime skill installs (workspace-scoped cc-plugins installs land in
+# .agents/skills/ next to this repo's own dsh-next-* skills)
+/.agents/skills/*
+!/.agents/skills/dsh-next-*/

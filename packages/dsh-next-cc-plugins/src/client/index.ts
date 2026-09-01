@@ -7,13 +7,15 @@
  * the Host RPC plus a workspace reader so installs can be scoped global or
  * per workspace.
  *
- * Localization follows the platform `locale` service pattern (the same one
- * DSH's own UI packages and the wider plugin ecosystem use): dictionaries
- * register under this package's namespace, the panel receives a bound
- * translate function reading the active locale at call time, and the
- * section label is a function label carrying the namespace so the Settings
- * shell re-renders it on language switches. Without the service the panel
- * renders English unchanged.
+ * Localization rides the platform `locale` service and nothing else: the
+ * dictionaries register under this package's namespace through the typed
+ * `register` (both locales in one compile-checked call — see
+ * `dictionaries.ts`), `bind` returns a stable translator reading the active
+ * locale at call time (lookup chain: this namespace -> en -> the shared
+ * common vocabulary -> the key itself), and the section label is a function
+ * label carrying the namespace so the Settings shell re-renders it on
+ * language switches. Without the service the panel renders English
+ * unchanged (`englishTranslate`).
  */
 import * as React from 'react'
 import type { Context } from '@deepseek-ai/cordis'
@@ -62,52 +64,19 @@ function rpc(method: string, args?: unknown): Promise<unknown> {
   })
 }
 
-/** The locale face this entry consumes (structural, so tests can double it). */
-interface LocaleFace {
-  register(ns: string, dicts: Record<string, Record<string, string>>): () => void
-  bind(ns: string): (key: string, params?: Record<string, string | number>) => string
-}
-
-/** Read the locale service defensively: compositions without it render English. */
-function localeOf(ctx: Context): LocaleFace | undefined {
-  // ctx.get is the only legal optional read — a ctx.locale property access
-  // requires declaring the service in `inject` and fails at runtime
-  // otherwise ("cannot get property without inject").
-  const locale = ctx.get('locale')
-  if (locale === undefined || typeof locale !== 'object') return undefined
-  const face = locale as LocaleFace
-  if (typeof face.register !== 'function' || typeof face.bind !== 'function') return undefined
-  return face
-}
-
-/** A translator for the panel, typed to this package's dictionary keys. */
-function translatorOf(ctx: Context): (key: MessageKey, params?: Record<string, string | number>) => string {
-  const locale = localeOf(ctx)
-  if (locale === undefined) return englishTranslate
-  try {
-    const bound = locale.bind(NS)
-    return (key, params) => {
-      try {
-        // The lookup chain falls back to en then the key itself; translate
-        // misses stay visible rather than blank.
-        return bound(key, params)
-      } catch {
-        return englishTranslate(key, params)
-      }
-    }
-  } catch {
-    return englishTranslate
-  }
-}
-
 export function apply(ctx: Context): void {
   const slots = ctx.get('slots')
   const workspaces = ctx.get('workspaces') as IWorkspaces | undefined
 
-  // Register the dictionaries under this package's namespace. A duplicate
-  // registration throws (aggregate bundles can double-apply); the panel
-  // then simply keeps the first registration's dictionaries.
-  const locale = localeOf(ctx)
+  // The optional service read goes through ctx.get — a ctx.locale property
+  // access requires the service in `inject` and fails at runtime otherwise.
+  const locale = ctx.get('locale')
+
+  // Register both dictionaries under this package's namespace in one typed
+  // call (the LocaleNamespaceMap entry above makes the key set compile-
+  // checked; the platform enforces bilingual balance and single ownership).
+  // A duplicate registration throws (aggregate bundles can double-apply);
+  // the first registration's dictionaries then win.
   if (locale !== undefined) {
     ctx.effect(() => {
       try {
@@ -118,7 +87,9 @@ export function apply(ctx: Context): void {
     }, 'dsh-next-cc-plugins: dictionaries')
   }
 
-  const t = translatorOf(ctx)
+  // bind returns a stable translator reading the active locale at call time;
+  // without the service, English keeps the panel fully functional.
+  const t = locale !== undefined ? locale.bind(NS) : englishTranslate
 
   const getWorkspaces = () => extractWorkspaces(workspaces)
 

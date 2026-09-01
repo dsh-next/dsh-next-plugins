@@ -3,6 +3,11 @@
  * settings page (not a plugin card) with three tabs (Installed, Search,
  * Providers) over the Host JSON RPC, plus a Configuration block exposing the
  * master switch, the refresh interval, and the GitHub token.
+ *
+ * Every user-facing string rides the `t` translator (the platform locale
+ * service bound to this package's namespace; English without it). The
+ * module-level formatters take `t` as an optional last argument defaulting
+ * to English, so their standalone behavior is unchanged.
  */
 import * as React from 'react'
 import type {
@@ -17,13 +22,19 @@ import type {
   WorkspaceRow,
 } from '../core/types.ts'
 import styles from './card.module.css'
+import { englishTranslate, type MessageKey } from './dictionaries.ts'
 import { renderMarkdown } from './markdown.tsx'
+
+/** Translates a dictionary key with `{name}` params (platform semantics). */
+export type Translate = (key: MessageKey, params?: Record<string, string | number>) => string
 
 export interface SkillsPanelDeps {
   rpc: (method: string, args?: unknown) => Promise<unknown>
   getWorkspaces: () => WorkspaceRow[]
   /** Signals the browser that the installed skill catalog changed. */
   notifyInstalledChanged?: () => void
+  /** Locale-bound translator; defaults to English when omitted (tests). */
+  t?: Translate
 }
 
 type Tab = 'installed' | 'search' | 'providers'
@@ -33,15 +44,20 @@ type Tab = 'installed' | 'search' | 'providers'
  * marks the global scope, otherwise the owning workspace's title; disabled
  * and shadow markers are appended.
  */
-function scopeChipText(skill: InstalledSkill, workspaces: WorkspaceRow[]): string {
-  const markers = (skill.enabled ? '' : ' · disabled') + (skill.shadow === true ? ' · shadow' : '')
-  if (skill.scope !== 'workspace') return '⭐ Global' + markers
+function scopeChipText(skill: InstalledSkill, workspaces: WorkspaceRow[], t: Translate = englishTranslate): string {
+  const markers = (skill.enabled ? '' : t('scope.disabledMarker')) + (skill.shadow === true ? t('scope.shadowMarker') : '')
+  if (skill.scope !== 'workspace') return t('scope.globalStar') + markers
   const match = workspaces.find((w) => skill.directory.startsWith(w.path + '/'))
-  return (match?.title ?? 'Workspace') + markers
+  return (match?.title ?? t('scope.workspace')) + markers
 }
 
 function isMutationError(result: unknown): result is { ok: false; error: string } {
   return !!result && typeof result === 'object' && (result as { ok?: unknown }).ok === false
+}
+
+/** `{count}` plural pick: one vs many key, count passed for interpolation. */
+function countOf(t: Translate, n: number, one: MessageKey, many: MessageKey): string {
+  return t(n === 1 ? one : many, { count: n })
 }
 
 /** Mutations whose success changes the installed skill set the chat UI surfaces. */
@@ -53,17 +69,17 @@ function errMsg(error: unknown): string {
 }
 
 /** Short human rendering of an ISO timestamp ('' when empty). */
-function timeAgo(iso: string): string {
-  if (iso === '') return 'never refreshed'
-  const t = Date.parse(iso)
-  if (!Number.isFinite(t)) return 'never refreshed'
-  const minutes = Math.floor((Date.now() - t) / 60000)
-  if (minutes < 1) return 'refreshed just now'
-  if (minutes < 60) return `refreshed ${minutes} min ago`
+function timeAgo(iso: string, t: Translate = englishTranslate): string {
+  if (iso === '') return t('provider.lastRefresh.never')
+  const at = Date.parse(iso)
+  if (!Number.isFinite(at)) return t('provider.lastRefresh.never')
+  const minutes = Math.floor((Date.now() - at) / 60000)
+  if (minutes < 1) return t('provider.lastRefresh.justNow')
+  if (minutes < 60) return t('provider.lastRefresh.minutesAgo', { count: minutes })
   const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `refreshed ${hours} h ago`
+  if (hours < 24) return t('provider.lastRefresh.hoursAgo', { count: hours })
   const days = Math.floor(hours / 24)
-  return `refreshed ${days} d ago`
+  return t('provider.lastRefresh.daysAgo', { count: days })
 }
 
 /** Per-target presence of a skill name: the global root and each workspace. */
@@ -72,7 +88,7 @@ interface Presence {
   byPath: Map<string, Set<string>>
 }
 
-export function SkillsPanel({ rpc, getWorkspaces, notifyInstalledChanged }: SkillsPanelDeps): React.ReactElement {
+export function SkillsPanel({ rpc, getWorkspaces, notifyInstalledChanged, t = englishTranslate }: SkillsPanelDeps): React.ReactElement {
   const [tab, setTab] = React.useState<Tab>('installed')
   const [state, setState] = React.useState<SkillsState | null>(null)
   const [market, setMarket] = React.useState<MarketplaceView | null>(null)
@@ -176,7 +192,7 @@ export function SkillsPanel({ rpc, getWorkspaces, notifyInstalledChanged }: Skil
         setDetail(d as SkillDetail)
         setError(null)
       } else {
-        setError('could not load the skill detail')
+        setError(t('error.loadDetail'))
       }
     } catch (e) {
       setError(errMsg(e))
@@ -302,7 +318,11 @@ export function SkillsPanel({ rpc, getWorkspaces, notifyInstalledChanged }: Skil
         loadState()
       } else if (failures.length > 0) {
         setError(null)
-        setWarning(`Added to ${targets.length - failures.length} of ${targets.length} targets; first failure: ${failures[0]}`)
+        setWarning(t('warning.partialAdd', {
+          added: targets.length - failures.length,
+          total: targets.length,
+          first: failures[0],
+        }))
       } else {
         setError(null)
         setWarning(null)
@@ -347,7 +367,7 @@ export function SkillsPanel({ rpc, getWorkspaces, notifyInstalledChanged }: Skil
   const installed = state?.installed ?? []
 
   const installedBody = installed.length === 0
-    ? React.createElement('p', { className: styles.hint }, 'No skills installed in this scope.')
+    ? React.createElement('p', { className: styles.hint }, t('empty.noInstalled'))
     : installed.map((skill) => {
       // A disabled skill dims only its title and description; badges and
       // buttons stay crisp.
@@ -355,18 +375,18 @@ export function SkillsPanel({ rpc, getWorkspaces, notifyInstalledChanged }: Skil
       return React.createElement('div', { className: styles.skill + ' ' + styles.skillVertical, key: skill.name },
         React.createElement('div', {
           className: styles.titleRow + ' ' + styles.clickable, role: 'button', tabIndex: 0,
-          'aria-label': 'View ' + skill.name,
+          'aria-label': t('aria.viewSkill', { name: skill.name }),
           onClick: () => { void openInstalledDetail(skill) },
         },
           React.createElement('span', { className: styles.label + dim }, skill.name),
-          React.createElement('span', { className: styles.badge }, scopeChipText(skill, workspaces))),
+          React.createElement('span', { className: styles.badge }, scopeChipText(skill, workspaces, t))),
         React.createElement('div', {
           className: styles.metaRow + ' ' + styles.clickable,
           onClick: () => { void openInstalledDetail(skill) },
         },
           React.createElement('span', {
             className: styles.badge + (skill.provider !== undefined ? '' : ' ' + styles.customBadge),
-          }, skill.provider !== undefined ? skill.provider : 'custom')),
+          }, skill.provider !== undefined ? skill.provider : t('badge.custom'))),
         React.createElement('div', {
           className: styles.hint + dim + ' ' + styles.clickable,
           onClick: () => { void openInstalledDetail(skill) },
@@ -377,20 +397,20 @@ export function SkillsPanel({ rpc, getWorkspaces, notifyInstalledChanged }: Skil
             className: styles.ghost + ' ' + (skill.enabled ? styles.danger : styles.success),
             disabled: busy,
             onClick: () => toggleSkill(skill),
-          }, skill.enabled ? 'Disable' : 'Enable'),
+          }, skill.enabled ? t('action.disable') : t('action.enable')),
           React.createElement('button', {
             type: 'button', className: styles.ghost, disabled: busy,
             onClick: () => requestRemove(skill),
-          }, 'Remove'),
+          }, t('action.remove')),
           React.createElement('button', {
             type: 'button', className: styles.ghost, disabled: busy || skill.updateAvailable !== true,
             onClick: () => updateSkill(skill),
-          }, 'Update'),
+          }, t('action.update')),
           skill.updateAvailable === true && copyCount(skill.name) > 1
             ? React.createElement('button', {
               type: 'button', className: styles.ghost + ' ' + styles.danger, disabled: busy,
               onClick: () => updateAllCopies(skill),
-            }, 'Update all copies')
+            }, t('action.updateAllCopies'))
             : null))
     })
 
@@ -438,38 +458,38 @@ export function SkillsPanel({ rpc, getWorkspaces, notifyInstalledChanged }: Skil
     const inGlobal = presence.global.has(name)
     const wsCount = [...presence.byPath.values()].filter((set) => set.has(name)).length
     const parts: string[] = []
-    if (inGlobal) parts.push('global')
-    if (wsCount > 0) parts.push(`${wsCount} workspace${wsCount === 1 ? '' : 's'}`)
-    return parts.length === 0 ? '' : `in ${parts.join(' + ')}`
+    if (inGlobal) parts.push(t('presence.global'))
+    if (wsCount > 0) parts.push(countOf(t, wsCount, 'presence.workspace.one', 'presence.workspace.many'))
+    return parts.length === 0 ? '' : t('presence.in', { targets: parts.join(' + ') })
   }
 
   const searchBody = React.createElement('div', { className: styles.market },
     React.createElement('div', { className: styles.row },
       React.createElement('input', {
-        type: 'search', className: styles.input, placeholder: 'Search skills…', value: searchQuery,
+        type: 'search', className: styles.input, placeholder: t('search.placeholder'), value: searchQuery,
         onChange: (e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value),
       }),
       React.createElement('span', { className: styles.selectWrap },
         React.createElement('select', {
           className: styles.select, value: providerFilter,
           onChange: (e: React.ChangeEvent<HTMLSelectElement>) => setProviderFilter(e.target.value),
-          'aria-label': 'Provider',
+          'aria-label': t('provider.aria'),
         },
-          React.createElement('option', { value: '' }, 'All providers'),
+          React.createElement('option', { value: '' }, t('provider.all')),
           (market?.providers ?? []).map((p) => React.createElement('option', { key: p.id, value: p.id }, p.spec))))),
     catalogSkills.length === 0
       ? React.createElement('p', { className: styles.hint }, (market?.providers ?? []).length === 0
-        ? 'No providers yet. Add a GitHub repository in the Providers tab to search its skills.'
+        ? t('empty.noProviders')
         : (market?.providers ?? []).every((p) => p.lastRefresh === '')
-          ? 'No skills in the catalog yet — refresh the providers in the Providers tab.'
-          : 'No skills match this search.')
+          ? t('empty.noCatalog')
+          : t('empty.noMatch'))
       : [
         ...catalogSkills.slice(0, visibleCount).map((skill) => {
           const label = presenceLabel(skill.name)
           return React.createElement('div', { className: styles.skill, key: `${skill.providerId}:${skill.skillPath}` },
             React.createElement('span', {
               className: styles.skillText + ' ' + styles.clickable, role: 'button', tabIndex: 0,
-              'aria-label': 'View ' + skill.name,
+              'aria-label': t('aria.viewSkill', { name: skill.name }),
               onClick: () => { void openCatalogDetail(skill) },
             },
               React.createElement('span', { className: styles.label }, skill.name),
@@ -478,17 +498,17 @@ export function SkillsPanel({ rpc, getWorkspaces, notifyInstalledChanged }: Skil
             React.createElement('button', {
               type: 'button', className: styles.ghost, disabled: busy,
               onClick: () => openAddModal(skill),
-            }, 'Add'))
+            }, t('action.add')))
         }),
         hasMore
           ? React.createElement('div', { className: styles.moreRow, key: 'load-more' },
-            React.createElement('p', { className: styles.hint }, `Showing ${visibleCount} of ${catalogSkills.length} skills`),
+            React.createElement('p', { className: styles.hint }, t('search.showing', { shown: visibleCount, total: catalogSkills.length })),
             React.createElement('button', {
               type: 'button', className: styles.ghost, disabled: busy, ref: sentinelRef,
               onClick: () => setVisibleCount((current) => current + SEARCH_PAGE),
-            }, 'Load more skills'))
+            }, t('search.loadMore')))
           : catalogSkills.length > SEARCH_PAGE
-            ? React.createElement('p', { className: styles.hint, key: 'all-shown' }, `All ${catalogSkills.length} skills shown`)
+            ? React.createElement('p', { className: styles.hint, key: 'all-shown' }, t('search.allShown', { total: catalogSkills.length }))
             : null,
       ])
 
@@ -497,34 +517,34 @@ export function SkillsPanel({ rpc, getWorkspaces, notifyInstalledChanged }: Skil
   const providersBody = React.createElement('div', { className: styles.market },
     React.createElement('div', { className: styles.row },
       React.createElement('input', {
-        type: 'text', className: styles.input, placeholder: 'https://github.com/owner/repo or owner/repo…', value: providerInput,
+        type: 'text', className: styles.input, placeholder: t('provider.placeholder'), value: providerInput,
         onChange: (e: React.ChangeEvent<HTMLInputElement>) => setProviderInput(e.target.value),
         onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter') addProvider() },
       }),
-      React.createElement('button', { type: 'button', className: styles.ghost, disabled: busy, onClick: () => addProvider() }, 'Add'),
+      React.createElement('button', { type: 'button', className: styles.ghost, disabled: busy, onClick: () => addProvider() }, t('action.add')),
       React.createElement('button', {
         type: 'button', className: styles.ghost, disabled: busy || providers.length === 0,
         onClick: () => refreshProviders(),
-      }, 'Refresh all')),
+      }, t('provider.refreshAll'))),
     providers.length === 0
-      ? React.createElement('p', { className: styles.hint }, 'No providers. Add a GitHub repository that contains skills (directories with a SKILL.md) to download them into the local marketplace.')
+      ? React.createElement('p', { className: styles.hint }, t('provider.empty'))
       : providers.map((provider) => React.createElement('div', { className: styles.skill, key: provider.id },
         React.createElement('span', { className: styles.skillText },
           React.createElement('span', { className: styles.label }, provider.spec),
           React.createElement('span', { className: styles.hint },
             (provider.description !== undefined && provider.description !== '' ? provider.description + '\n' : '')
-            + `${provider.skillCount} skill${provider.skillCount === 1 ? '' : 's'}`
-            + (provider.stars !== undefined ? ` · ★ ${provider.stars}` : '')
-            + ` · ${timeAgo(provider.lastRefresh)}`
+            + countOf(t, provider.skillCount, 'provider.skillCount.one', 'provider.skillCount.many')
+            + (provider.stars !== undefined ? t('provider.stars', { count: provider.stars }) : '')
+            + ` · ${timeAgo(provider.lastRefresh, t)}`
             + (provider.error !== undefined ? '\n' + provider.error : ''))),
         React.createElement('button', {
           type: 'button', className: styles.ghost, disabled: busy,
           onClick: () => refreshProvider(provider),
-        }, 'Refresh'),
+        }, t('provider.refresh')),
         React.createElement('button', {
           type: 'button', className: styles.ghost + ' ' + styles.danger, disabled: busy,
           onClick: () => removeProvider(provider),
-        }, 'Remove'))))
+        }, t('action.remove')))))
 
   /** The removal confirmation popup shared by skills and providers. */
   function confirmDialog(title: string, message: string, onConfirm: () => void): React.ReactElement {
@@ -546,11 +566,11 @@ export function SkillsPanel({ rpc, getWorkspaces, notifyInstalledChanged }: Skil
           React.createElement('button', {
             type: 'button', className: styles.ghost, disabled: busy,
             onClick: () => closeConfirm(),
-          }, 'Cancel'),
+          }, t('action.cancel')),
           React.createElement('button', {
             type: 'button', className: styles.ghost + ' ' + styles.danger, disabled: busy,
             onClick: onConfirm,
-          }, 'Remove'))))
+          }, t('action.remove')))))
   }
 
   /** The Add modal: multi-target install picker over global + every workspace.
@@ -558,7 +578,7 @@ export function SkillsPanel({ rpc, getWorkspaces, notifyInstalledChanged }: Skil
   function addSkillDialog(): React.ReactElement {
     const skill = addTarget as CatalogSkillView
     const options: { key: string; label: string; installed: boolean }[] = [
-      { key: '', label: '⭐ Global', installed: presence?.global.has(skill.name) ?? false },
+      { key: '', label: t('scope.globalStar'), installed: presence?.global.has(skill.name) ?? false },
       ...workspaces.map((w) => ({
         key: w.path,
         label: w.title,
@@ -574,12 +594,11 @@ export function SkillsPanel({ rpc, getWorkspaces, notifyInstalledChanged }: Skil
         className: styles.modal,
         role: 'dialog',
         'aria-modal': 'true',
-        'aria-label': `Add skill "${skill.name}"`,
+        'aria-label': t('add.title', { name: skill.name }),
         onClick: (e: React.MouseEvent) => e.stopPropagation(),
       },
-        React.createElement('p', { className: styles.modalTitle }, `Add skill "${skill.name}"`),
-        React.createElement('p', { className: styles.hint },
-          'Choose where to add it. Targets already holding the skill are marked and locked.'),
+        React.createElement('p', { className: styles.modalTitle }, t('add.title', { name: skill.name })),
+        React.createElement('p', { className: styles.hint }, t('add.hint')),
         React.createElement('div', { className: styles.optionList },
           options.map((option) => React.createElement('label', {
             className: styles.optionRow + (option.installed ? ' ' + styles.optionLocked : ''),
@@ -592,60 +611,60 @@ export function SkillsPanel({ rpc, getWorkspaces, notifyInstalledChanged }: Skil
               onChange: () => toggleAddTarget(option.key),
             }),
             React.createElement('span', { className: styles.optionLabel }, option.label),
-            option.installed ? React.createElement('span', { className: styles.addedBadge }, 'added') : null))),
+            option.installed ? React.createElement('span', { className: styles.addedBadge }, t('add.added')) : null))),
         React.createElement('div', { className: styles.modalActions },
           React.createElement('button', {
             type: 'button', className: styles.ghost, disabled: busy,
             onClick: () => closeAddModal(),
-          }, 'Cancel'),
+          }, t('action.cancel')),
           React.createElement('button', {
             type: 'button',
             className: styles.ghost + ' ' + styles.success,
             disabled: busy || addSelection.size === 0,
             onClick: () => { void confirmAddSkill() },
-          }, addSelection.size > 1 ? `Add to ${addSelection.size} targets` : 'Add'))))
+          }, addSelection.size > 1 ? t('add.toTargets', { count: addSelection.size }) : t('action.add')))))
   }
 
   return React.createElement('div', { className: styles.page },
     workspaces.length > 0
       ? React.createElement('div', { className: styles.row },
         React.createElement('span', { className: styles.text },
-          React.createElement('span', { className: styles.label }, 'Workspace'),
-          React.createElement('span', { className: styles.hint }, 'Installed-tab scope; toggling off here disables a global skill only in this workspace')),
+          React.createElement('span', { className: styles.label }, t('scope.workspace')),
+          React.createElement('span', { className: styles.hint }, t('scope.hint'))),
         React.createElement('select', {
           className: styles.select, value: currentPath ?? '',
           onChange: (e: React.ChangeEvent<HTMLSelectElement>) => { setWorkspacePath(e.target.value); closeConfirm() },
         },
-          React.createElement('option', { value: '' }, 'Global only'),
+          React.createElement('option', { value: '' }, t('scope.globalOnly')),
           workspaces.map((w) => React.createElement('option', { key: w.id, value: w.path }, w.title))))
       : null,
     React.createElement('div', { className: styles.tabs },
       React.createElement('button', {
         type: 'button', className: styles.tab + (tab === 'installed' ? ' ' + styles.tabActive : ''),
         onClick: () => { setTab('installed'); closeConfirm() },
-      }, 'Installed'),
+      }, t('tab.installed')),
       React.createElement('button', {
         type: 'button', className: styles.tab + (tab === 'search' ? ' ' + styles.tabActive : ''),
         onClick: () => { setTab('search'); closeConfirm(); if (market === null) void loadMarket(); void loadState() },
-      }, 'Search'),
+      }, t('tab.search')),
       React.createElement('button', {
         type: 'button', className: styles.tab + (tab === 'providers' ? ' ' + styles.tabActive : ''),
         onClick: () => { setTab('providers'); closeConfirm(); void loadMarket() },
-      }, 'Providers')),
+      }, t('tab.providers'))),
     tab === 'installed' ? installedBody : tab === 'search' ? searchBody : providersBody,
     React.createElement('div', { className: styles.footer },
       error ? React.createElement('p', { className: styles.status + ' ' + styles.statusErr }, String(error)) : null,
       !error && warning ? React.createElement('p', { className: styles.status }, String(warning)) : null,
-      busy ? React.createElement('p', { className: styles.status }, 'Working…') : null),
+      busy ? React.createElement('p', { className: styles.status }, t('status.working')) : null),
     confirmRemove !== null
       ? confirmDialog(
-        `Remove skill "${confirmRemove.name}"?`,
-        'It moves to the .trash directory of its skill root, so it can be restored by hand.',
+        t('confirm.removeSkillTitle', { name: confirmRemove.name }),
+        t('confirm.removeSkillMessage'),
         () => confirmRemoveSkill())
       : confirmProvider !== null
         ? confirmDialog(
-          `Remove provider "${confirmProvider.spec}"?`,
-          'Its cached catalog is deleted; skills already installed stay installed.',
+          t('confirm.removeProviderTitle', { spec: confirmProvider.spec }),
+          t('confirm.removeProviderMessage'),
           () => confirmRemoveProvider())
         : addTarget !== null
           ? addSkillDialog()
@@ -659,23 +678,23 @@ export function SkillsPanel({ rpc, getWorkspaces, notifyInstalledChanged }: Skil
               className: styles.modal + ' ' + styles.modalWide,
               role: 'dialog',
               'aria-modal': 'true',
-              'aria-label': `Skill ${detail.name}`,
+              'aria-label': t('detail.aria', { name: detail.name }),
               onClick: (e: React.MouseEvent) => e.stopPropagation(),
             },
               React.createElement('p', { className: styles.modalTitle }, detail.name),
               React.createElement('div', { className: styles.metaRow },
                 React.createElement('span', { className: styles.badge },
-                  detail.modelInvocable ? 'model invocable' : 'model blocked'),
+                  detail.modelInvocable ? t('detail.modelInvocable') : t('detail.modelBlocked')),
                 React.createElement('span', { className: styles.badge },
-                  detail.userInvocable ? 'user invocable' : 'not user invocable')),
+                  detail.userInvocable ? t('detail.userInvocable') : t('detail.userBlocked'))),
               React.createElement('p', { className: styles.hint },
                 detail.description
-                + (detail.whenToUse !== undefined ? `\nWhen to use: ${detail.whenToUse}` : '')),
+                + (detail.whenToUse !== undefined ? '\n' + t('detail.whenToUse', { text: detail.whenToUse }) : '')),
               React.createElement('div', { className: styles.modalBody + ' ' + styles.md }, renderMarkdown(detail.body)),
               React.createElement('div', { className: styles.modalActions },
                 React.createElement('button', {
                   type: 'button', className: styles.ghost, disabled: busy,
                   onClick: () => setDetail(null),
-                }, 'Close'))))
+                }, t('detail.close')))))
           : null)
 }

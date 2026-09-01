@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm docs:write-pair <slug>
 README.md: 68ebe9d3691a2727d8d2651ec52fea0396eb8c3f
-README.zh.md: 4e9dffe23a05e04fcef5e6ce7de0d231373511fe
+README.zh.md: 3daea3a3be407765a45fddf2a1c78aac72337813

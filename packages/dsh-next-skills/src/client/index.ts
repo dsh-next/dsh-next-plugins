@@ -6,16 +6,38 @@
  * content column instead of a cramped plugin card) and hands it the Host RPC
  * plus a workspace reader so installs and toggles can be scoped per
  * workspace.
+ *
+ * Localization rides the platform `locale` service and nothing else: the
+ * dictionaries register under this package's namespace through the typed
+ * `register` (both locales in one compile-checked call — see
+ * `dictionaries.ts`), `bind` returns a stable translator reading the active
+ * locale at call time (lookup chain: this namespace -> en -> the shared
+ * common vocabulary -> the key itself), and the section label is a function
+ * label carrying the namespace so the Settings shell re-renders it on
+ * language switches. Without the service the panel renders English
+ * unchanged (`englishTranslate`).
  */
 import * as React from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import type { IWorkspaces } from '@deepseek-ai/dsh-client-runtime/client'
-// Pulls the settings SlotMap merges — this package's client declares both
-// `settings.section` (the main settings nav) and `settings.plugin.item`, so
-// `slots.register` type-checks against the section registration contract.
+// Type-only: pulls the locale plugin's Context merge (ctx.locale) and the
+// settings SlotMap merges — this package's client declares
+// `settings.section` (the main settings nav), so `slots.register`
+// type-checks against the section registration contract.
+import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import { SkillsPanel } from './SkillsPanel.tsx'
+import { en, englishTranslate, NS, zh, type MessageKey } from './dictionaries.ts'
 import { extractWorkspaces } from './workspaces.ts'
+
+// Merge this package's namespace into the locale namespace table: the
+// settings.section slot's `locale` field and the typed register/bind
+// overloads then accept it (the same declaration DSH's own UI packages use).
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    'skills': MessageKey
+  }
+}
 
 const RPC_PATH = '/dsh-next-skills/rpc'
 
@@ -46,6 +68,29 @@ export function apply(ctx: Context): void {
   const slots = ctx.get('slots')
   const workspaces = ctx.get('workspaces') as IWorkspaces | undefined
 
+  // The optional service read goes through ctx.get — a ctx.locale property
+  // access requires the service in `inject` and fails at runtime otherwise.
+  const locale = ctx.get('locale')
+
+  // Register both dictionaries under this package's namespace in one typed
+  // call (the LocaleNamespaceMap entry above makes the key set compile-
+  // checked; the platform enforces bilingual balance and single ownership).
+  // A duplicate registration throws (aggregate bundles can double-apply);
+  // the first registration's dictionaries then win.
+  if (locale !== undefined) {
+    ctx.effect(() => {
+      try {
+        return locale.register(NS, { en, zh })
+      } catch {
+        return () => {}
+      }
+    }, 'dsh-next-skills: dictionaries')
+  }
+
+  // bind returns a stable translator reading the active locale at call time;
+  // without the service, English keeps the panel fully functional.
+  const t = locale !== undefined ? locale.bind(NS) : englishTranslate
+
   const getWorkspaces = () => extractWorkspaces(workspaces)
 
   // The core UI caches each session's skill catalog until the connection
@@ -64,12 +109,14 @@ export function apply(ctx: Context): void {
 
   if (slots && typeof slots.register === 'function') {
     // The Plugins section registers at order 15; Skills sits right after it.
+    // The label binds at call time so a language switch re-resolves it.
     const off = slots.register(
-      { name: 'settings.section', id: 'skills', order: 16, label: 'Skills' },
+      { name: 'settings.section', id: 'skills', order: 16, label: () => t('section.title'), locale: NS },
       () => React.createElement(SkillsPanel, {
         rpc: (method: string, args?: unknown) => rpc(method, args),
         getWorkspaces,
         notifyInstalledChanged,
+        t,
       }),
     )
     ctx.effect(() => off)

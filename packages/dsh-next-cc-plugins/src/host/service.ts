@@ -34,10 +34,10 @@ import { applyManagedBlockText, expandMcpServerTemplates, normalizeMcpServers, r
 import { DEFAULT_MARKETPLACE_SPECS, parseMarketplaceSpec } from '../core/source.ts'
 import { classifyMirrorWorkspace, MIRROR_INHERIT, parseMirror, renderMirror, type SettingsMirror } from '../core/mirror.ts'
 import { sameScope, type InstallScope } from '../core/scope.ts'
-import { isSnapshotStale, isUpdateAvailable, manifestVersion } from '../core/versions.ts'
+import { isSnapshotStale, isUpdateAvailable, manifestVersion, satisfiesRange } from '../core/versions.ts'
 import { isSkillName, sanitizeIdentifier } from '../core/name.ts'
 import { dirnamePath, isSafeRelativePath, joinPath } from '../core/path.ts'
-import { dependencyNotes, pluginInventory, pluginLevelReferenceNotes, readManifestPaths, skillFiles, skillSemanticNotes, unbridgedNotes, type PluginFiles } from '../core/plugin-inventory.ts'
+import { dependencyNotes, parseDependency, pluginInventory, pluginLevelReferenceNotes, readManifestPaths, skillFiles, skillSemanticNotes, unbridgedNotes, type PluginFiles } from '../core/plugin-inventory.ts'
 import { rewriteSkillFiles } from '../core/references.ts'
 import { extractTarEntries } from './tarball.ts'
 import { fetchRepoTarball } from './github-client.ts'
@@ -90,6 +90,9 @@ export interface ServiceOptions {
   agentsEnabled?: boolean
   /** Claude model id to DSH model id map (Config runtime.agentModelMap). */
   agentModelMap?: Readonly<Record<string, string>>
+  /** User-provided plugin configuration baseline (Config
+   *  runtime.userConfig); cc-plugins/user-config.json overrides it. */
+  userConfig?: Readonly<Record<string, string>>
   /** Live model discovery for the Models tab (host entry injects ctx.llm). */
   listRuntimeModels?: () => Promise<RuntimeModel[]>
   /** The settings-document mirror (host entry injects a registered scope). */
@@ -212,6 +215,24 @@ export class CcMarketplaceService {
     const out: Record<string, string> = {}
     for (const [alias, model] of Object.entries(sanitizeModelMap(this.opts.agentModelMap))) {
       if (model !== null) out[alias] = model
+    }
+    return out
+  }
+
+  /**
+   * The effective user-plugin configuration: the composition config
+   * (`runtime.userConfig`) is the baseline and the hand-editable
+   * `cc-plugins/user-config.json` layers on top key by key. MCP server
+   * definitions expand `${user_config.<key>}` from this map at install
+   * and update time.
+   */
+  private async effectiveUserConfig(): Promise<Record<string, string>> {
+    const out: Record<string, string> = {}
+    for (const [key, value] of Object.entries(this.opts.userConfig ?? {})) {
+      if (typeof value === 'string' && value.trim() !== '') out[key] = value
+    }
+    for (const [key, value] of Object.entries(await this.store.readUserConfig())) {
+      out[key] = value
     }
     return out
   }
@@ -517,7 +538,7 @@ export class CcMarketplaceService {
     //    There is no previous row set on a fresh install (re-installs are
     //    rejected above), so no name-keeping pass runs.
     const others = installed.plugins.filter((p) => p.key !== key)
-    const mcp = this.buildMcpRows(key, inventory, others)
+    const mcp = this.buildMcpRows(key, inventory, others, await this.effectiveUserConfig())
 
     // 3. Agent delegation tools: managed dsh-tool-subagent rows (persona from
     //    the agent markdown, translated tools/model frontmatter), only while
@@ -579,14 +600,67 @@ export class CcMarketplaceService {
       agents.rows.length > 0 ? `${agents.rows.length} agent tool(s) written to cordis.patch.yml (reload to apply)` : '',
       record.pending.hookEvents.length > 0 ? `${record.pending.hookEvents.length} hook event(s) (enable runtime.hooks to activate)` : '',
     ].filter(Boolean)
+    // 6. Claude parity: declared dependencies auto-install from the same
+    //    marketplace (best effort — every outcome is reported, a failed or
+    //    missing dependency never fails the parent install).
+    const depNotes = await this.installDependencies(args.marketplaceId, inventory.dependencies, scope, key)
     const parts = [
       inventory.skills.length > 0 ? `${inventory.skills.length} skill(s) into ${this.scopeLabel(scope)}` : '',
       mcp.rows.length > 0 ? `${mcp.rows.length} MCP server(s) written to cordis.patch.yml (restart DSH or reload the profile to attach)` : '',
       pendingBits.length > 0 ? pendingBits.join(', ') : '',
+      ...depNotes,
     ].filter(Boolean)
     const summary = parts.join('; ')
     const message = notes.length > 0 ? `installed "${args.plugin}": ${summary}; ${notes.join('; ')}` : `installed "${args.plugin}": ${summary}`
     return { ok: true, message, state: await this.state() }
+  }
+
+  /**
+   * Auto-install one plugin's declared dependencies from the same
+   * marketplace, as Claude Code does. Already-installed dependencies
+   * (whatever their scope) satisfy silently; entries missing from the
+   * index, versions outside the declared range, cycles, and failed
+   * installs skip with a note. Dependencies inherit the requesting
+   * plugin's scope. Returns the notes for the parent's install message.
+   */
+  private async installDependencies(
+    marketplaceId: string,
+    dependencies: readonly string[],
+    scope: InstallScope,
+    parentKey: string,
+  ): Promise<string[]> {
+    const notes: string[] = []
+    if (dependencies.length === 0) return notes
+    const snapshot = await this.store.readSnapshot(marketplaceId)
+    for (const raw of dependencies) {
+      const { name, range } = parseDependency(raw)
+      if (name === '') continue
+      const depKey = `${marketplaceId}/${name}`
+      if (depKey === parentKey) {
+        notes.push(`dependency "${raw}" is the plugin itself; skipped`)
+        continue
+      }
+      const installedNow = await this.store.readInstalled()
+      if (installedNow.plugins.some((p) => p.key === depKey)) continue // satisfied silently
+      const entry = snapshot?.index.plugins.find((p) => p.name === name)
+      if (entry === undefined) {
+        notes.push(`dependency "${raw}" not found in marketplace "${marketplaceId}"`)
+        continue
+      }
+      if (range !== '' && entry.version !== '' && !satisfiesRange(entry.version, range)) {
+        notes.push(`dependency "${name}@${range}" not satisfied: marketplace carries ${entry.version}`)
+        continue
+      }
+      if (range !== '' && entry.version === '') {
+        notes.push(`dependency "${name}@${range}" carries no marketplace version to check against`)
+      }
+      // Cycles need no separate guard: the parent record persisted before
+      // dependencies run, so a dependency chain leading back to it hits the
+      // installed check above and skips silently.
+      const result = await this.installPlugin({ marketplaceId, plugin: name, scope })
+      notes.push(result.ok ? `auto-installed dependency "${name}"` : `dependency "${name}" not installed: ${result.error ?? 'install failed'}`)
+    }
+    return notes
   }
 
   /** Uninstall the plugin: skills to trash, managed rows and the
@@ -784,7 +858,7 @@ export class CcMarketplaceService {
     // key survives upstream, so model-visible tool names stay stable. The
     // plugin's own previous rows are excluded from the dedupe set.
     const others = installed.plugins.filter((p) => p.key !== key)
-    const mcp = this.buildMcpRows(key, inventory, others, record.mcpServers)
+    const mcp = this.buildMcpRows(key, inventory, others, await this.effectiveUserConfig(), record.mcpServers)
     const modelMap = this.effectiveModelMap(await this.store.readModelMap())
     const agents = this.opts.agentsEnabled === true
       ? this.buildAgentRows(key, record.pluginName, resolved.files, inventory, others, mcp.rows, modelMap, record.agents)
@@ -1092,6 +1166,7 @@ export class CcMarketplaceService {
     key: string,
     inventory: PluginInventory,
     others: readonly InstalledPlugin[],
+    userConfig: Readonly<Record<string, string>>,
     previous?: readonly InstalledMcpRow[],
   ): { rows: InstalledMcpRow[]; notes: string[] } {
     const notes: string[] = []
@@ -1100,6 +1175,7 @@ export class CcMarketplaceService {
       const expanded = expandMcpServerTemplates(raw, {
         pluginRoot: this.pluginRootOf(key),
         pluginData: this.pluginDataOf(key),
+        userConfig,
         env: this.opts.env ?? {},
       })
       notes.push(...expanded.notes)

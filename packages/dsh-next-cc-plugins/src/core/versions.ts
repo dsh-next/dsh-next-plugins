@@ -78,6 +78,40 @@ export function hasNewerVersion(installed: string, catalog: string): boolean {
   return installed !== catalog
 }
 
+/**
+ * Whether a marketplace entry `version` satisfies a Claude plugin
+ * dependency range (`name@range` in `plugin.json` `dependencies`).
+ * Supports the common semver forms (`^1.2.0`, `~1.2`, `1.2.3`, `>=1.0`,
+ * `*`/empty) over the same loose dotted-number parsing as the update
+ * badge; an unparseable version satisfies only an exact string match or
+ * an open range, so a weird version never silently passes a pin.
+ */
+export function satisfiesRange(version: string, range: string): boolean {
+  const r = range.trim()
+  if (r === '' || r === '*' || r === 'latest') return true
+  const v = parseVersion(version)
+  const m = /^(>=|~|\^|=)?(.*)$/.exec(r.toLowerCase())
+  const op = m?.[1] ?? ''
+  const rest = (m?.[2] ?? '').trim()
+  const bound = parseVersion(rest)
+  if (v === undefined || bound === undefined) {
+    // Unparseable on either side: only an exact string match satisfies, so
+    // a weird version never silently passes a pin.
+    return op === '' && version.trim().toLowerCase() === rest
+  }
+  if (op === '>=') return compareParsed(v, bound) >= 0
+  if (op === '^') {
+    if (v.nums[0] !== bound.nums[0]) return false // same major, not below
+    return compareParsed(v, bound) >= 0
+  }
+  if (op === '~') {
+    if (v.nums[0] !== bound.nums[0]) return false // same major.minor, not below
+    if ((v.nums[1] ?? 0) !== (bound.nums[1] ?? 0)) return false
+    return compareParsed(v, bound) >= 0
+  }
+  return compareParsed(v, bound) === 0
+}
+
 /** The `.claude-plugin/plugin.json` version of a plugin's files ('' when absent). */
 export function manifestVersion(files: Record<string, string>): string {
   const raw = files['.claude-plugin/plugin.json']

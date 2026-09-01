@@ -342,7 +342,19 @@ export function manifestDependencies(files: PluginFiles): string[] {
 /** Install note for a plugin's declared dependencies (none -> no note). */
 export function dependencyNotes(dependencies: readonly string[]): string[] {
   if (dependencies.length === 0) return []
-  return [`requires plugin(s) ${dependencies.join(', ')}; this bridge does not auto-install dependencies`]
+  // The outcome (auto-installed, skipped) rides the install-time result
+  // notes; this line records the declaration itself on the install record.
+  return [`requires plugin(s) ${dependencies.join(', ')}`]
+}
+
+/**
+ * Split one declared dependency into its name and optional range:
+ * `name` or `name@range` (Claude's `plugin.json` `dependencies` forms).
+ */
+export function parseDependency(raw: string): { name: string; range: string } {
+  const at = raw.indexOf('@', 1)
+  if (at === -1) return { name: raw.trim(), range: '' }
+  return { name: raw.slice(0, at).trim(), range: raw.slice(at + 1).trim() }
 }
 
 /**

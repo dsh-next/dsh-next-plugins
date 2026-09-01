@@ -42,6 +42,8 @@ export interface PluginConfig {
     hooks?: boolean
     /** Claude model id to DSH model id map for agent `model:` frontmatter. */
     agentModelMap?: Record<string, string>
+    /** User-provided plugin configuration (`${user_config.<key>}`). */
+    userConfig?: Record<string, string>
   }
 }
 
@@ -53,6 +55,7 @@ export const Config = Schema.object({
     // Cast to the global schema-instance interface so declaration emit can
     // name the member's type without a transitive cosmokit reference (TS2742).
     agentModelMap: (Schema.dict(Schema.string()) as Schemastery<Record<string, string>>).description('Claude model id to DSH model id map used for installed agents\' model: frontmatter (unmapped models inherit the parent\'s model)'),
+    userConfig: (Schema.dict(Schema.string()) as Schemastery<Record<string, string>>).description('User plugin configuration expanded into ${user_config.<key>} MCP templates at install/update time (cc-plugins/user-config.json overrides)'),
   }),
 })
 
@@ -105,6 +108,7 @@ export function apply(ctx: Context, config: PluginConfig = {}): void {
     store,
     agentsEnabled: config.runtime?.agents !== false,
     agentModelMap: config.runtime?.agentModelMap,
+    userConfig: config.runtime?.userConfig,
     logger: {
       warn: (message) => { ctx.logger.warn(message) },
       info: (message) => { ctx.logger.info(message) },

@@ -55,7 +55,7 @@ with a built-in runtime for the components DSH activates in-process.
   | `commands/*.md` | DSH command registry (`ctx.commands`) via the built-in runtime bridge | Immediate; re-registers after every install/update/uninstall. A command expands `$ARGUMENTS` into the plugin's template and submits it as a model-visible user turn |
   | `.mcp.json` servers | Managed `dsh-mcp-client` rows in `$DSH_HOME/cordis.patch.yml` | After a DSH restart or profile reload |
   | `agents/*.md` | Managed `dsh-tool-subagent` rows (one `cc-agent-<name>` delegation tool per agent, the agent markdown as the child persona; the `tools:` frontmatter becomes `toolFilter.allow` over translated DSH tool names — Claude built-ins through a well-known map, `mcp__` refs resolved through the plugin's installed MCP rows so server-name dedupe survives, and foreign `mcp__server__tool` refs passed through since DSH's MCP client uses Claude's exact naming; a mapped `model:` becomes `agentOptions.model`) | After a profile reload |
-  | `hooks/hooks.json` | The runtime bridge runs each matching hook with Claude-compatible JSON stdin, `CLAUDE_PLUGIN_ROOT`/`CLAUDE_PLUGIN_DATA` env, and per-hook timeouts. `PreToolUse`/`PostToolUse` ride `tools/pre-execute`/`tools/post-execute` (exit code 2 or a JSON deny blocks the call); `UserPromptSubmit` rides `agent/pre-step` (a block rejects the step, stdout becomes injected context); `SessionStart` rides `agent/session-start` (observe, stdout injected, matcher selects `startup`/`resume`/`clear`/`compact`); `Stop` rides `agent/turn-stopping` (a block steers the agent to continue, loop-guarded per turn); `SubagentStop` rides `subagent/end` (observe only) | While `runtime.hooks` is enabled |
+  | `hooks/hooks.json` | The runtime bridge runs each matching hook with Claude-compatible JSON stdin, `CLAUDE_PLUGIN_ROOT`/`CLAUDE_PLUGIN_DATA` env, the plugin's `bin/` directory on `PATH`, and per-hook timeouts. `PreToolUse`/`PostToolUse` ride `tools/pre-execute`/`tools/post-execute` (exit code 2 or a JSON deny blocks the call); `UserPromptSubmit` rides `agent/pre-step` (a block rejects the step, stdout becomes injected context); `SessionStart` rides `agent/session-start` (observe, stdout injected, matcher selects `startup`/`resume`/`clear`/`compact`); `Stop` rides `agent/turn-stopping` (a block steers the agent to continue, loop-guarded per turn); `SubagentStop` rides `subagent/end` (observe only) | While `runtime.hooks` is enabled |
 
 - **Manage installs** — update an installed plugin from upstream (skills
   re-copied into every root the scope spans, removed skills recoverably
@@ -92,13 +92,18 @@ Component and version fidelity follows Claude Code's current reference:
 - **`argument-hint`** command frontmatter passes through as the DSH
   composer's input hint.
 - **MCP template expansion** — `${CLAUDE_PLUGIN_ROOT}`, `${CLAUDE_PLUGIN_DATA}`,
-  and `${ENV_VAR}` references in server definitions are expanded at install
-  time against the plugin's materialized root and the host environment
-  (DSH's MCP client does no substitution). `${CLAUDE_PROJECT_DIR}` stays as
-  written with a note (it has no single value across scope roots), as do
-  references to unset variables. stdio rows also carry the plugin root as
-  their `cwd` — Claude Code runs plugin MCP servers from the plugin root,
-  which relative command paths (`./cli/server.js`) rely on.
+  `${user_config.<key>}`, and `${ENV_VAR}` references in server definitions
+  are expanded at install time against the plugin's materialized root, the
+  user plugin configuration, and the host environment (DSH's MCP client
+  does no substitution). User configuration comes from the composition's
+  `runtime.userConfig` map, with the hand-editable
+  `$DSH_HOME/cc-plugins/user-config.json` overriding key by key — the form
+  credential-carrying servers (Grafana-style) reference. `${CLAUDE_PROJECT_DIR}`
+  stays as written with a note (it has no single value across scope roots),
+  as do references to unset variables and unconfigured keys. stdio rows
+  also carry the plugin root as their `cwd` — Claude Code runs plugin MCP
+  servers from the plugin root, which relative command paths
+  (`./cli/server.js`) rely on.
 - **Version precedence** — the catalog side is the marketplace entry's
   `version`, then the plugin's own `plugin.json` version (resolvable for
   relative sources), then no version at all; version-less plugins get their
@@ -107,12 +112,21 @@ Component and version fidelity follows Claude Code's current reference:
   equivalent, and it also catches entry-only edits).
 - **Recognized-but-unbridged families** — LSP servers (`.lsp.json` or
   manifest `lspServers`), background monitors, output styles, themes,
-  workflows, `bin/` executables, and plugin `settings.json` are counted and
-  reported ("not bridged") on the card and in the detail modal, and noted at
-  install; nothing from them is executed or installed.
-- **Plugin dependencies** (`dependencies` in `plugin.json`) are surfaced as
-  `requires:` on the card and as an install note. This bridge never
-  auto-installs them — Claude Code does — installs stay explicit here.
+  workflows, and plugin `settings.json` are counted and reported ("not
+  bridged") on the card and in the detail modal, and noted at install;
+  nothing from them is executed or installed. A plugin's `bin/`
+  executables are counted too, but not left entirely unbridged: the
+  directory joins `PATH` whenever the runtime bridge executes that
+  plugin's hook commands, exactly as Claude Code does.
+- **Plugin dependencies** (`dependencies` in `plugin.json`) auto-install
+  from the same marketplace, as Claude Code does: every declared dependency
+  missing locally installs alongside the parent, inheriting its scope, and
+  the install message reports each outcome. Dependencies already installed
+  (whatever their scope) satisfy silently; entries missing from the index,
+  versions outside a declared range (`name@^2.0.0`), self-references, and
+  failed installs skip with a note and never fail the parent. The
+  declaration persists on the record as `requires:`; updating or
+  uninstalling a dependency stays explicit and independent, like Claude.
 - **Skill frontmatter** — DSH's own skill runtime honors
   `disable-model-invocation` and `user-invocable` (same kebab-case names),
   so those pass through working. `allowed-tools`, `disallowed-tools`,
@@ -136,6 +150,8 @@ Declared with schemastery; the profile composition passes it as the row's
       hooks: false     # run hook commands (executes third-party shell)
       agentModelMap:   # Claude model id -> DSH model id for agents' model:
         sonnet: glm-4.7
+      userConfig:      # ${user_config.<key>} values for MCP templates:
+        grafana_url: https://grafana.example.com
 ```
 
 `hooks` defaults to false deliberately: hooks execute arbitrary shell from

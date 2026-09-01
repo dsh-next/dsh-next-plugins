@@ -510,29 +510,132 @@ describe('CcMarketplaceService install', () => {
     expect(clean?.notes).toBeUndefined()
   })
 
-  it('notes declared plugin dependencies without auto-installing them', async () => {
+  it('auto-installs declared plugin dependencies from the same marketplace', async () => {
     f.gh.setRepo('o', 'r', {
       '.claude-plugin/marketplace.json': JSON.stringify({
         name: 'acme-tools',
         plugins: [
           { name: 'vault-user', source: './plugins/vault-user' },
-          { name: 'secrets-vault', source: './plugins/secrets-vault' },
+          { name: 'secrets-vault', version: '2.1.0', source: './plugins/secrets-vault' },
         ],
       }),
       'plugins/vault-user/.claude-plugin/plugin.json': JSON.stringify({
         name: 'vault-user',
-        dependencies: ['secrets-vault'],
+        dependencies: ['secrets-vault@^2.0.0'],
       }),
       'plugins/vault-user/skills/deploy/SKILL.md': SKILL('deploy', 'Deploys'),
       'plugins/secrets-vault/skills/keep/SKILL.md': SKILL('keep', 'Keeps'),
     })
     await f.service.addMarketplace('o/r')
-    const result = await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'vault-user', scope: { kind: 'global' } })
+    const result = await f.service.installPlugin({
+      marketplaceId: 'github:o/r',
+      plugin: 'vault-user',
+      scope: { kind: 'workspaces', workspacePaths: ['/w1'] },
+    })
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.message).toContain('requires plugin(s) secrets-vault; this bridge does not auto-install dependencies')
-    // Only the requested plugin installed.
-    expect((await f.service.state()).installed).toHaveLength(1)
+    expect(result.message).toContain('auto-installed dependency "secrets-vault"')
+    // The dependency installed and inherited the requesting scope.
+    const state = await f.service.state()
+    expect(state.installed.map((p) => p.pluginName).sort()).toEqual(['secrets-vault', 'vault-user'])
+    const dep = state.installed.find((p) => p.pluginName === 'secrets-vault')
+    expect(dep?.scope).toEqual({ kind: 'workspaces', workspacePaths: ['/w1'] })
+    expect(f.fs.has('/w1/.agents/skills/keep/SKILL.md')).toBe(true)
+    // The declaration persists on the parent's record for later review.
+    expect(state.installed.find((p) => p.pluginName === 'vault-user')?.notes).toContain('requires plugin(s) secrets-vault@^2.0.0')
+    // Re-installing a plugin whose dependency is already present: the
+    // dependency satisfies silently (no duplicate, no noise).
+    const again = await f.service.uninstallPlugin('github:o/r/vault-user')
+    expect(again.ok).toBe(true)
+    const re = await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'vault-user', scope: { kind: 'global' } })
+    expect(re.ok).toBe(true)
+    if (re.ok) expect(re.message).not.toContain('auto-installed dependency "secrets-vault"')
+    expect((await f.service.state()).installed.filter((p) => p.pluginName === 'secrets-vault')).toHaveLength(1)
+  })
+
+  it('skips missing, range-mismatched, and self dependencies with notes', async () => {
+    f.gh.setRepo('o', 'r', {
+      '.claude-plugin/marketplace.json': JSON.stringify({
+        name: 'acme-tools',
+        plugins: [
+          { name: 'needy', version: '1.0.0', source: './plugins/needy' },
+          { name: 'old-vault', version: '1.0.0', source: './plugins/old-vault' },
+        ],
+      }),
+      'plugins/needy/.claude-plugin/plugin.json': JSON.stringify({
+        name: 'needy',
+        dependencies: ['ghost-vault', 'old-vault@^2.0.0', 'needy'],
+      }),
+      'plugins/needy/skills/deploy/SKILL.md': SKILL('deploy', 'Deploys'),
+      'plugins/old-vault/skills/keep/SKILL.md': SKILL('keep', 'Keeps'),
+    })
+    await f.service.addMarketplace('o/r')
+    const result = await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'needy', scope: { kind: 'global' } })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.message).toContain('dependency "ghost-vault" not found in marketplace "github:o/r"')
+    expect(result.message).toContain('dependency "old-vault@^2.0.0" not satisfied: marketplace carries 1.0.0')
+    expect(result.message).toContain('dependency "needy" is the plugin itself; skipped')
+    // The parent still installed; nothing else did.
+    expect((await f.service.state()).installed.map((p) => p.pluginName)).toEqual(['needy'])
+  })
+
+  it('expands user_config templates from the config baseline and the file override', async () => {
+    f.gh.setRepo('o', 'r', {
+      '.claude-plugin/marketplace.json': JSON.stringify({
+        name: 'acme-tools',
+        plugins: [{ name: 'grafana', source: './plugins/grafana' }],
+      }),
+      'plugins/grafana/.mcp.json': JSON.stringify({
+        mcpServers: {
+          grafana: {
+            command: 'docker',
+            args: [],
+            env: {
+              GRAFANA_URL: '${user_config.grafana_url}',
+              GRAFANA_TOKEN: '${user_config.grafana_token}',
+            },
+          },
+        },
+      }),
+      'plugins/grafana/skills/audit/SKILL.md': SKILL('audit', 'Audits'),
+    })
+    const fs = createMemFs()
+    // The file layer overrides the config baseline key by key.
+    await fs.mkdir('/home/u/.dsh/cc-plugins', { recursive: true })
+    await fs.writeFile('/home/u/.dsh/cc-plugins/user-config.json', JSON.stringify({ grafana_url: 'https://file.test' }))
+    const gh = f.gh
+    const service = new CcMarketplaceService({
+      fs,
+      fetch: gh.fetch as FetchLike,
+      dshHome: '/home/u/.dsh',
+      agentsHome: '/home/u/.agents',
+      home: '/home/u',
+      cordisPatchPath: PATCH,
+      userConfig: { grafana_url: 'https://config.test', grafana_token: 'file-missing-so-config' },
+    })
+    await service.addMarketplace('o/r')
+    const ok = await service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'grafana', scope: { kind: 'global' } })
+    expect(ok.ok).toBe(true)
+    const record = (await service.state()).installed[0]
+    const env = record.mcpServers[0].def.transport === 'stdio' ? record.mcpServers[0].def.env : undefined
+    // File wins for grafana_url; the config baseline supplies grafana_token.
+    expect(env).toEqual({ GRAFANA_URL: 'https://file.test', GRAFANA_TOKEN: 'file-missing-so-config' })
+    expect(ok.ok && ok.message).not.toContain('not configured')
+
+    // Without any value the template stays literal with a note naming the
+    // two configuration points.
+    const bare = makeFixture()
+    bare.gh.setRepo('o', 'r', {
+      '.claude-plugin/marketplace.json': JSON.stringify({ name: 'acme-tools', plugins: [{ name: 'grafana', source: './plugins/grafana' }] }),
+      'plugins/grafana/.mcp.json': JSON.stringify({ mcpServers: { grafana: { command: 'docker', args: [], env: { GRAFANA_URL: '${user_config.grafana_url}' } } } }),
+    })
+    await bare.service.addMarketplace('o/r')
+    const miss = await bare.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'grafana', scope: { kind: 'global' } })
+    expect(miss.ok).toBe(true)
+    if (!miss.ok) return
+    expect(miss.message).toContain('${user_config.grafana_url} which is not configured')
+    expect(miss.message).toContain('runtime.userConfig or cc-plugins/user-config.json')
   })
 
   it('notes unbridged component families in the install message', async () => {

@@ -167,6 +167,19 @@ export class Store {
     return joinPath(this.opts.root, 'model-map.json')
   }
 
+  /** User-provided plugin configuration (`${user_config.<key>}` values);
+   *  hand-editable and the override layer over the composition config. */
+  async readUserConfig(): Promise<Record<string, string>> {
+    const raw = await this.readJson<unknown>(joinPath(this.opts.root, 'user-config.json'), {})
+    const out: Record<string, string> = {}
+    if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) {
+      for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+        if (typeof value === 'string' && value.trim() !== '') out[key] = value
+      }
+    }
+    return out
+  }
+
   async readSnapshot(id: string): Promise<Snapshot | undefined> {
     const snapshot = await this.readJson<Snapshot | undefined>(this.snapshotPath(id), undefined)
     if (snapshot === undefined) return undefined

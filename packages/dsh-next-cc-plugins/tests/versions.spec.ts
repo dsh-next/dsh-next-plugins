@@ -4,7 +4,7 @@
  * marketplace auto-refresh TTL.
  */
 import { describe, expect, it } from 'vitest'
-import { hasNewerVersion, isSnapshotStale, isUpdateAvailable, manifestVersion, MARKETPLACE_TTL_MS } from '../src/core/versions.ts'
+import { hasNewerVersion, isSnapshotStale, isUpdateAvailable, manifestVersion, MARKETPLACE_TTL_MS, satisfiesRange } from '../src/core/versions.ts'
 
 const DAY = 24 * 60 * 60 * 1000
 const NOW = Date.parse('2026-09-02T12:00:00.000Z')
@@ -127,5 +127,38 @@ describe('isUpdateAvailable', () => {
     // flag (Claude pins users to the version string); a version-less one
     // would flag via the digest branch above.
     expect(isUpdateAvailable({ installedVersion: '1.0.0', entryVersion: '1.0.0', installedDigest: DIGEST_A, catalogDigest: DIGEST_B })).toBe(false)
+  })
+})
+
+describe('satisfiesRange', () => {
+  it('accepts everything for open ranges', () => {
+    expect(satisfiesRange('1.2.3', '')).toBe(true)
+    expect(satisfiesRange('1.2.3', '*')).toBe(true)
+    expect(satisfiesRange('1.2.3', 'latest')).toBe(true)
+    expect(satisfiesRange('', '*')).toBe(true)
+  })
+
+  it('handles exact, caret, tilde, and floor forms', () => {
+    expect(satisfiesRange('1.2.3', '1.2.3')).toBe(true)
+    expect(satisfiesRange('1.2.4', '1.2.3')).toBe(false)
+    expect(satisfiesRange('v1.2.3', '=1.2.3')).toBe(true)
+    expect(satisfiesRange('1.3.0', '^1.2.3')).toBe(true)
+    expect(satisfiesRange('1.2.2', '^1.2.3')).toBe(false)
+    expect(satisfiesRange('2.0.0', '^1.2.3')).toBe(false)
+    expect(satisfiesRange('1.2.9', '~1.2.3')).toBe(true)
+    expect(satisfiesRange('1.3.0', '~1.2.3')).toBe(false)
+    expect(satisfiesRange('1.0.0', '>=1.0')).toBe(true)
+    expect(satisfiesRange('0.9.0', '>=1.0')).toBe(false)
+  })
+
+  it('pads short versions and ignores pre-release suffixes', () => {
+    expect(satisfiesRange('1.2', '^1.0.0')).toBe(true)
+    expect(satisfiesRange('1.2.3-rc.1', '^1.0.0')).toBe(true)
+  })
+
+  it('keeps unparseable versions honest', () => {
+    expect(satisfiesRange('weird', 'weird')).toBe(true)
+    expect(satisfiesRange('weird', '1.2.3')).toBe(false)
+    expect(satisfiesRange('weird', '*')).toBe(true)
   })
 })

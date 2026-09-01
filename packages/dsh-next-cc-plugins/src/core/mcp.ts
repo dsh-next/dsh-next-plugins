@@ -267,6 +267,8 @@ export interface McpTemplateVars {
   pluginRoot: string
   /** This plugin's writable data directory (`${CLAUDE_PLUGIN_DATA}`). */
   pluginData: string
+  /** User-provided plugin configuration (`${user_config.<key>}`). */
+  userConfig: Readonly<Record<string, string>>
   /** Host environment every other `${NAME}` resolves from. */
   env: Readonly<Record<string, string | undefined>>
 }
@@ -276,12 +278,16 @@ export interface ExpandedMcpServer {
   notes: string[]
 }
 
-const TEMPLATE_TOKEN = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g
+/** The prefix marking Claude Code's user-provided plugin configuration. */
+const USER_CONFIG_PREFIX = 'user_config.'
+
+const TEMPLATE_TOKEN = /\$\{([A-Za-z_][A-Za-z0-9_.]*)\}/g
 
 /**
  * Expand `${NAME}` templates in one server definition the way Claude Code
  * does at load time: `CLAUDE_PLUGIN_ROOT`/`CLAUDE_PLUGIN_DATA` resolve to
- * this plugin's install paths on this machine, and every other name
+ * this plugin's install paths on this machine, `user_config.<key>` names
+ * resolve from the user's plugin configuration map, and every other name
  * resolves from the host environment. `${CLAUDE_PROJECT_DIR}` and names
  * that are not set stay as written, each with a note: DSH's MCP client
  * performs no substitution, so an unexpanded token must be visible to the
@@ -290,14 +296,21 @@ const TEMPLATE_TOKEN = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g
  * *names* are never templates, only their values.
  */
 export function expandMcpServerTemplates(server: McpServerComponent, vars: McpTemplateVars): ExpandedMcpServer {
-  const unresolved = new Set<string>()
+  const unresolvedEnv = new Set<string>()
+  const unresolvedUserConfig = new Set<string>()
   const expand = (text: string): string =>
     text.replace(TEMPLATE_TOKEN, (whole, name: string) => {
       if (name === 'CLAUDE_PLUGIN_ROOT') return vars.pluginRoot
       if (name === 'CLAUDE_PLUGIN_DATA') return vars.pluginData
+      if (name.startsWith(USER_CONFIG_PREFIX)) {
+        const value = vars.userConfig[name.slice(USER_CONFIG_PREFIX.length)]
+        if (value !== undefined) return value
+        unresolvedUserConfig.add(name)
+        return whole
+      }
       const value = vars.env[name]
       if (value !== undefined) return value
-      unresolved.add(name)
+      unresolvedEnv.add(name)
       return whole
     })
   const expandMap = (map: Record<string, string>): Record<string, string> => {
@@ -310,11 +323,14 @@ export function expandMcpServerTemplates(server: McpServerComponent, vars: McpTe
     ? { transport: 'stdio', command: expand(def.command), args: def.args.map(expand), env: expandMap(def.env) }
     : { transport: 'streamable-http', url: expand(def.url), headers: expandMap(def.headers) }
   const notes: string[] = []
-  if (unresolved.has('CLAUDE_PROJECT_DIR')) {
-    notes.push(`MCP server "${server.name}" references \${CLAUDE_PROJECT_DIR}, which has no single value across install targets; left as written`)
+  if (unresolvedEnv.has('CLAUDE_PROJECT_DIR')) {
+    notes.push(`MCP server "${server.name}" references \${CLAUDE_PROJECT_DIR}, which has no single value across scope roots; left as written`)
   }
-  for (const name of [...unresolved].filter((n) => n !== 'CLAUDE_PROJECT_DIR').sort()) {
+  for (const name of [...unresolvedEnv].filter((n) => n !== 'CLAUDE_PROJECT_DIR').sort()) {
     notes.push(`MCP server "${server.name}" references \${${name}} which is not set in the environment; left as written`)
+  }
+  for (const name of [...unresolvedUserConfig].sort()) {
+    notes.push(`MCP server "${server.name}" references \${${name}} which is not configured (set runtime.userConfig or cc-plugins/user-config.json); left as written`)
   }
   return { server: { ...server, def: next }, notes }
 }

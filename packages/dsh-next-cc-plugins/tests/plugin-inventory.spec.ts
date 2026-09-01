@@ -5,7 +5,7 @@
  * `pluginLevelReferenceNotes`.
  */
 import { describe, expect, it } from 'vitest'
-import { dependencyNotes, pluginInventory, pluginLevelReferenceNotes, hooksDocument, readManifestPaths, skillFiles, skillSemanticNotes, unbridgedNotes } from '../src/core/plugin-inventory.ts'
+import { dependencyNotes, parseDependency, pluginInventory, pluginLevelReferenceNotes, hooksDocument, readManifestPaths, skillFiles, skillSemanticNotes, unbridgedNotes } from '../src/core/plugin-inventory.ts'
 
 const SKILL = (name: string, description = 'does things'): string =>
   `---\nname: ${name}\ndescription: ${description}\n---\nbody\n`
@@ -421,7 +421,7 @@ describe('plugin dependencies', () => {
     }
     expect(pluginInventory(files).dependencies).toEqual(['helper-lib', 'secrets-vault@~2.1.0', 'bare'])
     expect(dependencyNotes(pluginInventory(files).dependencies)).toEqual([
-      'requires plugin(s) helper-lib, secrets-vault@~2.1.0, bare; this bridge does not auto-install dependencies',
+      'requires plugin(s) helper-lib, secrets-vault@~2.1.0, bare',
     ])
   })
 
@@ -458,5 +458,16 @@ describe('skill semantic-difference notes', () => {
     }
     const inv = pluginInventory(files)
     expect(skillSemanticNotes(files, inv.skills)).toEqual([])
+  })
+})
+
+describe('parseDependency', () => {
+  it('splits bare names from ranged declarations', () => {
+    expect(parseDependency('secrets-vault')).toEqual({ name: 'secrets-vault', range: '' })
+    expect(parseDependency('secrets-vault@~2.1.0')).toEqual({ name: 'secrets-vault', range: '~2.1.0' })
+    expect(parseDependency('vault@^2')).toEqual({ name: 'vault', range: '^2' })
+    // A leading @ (scoped-style name) is part of the name, not a range.
+    expect(parseDependency('@scope/name')).toEqual({ name: '@scope/name', range: '' })
+    expect(parseDependency('')).toEqual({ name: '', range: '' })
   })
 })

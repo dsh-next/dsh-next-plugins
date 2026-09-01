@@ -43,7 +43,7 @@ DeepSeek Harness 插件：添加 [Claude Code](https://code.claude.com/docs/en/p
   | `commands/*.md` | 通过内置运行时桥接接入 DSH 命令注册表（`ctx.commands`） | 立即；在每次安装/更新/卸载后重新注册。命令会把 `$ARGUMENTS` 展开到插件的模板中，并作为模型可见的用户轮次提交 |
   | `.mcp.json` 服务器 | `$DSH_HOME/cordis.patch.yml` 中受管理的 `dsh-mcp-client` 行 | 在 DSH 重启或 profile 重载之后 |
   | `agents/*.md` | 受管理的 `dsh-tool-subagent` 行（每个代理一个 `cc-agent-<name>` 委派工具，代理 markdown 作为子代理的角色设定；`tools:` frontmatter 转换为对翻译后的 DSH 工具名的 `toolFilter.allow` —— Claude 内置工具经由一张众所周知的映射表，`mcp__` 引用通过插件已安装的 MCP 行解析从而让服务器名称去重得以保留，外来的 `mcp__server__tool` 引用直接透传，因为 DSH 的 MCP 客户端使用与 Claude 完全相同的命名；映射到的 `model:` 变为 `agentOptions.model`） | 在 profile 重载之后 |
-  | `hooks/hooks.json` | 运行时桥接以 Claude 兼容的 JSON stdin、`CLAUDE_PLUGIN_ROOT`/`CLAUDE_PLUGIN_DATA` 环境变量和逐钩子的超时运行每个匹配的钩子。`PreToolUse`/`PostToolUse` 挂接到 `tools/pre-execute`/`tools/post-execute`（退出码 2 或 JSON deny 会阻止调用）；`UserPromptSubmit` 挂接到 `agent/pre-step`（block 会拒绝该步骤，stdout 成为注入的上下文）；`SessionStart` 挂接到 `agent/session-start`（仅观察，stdout 被注入，matcher 选择 `startup`/`resume`/`clear`/`compact`）；`Stop` 挂接到 `agent/turn-stopping`（block 会引导代理继续，逐轮有循环防护）；`SubagentStop` 挂接到 `subagent/end`（仅观察） | 在 `runtime.hooks` 启用期间 |
+  | `hooks/hooks.json` | 运行时桥接以 Claude 兼容的 JSON stdin、`CLAUDE_PLUGIN_ROOT`/`CLAUDE_PLUGIN_DATA` 环境变量、加入 `PATH` 的插件 `bin/` 目录和逐钩子的超时运行每个匹配的钩子。`PreToolUse`/`PostToolUse` 挂接到 `tools/pre-execute`/`tools/post-execute`（退出码 2 或 JSON deny 会阻止调用）；`UserPromptSubmit` 挂接到 `agent/pre-step`（block 会拒绝该步骤，stdout 成为注入的上下文）；`SessionStart` 挂接到 `agent/session-start`（仅观察，stdout 被注入，matcher 选择 `startup`/`resume`/`clear`/`compact`）；`Stop` 挂接到 `agent/turn-stopping`（block 会引导代理继续，逐轮有循环防护）；`SubagentStop` 挂接到 `subagent/end`（仅观察） | 在 `runtime.hooks` 启用期间 |
 
 - **管理安装** —— 从上游更新已安装的插件（技能重新复制到范围覆盖的每个
   根目录，被移除的技能可恢复地移入回收站，受管理的行以稳定的服务器/工具名
@@ -71,22 +71,31 @@ GitHub `url` 来源，以及 `git-subdir` 来源（GitHub monorepo 的子目录 
   `mcpServers`）；多个 hooks 或 MCP 文件会合并（首个名称胜出，重复会被记录）。
 - **`argument-hint`** 命令 frontmatter 会透传，作为 DSH 输入编辑器的提示。
 - **MCP 模板展开** —— 服务器定义中的 `${CLAUDE_PLUGIN_ROOT}`、
-  `${CLAUDE_PLUGIN_DATA}` 和 `${ENV_VAR}` 引用会在安装时针对插件的物化根目录
-  和宿主环境展开（DSH 的 MCP 客户端不做任何替换）。`${CLAUDE_PROJECT_DIR}`
-  按原样保留并附一条说明（它在各范围根目录之间没有单一取值），对未设置变量的
-  引用同样如此。stdio 行还会把插件根目录作为自己的 `cwd` —— Claude Code 从
-  插件根目录运行插件 MCP 服务器，相对命令路径（`./cli/server.js`）正依赖于此。
+  `${CLAUDE_PLUGIN_DATA}`、`${user_config.<key>}` 和 `${ENV_VAR}` 引用会在
+  安装时针对插件的物化根目录、用户插件配置和宿主环境展开（DSH 的 MCP
+  客户端不做任何替换）。用户插件配置来自组合中的 `runtime.userConfig`
+  映射，可手工编辑的 `$DSH_HOME/cc-plugins/user-config.json` 会逐键覆盖 ——
+  携带凭据的服务器（Grafana 类）引用的正是这种形式。`${CLAUDE_PROJECT_DIR}`
+  按原样保留并附一条说明（它在各范围根目录之间没有单一取值），对未设置
+  变量和未配置键的引用同样如此。stdio 行还会把插件根目录作为自己的
+  `cwd` —— Claude Code 从插件根目录运行插件 MCP 服务器，相对命令路径
+  （`./cli/server.js`）正依赖于此。
 - **版本优先级** —— 目录侧依次取市场条目的 `version`，然后是插件自身
   `plugin.json` 的版本（对相对来源可解析），最后是完全无版本；无版本的插件
   从市场快照摘要获取更新信号（Claude 会把它们解析为来源的提交 SHA；摘要即
   本桥接在同机上的等价物，而且它还能捕获仅条目级的编辑）。
 - **已识别但未桥接的家族** —— LSP 服务器（`.lsp.json` 或清单中的
-  `lspServers`）、后台监视器、输出样式、主题、工作流、`bin/` 可执行文件以及
-  插件 `settings.json` 会被计数，并在卡片和详情弹窗中报告为“未桥接”，安装时
-  也会注明；不会执行或安装来自它们的任何内容。
-- **插件依赖**（`plugin.json` 中的 `dependencies`）在卡片上以 `requires:`
-  呈现，并作为一条安装说明。本桥接从不会自动安装它们 —— Claude Code 会
-  —— 这里的安装始终保持显式。
+  `lspServers`）、后台监视器、输出样式、主题、工作流以及插件
+  `settings.json` 会被计数，并在卡片和详情弹窗中报告为“未桥接”，安装时
+  也会注明；不会执行或安装来自它们的任何内容。插件的 `bin/` 可执行文件
+  也会被计数，但并非完全未桥接：运行时桥接执行该插件的钩子命令时，该
+  目录会加入 `PATH`，与 Claude Code 的做法一致。
+- **插件依赖**（`plugin.json` 中的 `dependencies`）会像 Claude Code 一样
+  从同一市场自动安装：本地缺失的每个被声明依赖都会随父插件一起安装并
+  继承其范围，安装消息会报告每个结果。已安装的依赖（无论其范围）静默
+  满足；索引中缺失的条目、超出声明范围（`name@^2.0.0`）的版本、自引用
+  以及安装失败都会附注跳过，且绝不会让父安装失败。声明以 `requires:`
+  的形式持久化在记录上；更新或卸载依赖保持显式且独立，与 Claude 一致。
 - **技能 frontmatter** —— DSH 自身的技能运行时支持 `disable-model-invocation`
   和 `user-invocable`（同样的 kebab-case 名称），因此它们透传后仍可工作。
   `allowed-tools`、`disallowed-tools`、`model`、`effort`、`context`、`agent`、
@@ -109,6 +118,8 @@ GitHub `url` 来源，以及 `git-subdir` 来源（GitHub monorepo 的子目录 
       hooks: false     # run hook commands (executes third-party shell)
       agentModelMap:   # Claude model id -> DSH model id for agents' model:
         sonnet: glm-4.7
+      userConfig:      # ${user_config.<key>} values for MCP templates:
+        grafana_url: https://grafana.example.com
 ```
 
 `hooks` 默认为 false 是有意为之：钩子会执行来自已安装插件的任意 shell，且

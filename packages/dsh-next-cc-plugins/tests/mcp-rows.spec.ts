@@ -215,7 +215,7 @@ describe('renderMcpConfig cwd', () => {
 })
 
 describe('expandMcpServerTemplates', () => {
-  const VARS = { pluginRoot: '/root/plugin', pluginData: '/root/data', env: { TOKEN: 't1', EMPTY: '' } as Record<string, string | undefined> }
+  const VARS = { pluginRoot: '/root/plugin', pluginData: '/root/data', userConfig: {} as Record<string, string>, env: { TOKEN: 't1', EMPTY: '' } as Record<string, string | undefined> }
 
   it('expands plugin paths and env names in every stdio string field', () => {
     const { server, notes } = expandMcpServerTemplates(
@@ -283,7 +283,37 @@ describe('expandMcpServerTemplates', () => {
     if (server.def.transport !== 'stdio') throw new Error('unreachable')
     expect(server.def.command).toBe('${CLAUDE_PROJECT_DIR}/tool')
     expect(notes).toEqual([
-      'MCP server "ws" references ${CLAUDE_PROJECT_DIR}, which has no single value across install targets; left as written',
+      'MCP server "ws" references ${CLAUDE_PROJECT_DIR}, which has no single value across scope roots; left as written',
+    ])
+  })
+
+  it('expands user_config keys from the user configuration map', () => {
+    const { server, notes } = expandMcpServerTemplates(
+      {
+        name: 'grafana',
+        def: {
+          transport: 'stdio',
+          command: 'docker',
+          args: [],
+          env: { GRAFANA_URL: '${user_config.grafana_url}', TOKEN: '${user_config.grafana_token}' },
+        },
+      },
+      { ...VARS, userConfig: { grafana_url: 'https://grafana.test', grafana_token: 'tok' } },
+    )
+    if (server.def.transport !== 'stdio') throw new Error('unreachable')
+    expect(server.def.env).toEqual({ GRAFANA_URL: 'https://grafana.test', TOKEN: 'tok' })
+    expect(notes).toEqual([])
+  })
+
+  it('leaves unconfigured user_config keys literal with their own note', () => {
+    const { server, notes } = expandMcpServerTemplates(
+      { name: 'g', def: { transport: 'stdio', command: 'x', args: [], env: { URL: '${user_config.grafana_url}' } } },
+      VARS,
+    )
+    if (server.def.transport !== 'stdio') throw new Error('unreachable')
+    expect(server.def.env.URL).toBe('${user_config.grafana_url}')
+    expect(notes).toEqual([
+      'MCP server "g" references ${user_config.grafana_url} which is not configured (set runtime.userConfig or cc-plugins/user-config.json); left as written',
     ])
   })
 

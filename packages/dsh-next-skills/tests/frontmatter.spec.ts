@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   SHADOW_MARKER,
-  buildShadowSkill,
   isShadowSkill,
   parseSkillFile,
   splitFrontmatter,
-  toggleInvocation,
+  stripDisabledFlags,
 } from '../src/core/frontmatter.ts'
 
 const sample = [
@@ -88,101 +87,37 @@ describe('parseSkillFile', () => {
   })
 })
 
-describe('toggleInvocation', () => {
-  it('disabling inserts both invocation flags', () => {
-    const out = toggleInvocation(sample, false)
-    const { yaml } = splitFrontmatter(out)
-    expect(yaml).toContain('disable-model-invocation: true')
-    expect(yaml).toContain('user-invocable: false')
-    const parsed = parseSkillFile(out)
-    expect(parsed!.modelInvocable).toBe(false)
-    expect(parsed!.userInvocable).toBe(false)
-    expect(out).toContain('description: Review code for security issues.')
-    expect(out).toContain('# Body')
-  })
-  it('does not corrupt a block-scalar description', () => {
-    const block = '---\nname: n\ndescription: |\n  line one\n  line two\nlicense: MIT\n---\nbody'
-    const out = toggleInvocation(block, false)
-    const parsed = parseSkillFile(out)
-    expect(parsed).toBeDefined()
-    expect(parsed!.description).toContain('line one')
-    expect(parsed!.description).toContain('line two')
-    expect(parsed!.modelInvocable).toBe(false)
-    expect(parsed!.userInvocable).toBe(false)
-  })
-  it('enabling removes both flags', () => {
-    const disabled = toggleInvocation(sample, false)
-    const enabled = toggleInvocation(disabled, true)
-    expect(splitFrontmatter(enabled).yaml).not.toContain('disable-model-invocation')
-    expect(splitFrontmatter(enabled).yaml).not.toContain('user-invocable')
-    expect(parseSkillFile(enabled)!.modelInvocable).toBe(true)
-    expect(parseSkillFile(enabled)!.userInvocable).toBe(true)
-  })
-  it('replaces an existing false/true value when disabling', () => {
-    const withValues = '---\nname: n\ndescription: d\ndisable-model-invocation: false\nuser-invocable: true\n---\nbody'
-    const out = toggleInvocation(withValues, false)
-    expect(splitFrontmatter(out).yaml).toContain('disable-model-invocation: true')
-    expect(splitFrontmatter(out).yaml).toContain('user-invocable: false')
-    expect((splitFrontmatter(out).yaml!.match(/disable-model-invocation/g) ?? []).length).toBe(1)
-    expect((splitFrontmatter(out).yaml!.match(/user-invocable/g) ?? []).length).toBe(1)
-  })
-  it('does not duplicate a key already present with the disabling value', () => {
-    const already = '---\nname: n\ndescription: d\ndisable-model-invocation: true\nuser-invocable: false\n---\nbody'
-    const out = toggleInvocation(already, false)
-    expect((splitFrontmatter(out).yaml!.match(/disable-model-invocation/g) ?? []).length).toBe(1)
-    expect((splitFrontmatter(out).yaml!.match(/user-invocable/g) ?? []).length).toBe(1)
-  })
-  it('appends missing keys at the end while keeping existing ones in place', () => {
-    const onlyModel = '---\nname: n\ndescription: d\ndisable-model-invocation: true\n---\nbody'
-    const out = toggleInvocation(onlyModel, false)
+describe('stripDisabledFlags (legacy toggle cleanup for the migration)', () => {
+  it('removes both legacy toggle lines and keeps everything else', () => {
+    const disabled = '---\nname: n\ndescription: d\ndisable-model-invocation: true\nlicense: MIT\nuser-invocable: false\n---\nbody'
+    const out = stripDisabledFlags(disabled)
     const yaml = splitFrontmatter(out).yaml!
-    expect(yaml).toContain('disable-model-invocation: true')
-    expect(yaml).toContain('user-invocable: false')
-    expect(yaml.indexOf('disable-model-invocation')).toBeLessThan(yaml.indexOf('user-invocable'))
+    expect(yaml).not.toContain('disable-model-invocation')
+    expect(yaml).not.toContain('user-invocable')
+    expect(yaml).toContain('license: MIT')
+    expect(out.endsWith('body')).toBe(true)
+    expect(parseSkillFile(out)!.modelInvocable).toBe(true)
+  })
+  it('leaves other boolean forms untouched (author intent)', () => {
+    const author = '---\nname: n\ndescription: d\ndisable-model-invocation: false\nuser-invocable: true\n---\nbody'
+    expect(stripDisabledFlags(author)).toBe(author)
   })
   it('returns the input unchanged when there is no frontmatter', () => {
     const plain = '# no frontmatter'
-    expect(toggleInvocation(plain, false)).toBe(plain)
+    expect(stripDisabledFlags(plain)).toBe(plain)
   })
   it('preserves CRLF endings', () => {
-    const crlf = sample.replace(/\n/g, '\r\n')
-    const out = toggleInvocation(crlf, false)
+    const crlf = '---\r\nname: n\r\ndescription: d\r\ndisable-model-invocation: true\r\nuser-invocable: false\r\n---\r\nbody'
+    const out = stripDisabledFlags(crlf)
     expect(out.split('\r\n').length).toBeGreaterThan(1)
-    const parsed = parseSkillFile(out)
-    expect(parsed!.modelInvocable).toBe(false)
-    expect(parsed!.userInvocable).toBe(false)
+    expect(out).not.toContain('disable-model-invocation')
   })
 })
 
-describe('buildShadowSkill / isShadowSkill', () => {
-  it('builds a disabled shadow with the marker', () => {
-    const s = buildShadowSkill('foo', 'A foo skill')
-    expect(parseSkillFile(s)!.modelInvocable).toBe(false)
-    expect(parseSkillFile(s)!.userInvocable).toBe(false)
-    expect(parseSkillFile(s)!.name).toBe('foo')
-    expect(s).toContain(SHADOW_MARKER)
-    expect(isShadowSkill(s)).toBe(true)
-  })
-  it('round-trips a multi-line description (raw interpolation used to corrupt the YAML)', () => {
-    const description = 'Throwaway skill for the skills marker.\nMulti-line to exercise block-scalar descriptions.'
-    const s = buildShadowSkill('foo', description)
-    const parsed = parseSkillFile(s)
-    expect(parsed).not.toBeUndefined()
-    expect(parsed!.name).toBe('foo')
-    expect(parsed!.description).toBe(description)
-    expect(parsed!.modelInvocable).toBe(false)
-    expect(parsed!.userInvocable).toBe(false)
-    expect(isShadowSkill(s)).toBe(true)
-  })
-  it('round-trips a description containing ": " (raw interpolation used to corrupt the YAML)', () => {
-    const description = 'Review changes along two axes: Standards (does the code follow this?) and Spec.'
-    const s = buildShadowSkill('foo', description)
-    const parsed = parseSkillFile(s)
-    expect(parsed).not.toBeUndefined()
-    expect(parsed!.description).toBe(description)
-    expect(isShadowSkill(s)).toBe(true)
-  })
-  it('does not flag a normal skill as a shadow', () => {
+describe('isShadowSkill (legacy artifact recognition)', () => {
+  it('recognizes the legacy shadow marker in the body', () => {
+    const shadow = `---\nname: foo\ndescription: d\n---\n<!-- ${SHADOW_MARKER} -->\n`
+    expect(isShadowSkill(shadow)).toBe(true)
     expect(isShadowSkill(sample)).toBe(false)
   })
 })

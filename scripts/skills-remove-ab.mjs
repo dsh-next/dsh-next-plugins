@@ -85,13 +85,16 @@ await pageA.getByText('Settings', { exact: true }).first().click()
 await pageA.waitForTimeout(900)
 await pageA.getByRole('button', { name: 'Skills', exact: true }).first().click()
 await pageA.waitForTimeout(900)
-const row = pageA.getByText('grill-me', { exact: true }).first().locator('xpath=ancestor::div[contains(@class,"skill")][1]')
-await row.getByRole('button', { name: 'Remove', exact: true }).click()
-const dialog = pageA.getByRole('dialog', { name: 'Remove skill "grill-me"?' })
-await dialog.waitFor({ state: 'visible', timeout: 8000 })
-await dialog.getByRole('button', { name: 'Remove', exact: true }).click()
+// The scope modal: Manage -> two-step remove (grill-me is boot-seeded as
+// plugin-managed, so the remove flow accepts it).
+const card = pageA.locator('[data-testid="skills-card"]', { hasText: 'grill-me' }).first()
+await card.locator('[data-testid="skills-manage"]').first().click()
+const modal = pageA.getByTestId('skills-scope-modal')
+await modal.waitFor({ state: 'visible', timeout: 8000 })
+await modal.locator('[data-testid="skills-remove"]').click()
+await modal.locator('[data-testid="skills-remove-confirm"]').click()
 await pageA.waitForTimeout(500)
-console.log(at(), 'A removed grill-me, row visible:', await row.isVisible().catch(() => false))
+console.log(at(), 'A removed grill-me, card visible:', await card.isVisible().catch(() => false))
 
 // ---- Page B: independent fresh client, ~2s after removal -------------------
 await pageA.waitForTimeout(1500)

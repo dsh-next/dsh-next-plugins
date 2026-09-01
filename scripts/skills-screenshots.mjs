@@ -1,8 +1,8 @@
 /**
  * Headless Playwright screenshots of the Skills settings section in the
- * running isolated DSH smoke: Settings -> Skills nav item, then the three
- * tabs (Installed / Search / Providers), the Configuration block, and
- * the two-step Remove confirmation. Text assertions live in
+ * running isolated DSH smoke: Settings -> Skills nav item, the Skills tab
+ * card grid, the scope modal (Everywhere vs the workspaces checklist), the
+ * detail modal, and the Providers tab. Text assertions live in
  * scripts/skills-providers-verify.mjs and skills-full-verify.mjs; this script
  * only captures visual evidence.
  *
@@ -56,22 +56,36 @@ await dismissOnboarding()
 await page.screenshot({ path: `${OUT}/00-home.png` })
 
 await openSkillsSection()
-await page.screenshot({ path: `${OUT}/02-section-installed.png` })
+await page.screenshot({ path: `${OUT}/02-skills-grid.png` })
 
-// Two-step Remove confirmation (then Cancel to keep the seeded skills).
-await page.getByRole('button', { name: 'Remove', exact: true }).first().click({ force: true })
-await page.waitForTimeout(500)
-await page.screenshot({ path: `${OUT}/05-confirm-remove.png` })
-await page.getByRole('button', { name: 'Cancel', exact: true }).first().click({ force: true }).catch(() => {})
-await page.waitForTimeout(500)
+// The scope modal (Manage): Everywhere radio, workspaces checklist, and the
+// two-step Remove reveal. Cancel keeps everything untouched.
+const manage = page.locator('[data-testid="skills-manage"]').first()
+if (await manage.isVisible().catch(() => false)) {
+  await manage.click({ force: true })
+  await page.waitForTimeout(500)
+  await page.screenshot({ path: `${OUT}/05-scope-modal.png` })
+  await page.getByTestId('skills-scope-workspaces').click({ force: true }).catch(() => {})
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: `${OUT}/06-scope-workspaces.png` })
+  await page.getByRole('button', { name: 'Cancel', exact: true }).first().click({ force: true }).catch(() => {})
+  await page.waitForTimeout(500)
+}
 
-await page.getByRole('button', { name: 'Providers', exact: true }).first().click({ force: true })
+await page.getByTestId('skills-tab-providers').first().click({ force: true })
 await page.waitForTimeout(800)
 await page.screenshot({ path: `${OUT}/03-section-providers.png` })
 
-await page.getByRole('button', { name: 'Search', exact: true }).first().click({ force: true })
-await page.waitForTimeout(1200)
-await page.screenshot({ path: `${OUT}/04-section-search.png` })
+await page.getByTestId('skills-tab-skills').first().click({ force: true })
+await page.waitForTimeout(800)
+// Detail modal of the first card's name button.
+const nameButton = page.locator('[data-testid="skills-detail-open"]').first()
+if (await nameButton.isVisible().catch(() => false)) {
+  await nameButton.click({ force: true })
+  await page.waitForTimeout(900)
+  await page.screenshot({ path: `${OUT}/04-detail-modal.png` })
+  await page.getByTestId('skills-detail-close').click({ force: true }).catch(() => {})
+}
 
 console.log('pageErrors:', JSON.stringify(pageErrors, null, 2))
 console.log('Screenshots written to', OUT)

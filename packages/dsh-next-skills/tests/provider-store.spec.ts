@@ -26,30 +26,46 @@ function makeStore(opts: { tarballStatus?: number } = {}) {
   return { fs, gh, store }
 }
 
-describe('ProviderStore provider list', () => {
-  it('persists and reloads the configured providers', async () => {
-    const { store } = makeStore()
-    expect(await store.listProviders()).toEqual([])
-    await store.saveProviders([{ id: 'o-r', spec: 'o/r', addedAt: 'x' }])
-    expect(await store.listProviders()).toEqual([{ id: 'o-r', spec: 'o/r', addedAt: 'x' }])
+describe('ProviderStore legacy providers.json reads', () => {
+  it('hasLegacyProvidersFile gates the default seed on legacy installs', async () => {
+    const { fs, store } = makeStore()
+    expect(await store.hasLegacyProvidersFile()).toBe(false)
+    await fs.mkdir(CACHE, { recursive: true })
+    await fs.writeFile(`${CACHE}/providers.json`, JSON.stringify({ providers: [] }))
+    expect(await store.hasLegacyProvidersFile()).toBe(true)
   })
 
-  it('degrades to an empty list when the file is missing, corrupt, or malformed', async () => {
+  it('readLegacyProviders returns valid rows and drops junk', async () => {
     const { fs, store } = makeStore()
-    expect(await store.listProviders()).toEqual([])
+    expect(await store.readLegacyProviders()).toEqual([])
     await fs.mkdir(CACHE, { recursive: true })
-    await fs.writeFile(`${CACHE}/providers.json`, '{not json')
-    expect(await store.listProviders()).toEqual([])
     await fs.writeFile(`${CACHE}/providers.json`, JSON.stringify({ providers: 'nope' }))
-    expect(await store.listProviders()).toEqual([])
+    expect(await store.readLegacyProviders()).toEqual([])
     await fs.writeFile(`${CACHE}/providers.json`, JSON.stringify({ providers: [
-      { id: 'ok', spec: 'o/k', addedAt: 'x' },
+      { id: 'o-r', spec: 'o/r', addedAt: 'x' },
       { id: '', spec: 'o/k', addedAt: 'x' },
       { id: 'no-spec', spec: '', addedAt: 'x' },
       'junk',
     ] }))
-    expect(await store.listProviders()).toEqual([{ id: 'ok', spec: 'o/k', addedAt: 'x' }])
+    expect(await store.readLegacyProviders()).toEqual([{ id: 'o-r', spec: 'o/r', addedAt: 'x' }])
   })
+
+  it('readLegacyProviders degrades to empty on missing or corrupt files', async () => {
+    const { fs, store } = makeStore()
+    await fs.mkdir(CACHE, { recursive: true })
+    await fs.writeFile(`${CACHE}/providers.json`, '{not json')
+    expect(await store.readLegacyProviders()).toEqual([])
+  })
+
+  it('markProviderError ignores unknown providers without a spec (config now owns the list)', async () => {
+    const { store } = makeStore()
+    await store.markProviderError('ghost', 'boom')
+    expect(await store.readCatalog()).toEqual({ providers: [] })
+    await store.markProviderError('ghost', 'boom', 'g/h')
+    const catalog = await store.readCatalog()
+    expect(catalog.providers).toEqual([expect.objectContaining({ id: 'ghost', spec: 'g/h', error: 'boom' })])
+  })
+
 })
 
 describe('groupTreeBySkill', () => {
@@ -200,15 +216,12 @@ describe('ProviderStore errors and removal', () => {
     expect(fs.has(`${CACHE}/files/o-r/skills__find-skills/SKILL.md`)).toBe(true)
   })
 
-  it('records the error for a never-synced provider (no more swallowed failures)', async () => {
+  it('records the error for a never-synced provider via the spec argument', async () => {
     const { fs, store } = makeStore()
-    await store.saveProviders([{ id: 'never-synced', spec: 'other/repo', addedAt: 'x' }])
-    await store.markProviderError('never-synced', 'boom')
+    await store.markProviderError('never-synced', 'boom', 'other/repo')
     const catalog = parseCatalog(JSON.parse(await fs.readFile(`${CACHE}/catalog.json`)))
     expect(catalog.providers).toHaveLength(1)
     expect(catalog.providers[0]).toMatchObject({ id: 'never-synced', spec: 'other/repo', error: 'boom' })
-    const view = (await store.listProviders()).find((p) => p.id === 'never-synced')
-    expect(view).toBeTruthy()
   })
 
   it('removes the catalog entry and cached files', async () => {

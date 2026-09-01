@@ -102,10 +102,9 @@ dsh-next-notifier:
 EOF
 
 # Seed one throwaway skill into the isolated agents root so the skills DOM
-# marker can exercise a real enable-toggle and a real delete round-trip. The
-# block-scalar (`|`) description is deliberate: it guards the toggle against
-# corrupting a multi-line description (the class of bug a single-line seed
-# would never catch).
+# marker can exercise a real scope modal and a real two-step remove. The
+# matching settings record marks it plugin-managed (remove refuses files the
+# plugin did not install), which also exercises the settings.yaml state.
 mkdir -p "$DSH_AGENTS_HOME/skills/e2e-test-skill"
 cat > "$DSH_AGENTS_HOME/skills/e2e-test-skill/SKILL.md" <<'EOF'
 ---
@@ -115,6 +114,18 @@ description: |
   Multi-line to exercise block-scalar descriptions.
 ---
 # Test
+EOF
+cat >> "$DSH_HOME/settings.yaml" <<EOF
+dsh-next-skills:
+  providers: []
+  installed:
+    - name: e2e-test-skill
+      providerId: e2e-local
+      providerSpec: e2e/local
+      skillPath: skills/e2e-test-skill
+      version: seed-v1
+      installedAt: "$(date -u +%FT%TZ)"
+  scopes: {}
 EOF
 
 

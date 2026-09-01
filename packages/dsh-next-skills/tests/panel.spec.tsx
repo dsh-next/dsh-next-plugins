@@ -1,60 +1,56 @@
 /**
  * jsdom render test for the Skills settings panel: proves the panel renders
- * the three tabs (Installed / Search / Providers) from the Host
- * envelopes and that the interactive controls dispatch the right RPC calls.
- * This complements the Host RPC contract test (shape) and the real-mount e2e
- * marker (whole shell).
+ * the cc-plugins-style page (Skills / Providers tabs over a two-column card
+ * grid) from the Host envelope and that the interactive controls dispatch the
+ * right RPC calls — the scope modal (add / re-scope / two-step remove), the
+ * detail modal (markdown body), the provider filter, and the notification
+ * hook. Complements the Host RPC contract test (shape) and the real-mount
+ * e2e marker (whole shell).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as React from 'react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import type { InstalledSkill, MarketplaceView, SkillsState, WorkspaceRow } from '../src/core/types.ts'
-import { SkillsPanel } from '../src/client/SkillsPanel.tsx'
+import type { InstalledSkill, SkillsState, WorkspaceRow } from '../src/core/types.ts'
+import { buildGridEntries, filterEntries, formatLastSync, presenceLabel, SkillsPanel } from '../src/client/SkillsPanel.tsx'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const skill: InstalledSkill = {
-  name: 'security-review', description: 'Review code for security issues', enabled: true, userInvocable: true,
+  name: 'security-review', description: 'Review code for security issues',
   scope: 'global', source: 'user-agents', kind: 'bundle', path: '/a/SKILL.md', directory: '/a',
+  fileModelInvocable: true, fileUserInvocable: true, managed: true, provider: 'o/r', updateAvailable: true,
 }
 
-const MARKET: MarketplaceView = {
-  skills: [
+const STATE: SkillsState = {
+  config: { providers: [{ id: 'o-r', spec: 'o/r', addedAt: 't' }], installed: [], scopes: {} },
+  installed: [skill],
+  providers: [{ id: 'o-r', spec: 'o/r', skillCount: 2, lastRefresh: '' }],
+  catalog: [
     { name: 'find-skills', description: 'Find skills', providerId: 'o-r', providerSpec: 'o/r', skillPath: 'skills/find-skills', version: 'v1' },
     { name: 'deploy-helper', description: 'Deploy things', providerId: 'o-r', providerSpec: 'o/r', skillPath: 'skills/deploy-helper', version: 'v2' },
   ],
-  providers: [{ id: 'o-r', spec: 'o/r', skillCount: 2, lastRefresh: '' }],
-}
-
-/** A second provider, for the provider-filter dropdown test. */
-const TWO_PROVIDERS: MarketplaceView = {
-  skills: [
-    ...MARKET.skills,
-    { name: 'other-tool', description: 'Other things', providerId: 'p-q', providerSpec: 'p/q', skillPath: 'tools/other-tool', version: 'v3' },
-  ],
-  providers: [...MARKET.providers, { id: 'p-q', spec: 'p/q', skillCount: 1, lastRefresh: '' }],
-}
-
-function state(over: Partial<InstalledSkill> = {}): SkillsState {
-  return { installed: [{ ...skill, ...over }] }
-}
-
-type RpcFn = (method: string, args?: unknown) => Promise<unknown>
-
-function rpcMock(): RpcFn & ReturnType<typeof vi.fn> {
-  return vi.fn<RpcFn>(async (method: string) => {
-    if (method === 'getState') return state()
-    if (method === 'marketplace') return MARKET
-    if (method === 'getInstalledMap') return { global: state().installed, workspaces: [] }
-    return { ok: true, state: state() }
-  })
 }
 
 const WS: WorkspaceRow[] = [
   { id: 'w1', title: 'Project One', path: '/w1' },
   { id: 'w2', title: 'Project Two', path: '/w2' },
 ]
+
+type RpcFn = (method: string, args?: unknown) => Promise<unknown>
+
+function rpcMock(state: SkillsState = STATE): RpcFn & ReturnType<typeof vi.fn> {
+  return vi.fn<RpcFn>(async (method: string) => {
+    if (method === 'getState') return state
+    if (method === 'getInstalledSkillDetail') {
+      return { name: 'security-review', description: 'd', modelInvocable: true, userInvocable: true, body: '# Heading\n\nParagraph text.' }
+    }
+    if (method === 'getCatalogSkillDetail') {
+      return { name: 'find-skills', description: 'd', modelInvocable: true, userInvocable: true, body: 'Catalog body.' }
+    }
+    return { ok: true, state }
+  })
+}
 
 interface Render {
   container: HTMLDivElement
@@ -102,488 +98,286 @@ function button(container: HTMLElement, text: string): HTMLButtonElement {
   return found as HTMLButtonElement
 }
 
-function tab(container: HTMLElement, text: string): HTMLButtonElement {
-  return [...container.querySelectorAll('button')].find((b) => b.textContent === text && b.className.includes('tab')) as HTMLButtonElement
+function byTestId(container: HTMLElement, id: string): HTMLElement {
+  const found = container.querySelector(`[data-testid="${id}"]`)
+  expect(found, `[data-testid="${id}"] should exist`).toBeTruthy()
+  return found as HTMLElement
 }
 
 function dialog(container: HTMLElement): HTMLElement {
-  const found = container.querySelector('[role="dialog"]') as HTMLElement | null
-  expect(found, 'confirmation dialog should be open').toBeTruthy()
-  return found as HTMLElement
+  return byTestId(container, 'skills-scope-modal')
+}
+
+function radioByName(scope: HTMLElement, testId: string): HTMLInputElement {
+  const label = scope.querySelector(`[data-testid="${testId}"]`)!
+  return label.querySelector('input') as HTMLInputElement
+}
+
+function checkboxByTitle(scope: HTMLElement, title: string): HTMLInputElement {
+  const label = [...scope.querySelectorAll('[data-testid="skills-workspace"]')]
+    .find((el) => el.textContent === title)!
+  return label.querySelector('input') as HTMLInputElement
+}
+
+function rpcCalls(rpc: RpcFn & ReturnType<typeof vi.fn>): Array<[string, unknown?]> {
+  return rpc.mock.calls as Array<[string, unknown?]>
 }
 
 afterEach(() => { document.body.innerHTML = '' })
 
-describe('SkillsPanel', () => {
-  it('renders immediately (a settings page, not a collapsible card)', async () => {
+describe('grid composition (buildGridEntries + filterEntries)', () => {
+  it('rows come first, then catalog-only entries, each group alphabetical', () => {
+    const entries = buildGridEntries(STATE)
+    expect(entries.map((e) => e.name)).toEqual(['security-review', 'deploy-helper', 'find-skills'])
+  })
+  it('a discovered row adopts its provider spec, and catalog entries carry the filter id', () => {
+    const entries = buildGridEntries(STATE)
+    // The row has no same-name catalog entry: no provider id, but the row's
+    // own provider spec feeds the label.
+    expect(entries[0].providerId).toBeUndefined()
+    expect(entries[0].providerSpec).toBe('o/r')
+    expect(entries[1].providerId).toBe('o-r')
+  })
+  it('filters by search, provider, and installed-only', () => {
+    const entries = buildGridEntries(STATE)
+    expect(filterEntries(entries, 'deploy', '', false).map((e) => e.name)).toEqual(['deploy-helper'])
+    expect(filterEntries(entries, '', 'p-q', false)).toEqual([])
+    expect(filterEntries(entries, '', '', true).map((e) => e.name)).toEqual(['security-review'])
+  })
+})
+
+describe('formatters', () => {
+  it('presenceLabel reads the scope setting', () => {
+    expect(presenceLabel(undefined)).toBe('Everywhere')
+    expect(presenceLabel({ kind: 'global' })).toBe('Everywhere')
+    expect(presenceLabel({ kind: 'workspaces', workspacePaths: [] })).toBe('Off')
+    expect(presenceLabel({ kind: 'workspaces', workspacePaths: ['/a', '/b'] })).toBe('2 workspaces')
+    expect(presenceLabel({ kind: 'workspaces', workspacePaths: ['/a'] })).toBe('1 workspace')
+  })
+  it('formatLastSync renders relative ages', () => {
+    const now = Date.parse('2026-09-01T12:00:00Z')
+    expect(formatLastSync('', now)).toBe('never synced')
+    expect(formatLastSync(new Date(now - 30_000).toISOString(), now)).toBe('synced just now')
+    expect(formatLastSync(new Date(now - 5 * 60_000).toISOString(), now)).toBe('synced 5 min ago')
+    expect(formatLastSync(new Date(now - 3 * 3_600_000).toISOString(), now)).toBe('synced 3 h ago')
+    expect(formatLastSync(new Date(now - 2 * 86_400_000).toISOString(), now)).toBe('synced 2 d ago')
+  })
+})
+
+describe('SkillsPanel rendering', () => {
+  it('renders the tabs, filter row, and one card per grid entry', async () => {
+    const { container, unmount } = await render(rpcMock(), WS)
+    expect(byTestId(container, 'skills-tab-skills')).toBeTruthy()
+    expect(byTestId(container, 'skills-tab-providers')).toBeTruthy()
+    expect(byTestId(container, 'skills-search')).toBeTruthy()
+    expect(byTestId(container, 'skills-provider-filter')).toBeTruthy()
+    const cards = container.querySelectorAll('[data-testid="skills-card"]')
+    expect(cards).toHaveLength(3)
+    // The installed card shows the presence badge and both action buttons.
+    expect(byTestId(container, 'skills-presence').textContent).toBe('Everywhere')
+    expect(byTestId(container, 'skills-manage')).toBeTruthy()
+    expect(byTestId(container, 'skills-add')).toBeTruthy()
+    // The managed card with a newer catalog version carries the Update button.
+    expect(byTestId(container, 'skills-update')).toBeTruthy()
+    await unmount()
+  })
+
+  it('getState receives the registered workspace paths', async () => {
     const rpc = rpcMock()
-    const { container, unmount } = await render(rpc)
-    expect(rpc).toHaveBeenCalledWith('getState', expect.anything())
-    expect(container.textContent).toContain('security-review')
-    expect(container.textContent).toContain('Installed')
-    expect(container.textContent).toContain('Search')
-    expect(container.textContent).toContain('Providers')
-    await unmount()
+    await render(rpc, WS)
+    const call = rpcCalls(rpc).find(([m]) => m === 'getState')
+    expect(call![1]).toEqual({ workspacePaths: ['/w1', '/w2'] })
   })
 
-  it('dispatches setEnabled when the Disable button is clicked', async () => {
-    const rpc = rpcMock()
-    const { container, unmount } = await render(rpc)
-    // An enabled skill shows a red Disable action beside Remove.
-    await click(button(container, 'Disable'))
-    // No workspace selected: the toggle applies to the skill's own (global) scope.
-    expect(rpc).toHaveBeenCalledWith('setEnabled', expect.objectContaining({ name: 'security-review', enabled: false, scope: 'global' }))
-    await unmount()
-  })
-
-  it('shadows a global skill per workspace when toggled off with a workspace selected', async () => {
-    const rpc = rpcMock()
-    const { container, unmount } = await render(rpc, WS)
-    await click(button(container, 'Disable'))
-    expect(rpc).toHaveBeenCalledWith('setEnabled', expect.objectContaining({
-      name: 'security-review', enabled: false, scope: 'workspace', workspacePath: '/w1',
-    }))
-    await unmount()
-  })
-
-  it('honors the "Global only" selector option instead of falling back to a workspace', async () => {
-    const rpc = rpcMock()
-    const { container, unmount } = await render(rpc, WS)
-    // The selector defaults to the first workspace; switching to the empty
-    // value must really detach the workspace scope (a regression here made
-    // "Global only" unreachable and every toggle a workspace shadow).
-    const select = container.querySelector('select') as HTMLSelectElement
-    expect(select).toBeTruthy()
-    await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value')!.set!
-      setter.call(select, '')
-      select.dispatchEvent(new Event('change', { bubbles: true }))
-    })
-    await click(button(container, 'Disable'))
-    expect(rpc).toHaveBeenCalledWith('setEnabled', expect.objectContaining({
-      name: 'security-review', enabled: false, scope: 'global', workspacePath: undefined,
-    }))
-    await unmount()
-  })
-
-  it('shows a shadow badge for plugin-generated workspace shadows', async () => {
-    const rpc = vi.fn<RpcFn>(async (method: string) => {
-      if (method === 'getState') return state({ scope: 'workspace', enabled: false, shadow: true })
-      if (method === 'marketplace') return MARKET
-      if (method === 'getInstalledMap') return { global: [], workspaces: [] }
-      return { ok: true, state: state() }
-    })
-    const { container, unmount } = await render(rpc)
-    expect(container.textContent).toContain('shadow')
-    await unmount()
-  })
-
-  it('dims only the title and description of a disabled skill, not its actions', async () => {
-    const rpc = vi.fn<RpcFn>(async (method: string) => {
-      if (method === 'getState') return state({ enabled: false })
-      if (method === 'marketplace') return MARKET
-      if (method === 'getInstalledMap') return { global: [], workspaces: [] }
-      return { ok: true, state: state({ enabled: false }) }
-    })
-    const { container, unmount } = await render(rpc)
-    const dimmed = [...container.querySelectorAll('[class*="skillDisabled"]')] as HTMLElement[]
-    expect(dimmed.length).toBe(2)
-    for (const el of dimmed) expect(el.querySelector('button')).toBeNull()
-    // The dimming covers the title and description only; the row (with its
-    // badges and buttons) stays crisp. The disabled skill offers Enable.
-    const row = dimmed[0].parentElement!.parentElement!
-    expect(row.className).not.toContain('skillDisabled')
-    expect(row.textContent).toContain('Enable')
-    expect(row.textContent).not.toContain('Disable')
-    await unmount()
-  })
-
-  it('shows the scope chip with the global star and custom badge', async () => {
-    const rpc = rpcMock()
-    const { container, unmount } = await render(rpc)
-    expect(container.textContent).toContain('⭐ Global')
-    // The test skill has no provider manifest: it renders the yellow custom chip.
-    expect(container.textContent).toContain('custom')
-    await unmount()
-  })
-
-  it('shows an empty-state hint when no skills are installed', async () => {
-    const rpc = vi.fn<RpcFn>(async (method: string) => {
-      if (method === 'getState') return { installed: [] }
-      return { ok: true, state: state() }
-    })
-    const { container, unmount } = await render(rpc)
-    expect(container.textContent).toContain('No skills installed')
-    await unmount()
-  })
-
-  it('renders the Search tab and adds a skill to chosen targets from the modal', async () => {
-    const rpc = rpcMock()
-    const { container, unmount } = await render(rpc, WS)
-    await click(tab(container, 'Search'))
-    await act(async () => {})
-    expect(rpc).toHaveBeenCalledWith('marketplace', expect.anything())
-    expect(container.textContent).toContain('find-skills')
-    expect(container.textContent).toContain('o/r')
-    // The old "Install into" dropdown is gone; Add opens the target picker.
-    expect(container.querySelector('select[aria-label="Install into"]')).toBeNull()
-    await click(button(container, 'Add'))
-    const dialogEl = dialog(container)
-    expect(dialogEl.textContent).toContain('Add skill "find-skills"')
-    // Check global + Project One, then confirm: one installSkill per target.
-    const boxes = [...dialogEl.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[]
-    expect(boxes).toHaveLength(3) // global + two workspaces
-    await click(boxes[0]!)
-    await click(boxes[1]!)
-    await click([...dialogEl.querySelectorAll('button')].find((b) => b.textContent?.startsWith('Add'))!)
-    expect(rpc).toHaveBeenCalledWith('installSkill', expect.objectContaining({
-      providerId: 'o-r', skillPath: 'skills/find-skills', scope: 'global',
-    }))
-    expect(rpc).toHaveBeenCalledWith('installSkill', expect.objectContaining({
-      providerId: 'o-r', skillPath: 'skills/find-skills', scope: 'workspace', workspacePath: '/w1',
-    }))
-    await unmount()
-  })
-
-  it('locks targets that already hold the skill and marks them as added', async () => {
-    // find-skills exists globally but nowhere else; deploy-helper nowhere.
-    const rpc = vi.fn<RpcFn>(async (method: string) => {
-      if (method === 'getState') return state()
-      if (method === 'marketplace') return MARKET
-      if (method === 'getInstalledMap') {
-        return {
-          global: [{ ...skill, name: 'find-skills' }],
-          workspaces: WS.map((w) => ({ workspacePath: w.path, installed: [] })),
-        }
-      }
-      return { ok: true, state: state() }
-    })
-    const { container, unmount } = await render(rpc, WS)
-    await click(tab(container, 'Search'))
-    await act(async () => {})
-    // The presence badge still shows where the skill lives.
-    expect(container.textContent).toContain('in global')
-    await click(button(container, 'Add'))
-    const dialogEl = dialog(container)
-    expect(dialogEl.textContent).toContain('added')
-    const boxes = [...dialogEl.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[]
-    expect(boxes[0]!.checked).toBe(true) // global: pre-checked because installed
-    expect(boxes[0]!.disabled).toBe(true) // and locked
-    expect(boxes[1]!.checked).toBe(false)
-    expect(boxes[1]!.disabled).toBe(false)
-    // Confirm adds only the unchecked workspace target.
-    await click(boxes[1]!)
-    await click([...dialogEl.querySelectorAll('button')].find((b) => b.textContent === 'Add')!)
-    expect(rpc).toHaveBeenCalledWith('installSkill', expect.objectContaining({
-      providerId: 'o-r', skillPath: 'skills/find-skills', scope: 'workspace', workspacePath: '/w1',
-    }))
-    expect(rpc).not.toHaveBeenCalledWith('installSkill', expect.objectContaining({ scope: 'global' }))
-    await unmount()
-  })
-
-  it('filters the search list from the search bar', async () => {
-    const rpc = rpcMock()
-    const { container, unmount } = await render(rpc)
-    await click(tab(container, 'Search'))
-    await act(async () => {})
-    const search = container.querySelector('input[type="search"]') as HTMLInputElement
-    expect(search.placeholder).toContain('Search')
-    setValue(search, 'deploy')
-    await act(async () => {})
-    expect(container.textContent).toContain('deploy-helper')
-    expect(container.textContent).not.toContain('find-skills')
-    await unmount()
-  })
-
-  it('filters the search list by provider with the provider dropdown', async () => {
-    const rpc = vi.fn<RpcFn>(async (method: string) => {
-      if (method === 'getState') return state()
-      if (method === 'marketplace') return TWO_PROVIDERS
-      if (method === 'getInstalledMap') return { global: [], workspaces: [] }
-      return { ok: true, state: state() }
-    })
-    const { container, unmount } = await render(rpc)
-    await click(tab(container, 'Search'))
-    await act(async () => {})
-    expect(container.textContent).toContain('find-skills')
-    expect(container.textContent).toContain('other-tool')
-    const providerSelect = container.querySelector('select[aria-label="Provider"]') as HTMLSelectElement
-    expect([...providerSelect.options].map((o) => o.textContent)).toEqual(['All providers', 'o/r', 'p/q'])
-    await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value')!.set!
-      setter.call(providerSelect, 'p-q')
-      providerSelect.dispatchEvent(new Event('change', { bubbles: true }))
-    })
-    await act(async () => {})
-    expect(container.textContent).not.toContain('find-skills')
-    expect(container.textContent).toContain('other-tool')
-    await unmount()
-  })
-
-  it('opens a detail modal with the full SKILL.md from the Search tab', async () => {
-    const rpc = vi.fn<RpcFn>(async (method: string, args?: unknown) => {
-      if (method === 'getState') return state()
-      if (method === 'marketplace') return MARKET
-      if (method === 'getInstalledMap') return { global: [], workspaces: [] }
-      if (method === 'getCatalogSkillDetail') {
-        expect(args).toMatchObject({ providerId: 'o-r', skillPath: 'skills/find-skills' })
-        return {
-          name: 'find-skills', description: 'Find skills', modelInvocable: true, userInvocable: true,
-          body: '# find-skills\n\nUse me when searching.',
-        }
-      }
-      return { ok: true, state: state() }
-    })
-    const { container, unmount } = await render(rpc)
-    await click(tab(container, 'Search'))
-    await act(async () => {})
-    await click(container.querySelector('[aria-label="View find-skills"]') as HTMLElement)
-    const dialogEl = container.querySelector('[role="dialog"]') as HTMLElement
-    expect(dialogEl.textContent).toContain('find-skills')
-    expect(dialogEl.textContent).toContain('model invocable')
-    // The body renders as markdown: an h1 from the "# find-skills" heading.
-    const bodyEl = dialogEl.querySelector('[class*="modalBody"]') as HTMLElement
-    expect(bodyEl.querySelector('h1')?.textContent).toBe('find-skills')
-    expect(bodyEl.textContent).toContain('Use me when searching.')
-    await click([...dialogEl.querySelectorAll('button')].find((b) => b.textContent === 'Close')!)
-    expect(container.querySelector('[role="dialog"]')).toBeNull()
-    await unmount()
-  })
-
-  it('opens the detail modal from the Installed tab with invocation flags', async () => {
-    const rpc = vi.fn<RpcFn>(async (method: string) => {
-      if (method === 'getState') return state({ provider: 'o/r' })
-      if (method === 'marketplace') return MARKET
-      if (method === 'getInstalledMap') return { global: [], workspaces: [] }
-      if (method === 'getInstalledSkillDetail') {
-        return { name: 'security-review', description: 'Review code', modelInvocable: false, userInvocable: true, body: 'body text' }
-      }
-      return { ok: true, state: state({ provider: 'o/r' }) }
-    })
-    const { container, unmount } = await render(rpc)
-    await click(container.querySelector('[aria-label="View security-review"]') as HTMLElement)
-    const dialogEl = container.querySelector('[role="dialog"]') as HTMLElement
-    expect(dialogEl.textContent).toContain('model blocked')
-    expect(dialogEl.textContent).toContain('user invocable')
-    // Plain body text renders as a markdown paragraph.
-    const bodyEl = dialogEl.querySelector('[class*="modalBody"]') as HTMLElement
-    expect(bodyEl.querySelector('p')?.textContent).toContain('body text')
-    await unmount()
-  })
-
-  it('pages the search list with infinite scroll (30 per page, load more resets on filter)', async () => {
-    const bigSkills = Array.from({ length: 45 }, (_, i) => ({
-      name: `skill-${String(i).padStart(2, '0')}`,
-      description: `desc ${i}`,
-      providerId: 'o-r',
-      providerSpec: 'o/r',
-      skillPath: `skills/skill-${String(i).padStart(2, '0')}`,
-      version: 'v',
-    }))
-    const bigMarket: MarketplaceView = {
-      skills: bigSkills,
-      providers: [{ id: 'o-r', spec: 'o/r', skillCount: 45, lastRefresh: '' }],
+  it('the project chip renders for workspace rows', async () => {
+    const state: SkillsState = {
+      ...STATE,
+      installed: [{ ...skill, name: 'proj', provider: undefined, managed: false, updateAvailable: undefined, scope: 'workspace', source: 'project-agents', directory: '/w1/.agents/skills/proj' }],
+      catalog: [],
     }
-    const rpc = vi.fn<RpcFn>(async (method: string) => {
-      if (method === 'getState') return state()
-      if (method === 'marketplace') return bigMarket
-      if (method === 'getInstalledMap') return { global: [], workspaces: [] }
-      return { ok: true, state: state() }
-    })
-    const { container, unmount } = await render(rpc)
-    await click(tab(container, 'Search'))
-    await act(async () => {})
-    const rows = () => container.querySelectorAll('[class*="market"] > [class*="skill"]').length
-    expect(rows()).toBe(30)
-    expect(container.textContent).toContain('Showing 30 of 45 skills')
-    await click(button(container, 'Load more skills'))
-    expect(rows()).toBe(45)
-    expect(container.textContent).toContain('All 45 skills shown')
-    // Filtering resets paging back to the first page.
-    const search = container.querySelector('input[type="search"]') as HTMLInputElement
-    setValue(search, 'skill-4')
-    await act(async () => {})
-    expect(container.querySelectorAll('[class*="market"] > [class*="skill"]').length).toBeLessThan(30)
-    expect(container.textContent).not.toContain('Load more skills')
+    const { container, unmount } = await render(rpcMock(state), WS)
+    expect(container.querySelector('[data-testid="skills-card"]')!.textContent).toContain('project')
     await unmount()
   })
 
-  it('renders the Providers tab and dispatches addProvider / refreshProvider / removeProvider', async () => {
-    const rpc = rpcMock()
-    const { container, unmount } = await render(rpc)
-    await click(tab(container, 'Providers'))
-    await act(async () => {})
-    expect(container.textContent).toContain('o/r')
-    expect(container.textContent).toContain('2 skills')
-    const input = [...container.querySelectorAll('input[type="text"]')].find((i) => (i as HTMLInputElement).placeholder.includes('github.com'))!
-    setValue(input, 'https://github.com/x/y')
-    await click(button(container, 'Add'))
-    expect(rpc).toHaveBeenCalledWith('addProvider', expect.objectContaining({ spec: 'https://github.com/x/y' }))
-    await click(button(container, 'Refresh'))
-    expect(rpc).toHaveBeenCalledWith('refreshProvider', expect.objectContaining({ providerId: 'o-r' }))
-    await click(button(container, 'Remove'))
-    const dialogEl = dialog(container)
-    expect(dialogEl.textContent).toContain('Remove provider "o/r"?')
-    await click([...dialogEl.querySelectorAll('button')].find((b) => b.textContent === 'Remove')!)
-    expect(rpc).toHaveBeenCalledWith('removeProvider', expect.objectContaining({ providerId: 'o-r' }))
-    await unmount()
-  })
-
-  it('shows an Update button and dispatches updateSkill for outdated provider skills', async () => {
-    const rpc = vi.fn<RpcFn>(async (method: string) => {
-      if (method === 'getState') return state({ provider: 'o/r', updateAvailable: true })
-      if (method === 'marketplace') return MARKET
-      return { ok: true, state: state({ provider: 'o/r', updateAvailable: true }) }
-    })
-    const { container, unmount } = await render(rpc)
-    expect(container.textContent).toContain('o/r')
-    await click(button(container, 'Update'))
-    expect(rpc).toHaveBeenCalledWith('updateSkill', expect.objectContaining({ name: 'security-review', scope: 'global' }))
-    await unmount()
-  })
-
-  it('keeps Update visible but disabled when the skill is current', async () => {
-    const rpc = rpcMock()
-    const { container, unmount } = await render(rpc)
-    const update = button(container, 'Update')
-    expect(update.disabled).toBe(true)
-    await click(update)
-    expect(rpc).not.toHaveBeenCalledWith('updateSkill', expect.anything())
-    await unmount()
-  })
-
-  it('offers Update all copies when several targets hold the skill and dispatches updateAllCopies', async () => {
-    const rpc = vi.fn<RpcFn>(async (method: string) => {
-      if (method === 'getState') return state({ provider: 'o/r', updateAvailable: true })
-      if (method === 'marketplace') return MARKET
-      if (method === 'getInstalledMap') {
-        return {
-          global: [{ ...skill, provider: 'o/r', updateAvailable: true }],
-          workspaces: WS.map((w, i) => ({
-            workspacePath: w.path,
-            installed: i === 0 ? [{ ...skill, scope: 'workspace' as const }] : [],
-          })),
-        }
-      }
-      return { ok: true, state: state({ provider: 'o/r' }) }
-    })
-    const { container, unmount } = await render(rpc, WS)
-    expect(button(container, 'Update')).toBeTruthy()
-    await click(button(container, 'Update all copies'))
-    expect(rpc).toHaveBeenCalledWith('updateAllCopies', expect.objectContaining({
-      name: 'security-review',
-      workspacePaths: ['/w1', '/w2'],
-    }))
-    await unmount()
-  })
-
-  it('hides Update all copies when only one copy exists', async () => {
-    const rpc = vi.fn<RpcFn>(async (method: string) => {
-      if (method === 'getState') return state({ provider: 'o/r', updateAvailable: true })
-      if (method === 'marketplace') return MARKET
-      if (method === 'getInstalledMap') {
-        return {
-          global: [{ ...skill, provider: 'o/r', updateAvailable: true }],
-          workspaces: WS.map((w) => ({ workspacePath: w.path, installed: [] })),
-        }
-      }
-      return { ok: true, state: state({ provider: 'o/r' }) }
-    })
-    const { container, unmount } = await render(rpc, WS)
-    expect(button(container, 'Update')).toBeTruthy()
-    expect([...container.querySelectorAll('button')].some((b) => b.textContent === 'Update all copies')).toBe(false)
-    await unmount()
-  })
-
-  it('surfaces a partial-update warning from a mutation result', async () => {
-    const rpc = vi.fn<RpcFn>(async (method: string) => {
-      if (method === 'getState') return state({ provider: 'o/r', updateAvailable: true })
-      if (method === 'marketplace') return MARKET
-      if (method === 'getInstalledMap') return { global: [], workspaces: [] }
-      if (method === 'updateSkill') {
-        return { ok: true, state: state({ provider: 'o/r' }), warning: 'updated 1 copy of "security-review"; skipped workspace /w1 (shadow)' }
-      }
-      return { ok: true, state: state({ provider: 'o/r', updateAvailable: true }) }
-    })
-    const { container, unmount } = await render(rpc)
-    await click(button(container, 'Update'))
-    await act(async () => {})
-    expect(container.textContent).toContain('skipped workspace /w1 (shadow)')
-    await unmount()
-  })
-
-  it('requires a confirmation popup before removing a skill', async () => {
-    const rpc = rpcMock()
-    const { container, unmount } = await render(rpc)
-    await click(button(container, 'Remove'))
-    expect(rpc).not.toHaveBeenCalledWith('remove', expect.anything())
-    const dialogEl = dialog(container)
-    expect(dialogEl.textContent).toContain('Remove skill "security-review"?')
-    expect(dialogEl.textContent).toContain('.trash')
-    await click([...dialogEl.querySelectorAll('button')].find((b) => b.textContent === 'Remove')!)
-    expect(rpc).toHaveBeenCalledWith('remove', expect.objectContaining({ name: 'security-review' }))
-    await unmount()
-  })
-
-  it('cancels the removal popup without removing', async () => {
-    const rpc = rpcMock()
-    const { container, unmount } = await render(rpc)
-    await click(button(container, 'Remove'))
-    const dialogEl = dialog(container)
-    await click([...dialogEl.querySelectorAll('button')].find((b) => b.textContent === 'Cancel')!)
-    expect(rpc).not.toHaveBeenCalledWith('remove', expect.anything())
-    expect(container.querySelector('[role="dialog"]')).toBeNull()
-    expect(button(container, 'Remove')).toBeTruthy()
+  it('an empty state renders when nothing matches', async () => {
+    const state: SkillsState = { ...STATE, installed: [], catalog: [] }
+    const { container, unmount } = await render(rpcMock(state))
+    expect(byTestId(container, 'skills-empty').textContent).toContain('No skills match')
     await unmount()
   })
 })
 
-describe('SkillsPanel installed-catalog notifications', () => {
-  it('notifies after a successful removal so chat sessions refetch their skill list', async () => {
+describe('scope modal: add + re-scope + remove', () => {
+  it('Add installs the catalog skill with the drafted scope and notifies', async () => {
     const rpc = rpcMock()
     const notify = vi.fn()
-    const { container, unmount } = await render(rpc, [], notify)
-    await click(button(container, 'Remove'))
-    await click([...dialog(container).querySelectorAll('button')].find((b) => b.textContent === 'Remove')!)
-    expect(notify).toHaveBeenCalledTimes(1)
+    const { container, unmount } = await render(rpc, WS, notify)
+    // The first Add button belongs to the first catalog-only card (deploy-helper).
+    await click(byTestId(container, 'skills-add'))
+    const scope = dialog(container)
+    expect(radioByName(scope, 'skills-scope-global').checked).toBe(true)
+    expect(scope.textContent).toContain('deploy-helper')
+    await click(button(scope, 'Add'))
+    const call = rpcCalls(rpc).find(([m]) => m === 'installSkill')
+    expect(call![1]).toEqual({ providerId: 'o-r', skillPath: 'skills/deploy-helper', scope: { kind: 'global' } })
+    expect(notify).toHaveBeenCalled()
     await unmount()
   })
 
-  it('notifies after a successful toggle', async () => {
+  it('the workspaces radio reveals the checklist and Save scopes to the checked workspaces', async () => {
     const rpc = rpcMock()
-    const notify = vi.fn()
-    const { container, unmount } = await render(rpc, [], notify)
-    await click(button(container, 'Disable'))
-    expect(notify).toHaveBeenCalledTimes(1)
+    const { container, unmount } = await render(rpc, WS)
+    await click(byTestId(container, 'skills-manage'))
+    const scope = dialog(container)
+    expect(radioByName(scope, 'skills-scope-global').checked).toBe(true)
+    await click(radioByName(scope, 'skills-scope-workspaces'))
+    // Re-query on every click: each state change re-renders the checklist and
+    // replaces its DOM nodes, so a captured input would go stale.
+    const box = (title: string): HTMLInputElement =>
+      checkboxByTitle(byTestId(container, 'skills-workspaces'), title)
+    // The confirm stays enabled even with zero checked: an empty whitelist
+    // is the off-everywhere master switch.
+    expect((button(scope, 'Save') as HTMLButtonElement).disabled).toBe(false)
+    await click(box('Project One'))
+    await click(box('Project Two'))
+    expect(box('Project Two').checked).toBe(true)
+    await click(box('Project Two')) // toggle back off
+    expect(box('Project One').checked).toBe(true)
+    await click(button(byTestId(container, 'skills-scope-modal'), 'Save'))
+    const call = rpcCalls(rpc).find(([m]) => m === 'setScope')
+    expect(call![1]).toEqual({ name: 'security-review', scope: { kind: 'workspaces', workspacePaths: ['/w1'] } })
     await unmount()
   })
 
-  it('does not notify when the mutation fails', async () => {
+  it('an installed row opens on its current scope', async () => {
+    const state: SkillsState = {
+      ...STATE,
+      installed: [{ ...skill, configScope: { kind: 'workspaces', workspacePaths: ['/w2'] } }],
+      config: { ...STATE.config, scopes: { 'security-review': { kind: 'workspaces', workspacePaths: ['/w2'] } } },
+    }
+    const { container, unmount } = await render(rpcMock(state), WS)
+    await click(byTestId(container, 'skills-manage'))
+    const scope = dialog(container)
+    expect(radioByName(scope, 'skills-scope-workspaces').checked).toBe(true)
+    expect(checkboxByTitle(scope, 'Project Two').checked).toBe(true)
+    expect((button(scope, 'Save') as HTMLButtonElement).disabled).toBe(false)
+    await unmount()
+  })
+
+  it('Remove needs the two-step confirm and then calls remove', async () => {
     const rpc = rpcMock()
-    rpc.mockImplementation(async (method: string) => {
-      if (method === 'remove') return { ok: false, error: 'skill is read-only' }
-      if (method === 'getState') return state()
-      if (method === 'marketplace') return MARKET
-      if (method === 'getInstalledMap') return { global: state().installed, workspaces: [] }
-      return { ok: true, state: state() }
+    const { container, unmount } = await render(rpc, WS)
+    await click(byTestId(container, 'skills-manage'))
+    const scope = dialog(container)
+    await click(button(scope, 'Remove'))
+    // The first click only reveals the confirmation button.
+    expect(rpcCalls(rpc).map(([m]) => m)).not.toContain('remove')
+    await click(byTestId(scope, 'skills-remove-confirm'))
+    const call = rpcCalls(rpc).find(([m]) => m === 'remove')
+    expect(call![1]).toEqual({ name: 'security-review' })
+    await unmount()
+  })
+
+  it('saving the workspaces mode with none checked disables everywhere', async () => {
+    const rpc = rpcMock()
+    const { container, unmount } = await render(rpc, WS)
+    await click(byTestId(container, 'skills-manage'))
+    const scope = dialog(container)
+    await click(radioByName(scope, 'skills-scope-workspaces'))
+    await click(button(scope, 'Save'))
+    const call = rpcCalls(rpc).find(([m]) => m === 'setScope')
+    expect(call![1]).toEqual({ name: 'security-review', scope: { kind: 'workspaces', workspacePaths: [] } })
+    await unmount()
+  })
+
+  it('an unmanaged skill has no remove control but can still be scoped', async () => {
+    const state: SkillsState = {
+      ...STATE,
+      installed: [{ ...skill, managed: false, provider: undefined, updateAvailable: undefined }],
+    }
+    const rpc = rpcMock(state)
+    const { container, unmount } = await render(rpc)
+    await click(byTestId(container, 'skills-manage'))
+    const scope = dialog(container)
+    expect([...scope.querySelectorAll('button')].some((b) => b.textContent === 'Remove')).toBe(false)
+    await click(button(scope, 'Save'))
+    const call = rpcCalls(rpc).find(([m]) => m === 'setScope')
+    expect(call).toBeTruthy()
+    await unmount()
+  })
+})
+
+describe('detail modal', () => {
+  it('loads an installed detail and renders the markdown body', async () => {
+    const rpc = rpcMock()
+    const { container, unmount } = await render(rpc)
+    await click(byTestId(container, 'skills-detail-open'))
+    const detail = byTestId(container, 'skills-detail')
+    await act(async () => {})
+    expect(rpcCalls(rpc).find(([m]) => m === 'getInstalledSkillDetail')).toBeTruthy()
+    const body = byTestId(detail, 'skills-detail-body')
+    expect(body.querySelector('h1')?.textContent).toBe('Heading')
+    expect(body.querySelector('p')?.textContent).toBe('Paragraph text.')
+    await unmount()
+  })
+
+  it('a catalog-only entry loads through the catalog detail RPC', async () => {
+    const rpc = rpcMock()
+    const { container, unmount } = await render(rpc)
+    const cards = [...container.querySelectorAll('[data-testid="skills-card"]')]
+    const catalogCard = cards.find((c) => c.textContent!.includes('find-skills'))!
+    await click(catalogCard.querySelector('[data-testid="skills-detail-open"]')!)
+    await act(async () => {})
+    expect(rpcCalls(rpc).find(([m]) => m === 'getCatalogSkillDetail')![1])
+      .toEqual({ providerId: 'o-r', skillPath: 'skills/find-skills' })
+    expect(byTestId(container, 'skills-detail-body').textContent).toContain('Catalog body.')
+    await unmount()
+  })
+})
+
+describe('providers tab', () => {
+  async function openProviders(rpc: RpcFn): Promise<Render> {
+    const r = await render(rpc, WS)
+    await click(byTestId(r.container, 'skills-tab-providers'))
+    return r
+  }
+
+  it('renders provider rows with sync status and a remove button', async () => {
+    const rpc = rpcMock()
+    const { container, unmount } = await openProviders(rpc)
+    const row = byTestId(container, 'skills-provider')
+    expect(row.textContent).toContain('o/r')
+    expect(row.textContent).toContain('2 skills')
+    expect(row.textContent).toContain('never synced')
+    await click(byTestId(container, 'skills-provider-remove'))
+    expect(rpcCalls(rpc).find(([m]) => m === 'removeProvider')![1])
+      .toEqual({ providerId: 'o-r' })
+    await unmount()
+  })
+
+  it('adds a provider from the input (click and Enter) and refreshes all', async () => {
+    const rpc = rpcMock()
+    const { container, unmount } = await openProviders(rpc)
+    const input = byTestId(container, 'skills-provider-input') as HTMLInputElement
+    setValue(input, 'vercel/agent-skills')
+    await click(button(container, 'Add provider'))
+    expect(rpcCalls(rpc).find(([m]) => m === 'addProvider')![1])
+      .toEqual({ spec: 'vercel/agent-skills' })
+    await click(byTestId(container, 'skills-provider-refresh-all'))
+    expect(rpcCalls(rpc).map(([m]) => m)).toContain('refreshProviders')
+    await unmount()
+  })
+
+  it('an error response surfaces in the message banner', async () => {
+    const rpc: RpcFn = vi.fn(async (method: string) => {
+      if (method === 'getState') return STATE
+      if (method === 'removeProvider') return { ok: false, error: 'provider busy' }
+      return { ok: true, state: STATE }
     })
-    const notify = vi.fn()
-    const { container, unmount } = await render(rpc, [], notify)
-    await click(button(container, 'Remove'))
-    await click([...dialog(container).querySelectorAll('button')].find((b) => b.textContent === 'Remove')!)
-    expect(notify).not.toHaveBeenCalled()
-    await unmount()
-  })
-
-  it('does not notify for provider-only mutations', async () => {
-    const rpc = rpcMock()
-    const notify = vi.fn()
-    const { container, unmount } = await render(rpc, [], notify)
-    await click(tab(container, 'Providers'))
-    await click(button(container, 'Remove'))
-    await click([...dialog(container).querySelectorAll('button')].find((b) => b.textContent === 'Remove')!)
-    expect(rpc).toHaveBeenCalledWith('removeProvider', expect.objectContaining({ providerId: 'o-r' }))
-    expect(notify).not.toHaveBeenCalled()
+    const { container, unmount } = await openProviders(rpc)
+    await click(byTestId(container, 'skills-provider-remove'))
+    expect(byTestId(container, 'skills-message').textContent).toContain('provider busy')
     await unmount()
   })
 })

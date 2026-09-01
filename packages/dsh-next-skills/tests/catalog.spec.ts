@@ -3,7 +3,6 @@ import {
   catalogSkillViews,
   filterCatalogSkills,
   lastRefreshEpoch,
-  marketplaceView,
   parseCatalog,
   parseManifest,
   providerViews,
@@ -33,9 +32,9 @@ const CATALOG: Catalog = {
   ],
 }
 
-describe('marketplaceView', () => {
+describe('catalog views', () => {
   it('lists skills sorted by name with provider attribution', () => {
-    const view = marketplaceView(CATALOG)
+    const view = { skills: catalogSkillViews(CATALOG), providers: providerViews(CATALOG) }
     expect(view.skills.map((s) => s.name)).toEqual(['find-skills', 'other'])
     expect(view.skills[0]).toMatchObject({ providerId: 'a-b', providerSpec: 'a/b', skillPath: 'skills/find-skills', version: 'v1' })
   })

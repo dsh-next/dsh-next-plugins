@@ -5,6 +5,7 @@
  * `{ ok: false, error }`; a thrown error becomes an HTTP 500.
  */
 import type { Context } from '@deepseek-ai/cordis'
+import type { SkillScopeSetting } from '../core/settings.ts'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { SkillsService } from './skills-service.ts'
 
@@ -20,12 +21,23 @@ function str(input: unknown): string {
   return typeof input === 'string' ? input : ''
 }
 
-function scope(input: unknown): 'global' | 'workspace' {
-  return input === 'workspace' ? 'workspace' : 'global'
-}
-
 function optStr(input: unknown): string | undefined {
   return typeof input === 'string' && input !== '' ? input : undefined
+}
+
+function strArray(input: unknown): string[] {
+  return Array.isArray(input) ? input.filter((p): p is string => typeof p === 'string') : []
+}
+
+/** Parse a scope payload; `null`/absent clears to the global default. */
+function parseScopeInput(input: unknown): SkillScopeSetting | undefined {
+  if (!input || typeof input !== 'object') return undefined
+  const raw = input as { kind?: unknown; workspacePaths?: unknown }
+  if (raw.kind === 'workspaces') {
+    const paths = strArray(raw.workspacePaths).map((p) => p.trim()).filter((p) => p !== '')
+    return { kind: 'workspaces', workspacePaths: [...new Set(paths)] }
+  }
+  return { kind: 'global' }
 }
 
 export function registerRpc(ctx: Context, service: SkillsService): void {
@@ -33,54 +45,21 @@ export function registerRpc(ctx: Context, service: SkillsService): void {
   if (!webServer || typeof webServer.register !== 'function') return
 
   const handlers: Record<string, Handler> = {
-    getState: (args) => service.state(optStr(record(args).workspacePath)),
-    getInstalledMap: (args) => {
-      const raw = record(args).workspacePaths
-      const paths = Array.isArray(raw) ? raw.filter((p): p is string => typeof p === 'string') : []
-      return service.installedMap(paths)
-    },
-    marketplace: () => service.marketplace(),
-    setEnabled: (args) => {
+    getState: (args) => service.state(strArray(record(args).workspacePaths)),
+    setScope: (args) => {
       const a = record(args)
-      return service.setEnabled({
-        name: str(a.name),
-        scope: scope(a.scope),
-        enabled: a.enabled === true,
-        workspacePath: optStr(a.workspacePath),
-        description: optStr(a.description),
-      })
+      return service.setScope({ name: str(a.name), scope: parseScopeInput(a.scope) })
     },
     installSkill: (args) => {
       const a = record(args)
       return service.installSkill({
         providerId: str(a.providerId),
         skillPath: str(a.skillPath),
-        scope: scope(a.scope),
-        workspacePath: optStr(a.workspacePath),
+        scope: parseScopeInput(a.scope),
       })
     },
-    updateSkill: (args) => {
-      const a = record(args)
-      return service.updateSkill({
-        name: str(a.name),
-        scope: scope(a.scope),
-        workspacePath: optStr(a.workspacePath),
-      })
-    },
-    updateAllCopies: (args) => {
-      const a = record(args)
-      const raw = a.workspacePaths
-      const paths = Array.isArray(raw) ? raw.filter((p): p is string => typeof p === 'string') : []
-      return service.updateAllCopies({ name: str(a.name), workspacePaths: paths })
-    },
-    remove: (args) => {
-      const a = record(args)
-      return service.remove({
-        name: str(a.name),
-        scope: scope(a.scope),
-        workspacePath: optStr(a.workspacePath),
-      })
-    },
+    updateSkill: (args) => service.updateSkill({ name: str(record(args).name) }),
+    remove: (args) => service.remove({ name: str(record(args).name) }),
     addProvider: (args) => service.addProvider(str(record(args).spec)),
     removeProvider: (args) => service.removeProvider(str(record(args).providerId)),
     refreshProvider: (args) => service.refreshProvider(str(record(args).providerId)),
@@ -91,7 +70,7 @@ export function registerRpc(ctx: Context, service: SkillsService): void {
     },
     getInstalledSkillDetail: (args) => {
       const a = record(args)
-      return service.getInstalledSkillDetail({ name: str(a.name), scope: scope(a.scope), workspacePath: optStr(a.workspacePath) })
+      return service.getInstalledSkillDetail({ name: str(a.name), workspacePaths: strArray(a.workspacePaths) })
     },
   }
 

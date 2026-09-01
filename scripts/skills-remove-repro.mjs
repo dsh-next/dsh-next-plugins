@@ -1,6 +1,8 @@
 /**
- * Focused live repro for the Remove flow against the RUNNING smoke server
- * (no reboot, real clicks without force so actionability issues surface).
+ * Focused live repro for the scope-modal flows against the RUNNING smoke
+ * server (no reboot, real clicks without force so actionability issues
+ * surface): Manage -> workspaces whitelist -> off-everywhere -> back to
+ * Everywhere, with the presence badge checked after each step.
  *
  * Usage: node scripts/skills-remove-repro.mjs <baseUrl> [outDir]
  */
@@ -66,64 +68,45 @@ await nav.waitFor({ state: 'visible', timeout: 10_000 })
 await nav.click()
 await page.waitForTimeout(800)
 
-const skillRow = (name) =>
-  page.getByText(name, { exact: true }).first().locator('xpath=ancestor::div[contains(@class,"skill")][1]')
+const skillCard = (name) => page.locator('[data-testid="skills-card"]', { hasText: name }).first()
+const presence = (name) => skillCard(name).locator('[data-testid="skills-presence"]').first()
 
-await page.screenshot({ path: join(OUT, 'r0-installed.png') })
+await page.screenshot({ path: join(OUT, 'r1-grid.png') })
 
-// ---- Step 1: click Remove on a seeded skill (normal click, no force) ------
+// ---- Step 1: Manage on a seeded skill -> scope modal ----------------------
 const target = 'grill-me'
-const row = skillRow(target)
-log('row visible:', await row.isVisible().catch(() => false))
-const removeBtn = row.getByRole('button', { name: 'Remove', exact: true })
-log('Remove button visible:', await removeBtn.isVisible().catch(() => false))
-await removeBtn.click()
+log('card visible:', await skillCard(target).isVisible().catch(() => false))
+await skillCard(target).locator('[data-testid="skills-manage"]').first().click()
 await page.waitForTimeout(600)
-await page.screenshot({ path: join(OUT, 'r1-after-remove-click.png') })
+await page.screenshot({ path: join(OUT, 'r2-scope-modal.png') })
+const modal = page.getByTestId('skills-scope-modal')
+log('scope modal visible:', await modal.isVisible().catch(() => false))
 
-const dialog = page.getByRole('dialog', { name: `Remove skill "${target}"?` })
-const popupVisible = await dialog.isVisible().catch(() => false)
-log('popup visible after click:', popupVisible)
-log('dialog count on page:', await page.locator('[role="dialog"]').count())
-
-if (popupVisible) {
-  await page.screenshot({ path: join(OUT, 'r2-popup.png') })
-  const confirmBtn = dialog.getByRole('button', { name: 'Remove', exact: true })
-  log('confirm Remove visible:', await confirmBtn.isVisible().catch(() => false))
-  await confirmBtn.click()
-  await page.waitForTimeout(1200)
-  await page.screenshot({ path: join(OUT, 'r3-after-confirm.png') })
-  log('popup still visible:', await dialog.isVisible().catch(() => false))
-  log('row still visible:', await skillRow(target).isVisible().catch(() => false))
-}
-
-// error/warning status text
-const statusErr = await page.locator('[class*="statusErr"]').allTextContents()
-log('statusErr:', JSON.stringify(statusErr))
-const status = await page.locator('[class*="status"]').allTextContents()
-log('all status:', JSON.stringify(status))
-
-// ---- Step 2: same on the Providers tab ------------------------------------
-const provTab = page.getByRole('button', { name: 'Providers', exact: true }).first()
-await provTab.click()
+// ---- Step 2: off-everywhere (workspaces radio with nothing checked) -------
+await page.getByTestId('skills-scope-workspaces').click()
+await page.waitForTimeout(400)
+await page.screenshot({ path: join(OUT, 'r3-workspaces-mode.png') })
+await modal.getByRole('button', { name: 'Save', exact: true }).click()
 await page.waitForTimeout(1000)
-await page.screenshot({ path: join(OUT, 'r4-providers.png') })
-const provRow = skillRow('anthropics/skills')
-log('provider row visible:', await provRow.isVisible().catch(() => false))
-const provRemove = provRow.getByRole('button', { name: 'Remove', exact: true })
-log('provider Remove visible:', await provRemove.isVisible().catch(() => false))
-await provRemove.click()
+await page.screenshot({ path: join(OUT, 'r4-off-everywhere.png') })
+log('modal closed:', !(await modal.isVisible().catch(() => false)))
+log('presence badge now:', await presence(target).textContent().catch(() => '<gone>'))
+
+// ---- Step 3: back to Everywhere -------------------------------------------
+await skillCard(target).locator('[data-testid="skills-manage"]').first().click()
 await page.waitForTimeout(600)
-await page.screenshot({ path: join(OUT, 'r5-provider-popup.png') })
-const provDialog = page.getByRole('dialog', { name: 'Remove provider "anthropics/skills"?' })
-log('provider popup visible:', await provDialog.isVisible().catch(() => false))
-if (await provDialog.isVisible().catch(() => false)) {
-  // Cancel — we do not actually want to remove a default in the user's env.
-  await provDialog.getByRole('button', { name: 'Cancel', exact: true }).click()
-  await page.waitForTimeout(400)
-  log('provider popup closed by Cancel:', !(await provDialog.isVisible().catch(() => false)))
-}
-await page.screenshot({ path: join(OUT, 'r6-final.png') })
+await page.getByTestId('skills-scope-global').click()
+await page.waitForTimeout(200)
+await modal.getByRole('button', { name: 'Save', exact: true }).click()
+await page.waitForTimeout(1000)
+await page.screenshot({ path: join(OUT, 'r5-back-to-global.png') })
+log('presence badge restored:', await presence(target).textContent().catch(() => '<gone>'))
+
+// ---- Step 4: Providers tab (screenshot only; remove is destructive) -------
+await page.getByTestId('skills-tab-providers').first().click()
+await page.waitForTimeout(1000)
+await page.screenshot({ path: join(OUT, 'r6-providers.png') })
+log('provider row visible:', await skillCard('anthropics/skills').isVisible().catch(() => false))
 
 log('\nerrors captured:', errors.length)
 for (const e of errors) log(' ', e)

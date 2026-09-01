@@ -4,23 +4,24 @@
  * the DSH filesystem provider scans, so cached skills never activate).
  *
  * Layout:
- *   <cacheRoot>/providers.json                        configured providers
  *   <cacheRoot>/catalog.json                          persisted catalog
  *   <cacheRoot>/files/<providerId>/<skillSlug>/<rel>  downloaded skill files
+ *   <cacheRoot>/providers.json                        LEGACY provider list
+ * (read once by the settings migration, never written again)
  *
- * Sync is incremental: git blob SHAs from the repository tree decide which
- * files (re-)download; unchanged skills keep their cached copies.
+ * Sync is incremental: content hashes from the repository snapshot decide
+ * which files (re-)download; unchanged skills keep their cached copies.
  */
 import { MAX_FILES_PER_SKILL, MAX_SKILLS_PER_PROVIDER, parseCatalog } from '../core/catalog.ts'
 import { parseSkillFile } from '../core/frontmatter.ts'
 import { isSafeRelativePath, joinPath } from '../core/path.ts'
 import { cacheDirSlug, hashContent, isIgnoredRepoPath, parseProviderSpec, providerId, providerSpec, versionHash } from '../core/provider.ts'
-import type { Catalog, CatalogFile, CatalogSkill, FetchLike, FsLike, ProviderCatalog, ProviderConfig, ProvidersFile } from '../core/types.ts'
+import type { Catalog, CatalogFile, CatalogSkill, FetchLike, FsLike, ProviderCatalog } from '../core/types.ts'
 import { fetchRepoInfo, fetchRepoTarball, type GhTreeEntry } from './github-client.ts'
 import { extractTarEntries } from './tarball.ts'
 
 export const CATALOG_FILE = 'catalog.json'
-export const PROVIDERS_FILE = 'providers.json'
+export const LEGACY_PROVIDERS_FILE = 'providers.json'
 export const FILES_DIR = 'files'
 
 export interface ProviderStoreOptions {
@@ -82,29 +83,29 @@ export class ProviderStore {
     return joinPath(this.opts.cacheRoot, CATALOG_FILE)
   }
 
-  private providersPath(): string {
-    return joinPath(this.opts.cacheRoot, PROVIDERS_FILE)
+  private legacyProvidersPath(): string {
+    return joinPath(this.opts.cacheRoot, LEGACY_PROVIDERS_FILE)
   }
 
   private filesRoot(providerId: string): string {
     return joinPath(this.opts.cacheRoot, FILES_DIR, providerId)
   }
 
-  /** Whether a provider list has been persisted already (defaults gate). */
-  async hasProvidersFile(): Promise<boolean> {
+  /** Whether a legacy providers.json exists (defaults gate for fresh installs). */
+  async hasLegacyProvidersFile(): Promise<boolean> {
     try {
-      await this.opts.fs.access(this.providersPath())
+      await this.opts.fs.access(this.legacyProvidersPath())
       return true
     } catch {
       return false
     }
   }
 
-  /** Load the configured provider list (empty when missing or corrupt). */
-  async listProviders(): Promise<ProviderConfig[]> {
+  /** Read the legacy provider list (empty when missing or corrupt). */
+  async readLegacyProviders(): Promise<Array<{ id: string; spec: string; addedAt: string }>> {
     let raw: string
     try {
-      raw = await this.opts.fs.readFile(this.providersPath())
+      raw = await this.opts.fs.readFile(this.legacyProvidersPath())
     } catch {
       return []
     }
@@ -114,19 +115,14 @@ export class ProviderStore {
     } catch {
       return []
     }
-    const rawProviders = (parsed && typeof parsed === 'object' ? (parsed as ProvidersFile).providers : undefined)
+    const rawProviders = (parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as { providers?: unknown }).providers
+      : undefined)
     if (!Array.isArray(rawProviders)) return []
-    return rawProviders.filter((p): p is ProviderConfig =>
+    return rawProviders.filter((p): p is { id: string; spec: string; addedAt: string } =>
       !!p && typeof p === 'object' && typeof (p as { id?: unknown }).id === 'string' && (p as { id: string }).id !== ''
       && typeof (p as { spec?: unknown }).spec === 'string' && (p as { spec: string }).spec !== ''
       && typeof (p as { addedAt?: unknown }).addedAt === 'string')
-  }
-
-  /** Persist the configured provider list. */
-  async saveProviders(providers: readonly ProviderConfig[]): Promise<void> {
-    const file: ProvidersFile = { providers: [...providers] }
-    await this.opts.fs.mkdir(this.opts.cacheRoot, { recursive: true })
-    await this.opts.fs.writeFile(this.providersPath(), JSON.stringify(file, null, 2))
   }
 
   /** Load the persisted catalog (empty when missing or corrupt). */
@@ -233,7 +229,7 @@ export class ProviderStore {
    * cache). Works even when the provider never synced: a stub catalog row is
    * created so the error surfaces instead of a misleading "never synced".
    */
-  async markProviderError(id: string, error: string): Promise<void> {
+  async markProviderError(id: string, error: string, spec?: string): Promise<void> {
     const catalog = await this.readCatalog()
     const provider = catalog.providers.find((p) => p.id === id)
     if (provider !== undefined) {
@@ -241,10 +237,9 @@ export class ProviderStore {
       await this.writeCatalog(catalog)
       return
     }
-    const configured = (await this.listProviders()).find((p) => p.id === id)
-    if (configured === undefined) return
+    if (spec === undefined) return
     await this.writeCatalog({
-      providers: [...catalog.providers, { id, spec: configured.spec, branch: '', lastRefresh: '', error, skills: [] }],
+      providers: [...catalog.providers, { id, spec, branch: '', lastRefresh: '', error, skills: [] }],
     })
   }
 

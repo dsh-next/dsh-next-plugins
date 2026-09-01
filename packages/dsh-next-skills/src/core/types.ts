@@ -3,9 +3,7 @@
  * or Node runtime identity — both halves may import this module.
  */
 
-/** Where a skill physically lives: a user/global root or a project root. */
-export type SkillScope = 'global' | 'workspace'
-
+import type { SkillScopeSetting, SkillsConfig } from './settings.ts'
 /** The discovery bucket a skill came from (mirrors the DSH filesystem provider). */
 export type SkillSourceBucket =
   | 'project-dsh'
@@ -15,47 +13,35 @@ export type SkillSourceBucket =
   | 'user-agents'
   | 'bundled'
 
-/** How often the host re-syncs provider caches in the background. */
-export type RefreshInterval = 'off' | 'daily' | 'weekly'
-
-/** One installed skill as shown in the Installed tab. */
+/** One discovered skill as shown in the Skills tab (merged by precedence). */
 export interface InstalledSkill {
   name: string
   description: string
   whenToUse?: string
-  /** Primary on/off switch: disables both model invocation (disable-model-invocation) and user invocation (user-invocable). */
-  enabled: boolean
-  /** Whether the skill is user-invocable through command surfaces. */
-  userInvocable: boolean
   scope: SkillScope
   source: SkillSourceBucket
   /** Directory-bundle skill (`<name>/SKILL.md`) or flat `<name>.md`. */
   kind: 'bundle' | 'flat'
-  /** True when this entry is a plugin-generated workspace shadow disabling a global skill. */
-  shadow?: boolean
   /** Absolute path to the skill's SKILL.md (or a flat .md file). */
   path: string
   /** Directory holding the skill's resources (equals the root for flat skills). */
   directory: string
-  /** The provider spec (`owner/repo`) when this skill was installed from a provider. */
+  /** Frontmatter invocation flags (the skill author's defaults, for display). */
+  fileModelInvocable: boolean
+  fileUserInvocable: boolean
+  /** True when the plugin installed this skill (manifest present). */
+  managed: boolean  /** The provider spec (`owner/repo`) when this skill was installed from a provider. */
   provider?: string
   /** True when the provider catalog holds a newer version than the installed manifest. */
   updateAvailable?: boolean
+  /** The config enablement scope for this name (undefined = global default). */
+  configScope?: SkillScopeSetting
 }
 
-/** A GitHub provider as configured in settings (spec is `owner/repo`). */
-export interface ProviderConfig {
-  id: string
-  spec: string
-  addedAt: string
-}
+/** Where a skill physically lives: a user/global root or a project root. */
+export type SkillScope = 'global' | 'workspace'
 
-/** The persisted provider list (`providers.json` in the plugin cache root). */
-export interface ProvidersFile {
-  providers: ProviderConfig[]
-}
-
-/** One skill offered by a provider (catalog view served to the Search tab). */
+/** One skill offered by a provider (catalog view served to the Skills tab). */
 export interface CatalogSkillView {
   name: string
   description: string
@@ -83,21 +69,16 @@ export interface ProviderView {
   error?: string
 }
 
-/** Marketplace payload: every catalog skill plus provider status rows. */
-export interface MarketplaceView {
-  skills: CatalogSkillView[]
-  providers: ProviderView[]
-}
-
 /** The full browser-facing state envelope (RPC contract). */
 export interface SkillsState {
+  /** The settings-backed configuration (providers, installed, scopes). */
+  config: SkillsConfig
+  /** Discovered skills across the global roots and the requested workspaces. */
   installed: InstalledSkill[]
-}
-
-/** Per-scope installed lists used for multi-workspace install decisions. */
-export interface InstalledMap {
-  global: InstalledSkill[]
-  workspaces: Array<{ workspacePath: string; installed: InstalledSkill[] }>
+  /** Provider status rows. */
+  providers: ProviderView[]
+  /** Every catalog skill across providers (the Add flow). */
+  catalog: CatalogSkillView[]
 }
 
 /** Full SKILL.md content served by the skill-detail RPCs (modal payload). */
@@ -105,7 +86,7 @@ export interface SkillDetail {
   name: string
   description: string
   whenToUse?: string
-  /** Frontmatter invocation flags (the skill's "configuration"). */
+  /** Frontmatter invocation flags (the skill's own defaults). */
   modelInvocable: boolean
   userInvocable: boolean
   /** Markdown body below the frontmatter. */
@@ -123,7 +104,7 @@ export interface WorkspaceRow {
 export interface MutationOk {
   ok: true
   state: SkillsState
-  /** Non-fatal note for partially-successful mutations (e.g. some copies skipped). */
+  /** Non-fatal note for partially-successful mutations. */
   warning?: string
 }
 
@@ -137,7 +118,8 @@ export type MutationResult = MutationOk | MutationErr
 /**
  * Manifest written inside every provider-installed skill directory
  * (`.dsh-next-provider.json`) so updates can compare the installed version
- * against the provider catalog.
+ * against the provider catalog, and so a directory is recognizable as
+ * plugin-managed even when settings are absent.
  */
 export interface ProviderManifest {
   providerId: string

@@ -1,16 +1,17 @@
 /**
- * Pure SKILL.md frontmatter parsing and surgical invocation toggling. Matches
- * the DSH filesystem provider's grammar: YAML frontmatter fenced by `---` with
- * a required `name` and `description`, plus the invocation-policy keys
- * `disable-model-invocation` and `user-invocable`.
+ * Pure SKILL.md frontmatter parsing. Matches the DSH filesystem provider's
+ * grammar: YAML frontmatter fenced by `---` with a required `name` and
+ * `description`, plus the invocation-policy keys `disable-model-invocation`
+ * and `user-invocable`.
  *
  * A skill has two independent invocation surfaces: the model catalog
- * (`modelInvocable`, toggled by `disable-model-invocation`) and the human-facing
- * `/` command menu (`userInvocable`, toggled by `user-invocable`). The plugin's
- * single enabled/disabled switch drives both, so a disabled skill vanishes from
- * every surface.
+ * (`modelInvocable`, driven by `disable-model-invocation`) and the human-facing
+ * `/` command menu (`userInvocable`, driven by `user-invocable`). Since the
+ * settings-based refactor the plugin never edits these keys: enablement is
+ * config-driven (per-name scopes applied by the plugin's `ctx.skills`
+ * provider), and the flags here are the skill author's own defaults.
  */
-import { dump, load } from 'js-yaml'
+import { load } from 'js-yaml'
 
 export interface ParsedSkill {
   name: string
@@ -106,81 +107,26 @@ export function parseSkillFile(content: string): ParsedSkill | undefined {
 }
 
 /**
- * Invocation-policy keys surfaced by the enable/disable switch. `enabled`
- * removes every key (both surfaces default to true); `disabled` writes each
- * key with its disabling value. Order is stable for deterministic output.
+ * Remove the legacy plugin-toggle lines (`disable-model-invocation: true` and
+ * `user-invocable: false`) from a SKILL.md's frontmatter, leaving every other
+ * line untouched. The one-time migration uses this to clean files the old
+ * panel disabled, so that re-enabling through the config-driven model shows
+ * the skill again. Returns the input unchanged when there is no frontmatter.
  */
-const INVOCATION_KEYS: ReadonlyArray<{ key: string; disabledValue: string }> = [
-  { key: 'disable-model-invocation', disabledValue: 'true' },
-  { key: 'user-invocable', disabledValue: 'false' },
-]
-
-/**
- * Toggle a skill's invocation policy in a SKILL.md without touching any other
- * line. Disabling sets (or inserts) both `disable-model-invocation: true` and
- * `user-invocable: false`; enabling removes both keys so the skill is invocable
- * from every surface. Returns the input unchanged when there is no frontmatter.
- */
-export function toggleInvocation(content: string, enabled: boolean): string {
+export function stripDisabledFlags(content: string): string {
   const eol = detectEol(content)
   const { yaml, body } = splitFrontmatter(content)
   if (yaml === null) return content
-  const lines = yaml.split(eol)
-  const out: string[] = []
-  const found = new Set<string>()
-  for (const line of lines) {
-    const entry = INVOCATION_KEYS.find(({ key }) => new RegExp(`^\\s*${key}\\s*:`).test(line))
-    if (entry) {
-      found.add(entry.key)
-      if (enabled) continue // drop the line
-      out.push(`${entry.key}: ${entry.disabledValue}`)
-      continue
-    }
-    out.push(line)
-  }
-  if (!enabled) {
-    for (const { key, disabledValue } of INVOCATION_KEYS) {
-      // Append missing keys at the very end of the frontmatter, never after the
-      // `description` line: description is often a YAML block scalar
-      // (`description: |`), and inserting a sibling key directly after it would
-      // corrupt the block.
-      if (!found.has(key)) out.push(`${key}: ${disabledValue}`)
-    }
-  }
-  return `---${eol}${out.join(eol)}${eol}---${eol}${body}`
+  const kept = yaml.split(eol).filter((line) =>
+    !/^\s*disable-model-invocation\s*:\s*true\s*$/.test(line)
+    && !/^\s*user-invocable\s*:\s*false\s*$/.test(line))
+  return `---${eol}${kept.join(eol)}${eol}---${eol}${body}`
 }
 
 /**
- * Build a workspace shadow skill that disables a global skill of the same name
- * for that workspace (the workspace root ranks above the user root, so this
- * shadow wins the duplicate name outright).
- */
-export function buildShadowSkill(name: string, description: string): string {
-  // Serialize the description through js-yaml: raw interpolation corrupts the
-  // file for any description containing a newline or ": " (the shadow then
-  // fails to parse everywhere and the disable silently does nothing).
-  const descriptionLine = dump(description, { lineWidth: 0 }).trimEnd()
-  return [
-    '---',
-    `name: ${name}`,
-    `description: ${descriptionLine}`,
-    'disable-model-invocation: true',
-    'user-invocable: false',
-    '---',
-    '',
-    '# Disabled in this workspace',
-    '',
-    `This shadow skill disables the global skill "${name}" for this workspace.`,
-    'Remove it to re-enable the global skill.',
-    '',
-    `<!-- ${SHADOW_MARKER} -->`,
-    '',
-  ].join('\n')
-}
-
-/**
- * Marker emitted in a shadow skill body; identifies a workspace-level disable
- * so re-enabling can remove the shadow instead of editing a real skill.
+ * Marker emitted in a shadow skill body by plugin versions before the
+ * settings-based refactor. Shadows are no longer created; the one-time
+ * migration recognizes and removes leftover ones.
  */
 export const SHADOW_MARKER = 'dsh-next-skills:workspace-shadow'
 

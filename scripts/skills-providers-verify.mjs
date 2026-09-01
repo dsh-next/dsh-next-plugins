@@ -1,8 +1,9 @@
 /**
- * Text-based verification of the provider flow (DOM assertions, no
- * screenshots): adds a real provider, asserts the marketplace lists its
- * skills, installs one, and asserts the Installed tab shows it with the
- * provider badge. Prints the card's text content at each step.
+ * Text-based verification of the provider + install flow (DOM assertions, no
+ * screenshots): adds a real provider, asserts the state payload lists its
+ * skills, installs one globally, and asserts the Skills tab shows the card
+ * with the provider chip and the Everywhere presence badge. Prints text
+ * content at each step.
  *
  * Usage: node scripts/skills-providers-verify.mjs <baseUrl>
  */
@@ -32,9 +33,9 @@ async function dismissOnboarding() {
   }
 }
 
-const cardText = async () => {
-  const card = page.locator('div[class*="card"]', { hasText: 'DSH Next Skills' }).first()
-  return (await card.textContent().catch(() => '<no card>')) ?? ''
+const sectionText = async () => {
+  const nav = page.getByRole('button', { name: 'Skills', exact: true }).first()
+  return (await nav.textContent().catch(() => '<no nav>')) ?? ''
 }
 
 await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' })
@@ -43,9 +44,7 @@ await page.waitForTimeout(1500)
 await dismissOnboarding()
 await page.getByText('Settings', { exact: true }).first().click({ force: true })
 await page.waitForTimeout(800)
-await page.getByText('Plugins', { exact: true }).first().click({ force: true })
-await page.waitForTimeout(800)
-await page.getByText('DSH Next Skills').first().click({ force: true })
+await page.getByRole('button', { name: 'Skills', exact: true }).first().click({ force: true })
 await page.waitForTimeout(1200)
 
 // Direct RPC probe: the host side of the contract.
@@ -61,48 +60,48 @@ const rpc = async (method, args) => {
 }
 
 console.log('--- getState envelope ---')
-const state1 = await rpc('getState', { workspacePath: null })
+const state1 = await rpc('getState', {})
 console.log('status:', state1.status)
 console.log('config:', JSON.stringify(state1.body?.config))
 console.log('installed names:', JSON.stringify(state1.body?.installed?.map((s) => s.name)))
+console.log('providers:', JSON.stringify(state1.body?.providers?.map((p) => `${p.spec} (${p.skillCount})`)))
 
 console.log('\n--- addProvider vercel-labs/skills ---')
 const add = await rpc('addProvider', { spec: 'https://github.com/vercel-labs/skills' })
 console.log('status:', add.status, 'ok:', add.body?.ok, 'error:', add.body?.error)
 
-console.log('\n--- marketplace ---')
-const market = await rpc('marketplace', {})
-console.log('status:', market.status)
-console.log('providers:', JSON.stringify(market.body?.providers))
-console.log('skills:', JSON.stringify(market.body?.skills?.map((s) => `${s.name} (${s.providerSpec})`)))
+console.log('\n--- state after sync ---')
+const state2 = await rpc('getState', {})
+console.log('providers:', JSON.stringify(state2.body?.providers?.map((p) => `${p.spec} lastRefresh=${p.lastRefresh !== '' ? 'yes' : 'no'}`)))
+console.log('catalog:', JSON.stringify(state2.body?.catalog?.map((s) => `${s.name} (${s.providerSpec})`)))
 
-const first = market.body?.skills?.[0]
+const first = state2.body?.catalog?.[0]
 if (first) {
-  console.log(`\n--- installSkill ${first.name} global ---`)
-  const install = await rpc('installSkill', { providerId: first.providerId, skillPath: first.skillPath, scope: 'global' })
+  console.log(`\n--- installSkill ${first.name} (global-only, default scope) ---`)
+  const install = await rpc('installSkill', { providerId: first.providerId, skillPath: first.skillPath, scope: { kind: 'global' } })
   console.log('status:', install.status, 'ok:', install.body?.ok, 'error:', install.body?.error)
 
-  const state2 = await rpc('getState', { workspacePath: null })
-  const row = state2.body?.installed?.find((s) => s.name === first.name)
+  const state3 = await rpc('getState', {})
+  const row = state3.body?.installed?.find((s) => s.name === first.name)
   console.log('installed row:', JSON.stringify(row))
 
-  console.log(`\n--- updateSkill ${first.name} (expect up-to-date no-op) ---`)
-  const upd = await rpc('updateSkill', { name: first.name, scope: 'global' })
+  console.log(`\n--- setScope ${first.name} -> off everywhere ---`)
+  const off = await rpc('setScope', { name: first.name, scope: { kind: 'workspaces', workspacePaths: [] } })
+  console.log('status:', off.status, 'ok:', off.body?.ok, 'scope:', JSON.stringify(off.body?.state?.config?.scopes?.[first.name]))
+
+  console.log(`\n--- updateSkill ${first.name} ---`)
+  const upd = await rpc('updateSkill', { name: first.name })
   console.log('status:', upd.status, 'ok:', upd.body?.ok, 'error:', upd.body?.error)
 }
 
-console.log('\n--- UI text: Installed tab ---')
-console.log((await cardText()).slice(0, 600))
+console.log('\n--- UI text: Skills tab (grid) ---')
+const grid = page.locator('[data-testid="skills-grid"]').first()
+console.log(((await grid.textContent().catch(() => '<no grid>')) ?? '').slice(0, 600))
 
 console.log('\n--- UI text: Providers tab ---')
-await page.getByText('Providers', { exact: true }).first().click({ force: true })
+await page.getByTestId('skills-tab-providers').first().click({ force: true })
 await page.waitForTimeout(800)
-console.log((await cardText()).slice(0, 800))
-
-console.log('\n--- UI text: Marketplace tab ---')
-await page.getByText('Marketplace', { exact: true }).first().click({ force: true })
-await page.waitForTimeout(1000)
-console.log((await cardText()).slice(0, 800))
+console.log(((await page.locator('[data-testid="skills-provider"]').first().textContent().catch(() => '<no rows>')) ?? '').slice(0, 800))
 
 await page.screenshot({ path: 'test-results/skills/20-final-state.png' })
 console.log('\npageErrors:', JSON.stringify(pageErrors, null, 2))

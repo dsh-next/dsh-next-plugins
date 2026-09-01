@@ -40,11 +40,6 @@ export function providerViews(catalog: T.Catalog): T.ProviderView[] {
   }))
 }
 
-/** The full marketplace payload served by the RPC. */
-export function marketplaceView(catalog: T.Catalog): T.MarketplaceView {
-  return { skills: catalogSkillViews(catalog), providers: providerViews(catalog) }
-}
-
 /** Case-insensitive substring filter over name, description, and provider spec. */
 export function filterCatalogSkills(skills: readonly T.CatalogSkillView[], query: string): T.CatalogSkillView[] {
   const q = query.trim().toLowerCase()

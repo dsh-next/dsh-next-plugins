@@ -1,6 +1,6 @@
 {
   "name": "@dsh-next/dsh-next-skills",
-  "description": "DeepSeek Harness plugin: manage agent skills — browse, install, enable, and disable skills from the skills.sh marketplace and manual repositories, globally or per workspace.",
+  "description": "DeepSeek Harness plugin: manage agent skills - browse provider catalogs, install globally, and control per-workspace enablement from shared settings.",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -63,7 +63,8 @@
     "tsdown": "^0.22.2",
     "typescript": "~5.7.2",
     "vite-tsconfig-paths": "^6.1.1",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.8",
+    "@deepseek-ai/dsh-skill": "^0.1.1-rc.2"
   },
   "files": [
     "lib",

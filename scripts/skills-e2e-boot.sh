@@ -122,6 +122,38 @@ user-invocable: false
 # Ops
 EOF
 
+# Settings-backed state: record the seeded skills as plugin-managed so the
+# panel's remove flow accepts them, and pin one explicit whitelist scope for
+# the verify script's presence-badge checks.
+NOW_BOOT="$(date -u +%FT%TZ)"
+cat >> "$DSH_HOME/settings.yaml" <<EOF
+dsh-next-skills:
+  providers: []
+  installed:
+    - name: e2e-test-skill
+      providerId: e2e-local
+      providerSpec: e2e/local
+      skillPath: skills/e2e-test-skill
+      version: seed-v1
+      installedAt: "$NOW_BOOT"
+    - name: grill-me
+      providerId: e2e-local
+      providerSpec: e2e/local
+      skillPath: skills/grill-me
+      version: seed-v1
+      installedAt: "$NOW_BOOT"
+    - name: opentofu
+      providerId: e2e-local
+      providerSpec: e2e/local
+      skillPath: skills/opentofu
+      version: seed-v1
+      installedAt: "$NOW_BOOT"
+  scopes:
+    opentofu:
+      kind: workspaces
+      workspacePaths: []
+EOF
+
 # Mount ONLY the skills plugin (link to the already-built package).
 $DSH_CMD plugin --profile smoke add "link:$ROOT/packages/dsh-next-skills"
 

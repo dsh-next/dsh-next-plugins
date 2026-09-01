@@ -3,70 +3,73 @@
 English | [中文](README.zh.md)
 
 DeepSeek Harness plugin that manages agent skills from the Web GUI: add
-GitHub repositories as skill providers, search their skills locally, and
-install them globally or per workspace.
+GitHub repositories as skill providers, install their skills globally, and
+control per workspace — through configuration — which skills are enabled
+where. Skills install once, into the global skill root; projects keep only
+hand-created, version-controlled skills, and enable/disable never writes
+skill files.
 
 A **Skills** section appears in the main settings navigation (the same level
 as General, Models, and Plugins — registered through the official
-`settings.section` slot) with three tabs:
+`settings.section` slot), styled after the Claude Plugins page, with two
+tabs:
 
-- **Installed** — lists skills discovered from the DSH skill roots. Each row
-  shows the title with a right-aligned scope chip (`⭐ Global` or the owning
-  workspace's name, plus `· disabled` / `· shadow` markers), the provider name
-  in a chip under the title (or an orange `custom` chip when the skill was not
-  installed from a provider), the description, and a button row below it:
-  Enable/Disable (red `Disable` while enabled, green `Enable` when off),
-  Remove behind a confirmation popup, Update (always visible, disabled while
-  the skill is current), and Update all copies when several copies are
-  outdated. A disabled skill dims only its title and description.
-- **Search** — searches the skills cached from every provider (offline and
-  instant), with a search bar, a provider filter dropdown, and an
-  install-target selector (global or a specific workspace). Results load
-  progressively (infinite scroll, 30 at a time) so large catalogs stay fast.
-  Each row shows
-  where the skill is already installed (`in global`, `in 2 workspaces`, …) and
-  offers Install per target, so the same skill can live in several workspaces
-  independently. Clicking a skill opens a detail modal with its full SKILL.md
-  configuration: name, description, invocation flags, and the markdown body
-  (installed rows open the same modal for their copy).
-- **Providers** — manages GitHub skill repositories: ships with default
-  providers on first launch (removable), add more by URL
-  (`https://github.com/owner/repo` or `owner/repo`), refresh one provider or
-  all, remove. Each row shows the repository description, its star count
-  (`★`), and the number of cached skills.
+- **Skills** — one two-column card grid holding every discovered skill
+  (project, custom, and user roots — cards that exist on disk come first,
+  each group alphabetical) plus every provider catalog skill. A search box,
+  a provider filter, an installed-only toggle, and a Show more button (30
+  cards per page) keep large catalogs fast. Each card shows the name, the
+  provider spec chip, the description, a presence badge (`Everywhere`,
+  `N workspaces`, or `Off`), a `project` chip for hand-created project
+  skills, and an orange `custom` chip for skills the plugin did not install.
+  The **Add/Manage** button opens the scope modal: a radio picks where the
+  skill is enabled — Everywhere (the default) or only in a checklist of
+  registered workspaces — and installing or saving applies that scope as
+  pure configuration. A managed card whose provider catalog moved ahead
+  carries an **Update** button; the modal also hosts Update and a two-step
+  Remove (managed skills only). Clicking a name opens the full SKILL.md
+  rendered as markdown.
+- **Providers** — manages GitHub skill repositories: add by URL
+  (`https://github.com/owner/repo` or `owner/repo`), Refresh all, remove.
+  Each row shows the repository description, the number of cached skills,
+  the last sync age, and any sync error. Default providers seed on a fresh
+  install and sync once shortly after boot; removals persist.
 
 ## How it works
 
-The plugin manages the same on-disk skill roots the DSH filesystem skill
-provider scans, so changes take effect for the running agent without a restart:
+**Global-only installs.** Installing copies a skill's files into the global
+root (`~/.agents/skills/<name>/`) and records it in settings. The plugin
+never writes skill files into a project; a workspace's `.agents/skills/`
+(or `.dsh/skills/`) is scanned read-only so hand-created, version-controlled
+project skills appear in the grid with a `project` chip.
 
-| Scope | Root |
-| --- | --- |
-| workspace | `<workspace>/.agents/skills/` (and `.dsh/skills/`) |
-| global | `~/.agents/skills/` (and `$DSH_HOME/skills/`) |
+**Enablement is configuration.** Per skill name, a scope setting decides
+where the skill is enabled: absent (or Everywhere) means enabled in every
+workspace; a workspaces whitelist enables it only inside the checked
+workspaces; an empty whitelist disables it everywhere. The plugin publishes
+the skill catalog through its own `ctx.skills` provider (each candidate one
+rank above the filesystem provider's equal entry, so project skills still
+outrank same-name global ones) and resolves the invocation flags per lookup
+from the scope — a disabled skill simply carries both invocation flags off,
+so it disappears from every model and command surface. No frontmatter edits,
+no shadow copies, no file writes.
 
-Enable/disable uses the native SKILL.md frontmatter flags
-(`disable-model-invocation`, `user-invocable`). Per-workscope behavior:
+**Settings-backed state.** Providers, installed records, and scopes persist
+in the plugin's own namespace of the harness settings file
+(`$DSH_HOME/settings.yaml`, key `dsh-next-skills:`) — readable, hand-editable,
+and easy to share between developers. After the provider caches sync, a skill
+recorded in settings whose files are missing is reinstalled from the cache, so
+copying the settings section to a teammate (or a new machine) reproduces the
+same skill set.
 
-- **Install per workspace** — installing with a workspace target writes an
-  independent copy into that workspace's root; other copies are untouched.
-- **Disable per workspace** — with a workspace selected, toggling a global
-  skill off drops a workspace *shadow* copy (ranked above the user root) that
-  disables it there only; the row is badged `shadow` and toggling back on
-  removes the shadow. Select "Global only" to toggle the global copy itself.
-- **Delete per workspace** — with a workspace selected, Remove trashes only
-  that workspace's copy; the global copy and other workspaces keep theirs.
-- **Update everywhere** — a skill installed in several places can be updated
-  one copy at a time, or all at once with Update all copies: the global copy
-  and every workspace copy are refreshed in a single call, each keeping its own
-  enable/disable state (copies that are not provider-installed or are shadows
-  are skipped and reported).
-
-Removal is recoverable: confirming the popup moves the skill into the `.trash`
-directory of its own root (skipped by discovery), so an accidental removal can
-be undone by hand; plugin-generated workspace shadows are deleted outright.
-The same popup guards provider removal (the cache is deleted; installed skills
-stay).
+Removal is recoverable: confirming the modal moves a managed skill into the
+`.trash` directory of its root (skipped by discovery), so an accidental
+removal can be undone by hand. Hand-created skills are never removed by the
+plugin. A first launch migrates the pre-settings state (providers.json,
+frontmatter toggles, workspace shadow copies, workspace installs) into the
+settings section: managed workspace copies move into the global root,
+shadows are deleted, and previously disabled skills start as an explicit
+"enabled nowhere" scope.
 
 ## Providers and the cache
 
@@ -80,17 +83,16 @@ On first launch the plugin seeds a set of default providers (anthropics/skills,
 openclaw/openclaw, mattpocock/skills,
 muratcankoylan/Agent-Skills-for-Context-Engineering, affaan-m/ecc,
 nextlevelbuilder/ui-ux-pro-max-skill, addyosmani/agent-skills,
-Leonxlnx/taste-skill) and syncs them once shortly after boot, so the Search
+Leonxlnx/taste-skill) and syncs them once shortly after boot, so the Skills
 tab is populated without any setup. Removing a default persists — they never
 come back.
 
 Adding a provider downloads every skill into a plugin-owned cache at
 `$DSH_HOME/skills-market/` — deliberately outside `$DSH_HOME/skills`, which the
 DSH filesystem provider scans, so cached skills never activate by themselves.
-The configured provider list persists next to the cache (`providers.json`).
-The Search tab reads that cache; installing copies the files into the
-chosen skill root and records a small manifest (`.dsh-next-provider.json`)
-recording the provider and the installed version.
+The Skills tab reads that cache; installing copies the files into the global
+root and records a small manifest (`.dsh-next-provider.json`) alongside the
+settings record.
 
 **Fast syncs via repository snapshots.** Instead of one request per file, a
 sync downloads the repository's default-branch snapshot in a single request
@@ -102,12 +104,11 @@ call. That keeps even large default providers well within GitHub's 60
 req/hr unauthenticated budget and makes first syncs a matter of seconds.
 
 **Change detection** compares those content-hash versions against the version
-recorded in an installed skill's manifest: when they differ, the Installed tab
-shows an Update button; updating overwrites the files (pruning ones that
-disappeared upstream), keeps the manifest current, and re-applies your
-enable/disable state so a disabled skill stays disabled. Refresh is manual
-(per provider or Refresh all) and detect-only: nothing is installed or
-overwritten without a click.
+recorded for an installed skill: when they differ, its card shows an Update
+button; updating overwrites the files (pruning ones that disappeared
+upstream), keeps the manifest and the settings record current, and leaves the
+scope untouched. Refresh is manual (per provider or Refresh all) and
+detect-only: nothing is installed or overwritten without a click.
 
 ## Install
 

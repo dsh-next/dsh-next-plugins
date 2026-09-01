@@ -4,8 +4,8 @@ import { mergeInstalled, sortInstalled } from '../src/core/skill-list.ts'
 
 function skill(name: string, scope: 'global' | 'workspace' = 'global'): InstalledSkill {
   return {
-    name, description: name, enabled: true, userInvocable: true, scope, source: scope === 'workspace' ? 'project-agents' : 'user-agents',
-    kind: 'bundle', path: `/x/${name}/SKILL.md`, directory: `/x/${name}`,
+    name, description: name, scope, source: scope === 'workspace' ? 'project-agents' : 'user-agents',
+    kind: 'bundle', path: `/x/${name}/SKILL.md`, directory: `/x/${name}`, fileModelInvocable: true, fileUserInvocable: true, managed: false,
   }
 }
 

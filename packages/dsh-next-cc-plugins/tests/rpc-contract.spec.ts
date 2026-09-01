@@ -56,7 +56,7 @@ describe('cc-plugins state() RPC contract', () => {
     expect(fail).toEqual({ ok: false, error: 'plugin "missing" is not installed' })
 
     await service.addMarketplace('o/r')
-    const ok = await service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })
+    const ok = await service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', scope: { kind: 'global' } })
     expect(ok).toHaveProperty('ok', true)
     expect(typeof (ok as { message?: unknown }).message).toBe('string')
     expect((ok as { state?: unknown }).state).toHaveProperty('installed')
@@ -66,13 +66,13 @@ describe('cc-plugins state() RPC contract', () => {
   it('state.installed entries carry the normalized record fields', async () => {
     const service = makeService()
     await service.addMarketplace('o/r')
-    await service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })
+    await service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', scope: { kind: 'global' } })
     const state = await service.state()
     expect(state.installed).toHaveLength(1)
     const record = state.installed[0]
     expect(Object.keys(record).sort()).toEqual([
       'agents', 'installedAt', 'key', 'marketplaceId', 'marketplaceSpec', 'mcpServers', 'pending',
-      'pluginName', 'snapshotDigest', 'targets', 'updatedAt', 'version',
+      'pluginName', 'scope', 'skills', 'snapshotDigest', 'updatedAt', 'version',
     ])
     expect(record.pending).toEqual({ commands: [], hookEvents: [] })
   })
@@ -93,7 +93,7 @@ describe('cc-plugins state() RPC contract', () => {
     const gh = createGhDouble({ 'o/r': MARKET })
     const service = makeService(gh)
     await service.addMarketplace('o/r')
-    await service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })
+    await service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', scope: { kind: 'global' } })
 
     const same = (await service.state()).marketplaces[0].plugins[0]
     expect(same.installedVersion).toBe('1.0.0')

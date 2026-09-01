@@ -217,9 +217,11 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     // renders from the registry alone, so this holds even when its sync
     // cannot reach GitHub from the test environment.
     await expect(page.getByText('anthropics/claude-plugins-official', { exact: false }).first()).toBeVisible()
-    // A local-fixture marketplace drives the real add -> card -> detail flow
-    // offline: the panel lists its plugin, and the detail modal shows the
-    // component inventory including the not-bridged LSP family.
+    // A local-fixture marketplace drives the real add -> card -> detail ->
+    // scope-modal install -> manage/uninstall flow offline: the panel lists
+    // its plugin, the detail modal shows the component inventory (including
+    // the not-bridged LSP family), and the radio modal installs globally and
+    // uninstalls through the real host service.
     const fixture = join(process.cwd(), 'tests/e2e/fixtures/tiny-marketplace')
     await page.getByTestId('cc-add-input').first().fill(fixture)
     await page.getByRole('button', { name: 'Add marketplace' }).first().click()
@@ -237,6 +239,23 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await expect(page.getByTestId('cc-detail-components')).toContainText('LSP server')
     await page.getByTestId('cc-detail-close').click()
     await expect(page.getByTestId('cc-plugin-detail')).toHaveCount(0)
+    // The scope modal drives a real install: Global is the default radio,
+    // the workspaces checklist stays hidden, and Add installs globally.
+    await demoCard.locator('[data-testid="cc-add"]').click()
+    await expect(page.getByTestId('cc-modal')).toBeVisible()
+    await expect(page.getByTestId('cc-scope-global').locator('input')).toBeChecked()
+    await expect(page.getByTestId('cc-workspaces')).toHaveCount(0)
+    await page.getByTestId('cc-modal-confirm').click()
+    await expect(page.getByTestId('cc-modal')).toHaveCount(0)
+    await expect(demoCard).toContainText('Manage', { useInnerText: false })
+    await expect(demoCard.getByTestId('cc-installed-version')).toBeVisible()
+    // Manage re-opens the modal on the current scope; uninstall is a
+    // two-step confirm and removes the plugin again.
+    await demoCard.locator('[data-testid="cc-add"]').click()
+    await expect(page.getByTestId('cc-scope-global').locator('input')).toBeChecked()
+    await page.getByTestId('cc-uninstall').click()
+    await page.getByTestId('cc-uninstall-confirm').click()
+    await expect(demoCard).not.toContainText('Manage')
     // Remove the fixture marketplace; the seeded official one remains
     // (the Remove button inside the tiny-tools row, not a foreign one).
     await settings.getByRole('tab', { name: 'Marketplaces' }).click({ force: true })

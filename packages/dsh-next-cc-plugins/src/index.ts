@@ -67,7 +67,7 @@ const MirrorSettingsSchema = Schema.object({
   installs: Schema.array(Schema.object({
     marketplace: Schema.string().description('The marketplace spec the plugin came from'),
     plugin: Schema.string().description('Plugin name inside the marketplace index'),
-    targets: Schema.array(Schema.string()).default([]).description('Install targets: "global" or "workspace:<absolute path>"'),
+    workspaces: Schema.array(Schema.string()).default([]).description('Workspace folder names the plugin is scoped to; empty means global'),
   })).default([]).description('Installed plugins (presence only; versions follow upstream)'),
   // Cast as above: dict schemas trip declaration emit otherwise.
   models: (Schema.dict(Schema.string()) as Schemastery<Record<string, string>>).description('Claude model alias to DSH model id; "inherit" = the delegating session\'s model'),

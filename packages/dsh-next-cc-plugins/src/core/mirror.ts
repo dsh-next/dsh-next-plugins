@@ -1,24 +1,27 @@
 /**
  * The shareable settings mirror: this plugin's setup (marketplaces,
- * installed plugins, agent model mappings) rendered into one
- * `cc-plugins` namespace section of the DSH user-settings document
- * (`$DSH_HOME/settings.yaml`) — the same document the Models page stores
- * model providers in, so a single file carries a whole setup across
+ * installed plugins with their install scope, agent model mappings)
+ * rendered into one `cc-plugins` namespace section of the DSH user-settings
+ * document (`$DSH_HOME/settings.yaml`) — the same document the Models page
+ * stores model providers in, so a single file carries a whole setup across
  * machines.
  *
  * The section is written through on every panel mutation and read back at
  * boot (and on external edits, which the settings provider hot-publishes):
  * missing marketplaces are added and missing plugins installed into their
- * recorded targets. Removals stay explicit through the panel — a hand edit
+ * recorded scope. Removals stay explicit through the panel — a hand edit
  * never uninstalls anything.
  *
- * Encoding stays YAML-friendly plain data: install targets render as
- * `global` / `workspace:<folder name>` strings (folder names travel across
- * machines; each machine resolves them against its own workspace registry,
- * and absolute paths are still accepted when hand-written), and the model
- * map's explicit inherit marker (`null`) renders as the word `inherit`.
+ * Scope encoding stays YAML-friendly and portable: a global install writes
+ * nothing (the default), a workspace install writes the folder names of its
+ * workspaces (`workspaces: [web, data]`) — absolute paths differ on every
+ * machine, so reconcile resolves each name against that machine's
+ * workspace registry. Hand-written absolute paths still work. Documents
+ * from the pre-scope shape (installs carrying `targets` lists) import too:
+ * any `global` entry means global; otherwise workspace-name entries become
+ * the workspace set.
  */
-import type { InstalledPlugin, TargetLike } from './types.ts'
+import type { InstalledPlugin } from './types.ts'
 
 /** The word written for "this alias inherits the session's model". */
 export const MIRROR_INHERIT = 'inherit'
@@ -29,8 +32,9 @@ export interface MirrorInstall {
   marketplace: string
   /** Plugin name inside the marketplace index. */
   plugin: string
-  /** Encoded install targets: `global` or `workspace:<abs path>`. */
-  targets: string[]
+  /** Folder names of the workspaces the plugin is scoped to; absent or
+   *  empty means the global scope. */
+  workspaces?: string[]
 }
 
 /** The `cc-plugins` namespace section. */
@@ -41,40 +45,10 @@ export interface MirrorSection {
   models: Record<string, string>
 }
 
-/** One decoded mirror target string. */
-export type MirrorTarget =
-  | { kind: 'global' }
-  | { kind: 'workspace-path'; path: string }
-  | { kind: 'workspace-name'; name: string }
-
-/**
- * Encode one install target for the settings document. Workspace targets
- * write only the folder name (`workspace:web`): absolute paths differ on
- * every machine, so the shared file stays portable and reconcile matches
- * the name against the local workspace registry.
- */
-export function encodeTarget(target: TargetLike): string {
-  if (target.scope !== 'workspace') return 'global'
-  const path = target.workspacePath ?? ''
-  const name = path.split('/').filter(Boolean).pop() ?? path
-  return `workspace:${name}`
-}
-
-/**
- * Classify one settings-document target string. Absolute paths
- * (`workspace:/abs/path`, the pre-portable form) stay supported for
- * hand-written files and exactness; malformed strings return undefined.
- */
-export function classifyMirrorTarget(raw: string): MirrorTarget | undefined {
-  if (raw === 'global') return { kind: 'global' }
-  if (raw.startsWith('workspace:')) {
-    const inner = raw.slice('workspace:'.length)
-    if (inner === '') return undefined
-    if (inner.startsWith('/')) return { kind: 'workspace-path', path: inner }
-    return { kind: 'workspace-name', name: inner }
-  }
-  return undefined
-}
+/** One decoded mirror workspace reference. */
+export type MirrorWorkspace =
+  | { kind: 'name'; name: string }
+  | { kind: 'path'; path: string }
 
 /**
  * Render the whole section from the plugin's persisted state. Marketplaces
@@ -89,11 +63,14 @@ export function renderMirror(input: {
 }): MirrorSection {
   const marketplaces = [...input.marketplaces].map((m) => m.spec).sort((a, b) => a.localeCompare(b))
   const installs = [...input.installed]
-    .map((p): MirrorInstall => ({
-      marketplace: p.marketplaceSpec,
-      plugin: p.pluginName,
-      targets: p.targets.map((t) => encodeTarget(t)).sort(),
-    }))
+    .map((p): MirrorInstall => {
+      const base: MirrorInstall = { marketplace: p.marketplaceSpec, plugin: p.pluginName }
+      if (p.scope.kind === 'workspaces') {
+        // Folder names only: absolute paths differ per machine.
+        base.workspaces = p.scope.workspacePaths.map((p2) => p2.split('/').filter(Boolean).pop() ?? p2).sort()
+      }
+      return base
+    })
     .sort((a, b) => `${a.marketplace}/${a.plugin}`.localeCompare(`${b.marketplace}/${b.plugin}`))
   const models: Record<string, string> = {}
   for (const [alias, model] of Object.entries(input.models)) {
@@ -103,9 +80,22 @@ export function renderMirror(input: {
 }
 
 /**
+ * Classify one hand-written workspace reference: a folder name resolves
+ * through the local workspace registry, an absolute path is used as-is.
+ * Malformed strings return undefined.
+ */
+export function classifyMirrorWorkspace(raw: string): MirrorWorkspace | undefined {
+  if (raw.trim() === '') return undefined
+  if (raw.startsWith('/')) return { kind: 'path', path: raw }
+  return { kind: 'name', name: raw }
+}
+
+/**
  * Tolerant parse of the section as the settings provider resolved it:
  * non-object input, non-string scalars, and malformed entries drop out
- * rather than failing the whole read.
+ * rather than failing the whole read. Legacy `targets` lists on installs
+ * (the pre-scope encoding) are honored: `global` wins, otherwise
+ * workspace-name entries become the workspace set.
  */
 export function parseMirror(raw: unknown): MirrorSection {
   const section: MirrorSection = { marketplaces: [], installs: [], models: {} }
@@ -119,10 +109,28 @@ export function parseMirror(raw: unknown): MirrorSection {
       if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) continue
       const e = entry as Record<string, unknown>
       if (typeof e.marketplace !== 'string' || typeof e.plugin !== 'string') continue
-      const targets = Array.isArray(e.targets)
-        ? e.targets.filter((t): t is string => typeof t === 'string')
-        : []
-      section.installs.push({ marketplace: e.marketplace, plugin: e.plugin, targets })
+      const install: MirrorInstall = { marketplace: e.marketplace, plugin: e.plugin }
+      const workspaces = Array.isArray(e.workspaces)
+        ? e.workspaces.filter((w): w is string => typeof w === 'string' && w.trim() !== '')
+        : undefined
+      if (workspaces !== undefined && workspaces.length > 0) {
+        install.workspaces = workspaces
+      } else if (workspaces === undefined && Array.isArray(e.targets)) {
+        // Legacy encoding: 'global' or 'workspace:<name|abs path>'.
+        const names: string[] = []
+        let global = false
+        for (const t of e.targets) {
+          if (typeof t !== 'string') continue
+          if (t === 'global') { global = true; continue }
+          if (t.startsWith('workspace:')) {
+            const inner = t.slice('workspace:'.length)
+            if (inner === '') continue
+            names.push(inner.startsWith('/') ? (inner.split('/').filter(Boolean).pop() ?? inner) : inner)
+          }
+        }
+        if (!global && names.length > 0) install.workspaces = [...new Set(names)].sort()
+      }
+      section.installs.push(install)
     }
   }
   if (doc.models !== null && typeof doc.models === 'object' && !Array.isArray(doc.models)) {

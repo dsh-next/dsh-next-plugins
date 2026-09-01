@@ -28,31 +28,43 @@ with a built-in runtime for the components DSH activates in-process.
   filter, and an installed-only toggle. Installed cards show their installed
   version and, whenever the marketplace carries a newer one, an Update
   button (update also re-syncs that marketplace first, so it always pulls
-  the true latest). Each card's Add (or Manage) button
-  opens a target picker: any combination of the global skills root and your
-  workspaces, in one install. Targets already holding the plugin are locked
-  with their own uninstall; Update refreshes every target. Skills land per
-  selected target; MCP servers, agent rows, commands, and hooks are
-  plugin-level and activate once regardless of target count (the modal says
-  so). Clicking a plugin's name opens a **detail modal**: metadata, the
-  full component listing (including the families this bridge does not
-  install), declared dependencies, and the install notes persisted on the
-  record. Pre-targets registry records migrate to the new shape on read.
+  the true latest). Each card's Add (or Manage) button opens the **scope
+  modal**: a radio picks where the plugin works — **Global** (the default;
+  skills land in the shared skills root this DSH home scans everywhere) or
+  **Selected workspaces** (a checklist of the registered workspaces
+  appears; skills land in each checked workspace's own
+  `<workspace>/.agents/skills` root). The two modes are exclusive — one
+  install, one scope. For an installed plugin the same modal manages it:
+  Save scope re-scopes the install (skill copies move between roots,
+  recoverably), Update refreshes it, and Uninstall removes it after a
+  two-step confirm. Skills land per scope; MCP servers, agent rows,
+  commands, and hooks are plugin-level and activate once regardless of
+  scope (the modal says so). Clicking a plugin's name opens a
+  **detail modal**: metadata, the full component listing (including the
+  families this bridge does not install), declared dependencies, and the
+  install notes persisted on the record. Pre-scope registry records
+  (multi-target or single-scope forms) migrate to the scope shape on read:
+  any recorded global root wins (it covers every workspace); a
+  workspace-only record becomes a workspace scope over those paths.
 - **Install plugins** — each plugin's components land on the DSH surface
   that natively consumes it:
 
   | Claude Code component | DSH destination | Activation |
   | --- | --- | --- |
-  | `skills/*/SKILL.md` | DSH skills roots (`~/.agents/skills` globally, `<workspace>/.agents/skills` per workspace) | Immediate, through the filesystem provider's watcher |
+  | `skills/*/SKILL.md` | The scope's skills roots: `~/.agents/skills` for global, `<workspace>/.agents/skills` for each checked workspace | Immediate, through the filesystem provider's watcher |
   | `commands/*.md` | DSH command registry (`ctx.commands`) via the built-in runtime bridge | Immediate; re-registers after every install/update/uninstall. A command expands `$ARGUMENTS` into the plugin's template and submits it as a model-visible user turn |
   | `.mcp.json` servers | Managed `dsh-mcp-client` rows in `$DSH_HOME/cordis.patch.yml` | After a DSH restart or profile reload |
   | `agents/*.md` | Managed `dsh-tool-subagent` rows (one `cc-agent-<name>` delegation tool per agent, the agent markdown as the child persona; the `tools:` frontmatter becomes `toolFilter.allow` over translated DSH tool names — Claude built-ins through a well-known map, `mcp__` refs resolved through the plugin's installed MCP rows so server-name dedupe survives, and foreign `mcp__server__tool` refs passed through since DSH's MCP client uses Claude's exact naming; a mapped `model:` becomes `agentOptions.model`) | After a profile reload |
   | `hooks/hooks.json` | The runtime bridge runs each matching hook with Claude-compatible JSON stdin, `CLAUDE_PLUGIN_ROOT`/`CLAUDE_PLUGIN_DATA` env, and per-hook timeouts. `PreToolUse`/`PostToolUse` ride `tools/pre-execute`/`tools/post-execute` (exit code 2 or a JSON deny blocks the call); `UserPromptSubmit` rides `agent/pre-step` (a block rejects the step, stdout becomes injected context); `SessionStart` rides `agent/session-start` (observe, stdout injected, matcher selects `startup`/`resume`/`clear`/`compact`); `Stop` rides `agent/turn-stopping` (a block steers the agent to continue, loop-guarded per turn); `SubagentStop` rides `subagent/end` (observe only) | While `runtime.hooks` is enabled |
 
 - **Manage installs** — update an installed plugin from upstream (skills
-  re-copied, removed skills recoverably trashed, managed rows re-rendered
-  with stable server/tool names) and uninstall it (skills move to the
-  root's `.trash`, managed rows and the materialized plugin copy drop out).
+  re-copied into every root the scope spans, removed skills recoverably
+  trashed, managed rows re-rendered with stable server/tool names),
+  re-scope it from the Manage modal (skill copies move between roots —
+  added roots get fresh copies from an existing install copy, dropped
+  roots' copies move to `.trash` — without touching the plugin-level rows),
+  and uninstall it (skills move to the root's `.trash`, managed rows and
+  the materialized plugin copy drop out).
   The materialized plugin copy rewrites **preserving `node_modules`** (as
   Claude Code does across plugin versions), so a plugin whose MCP server or
   hooks installed dependencies keeps them working after an Update; a
@@ -83,7 +95,7 @@ Component and version fidelity follows Claude Code's current reference:
   and `${ENV_VAR}` references in server definitions are expanded at install
   time against the plugin's materialized root and the host environment
   (DSH's MCP client does no substitution). `${CLAUDE_PROJECT_DIR}` stays as
-  written with a note (it has no single value across install targets), as do
+  written with a note (it has no single value across scope roots), as do
   references to unset variables. stdio rows also carry the plugin root as
   their `cwd` — Claude Code runs plugin MCP servers from the plugin root,
   which relative command paths (`./cli/server.js`) rely on.
@@ -201,9 +213,10 @@ Agent frontmatter translation notes:
 
 ## Shareable settings mirror
 
-Marketplaces, installed plugins, and the model mappings are mirrored into
-the DSH user-settings document (`$DSH_HOME/settings.yaml`, the same file
-the Models page stores model providers in) under one `cc-plugins` section:
+Marketplaces, installed plugins (with their scope), and the model mappings
+are mirrored into the DSH user-settings document (`$DSH_HOME/settings.yaml`,
+the same file the Models page stores model providers in) under one
+`cc-plugins` section:
 
 ```yaml
 cc-plugins:
@@ -212,33 +225,39 @@ cc-plugins:
   installs:
     - marketplace: holistics/skills
       plugin: holistics-reporting
-      targets:
-        - workspace:web
+    - marketplace: holistics/skills
+      plugin: workspace-reporting
+      workspaces:
+        - web
+        - data
   models:
     haiku: deepseek-v4-flash
     sonnet: inherit
 ```
 
-Workspace targets carry only the folder name — absolute paths differ on
-every machine. On import, each name is resolved against that machine's
-workspace registry (registered workspaces whose folder matches; ambiguous
-or unknown names skip with a log note), and absolute paths
-(`workspace:/abs/path`) still work when hand-written and present locally.
-A machine that cannot satisfy part of the file keeps everything else —
-marketplaces and `global` targets still import — and the Plugins tab shows
-which imports skipped and why (`cc-import-skipped`), so the missing pieces
-are installed deliberately through the Add modal rather than guessed.
+An install without `workspaces` is global. A workspace scope carries only
+folder names — absolute paths differ on every machine. On import, each
+name is resolved against that machine's workspace registry (registered
+workspaces whose folder matches; ambiguous or unknown names skip with a
+log note), and hand-written absolute paths still work when present locally.
+Workspace imports are all-or-nothing: if one name on a plugin's list does
+not resolve, that plugin skips whole rather than silently reshaping its
+scope — everything else still imports, and the Plugins tab shows which
+imports skipped and why (`cc-import-skipped`), so the missing pieces are
+installed deliberately through the scope modal rather than guessed.
+Documents written by older versions (installs carrying `targets` lists
+such as `workspace:web`) import too: any `global` entry means global;
+otherwise the workspace names become the scope.
 
 Every panel mutation writes the section through (installs record presence
-only — versions follow upstream). At boot, and whenever the document
-changes on disk (the settings provider hot-publishes external edits), the
-plugin adopts what the document carries that the machine lacks: missing
-marketplaces are added, missing plugins installed into their recorded
-targets (workspace targets only when the path exists locally), and model
-mappings adopted when none are saved locally. Removals are never inferred —
-uninstalls stay explicit through the panel. Sharing one `settings.yaml`
-therefore reproduces the whole setup on a fresh machine, best effort and
-logged.
+and scope only — versions follow upstream). At boot, and whenever the
+document changes on disk (the settings provider hot-publishes external
+edits), the plugin adopts what the document carries that the machine
+lacks: missing marketplaces are added, missing plugins installed into
+their recorded scope, and model mappings adopted when none are saved
+locally. Removals are never inferred — uninstalls stay explicit through
+the panel. Sharing one `settings.yaml` therefore reproduces the whole
+setup on a fresh machine, best effort and logged.
 
 ## Settings UI
 
@@ -247,11 +266,12 @@ with three tabs: **Plugins** (every marketplace's plugins in a card grid with
 search, marketplace filter, and installed-only toggle; installed version and
 Update button per card; an install-notes chip when the record carries notes;
 the plugin name opens a detail modal with metadata, the full component
-listing, dependencies, and notes; Add/Manage opens the multi-target picker
-modal), **Marketplaces** (add/refresh/remove sources with per-source
-last-synced age; snapshots older than 24 hours re-sync when the panel
-opens), and **Models** (map Claude model names onto the models this runtime
-offers, live-discovered — unmapped names inherit the session's model).
+listing, dependencies, and notes; Add/Manage opens the scope modal — a
+Global-or-Workspaces radio with a workspace checklist), **Marketplaces**
+(add/refresh/remove sources with per-source last-synced age; snapshots
+older than 24 hours re-sync when the panel opens), and **Models** (map
+Claude model names onto the models this runtime offers, live-discovered —
+unmapped names inherit the session's model).
 
 The panel follows the DSH locale setting (English / Simplified Chinese)
 through the platform `locale` service — dictionaries live in the client

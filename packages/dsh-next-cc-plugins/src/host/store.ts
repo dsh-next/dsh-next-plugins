@@ -13,7 +13,7 @@ import { parseMarketplaceIndex } from '../core/marketplace-index.ts'
 import { sanitizeModelMap } from '../core/agents.ts'
 import { parseMarketplaceSpec } from '../core/source.ts'
 import { dirnamePath, isSafeRelativePath, joinPath } from '../core/path.ts'
-import { normalizeInstalledFile } from '../core/targets.ts'
+import { normalizeInstalledFile } from '../core/records.ts'
 import type {
   FetchLike,
   FsLike,

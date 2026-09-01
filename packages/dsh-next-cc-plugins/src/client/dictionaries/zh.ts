@@ -66,7 +66,6 @@ export const zh: Record<MessageKey, string> = {
   'unbridged.settings.many': '{count} 个设置文件',
 
   'presence.global': '全局',
-  'presence.workspace': '工作区',
   'presence.in': '位于 {targets}',
   'presence.installed': '已安装',
 
@@ -79,14 +78,17 @@ export const zh: Record<MessageKey, string> = {
 
   'modal.aria': '管理插件“{name}”',
   'modal.available': '{version} 可更新',
-  'modal.hint': '选择添加位置。技能按目标分别安装；MCP 服务器、agent、命令和钩子为插件级，全局只启用一次。已安装该插件的目标会被标记并锁定。',
-  'modal.target.global': '全局',
-  'modal.added': '已添加',
-  'modal.confirm': '确认',
+  'modal.hint': '选择此插件生效的范围。技能按所选范围安装；MCP 服务器、agent、命令和钩子为插件级，无论范围如何都只启用一次。',
+  'modal.scope.global': '全局（所有工作区）',
+  'modal.scope.workspaces': '选定的工作区',
+  'modal.workspaces.hint': '插件仅在勾选的工作区中生效。',
+  'modal.workspaces.empty': '尚未注册任何工作区。',
+  'modal.workspaceMissing': '未注册',
+  'modal.save': '保存范围',
+  'modal.update': '更新',
   'modal.uninstall': '卸载',
+  'modal.confirmUninstall': '确认卸载',
   'modal.cancel': '取消',
-  'modal.updateEverywhere': '全部更新',
-  'modal.addTargets': '添加到 {count} 个目标',
 
   'detail.aria': '插件详情“{name}”',
   'detail.version': '版本 {version}',
@@ -122,5 +124,5 @@ export const zh: Record<MessageKey, string> = {
   'models.inherit': '继承会话模型',
   'models.save': '保存模型映射',
 
-  'import.skipped': '{count} 条来自设置文件的导入在本机被跳过（缺少工作区名称或来源）：{items}。请添加对应工作区或通过面板安装。',
+  'import.skipped': '{count} 条来自设置文件的导入在本机被跳过（缺少工作区名称或来源）：{items}。请注册对应工作区或通过面板安装。',
 }

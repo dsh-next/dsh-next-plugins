@@ -1,9 +1,10 @@
 /**
  * jsdom render test for the Claude Plugins settings panel: proves the two
  * tabs (Plugins grid with search/provider/installed filters, Marketplaces
- * sources) and the Add/Manage modal's multi-target flows dispatch the right
- * RPC calls. This complements the Host RPC contract test (shape) and the
- * real-mount e2e marker (whole shell).
+ * sources) and the scope modal's radio flows (Global default / Workspaces
+ * checklist; install, re-scope, update, two-step uninstall) dispatch the
+ * right RPC calls. This complements the Host RPC contract test (shape) and
+ * the real-mount e2e marker (whole shell).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as React from 'react'
@@ -107,7 +108,8 @@ function installedRecord(overrides: Partial<InstalledPlugin> = {}): InstalledPlu
     version: '1.0.0',
     installedAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
-    targets: [{ scope: 'global', skills: [{ name: 'deploy', directory: '/home/u/.agents/skills/deploy' }] }],
+    scope: { kind: 'global' },
+    skills: [{ name: 'deploy', directory: '/home/u/.agents/skills/deploy' }],
     mcpServers: [],
     agents: [],
     pending: { commands: ['ship'], hookEvents: ['PreToolUse'] },
@@ -264,7 +266,7 @@ describe('CcPanel', () => {
       ...MODEL_STATE,
       installed: [],
       marketplaces: [],
-      importSkipped: ['plugin team-tools target workspace:web: no workspace "web" registered on this machine'],
+      importSkipped: ['plugin team-tools: no workspace "web" registered on this machine'],
     }
     await renderAsync({ rpc: rpcMock(state) })
     const notice = document.querySelector('[data-testid="cc-import-skipped"]')
@@ -396,58 +398,99 @@ describe('CcPanel', () => {
     ])
   })
 
-  it('Add modal installs to multiple selected targets', async () => {
+  it('scope modal installs globally by default and into checked workspaces when selected', async () => {
     const rpc = rpcMock()
     const notify = vi.fn()
     await renderAsync({ rpc, notifyInstalledChanged: notify })
     await act(async () => { addButton('github:o/r/team-tools').click() })
     const modal = document.querySelector('[data-testid="cc-modal"]')
     expect(modal).not.toBeNull()
-    expect(modal?.textContent).toContain('activate globally once')
-    // Both targets selectable; footer reflects the count.
-    const targets = [...container.querySelectorAll('[data-testid="cc-target"] input[type="checkbox"]')]
-    expect(targets).toHaveLength(2)
-    const footerAdd = () => document.querySelector('[data-testid="cc-modal-add"]') as HTMLButtonElement
-    await act(async () => { check(targets[0], true) })
-    expect(footerAdd().disabled).toBe(false)
-    await act(async () => { check(targets[1], true) })
-    expect(footerAdd().textContent).toBe('Add to 2 targets')
-    expect(footerAdd().disabled).toBe(false)
-    await act(async () => { footerAdd().click() })
+    expect(modal?.textContent).toContain('activate once regardless of scope')
+    // Global is the default: no checklist renders, confirm is enabled.
+    expect((modal?.querySelector('[data-testid="cc-scope-global"] input') as HTMLInputElement).checked).toBe(true)
+    expect(document.querySelector('[data-testid="cc-workspaces"]')).toBeNull()
+    const confirm = () => document.querySelector('[data-testid="cc-modal-confirm"]') as HTMLButtonElement
+    expect(confirm().disabled).toBe(false)
+    await act(async () => { confirm().click() })
     expect(rpc).toHaveBeenCalledWith('installPlugin', {
       marketplaceId: 'github:o/r',
       plugin: 'team-tools',
-      targets: [{ scope: 'global' }, { scope: 'workspace', workspacePath: '/w1' }],
+      scope: { kind: 'global' },
     })
     expect(notify).toHaveBeenCalled()
     expect(document.querySelector('[data-testid="cc-modal"]')).toBeNull()
+
+    // Workspaces mode: the checklist appears and the selection rides along.
+    await act(async () => { addButton('github:o/r/team-tools').click() })
+    await act(async () => { (document.querySelector('[data-testid="cc-scope-workspaces"] input') as HTMLInputElement).click() })
+    const boxes = [...container.querySelectorAll('[data-testid="cc-workspace"] input[type="checkbox"]')]
+    expect(boxes).toHaveLength(1) // Project One
+    expect(confirm().disabled).toBe(true) // nothing checked yet
+    await act(async () => { check(boxes[0], true) })
+    expect(confirm().disabled).toBe(false)
+    await act(async () => { confirm().click() })
+    expect(rpc).toHaveBeenLastCalledWith('installPlugin', {
+      marketplaceId: 'github:o/r',
+      plugin: 'team-tools',
+      scope: { kind: 'workspaces', workspacePaths: ['/w1'] },
+    })
   })
 
-  it('Manage modal locks installed targets, uninstalls per target, and updates everywhere', async () => {
+  it('Manage modal reflects the current scope, re-scopes, updates, and uninstalls', async () => {
     const state: CcState = { ...STATE, installed: [installedRecord()] }
     const rpc = rpcMock(state)
     await renderAsync({ rpc })
     await act(async () => { addButton('github:o/r/team-tools').click() })
-    const modal = document.querySelector('[data-testid="cc-modal"]')!
-    // The global row is locked with an added badge and its own uninstall.
-    const rows = [...container.querySelectorAll('[data-testid="cc-target"]')]
-    expect(rows).toHaveLength(2)
-    expect(rows[0].textContent).toContain('added')
-    expect((rows[0].querySelector('input[type="checkbox"]') as HTMLInputElement).disabled).toBe(true)
-    expect(rows[1].textContent).not.toContain('added')
-    // The workspace row stays selectable for adding.
-    expect((rows[1].querySelector('input[type="checkbox"]') as HTMLInputElement).disabled).toBe(false)
-    // Update everywhere dispatches with the key.
-    await act(async () => { button('Update everywhere').click() })
+    let modal = document.querySelector('[data-testid="cc-modal"]')!
+    // Installed: the footer offers Save scope, Update, and Uninstall.
+    expect(modal.textContent).toContain('Save scope')
+    expect(button('Update')).toBeDefined()
+    expect(button('Uninstall')).toBeDefined()
+    // A global record opens on the global radio.
+    expect((modal.querySelector('[data-testid="cc-scope-global"] input') as HTMLInputElement).checked).toBe(true)
+    // Switch to workspaces and save: re-scope dispatches with the key.
+    await act(async () => { (modal.querySelector('[data-testid="cc-scope-workspaces"] input') as HTMLInputElement).click() })
+    const boxes = [...container.querySelectorAll('[data-testid="cc-workspace"] input[type="checkbox"]')]
+    await act(async () => { check(boxes[0], true) })
+    await act(async () => { (document.querySelector('[data-testid="cc-modal-confirm"]') as HTMLButtonElement).click() })
+    expect(rpc).toHaveBeenCalledWith('setPluginScope', {
+      key: 'github:o/r/team-tools',
+      scope: { kind: 'workspaces', workspacePaths: ['/w1'] },
+    })
+    // Update dispatches with the key and closes the modal.
+    await act(async () => { addButton('github:o/r/team-tools').click() })
+    await act(async () => { button('Update').click() })
     expect(rpc).toHaveBeenCalledWith('updatePlugin', { key: 'github:o/r/team-tools' })
-    // Per-target uninstall is a two-step confirm and sends the target.
+    expect(document.querySelector('[data-testid="cc-modal"]')).toBeNull()
+    // Uninstall is a two-step confirm.
     await act(async () => { addButton('github:o/r/team-tools').click() })
     await act(async () => { button('Uninstall').click() })
-    await act(async () => { button('Confirm').click() })
-    expect(rpc).toHaveBeenCalledWith('uninstallPlugin', {
-      key: 'github:o/r/team-tools',
-      target: { scope: 'global' },
-    })
+    await act(async () => { (document.querySelector('[data-testid="cc-uninstall-confirm"]') as HTMLButtonElement).click() })
+    expect(rpc).toHaveBeenCalledWith('uninstallPlugin', { key: 'github:o/r/team-tools' })
+  })
+
+  it('Manage modal opens on the record\'s workspace scope, listing unregistered paths', async () => {
+    const state: CcState = {
+      ...STATE,
+      installed: [installedRecord({
+        scope: { kind: 'workspaces', workspacePaths: ['/w1', '/gone'] },
+        skills: [
+          { name: 'deploy', directory: '/w1/.agents/skills/deploy' },
+          { name: 'deploy', directory: '/gone/.agents/skills/deploy' },
+        ],
+      })],
+    }
+    await renderAsync({ rpc: rpcMock(state) })
+    await act(async () => { addButton('github:o/r/team-tools').click() })
+    const modal = document.querySelector('[data-testid="cc-modal"]')!
+    expect((modal.querySelector('[data-testid="cc-scope-workspaces"] input') as HTMLInputElement).checked).toBe(true)
+    const rows = [...container.querySelectorAll('[data-testid="cc-workspace"]')]
+    expect(rows).toHaveLength(2)
+    const gone = rows.find((r) => (r.textContent ?? '').includes('/gone'))!
+    expect(gone.textContent).toContain('not registered')
+    expect((gone.querySelector('input') as HTMLInputElement).checked).toBe(true)
+    const w1 = rows.find((r) => (r.textContent ?? '').includes('Project One'))!
+    expect((w1.querySelector('input') as HTMLInputElement).checked).toBe(true)
   })
 
   it('shows the mutation message and surfaces failures', async () => {
@@ -514,9 +557,10 @@ describe('CcPanel', () => {
     const modal = () => document.querySelector('[data-testid="cc-modal"]')
     expect(modal()).not.toBeNull()
 
-    // Footer Add is disabled until at least one target is selected.
-    const footerAdd = () => document.querySelector('[data-testid="cc-modal-add"]') as HTMLButtonElement
-    expect(footerAdd().disabled).toBe(true)
+    // Draft something worth resetting: workspaces mode with a checked row.
+    await act(async () => { (modal()!.querySelector('[data-testid="cc-scope-workspaces"] input') as HTMLInputElement).click() })
+    const boxes = [...container.querySelectorAll('[data-testid="cc-workspace"] input[type="checkbox"]')]
+    await act(async () => { check(boxes[0], true) })
 
     await act(async () => { button('Cancel').click() })
     expect(modal()).toBeNull()
@@ -531,25 +575,25 @@ describe('CcPanel', () => {
     await act(async () => { (modal()!.parentElement as HTMLElement).click() })
     expect(modal()).toBeNull()
 
-    // The selection draft did not leak into the next open.
+    // The draft did not leak: global is the default again, nothing checked.
     await act(async () => { addButton('github:o/r/team-tools').click() })
-    expect(footerAdd().disabled).toBe(true)
+    expect((modal()!.querySelector('[data-testid="cc-scope-global"] input') as HTMLInputElement).checked).toBe(true)
+    expect(document.querySelector('[data-testid="cc-workspaces"]')).toBeNull()
   })
 
-  it('footer reflects selecting then deselecting targets', async () => {
+  it('confirm stays disabled until a workspaces selection exists', async () => {
     await renderAsync()
     await act(async () => { addButton('github:o/r/team-tools').click() })
-    const footerAdd = () => document.querySelector('[data-testid="cc-modal-add"]') as HTMLButtonElement
-    const boxes = [...container.querySelectorAll('[data-testid="cc-target"] input[type="checkbox"]')]
-    await act(async () => { check(boxes[0], true) })
-    expect(footerAdd().textContent).toBe('Add')
-    expect(footerAdd().disabled).toBe(false)
-    await act(async () => { check(boxes[1], true) })
-    expect(footerAdd().textContent).toBe('Add to 2 targets')
-    await act(async () => { check(boxes[0], false) })
-    expect(footerAdd().textContent).toBe('Add')
-    await act(async () => { check(boxes[1], false) })
-    expect(footerAdd().disabled).toBe(true)
+    const confirm = () => document.querySelector('[data-testid="cc-modal-confirm"]') as HTMLButtonElement
+    // Global default: enabled.
+    expect(confirm().disabled).toBe(false)
+    await act(async () => { (document.querySelector('[data-testid="cc-scope-workspaces"] input') as HTMLInputElement).click() })
+    expect(confirm().disabled).toBe(true)
+    const boxes = () => [...container.querySelectorAll('[data-testid="cc-workspace"] input[type="checkbox"]')]
+    await act(async () => { check(boxes()[0], true) })
+    expect(confirm().disabled).toBe(false)
+    await act(async () => { check(boxes()[0], false) })
+    expect(confirm().disabled).toBe(true)
   })
 
   it('modal title shows the installed and available versions on an update', async () => {
@@ -618,7 +662,7 @@ describe('CcPanel', () => {
 
     await act(async () => { addButton('github:o/r/team-tools').click() })
     await act(async () => { button('Uninstall').click() })
-    await act(async () => { button('Confirm').click() })
+    await act(async () => { (document.querySelector('[data-testid="cc-uninstall-confirm"]') as HTMLButtonElement).click() })
     expect(notify).toHaveBeenCalledTimes(2)
   })
 
@@ -646,21 +690,14 @@ describe('CcPanel', () => {
 describe('presenceLabel', () => {
   const WS: WorkspaceRow[] = [{ id: 'w1', title: 'Project One', path: '/w1' }]
 
-  it('names global and registered workspaces', () => {
+  it('labels the global scope', () => {
     expect(presenceLabel(installedRecord(), WS)).toBe('in global')
-    expect(presenceLabel(installedRecord({
-      targets: [{ scope: 'workspace', workspacePath: '/w1', skills: [] }],
-    }), WS)).toBe('in Project One')
   })
 
-  it('falls back to a generic label for workspaces the registry no longer has', () => {
+  it('names registered workspaces and falls back to the folder for unknown paths', () => {
     expect(presenceLabel(installedRecord({
-      targets: [{ scope: 'workspace', workspacePath: '/gone', skills: [] }],
-    }), WS)).toBe('in workspace')
-  })
-
-  it('says installed when a record somehow has no targets', () => {
-    expect(presenceLabel(installedRecord({ targets: [] }), WS)).toBe('installed')
+      scope: { kind: 'workspaces', workspacePaths: ['/w1', '/gone'] },
+    }), WS)).toBe('in Project One, gone')
   })
 })
 
@@ -848,9 +885,13 @@ describe('Chinese localization', () => {
       .find((c) => c.querySelector('[data-testid="cc-detail"]')?.textContent === 'team-tools')
     await act(async () => { (card?.querySelector('[data-testid="cc-add"]') as HTMLButtonElement).click() })
     const modal = container.querySelector('[data-testid="cc-modal"]')
-    expect(modal?.textContent).toContain('选择添加位置')
-    expect(modal?.textContent).toContain('全局')
+    expect(modal?.textContent).toContain('选择此插件生效的范围')
+    expect(modal?.textContent).toContain('全局（所有工作区）')
     expect(modal?.textContent).toContain('取消')
     expect(modal?.getAttribute('aria-label')).toBe('管理插件“team-tools”')
+    // Switch to workspaces: the checklist chrome localizes too.
+    await act(async () => { (modal?.querySelector('[data-testid="cc-scope-workspaces"] input') as HTMLInputElement).click() })
+    expect(modal?.textContent).toContain('选定的工作区')
+    expect(modal?.textContent).toContain('插件仅在勾选的工作区中生效')
   })
 })

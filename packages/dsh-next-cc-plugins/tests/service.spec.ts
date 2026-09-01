@@ -208,7 +208,7 @@ describe('CcMarketplaceService marketplaces', () => {
 
   it('marks installedVersion and updateAvailable when the catalog moves ahead', async () => {
     await f.service.addMarketplace('o/r')
-    await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })
+    await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', scope: { kind: 'global' } })
 
     const current = (await f.service.state()).marketplaces[0].plugins[0]
     expect(current.installed).toBe(true)
@@ -239,7 +239,7 @@ describe('CcMarketplaceService marketplaces', () => {
     }
     f.gh.setRepo('o', 'r', repo)
     await f.service.addMarketplace('o/r')
-    await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })
+    await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', scope: { kind: 'global' } })
 
     const state = await f.service.state()
     // The card shows the effective catalog version (the manifest's), and the
@@ -260,7 +260,7 @@ describe('CcMarketplaceService marketplaces', () => {
     })
     f.gh.setRepo('o', 'r', repo())
     await f.service.addMarketplace('o/r')
-    await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })
+    await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', scope: { kind: 'global' } })
 
     // No version anywhere: nothing to compare yet.
     const fresh = (await f.service.state()).marketplaces[0].plugins[0]
@@ -313,7 +313,7 @@ describe('CcMarketplaceService marketplaces', () => {
       'plugins/other/skills/nope/SKILL.md': SKILL('nope', 'Not part of the plugin'),
     })
     await f.service.addMarketplace('owner/monorepo')
-    const result = await f.service.installPlugin({ marketplaceId: 'github:owner/monorepo', plugin: 'slicer', targets: [{ scope: 'global' }] })
+    const result = await f.service.installPlugin({ marketplaceId: 'github:owner/monorepo', plugin: 'slicer', scope: { kind: 'global' } })
     expect(result.ok).toBe(true)
     // Only the subdirectory's files installed; the pin rode the tarball URL.
     const snap = f.fs.snapshot()
@@ -330,14 +330,14 @@ describe('CcMarketplaceService marketplaces', () => {
       }),
     })
     await f.service.addMarketplace('owner/monorepo')
-    const result = await f.service.installPlugin({ marketplaceId: 'github:owner/monorepo', plugin: 'ghost', targets: [{ scope: 'global' }] })
+    const result = await f.service.installPlugin({ marketplaceId: 'github:owner/monorepo', plugin: 'ghost', scope: { kind: 'global' } })
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error).toContain('"plugins/ghost" is missing from the owner/monorepo snapshot')
   })
 
   it('removes an empty marketplace and refuses one with installed plugins', async () => {
     await f.service.addMarketplace('o/r')
-    await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })
+    await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', scope: { kind: 'global' } })
     const blocked = await f.service.removeMarketplace('github:o/r')
     expect(blocked.ok).toBe(false)
     if (!blocked.ok) expect(blocked.error).toContain('team-tools')
@@ -372,7 +372,7 @@ describe('CcMarketplaceService install', () => {
     const env = makeFixture({}, { env: { DB_TOKEN: 'tok-1', MCP_HOST: 'mcp.acme.test', MCP_TOKEN: 'mtok' } })
     env.gh.setRepo('o', 'r', repo)
     await env.service.addMarketplace('o/r')
-    const result = await env.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'db-plugin', targets: [{ scope: 'global' }] })
+    const result = await env.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'db-plugin', scope: { kind: 'global' } })
     expect(result.ok).toBe(true)
 
     const record = (await env.service.state()).installed[0]
@@ -382,7 +382,7 @@ describe('CcMarketplaceService install', () => {
       expect(stdio.args).toEqual(['/home/u/.dsh/cc-plugins/plugins/github_o_r_db-plugin/servers/db-server.js'])
       expect(stdio.env.DB_PATH).toBe('/home/u/.dsh/cc-plugins/data/github_o_r_db-plugin/db')
       expect(stdio.env.TOKEN).toBe('tok-1')
-      // No single project dir across targets: left literal, with a note.
+      // No single project dir across scope roots: left literal, with a note.
       expect(stdio.env.HOME_DIR).toBe('${CLAUDE_PROJECT_DIR}/x')
     }
     const http = record.mcpServers.find((s) => s.claudeName === 'web-hooks')?.def
@@ -413,7 +413,7 @@ describe('CcMarketplaceService install', () => {
     it('preserves node_modules and stays silent when package.json is unchanged', async () => {
       f.gh.setRepo('o', 'r', REPO_WITH_MANIFEST('1.0.0'))
       await f.service.addMarketplace('o/r')
-      await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })
+      await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', scope: { kind: 'global' } })
       // The plugin's dependency bootstrap installed something.
       await f.fs.writeFile(`${ROOT}/node_modules/dep/index.js`, 'module.exports = 1')
       await f.fs.writeFile(`${ROOT}/stale-artifact.txt`, 'from the old version')
@@ -432,7 +432,7 @@ describe('CcMarketplaceService install', () => {
     it('preserves node_modules but notes a changed package.json', async () => {
       f.gh.setRepo('o', 'r', REPO_WITH_MANIFEST('1.0.0'))
       await f.service.addMarketplace('o/r')
-      await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })
+      await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', scope: { kind: 'global' } })
       await f.fs.writeFile(`${ROOT}/node_modules/dep/index.js`, 'x')
 
       f.gh.setRepo('o', 'r', {
@@ -454,7 +454,7 @@ describe('CcMarketplaceService install', () => {
     it('lets incoming files overwrite preserved node_modules content', async () => {
       f.gh.setRepo('o', 'r', REPO_WITH_MANIFEST('1.0.0'))
       await f.service.addMarketplace('o/r')
-      await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })
+      await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', scope: { kind: 'global' } })
       await f.fs.writeFile(`${ROOT}/node_modules/dep/index.js`, 'installed')
 
       f.gh.setRepo('o', 'r', {
@@ -472,7 +472,7 @@ describe('CcMarketplaceService install', () => {
     it('uninstalls wipe node_modules with the rest of the copy', async () => {
       f.gh.setRepo('o', 'r', REPO_WITH_MANIFEST('1.0.0'))
       await f.service.addMarketplace('o/r')
-      await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })
+      await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', scope: { kind: 'global' } })
       await f.fs.writeFile(`${ROOT}/node_modules/dep/index.js`, 'x')
       await f.service.uninstallPlugin('github:o/r/team-tools')
       expect(f.fs.snapshot()[`${ROOT}/node_modules/dep/index.js`]).toBeUndefined()
@@ -481,7 +481,7 @@ describe('CcMarketplaceService install', () => {
     it('fresh installs note nothing (no previous dependencies exist)', async () => {
       f.gh.setRepo('o', 'r', REPO_WITH_MANIFEST('1.0.0'))
       await f.service.addMarketplace('o/r')
-      const result = await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })
+      const result = await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', scope: { kind: 'global' } })
       expect(result.ok).toBe(true)
       if (result.ok) expect(result.message).not.toContain('node_modules')
     })
@@ -497,14 +497,14 @@ describe('CcMarketplaceService install', () => {
       'plugins/rich/skills/deploy/SKILL.md': SKILL('deploy', 'Deploys'),
     })
     await f.service.addMarketplace('o/r')
-    await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'rich', targets: [{ scope: 'global' }] })
+    await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'rich', scope: { kind: 'global' } })
     const record = (await f.service.state()).installed[0]
     expect(record.notes).toEqual(['ships 1 LSP server; no DSH bridge, not installed'])
-    // A noteless install persists no empty array. (Workspace target so the
+    // A noteless install persists no empty array. (Workspace scope so the
     // shared "deploy" skill does not collide with the install above.)
     f.gh.setRepo('x', 'clean', TEAM_TOOLS_V1)
     await f.service.addMarketplace('x/clean')
-    await f.service.installPlugin({ marketplaceId: 'github:x/clean', plugin: 'team-tools', targets: [{ scope: 'workspace', workspacePath: '/w1' }] })
+    await f.service.installPlugin({ marketplaceId: 'github:x/clean', plugin: 'team-tools', scope: { kind: 'workspaces', workspacePaths: ['/w1'] } })
     const clean = (await f.service.state()).installed.find((p) => p.key === 'github:x/clean/team-tools')
     expect(clean).toBeDefined()
     expect(clean?.notes).toBeUndefined()
@@ -527,7 +527,7 @@ describe('CcMarketplaceService install', () => {
       'plugins/secrets-vault/skills/keep/SKILL.md': SKILL('keep', 'Keeps'),
     })
     await f.service.addMarketplace('o/r')
-    const result = await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'vault-user', targets: [{ scope: 'global' }] })
+    const result = await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'vault-user', scope: { kind: 'global' } })
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.message).toContain('requires plugin(s) secrets-vault; this bridge does not auto-install dependencies')
@@ -546,7 +546,7 @@ describe('CcMarketplaceService install', () => {
       'plugins/rich/skills/deploy/SKILL.md': SKILL('deploy', 'Deploys'),
     })
     await f.service.addMarketplace('o/r')
-    const result = await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'rich', targets: [{ scope: 'global' }] })
+    const result = await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'rich', scope: { kind: 'global' } })
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.message).toContain('ships 1 LSP server; no DSH bridge, not installed')
@@ -568,7 +568,7 @@ describe('CcMarketplaceService install', () => {
       }),
     })
     await none.service.addMarketplace('o/r')
-    const result = await none.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'db-plugin', targets: [{ scope: 'global' }] })
+    const result = await none.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'db-plugin', scope: { kind: 'global' } })
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.message).toContain('${MISSING_BIN} which is not set')
@@ -582,7 +582,7 @@ describe('CcMarketplaceService install', () => {
 
   it('installs skills natively, writes MCP and agent rows, and materializes the plugin copy', async () => {
     await f.service.addMarketplace('o/r')
-    const result = await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })
+    const result = await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', scope: { kind: 'global' } })
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.message).toContain('1 skill')
@@ -618,9 +618,8 @@ describe('CcMarketplaceService install', () => {
     const record = state.installed[0]
     expect(record.key).toBe('github:o/r/team-tools')
     expect(record.version).toBe('1.0.0')
-    expect(record.targets).toHaveLength(1)
-    expect(record.targets[0].scope).toBe('global')
-    expect(record.targets[0].skills.map((s) => s.name)).toEqual(['deploy'])
+    expect(record.scope).toEqual({ kind: 'global' })
+    expect(record.skills.map((s) => s.name)).toEqual(['deploy'])
     expect(record.mcpServers.map((s) => s.serverName)).toEqual(['linear'])
     expect(record.agents.map((a) => a.toolName)).toEqual(['cc-agent-reviewer'])
     expect(record.agents[0].persona).toContain('Reviews')
@@ -632,7 +631,7 @@ describe('CcMarketplaceService install', () => {
   it('omits agent rows while runtime.agents is disabled', async () => {
     const disabled = makeFixture({}, { agentsEnabled: false })
     await disabled.service.addMarketplace('o/r')
-    const result = await disabled.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })
+    const result = await disabled.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', scope: { kind: 'global' } })
     expect(result.ok).toBe(true)
     const state = await disabled.service.state()
     expect(state.installed[0].agents).toEqual([])
@@ -655,7 +654,7 @@ describe('CcMarketplaceService install', () => {
         '---\ndescription: Search past conversations\nmodel: haiku\ntools: Read, mcp__plugin_episodic-memory_episodic-memory__search, mcp__plugin_episodic-memory_episodic-memory__read\n---\nSearch.',
     })
     await f.service.addMarketplace('o/episodic')
-    const result = await f.service.installPlugin({ marketplaceId: 'github:o/episodic', plugin: 'episodic-memory', targets: [{ scope: 'global' }] })
+    const result = await f.service.installPlugin({ marketplaceId: 'github:o/episodic', plugin: 'episodic-memory', scope: { kind: 'global' } })
     expect(result.ok).toBe(true)
     if (!result.ok) return
     // The plugin-owned refs resolved through the installed row: no drop notes.
@@ -680,7 +679,7 @@ describe('CcMarketplaceService install', () => {
       agentModelMap: { sonnet: 'dsh-pro' },
     })
     await service.addMarketplace('o/r')
-    await service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })
+    await service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', scope: { kind: 'global' } })
     // reviewer.md has no model: frontmatter, so exercise via a model-bearing agent.
     gh.setRepo('o', 'r', {
       ...TEAM_TOOLS_V1,
@@ -705,7 +704,7 @@ describe('CcMarketplaceService install', () => {
         'plugins/episodic-memory/agents/search-conversations.md': EPISODIC_AGENT,
       })
       await fix.service.addMarketplace('o/episodic')
-      await fix.service.installPlugin({ marketplaceId: 'github:o/episodic', plugin: 'episodic-memory', targets: [{ scope: 'global' }] })
+      await fix.service.installPlugin({ marketplaceId: 'github:o/episodic', plugin: 'episodic-memory', scope: { kind: 'global' } })
       return fix
     }
 
@@ -799,7 +798,7 @@ describe('CcMarketplaceService install', () => {
       ].join('\n'),
     })
     await f.service.addMarketplace('o/agents-repo')
-    const result = await f.service.installPlugin({ marketplaceId: 'github:o/agents-repo', plugin: 'agentic', targets: [{ scope: 'global' }] })
+    const result = await f.service.installPlugin({ marketplaceId: 'github:o/agents-repo', plugin: 'agentic', scope: { kind: 'global' } })
     expect(result.ok).toBe(true)
     if (!result.ok) return
     // The unmapped tool and the mapped model are both reported.
@@ -826,7 +825,7 @@ describe('CcMarketplaceService install', () => {
       'plugins/agentic/agents/reviewer.md': '---\ntools: Read\nmodel: sonnet\n---\nReview.',
     })
     await mapped.service.addMarketplace('o/agents-repo')
-    const result = await mapped.service.installPlugin({ marketplaceId: 'github:o/agents-repo', plugin: 'agentic', targets: [{ scope: 'global' }] })
+    const result = await mapped.service.installPlugin({ marketplaceId: 'github:o/agents-repo', plugin: 'agentic', scope: { kind: 'global' } })
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.message).not.toContain('agentModelMap')
@@ -851,7 +850,7 @@ describe('CcMarketplaceService install', () => {
     // The nested metadata.description form is surfaced on the marketplace row.
     const before = await f.service.state()
     expect(before.marketplaces.find((m) => m.id === 'github:o/refs-repo')?.description).toBe('Nested description form')
-    const result = await f.service.installPlugin({ marketplaceId: 'github:o/refs-repo', plugin: 'refsy', targets: [{ scope: 'global' }] })
+    const result = await f.service.installPlugin({ marketplaceId: 'github:o/refs-repo', plugin: 'refsy', scope: { kind: 'global' } })
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.message).toContain('1 skill(s) reference plugin-level "references/"')
@@ -879,7 +878,7 @@ describe('CcMarketplaceService install', () => {
     expect(before.marketplaces[0].plugins[0].inventory?.skills.map((s) => s.name)).toEqual(['audit'])
     expect(before.marketplaces[0].plugins[0].inventory?.mcpServers.map((s) => s.name)).toEqual(['chrome-devtools'])
 
-    const result = await f.service.installPlugin({ marketplaceId: 'github:o/cdt-mcp', plugin: 'cdt-mcp', targets: [{ scope: 'global' }] })
+    const result = await f.service.installPlugin({ marketplaceId: 'github:o/cdt-mcp', plugin: 'cdt-mcp', scope: { kind: 'global' } })
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.message).toContain('1 skill(s)')
@@ -895,7 +894,7 @@ describe('CcMarketplaceService install', () => {
   it('preserves foreign patch rows around the managed block', async () => {
     f.fs.writeFile(PATCH, "- insert:\n    - id: foreign-row\n      name: 'some-plugin'\n")
     await f.service.addMarketplace('o/r')
-    await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })
+    await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', scope: { kind: 'global' } })
     const patch = f.fs.snapshot()[PATCH] ?? ''
     expect(patch.startsWith("- insert:\n    - id: foreign-row")).toBe(true)
     expect(patch).toContain('cc-mcp-')
@@ -903,35 +902,48 @@ describe('CcMarketplaceService install', () => {
 
   it('rejects a duplicate install and an unsupported source', async () => {
     await f.service.addMarketplace('o/r')
-    await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })
-    const dup = await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })
+    await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', scope: { kind: 'global' } })
+    const dup = await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', scope: { kind: 'global' } })
     expect(dup.ok).toBe(false)
     if (!dup.ok) expect(dup.error).toContain('already installed')
 
-    const npm = await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'packed', targets: [{ scope: 'global' }] })
+    const npm = await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'packed', scope: { kind: 'global' } })
     expect(npm.ok).toBe(false)
     if (!npm.ok) expect(npm.error).toContain('npm')
   })
 
-  it('requires a workspacePath for workspace scope', async () => {
+  it('rejects an empty or malformed workspace scope', async () => {
     await f.service.addMarketplace('o/r')
-    const result = await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'workspace' }] })
-    expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.error).toContain('workspacePath')
+    const empty = await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', scope: { kind: 'workspaces', workspacePaths: [] } })
+    expect(empty.ok).toBe(false)
+    if (!empty.ok) expect(empty.error).toContain('at least one workspace')
+    const dup = await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', scope: { kind: 'workspaces', workspacePaths: ['/w1', '/w1'] } })
+    expect(dup.ok).toBe(false)
+    if (!dup.ok) expect(dup.error).toContain('duplicate workspace path')
   })
 
-  it('installs into the workspace skills root when scoped', async () => {
+  it('installs into each workspace skills root when scoped, and never the global root', async () => {
     await f.service.addMarketplace('o/r')
-    const result = await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'workspace', workspacePath: '/w1' }] })
+    const result = await f.service.installPlugin({
+      marketplaceId: 'github:o/r',
+      plugin: 'team-tools',
+      scope: { kind: 'workspaces', workspacePaths: ['/w1', '/w2'] },
+    })
     expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.message).toContain('2 workspaces')
     expect(f.fs.has('/w1/.agents/skills/deploy/SKILL.md')).toBe(true)
+    expect(f.fs.has('/w2/.agents/skills/deploy/SKILL.md')).toBe(true)
     expect(f.fs.has('/home/u/.agents/skills/deploy/SKILL.md')).toBe(false)
+    const record = (await f.service.state()).installed[0]
+    expect(record.scope).toEqual({ kind: 'workspaces', workspacePaths: ['/w1', '/w2'] })
+    expect(record.skills.map((s) => s.directory).sort()).toEqual(['/w1/.agents/skills/deploy', '/w2/.agents/skills/deploy'])
   })
 
   it('fails without partial state when a skill already exists', async () => {
     const seeded = makeFixture({ '/home/u/.agents/skills/deploy/SKILL.md': SKILL('deploy', 'existing') })
     await seeded.service.addMarketplace('o/r')
-    const result = await seeded.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })
+    const result = await seeded.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', scope: { kind: 'global' } })
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error).toContain('already exists')
     // No registry entry and no managed rows were written.
@@ -951,7 +963,7 @@ describe('CcMarketplaceService install', () => {
       'multi/skills/second/SKILL.md': SKILL('second'),
     })
     await seeded.service.addMarketplace('o/two')
-    const result = await seeded.service.installPlugin({ marketplaceId: 'github:o/two', plugin: 'multi', targets: [{ scope: 'global' }] })
+    const result = await seeded.service.installPlugin({ marketplaceId: 'github:o/two', plugin: 'multi', scope: { kind: 'global' } })
     expect(result.ok).toBe(false)
     expect(seeded.fs.has('/home/u/.agents/skills/first')).toBe(false) // rolled back
     expect((await seeded.service.state()).installed).toEqual([])
@@ -959,7 +971,7 @@ describe('CcMarketplaceService install', () => {
 
   it('fetches an external GitHub plugin source at install time', async () => {
     await f.service.addMarketplace('o/r')
-    const result = await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'external', targets: [{ scope: 'global' }] })
+    const result = await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'external', scope: { kind: 'global' } })
     expect(result.ok).toBe(true)
     expect(f.fs.has('/home/u/.agents/skills/helper/SKILL.md')).toBe(true)
   })
@@ -979,8 +991,8 @@ describe('CcMarketplaceService install', () => {
       'b/.mcp.json': JSON.stringify({ mcpServers: { linear: { command: 'y' } } }),
     })
     await f.service.addMarketplace('o/dup')
-    await f.service.installPlugin({ marketplaceId: 'github:o/dup', plugin: 'a', targets: [{ scope: 'global' }] })
-    const second = await f.service.installPlugin({ marketplaceId: 'github:o/dup', plugin: 'b', targets: [{ scope: 'global' }] })
+    await f.service.installPlugin({ marketplaceId: 'github:o/dup', plugin: 'a', scope: { kind: 'global' } })
+    const second = await f.service.installPlugin({ marketplaceId: 'github:o/dup', plugin: 'b', scope: { kind: 'global' } })
     expect(second.ok).toBe(true)
     if (second.ok) expect(second.message).toContain('linear-2')
     const patch = f.fs.snapshot()[PATCH] ?? ''
@@ -994,7 +1006,7 @@ describe('CcMarketplaceService uninstall and update', () => {
   beforeEach(async () => {
     f = makeFixture()
     await f.service.addMarketplace('o/r')
-    await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })
+    await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', scope: { kind: 'global' } })
   })
 
   it('uninstalls: skills go to trash, managed rows drop, plugin copy is removed', async () => {
@@ -1026,7 +1038,7 @@ describe('CcMarketplaceService uninstall and update', () => {
     })
     await service.addMarketplace('o/r')
     expect(calls).toEqual([]) // marketplace adds do not touch the registry
-    await service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })
+    await service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', scope: { kind: 'global' } })
     await service.updatePlugin('github:o/r/team-tools')
     await service.uninstallPlugin('github:o/r/team-tools')
     expect(calls).toHaveLength(3)
@@ -1037,91 +1049,89 @@ describe('CcMarketplaceService uninstall and update', () => {
     expect(result.ok).toBe(false)
   })
 
-  it('installs into multiple targets at once with plugin-level rows emitted once', async () => {
-    const result = await f.service.installPlugin({
-      marketplaceId: 'github:o/r',
-      plugin: 'team-tools',
-      targets: [{ scope: 'workspace', workspacePath: '/w1' }, { scope: 'workspace', workspacePath: '/w2' }],
-    })
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.message).toContain('added targets to')
-    expect(result.message).toContain('targets:')
+  it('re-scopes a plugin: copies move between roots and stay recoverable', async () => {
+    // Global -> two workspaces: the global copy trashes, both workspace
+    // roots get copies, and the managed rows survive untouched.
+    const toWs = await f.service.setPluginScope('github:o/r/team-tools', { kind: 'workspaces', workspacePaths: ['/w1', '/w2'] })
+    expect(toWs.ok).toBe(true)
+    if (!toWs.ok) return
+    expect(toWs.message).toContain('scope of "team-tools" set to 2 workspaces')
+    let snap = f.fs.snapshot()
+    expect(snap['/home/u/.agents/skills/deploy/SKILL.md']).toBeUndefined()
+    expect(snap['/w1/.agents/skills/deploy/SKILL.md']).toContain('name: deploy')
+    expect(snap['/w2/.agents/skills/deploy/SKILL.md']).toContain('name: deploy')
+    expect(snap[PATCH]).toContain("serverName: 'linear'")
+    const trashedGlobal = Object.keys(snap).filter((k) => k.startsWith(`/home/u/.agents/skills/${TRASH_DIR}/`) && k.endsWith('SKILL.md'))
+    expect(trashedGlobal).toHaveLength(1)
+    let record = (await f.service.state()).installed[0]
+    expect(record.scope).toEqual({ kind: 'workspaces', workspacePaths: ['/w1', '/w2'] })
+    expect(record.skills.map((s) => s.directory).sort()).toEqual(['/w1/.agents/skills/deploy', '/w2/.agents/skills/deploy'])
 
-    const snap = f.fs.snapshot()
-    expect(snap['/w1/.agents/skills/deploy/SKILL.md']).toBeDefined()
-    expect(snap['/w2/.agents/skills/deploy/SKILL.md']).toBeDefined()
-    const patch = snap[PATCH] ?? ''
-    expect(patch.match(/serverName: 'linear'/g)).toHaveLength(1)
+    // Shrink to one workspace: the dropped root's copy trashes.
+    const shrink = await f.service.setPluginScope('github:o/r/team-tools', { kind: 'workspaces', workspacePaths: ['/w1'] })
+    expect(shrink.ok).toBe(true)
+    snap = f.fs.snapshot()
+    expect(snap['/w1/.agents/skills/deploy/SKILL.md']).toContain('name: deploy')
+    expect(snap['/w2/.agents/skills/deploy/SKILL.md']).toBeUndefined()
+    record = (await f.service.state()).installed[0]
+    expect(record.scope).toEqual({ kind: 'workspaces', workspacePaths: ['/w1'] })
+    expect(record.skills).toHaveLength(1)
 
-    const record = (await f.service.state()).installed[0]
-    expect(record.targets.map((t) => t.scope)).toEqual(['global', 'workspace', 'workspace'])
-    expect(record.targets[1].skills.map((s) => s.name)).toEqual(['deploy'])
-    expect(record.targets[1].skills[0].directory).toBe('/w1/.agents/skills/deploy')
+    // Back to global: the workspace copy trashes, the global root refills.
+    const toGlobal = await f.service.setPluginScope('github:o/r/team-tools', { kind: 'global' })
+    expect(toGlobal.ok).toBe(true)
+    snap = f.fs.snapshot()
+    expect(snap['/home/u/.agents/skills/deploy/SKILL.md']).toContain('name: deploy')
+    expect(snap['/w1/.agents/skills/deploy/SKILL.md']).toBeUndefined()
+    record = (await f.service.state()).installed[0]
+    expect(record.scope).toEqual({ kind: 'global' })
+    expect(record.skills.map((s) => s.directory)).toEqual(['/home/u/.agents/skills/deploy'])
+    // The materialized copy and managed rows never moved.
+    expect(snap[PATCH]).toContain("serverName: 'linear'")
+    expect(snap['/home/u/.dsh/cc-plugins/plugins/github_o_r_team-tools/commands/ship.md']).toBeDefined()
   })
 
-  it('rejects a target that already holds the plugin', async () => {
-    const dup = await f.service.installPlugin({
-      marketplaceId: 'github:o/r',
-      plugin: 'team-tools',
-      targets: [{ scope: 'global' }, { scope: 'workspace', workspacePath: '/w1' }],
-    })
-    expect(dup.ok).toBe(false)
-    if (dup.ok) return
-    expect(dup.error).toContain('already installed in the global root')
-    // A fresh workspace target still merges.
-    const added = await f.service.installPlugin({
-      marketplaceId: 'github:o/r',
-      plugin: 'team-tools',
-      targets: [{ scope: 'workspace', workspacePath: '/w9' }],
-    })
-    expect(added.ok).toBe(true)
-    const record = (await f.service.state()).installed[0]
-    expect(record.targets).toHaveLength(2)
-    // Its own MCP row keeps the stable name across the merge.
-    expect((f.fs.snapshot()[PATCH] ?? '').match(/serverName: 'linear'/g)).toHaveLength(1)
-  })
+  it('re-scope is a no-op for the same scope and fails cleanly otherwise', async () => {
+    const same = await f.service.setPluginScope('github:o/r/team-tools', { kind: 'global' })
+    expect(same.ok).toBe(true)
+    if (same.ok) expect(same.message).toContain('already')
+    expect((await f.service.state()).installed).toHaveLength(1)
 
-  it('uninstalls one target while others remain, then fully on the last target', async () => {
-    await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'workspace', workspacePath: '/w1' }] })
-    const one = await f.service.uninstallPlugin('github:o/r/team-tools', { scope: 'workspace', workspacePath: '/w1' })
-    expect(one.ok).toBe(true)
-    if (!one.ok) return
-    expect(one.message).toContain('1 target(s) remain')
-    // Global skills and the managed rows survive.
-    const snap = f.fs.snapshot()
-    expect(snap['/home/u/.agents/skills/deploy/SKILL.md']).toBeDefined()
-    expect((snap[PATCH] ?? '')).toContain("serverName: 'linear'")
-    expect((await f.service.state()).installed[0].targets).toHaveLength(1)
-
-    const last = await f.service.uninstallPlugin('github:o/r/team-tools', { scope: 'global' })
-    expect(last.ok).toBe(true)
-    if (!last.ok) return
-    expect(last.message).toContain('uninstalled')
-    expect((await f.service.state()).installed).toEqual([])
-    expect((f.fs.snapshot()[PATCH] ?? '')).not.toContain('dsh-mcp-client')
-  })
-
-  it('rejects uninstalling a target the plugin is not installed in', async () => {
-    const miss = await f.service.uninstallPlugin('github:o/r/team-tools', { scope: 'workspace', workspacePath: '/nope' })
+    const miss = await f.service.setPluginScope('github:o/ghost', { kind: 'global' })
     expect(miss.ok).toBe(false)
-    if (miss.ok) return
-    expect(miss.error).toContain('is not installed in')
+    if (!miss.ok) expect(miss.error).toContain('is not installed')
+    const bad = await f.service.setPluginScope('github:o/r/team-tools', { kind: 'workspaces', workspacePaths: [] })
+    expect(bad.ok).toBe(false)
+    if (!bad.ok) expect(bad.error).toContain('at least one workspace')
   })
 
-  it('updates skills in every target', async () => {
-    await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'workspace', workspacePath: '/w1' }] })
+  it('re-scope refuses a root where the skill name is taken and rolls back', async () => {
+    const seeded = makeFixture()
+    await seeded.service.addMarketplace('o/r')
+    await seeded.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', scope: { kind: 'global' } })
+    await seeded.fs.mkdir('/w1/.agents/skills', { recursive: true })
+    await seeded.fs.writeFile('/w1/.agents/skills/deploy/SKILL.md', SKILL('deploy', 'foreign'))
+    const blocked = await seeded.service.setPluginScope('github:o/r/team-tools', { kind: 'workspaces', workspacePaths: ['/w1'] })
+    expect(blocked.ok).toBe(false)
+    if (!blocked.ok) expect(blocked.error).toContain('already exists')
+    // The record and the global copy are untouched.
+    expect((await seeded.service.state()).installed[0].scope).toEqual({ kind: 'global' })
+    expect(seeded.fs.has('/home/u/.agents/skills/deploy/SKILL.md')).toBe(true)
+  })
+
+  it('updates skills in every root of the scope', async () => {
+    await f.service.setPluginScope('github:o/r/team-tools', { kind: 'workspaces', workspacePaths: ['/w1'] })
     f.gh.setRepo('o', 'r', TEAM_TOOLS_V2)
     const result = await f.service.updatePlugin('github:o/r/team-tools')
     expect(result.ok).toBe(true)
     if (!result.ok) return
     const snap = f.fs.snapshot()
-    expect(snap['/home/u/.agents/skills/deploy/SKILL.md']).toContain('v2')
     expect(snap['/w1/.agents/skills/deploy/SKILL.md']).toContain('v2')
     expect(snap['/w1/.agents/skills/audit/SKILL.md']).toContain('name: audit')
+    expect(snap['/home/u/.agents/skills/deploy/SKILL.md']).toBeUndefined()
     const record = (await f.service.state()).installed[0]
-    expect(record.targets).toHaveLength(2)
-    expect(record.targets[1].skills.map((s) => s.name).sort()).toEqual(['audit', 'deploy'])
+    expect(record.scope).toEqual({ kind: 'workspaces', workspacePaths: ['/w1'] })
+    expect(record.skills.map((s) => s.name).sort()).toEqual(['audit', 'deploy'])
   })
 
   it('migrates a legacy single-scope record on read', async () => {
@@ -1152,11 +1162,8 @@ describe('CcMarketplaceService uninstall and update', () => {
     })
     const state = await service.state()
     expect(state.installed).toHaveLength(1)
-    expect(state.installed[0].targets).toEqual([{
-      scope: 'workspace',
-      workspacePath: '/legacy',
-      skills: [{ name: 'deploy', directory: '/legacy/.agents/skills/deploy' }],
-    }])
+    expect(state.installed[0].scope).toEqual({ kind: 'workspaces', workspacePaths: ['/legacy'] })
+    expect(state.installed[0].skills).toEqual([{ name: 'deploy', directory: '/legacy/.agents/skills/deploy' }])
   })
 
   it('updates skills, MCP defs, and the version from upstream v2', async () => {
@@ -1175,8 +1182,8 @@ describe('CcMarketplaceService uninstall and update', () => {
     const state = await f.service.state()
     const record = state.installed[0]
     expect(record.version).toBe('2.0.0')
-    expect(record.targets).toHaveLength(1)
-    expect(record.targets[0].skills.map((s) => s.name).sort()).toEqual(['audit', 'deploy'])
+    expect(record.scope).toEqual({ kind: 'global' })
+    expect(record.skills.map((s) => s.name).sort()).toEqual(['audit', 'deploy'])
     expect(record.pending).toEqual({ commands: ['ship'], hookEvents: [] })
   })
 
@@ -1193,7 +1200,7 @@ describe('CcMarketplaceService uninstall and update', () => {
     expect(snap['/home/u/.agents/skills/audit/SKILL.md']).toBeDefined()
     const trashed = Object.keys(snap).filter((k) => k.startsWith(`/home/u/.agents/skills/${TRASH_DIR}/`) && k.endsWith('SKILL.md'))
     expect(trashed).toHaveLength(1)
-    expect((await f.service.state()).installed[0].targets[0].skills.map((s) => s.name)).toEqual(['audit'])
+    expect((await f.service.state()).installed[0].skills.map((s) => s.name)).toEqual(['audit'])
   })
 
   it('update of an unknown key fails cleanly', async () => {

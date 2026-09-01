@@ -72,7 +72,6 @@ export const en = {
   'unbridged.settings.many': '{count} settings files',
 
   'presence.global': 'global',
-  'presence.workspace': 'workspace',
   'presence.in': 'in {targets}',
   'presence.installed': 'installed',
 
@@ -85,14 +84,17 @@ export const en = {
 
   'modal.aria': 'Manage plugin "{name}"',
   'modal.available': '{version} available',
-  'modal.hint': 'Choose where to add it. Skills install per target; MCP servers, agents, commands, and hooks activate globally once. Targets already holding the plugin are marked and locked.',
-  'modal.target.global': 'Global',
-  'modal.added': 'added',
-  'modal.confirm': 'Confirm',
+  'modal.hint': 'Choose where this plugin works. Skills install for the selected scope; MCP servers, agents, commands, and hooks are plugin-level and activate once regardless of scope.',
+  'modal.scope.global': 'Global (every workspace)',
+  'modal.scope.workspaces': 'Selected workspaces',
+  'modal.workspaces.hint': 'The plugin works only in the checked workspaces.',
+  'modal.workspaces.empty': 'No workspaces registered.',
+  'modal.workspaceMissing': 'not registered',
+  'modal.save': 'Save scope',
+  'modal.update': 'Update',
   'modal.uninstall': 'Uninstall',
+  'modal.confirmUninstall': 'Confirm uninstall',
   'modal.cancel': 'Cancel',
-  'modal.updateEverywhere': 'Update everywhere',
-  'modal.addTargets': 'Add to {count} targets',
 
   'detail.aria': 'Plugin details "{name}"',
   'detail.version': 'version {version}',
@@ -128,7 +130,7 @@ export const en = {
   'models.inherit': 'Inherit session model',
   'models.save': 'Save model mappings',
 
-  'import.skipped': '{count} import(s) from the settings file skipped on this machine (missing workspace names or sources): {items}. Add the workspace or install through the panel.',
+  'import.skipped': '{count} import(s) from the settings file skipped on this machine (missing workspace names or sources): {items}. Register the workspace or install through the panel.',
 }
 
 /** Every dictionary key. */

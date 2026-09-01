@@ -7,10 +7,12 @@
  *    provider (marketplace) filter, a search box, and an
  *    installed-only toggle. Installed cards carry their installed version and
  *    an Update button whenever the (auto-refreshed) marketplace snapshot
- *    offers a newer one. Each card opens the Add/Manage modal: pick any
- *    combination of the global root and workspaces as install targets
- *    (targets already holding the plugin are locked with an "added" badge
- *    and offer their own uninstall), plus Update everywhere.
+ *    offers a newer one. Each card opens the scope modal: a radio picks
+ *    where the plugin works — Global (the default, everywhere) or
+ *    Workspaces (a checklist of the registered workspaces appears) — and
+ *    installing or saving applies that scope. For an installed plugin the
+ *    same modal manages the scope (saving re-scopes it), updates it, and
+ *    uninstalls it after a two-step confirm.
  *  - Marketplaces: source management (add by owner/repo shorthand, GitHub
  *    URL, or local path; refresh; remove) with per-source last-synced age.
  *    Snapshots older than 24 hours re-sync automatically when the panel
@@ -21,9 +23,10 @@
  *    from the composition config show as a preset baseline. Saving
  *    re-resolves installed agent rows without reinstalling.
  *
- * Skills land per selected target; MCP servers, agent rows, commands, and
- * hooks are plugin-level and activate once regardless of target count — the
- * modal states this so the scope picker never over-promises.
+ * Skills land per scope (the global root or each checked workspace's own
+ * root); MCP servers, agent rows, commands, and hooks are plugin-level and
+ * activate once regardless of scope — the modal states this so the scope
+ * picker never over-promises.
  *
  * Every user-facing string rides the `t` translator (the platform locale
  * service bound to this package's namespace; English without it). The
@@ -58,7 +61,7 @@ export interface CcPanelDeps {
 type Tab = 'plugins' | 'marketplaces' | 'models'
 
 /** Mutations whose success changes the installed skill set the chat UI surfaces. */
-const CATALOG_MUTATIONS = new Set(['installPlugin', 'uninstallPlugin', 'updatePlugin'])
+const CATALOG_MUTATIONS = new Set(['installPlugin', 'setPluginScope', 'uninstallPlugin', 'updatePlugin'])
 
 function isMutationError(result: unknown): result is { ok: false; error: string } {
   return !!result && typeof result === 'object' && (result as { ok?: unknown }).ok === false
@@ -109,17 +112,16 @@ export function unbridgedSummary(unbridged: PluginInventory['unbridged'], t: Tra
   return parts.length > 0 ? t('unbridged.prefix') + parts.join(', ') : ''
 }
 
-/** Where a plugin's skills are installed, across every target. */
+/** Where a plugin's skills are installed: the scope as a readable label. */
 export function presenceLabel(record: InstalledPlugin, workspaces: ReadonlyArray<WorkspaceRow>, t: Translate = englishTranslate): string {
-  const parts: string[] = []
-  const global = record.targets.some((target) => target.scope === 'global')
-  const ws = record.targets.filter((target) => target.scope === 'workspace')
-  if (global) parts.push(t('presence.global'))
-  if (ws.length > 0) {
-    const titles = ws.map((target) => workspaces.find((w) => w.path === target.workspacePath)?.title ?? t('presence.workspace'))
-    parts.push(...titles)
-  }
-  return parts.length > 0 ? t('presence.in', { targets: parts.join(' + ') }) : t('presence.installed')
+  if (record.scope.kind === 'global') return t('presence.in', { targets: t('presence.global') })
+  const parts = record.scope.workspacePaths.map((path) => {
+    const row = workspaces.find((w) => w.path === path)
+    if (row !== undefined) return row.title
+    const base = path.split('/').filter(Boolean).pop() ?? path
+    return base
+  })
+  return parts.length > 0 ? t('presence.in', { targets: parts.join(', ') }) : t('presence.installed')
 }
 
 /** Relative age of a marketplace's last sync, e.g. "3h ago" or "never". */
@@ -148,13 +150,16 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
   const [search, setSearch] = React.useState('')
   const [providerFilter, setProviderFilter] = React.useState('')
   const [installedOnly, setInstalledOnly] = React.useState(false)
-  /** The open Add/Manage modal's plugin (marketplace + catalog entry). */
+  /** The open scope modal's plugin (marketplace + catalog entry). */
   const [modal, setModal] = React.useState<{ marketplaceId: string; plugin: MarketplacePluginView } | undefined>()
   /** The open detail modal's plugin (same identity shape). */
   const [detail, setDetail] = React.useState<{ marketplaceId: string; plugin: MarketplacePluginView } | undefined>()
-  const [selection, setSelection] = React.useState<Set<string>>(new Set())
-  /** Two-step uninstall confirm inside the modal, by target id. */
-  const [confirmTarget, setConfirmTarget] = React.useState<string | undefined>()
+  /** The modal's radio: global (default) or workspaces. */
+  const [scopeMode, setScopeMode] = React.useState<'global' | 'workspaces'>('global')
+  /** Checked workspace paths while the modal is in workspaces mode. */
+  const [checked, setChecked] = React.useState<Set<string>>(new Set())
+  /** Two-step uninstall confirm inside the modal. */
+  const [confirmUninstall, setConfirmUninstall] = React.useState(false)
   /** Unsaved Models-tab selections, alias to model id ('' = inherit). */
   const [modelDraft, setModelDraft] = React.useState<Record<string, string>>({})
   const workspaces = deps.getWorkspaces()
@@ -175,7 +180,7 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
   React.useEffect(() => {
     if (modal === undefined && detail === undefined) return
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') { setModal(undefined); setSelection(new Set()); setConfirmTarget(undefined); setDetail(undefined) }
+      if (e.key === 'Escape') { closeModal(); setDetail(undefined) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -193,7 +198,7 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
         else await refresh()
         setMessage({ ok: true, text: result.message ?? 'done' })
         if (CATALOG_MUTATIONS.has(method)) deps.notifyInstalledChanged?.()
-        setConfirmTarget(undefined)
+        setConfirmUninstall(false)
       }
     } catch (error) {
       setMessage({ ok: false, text: errMsg(error) })
@@ -213,35 +218,45 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
   const models = state?.models ?? []
   const byKey = React.useMemo(() => new Map(installed.map((r) => [r.key, r])), [installed])
 
-  const openModal = (marketplaceId: string, plugin: MarketplacePluginView): void => {
-    setModal({ marketplaceId, plugin })
-    setSelection(new Set())
-    setConfirmTarget(undefined)
+  const closeModal = (): void => {
+    setModal(undefined)
+    setScopeMode('global')
+    setChecked(new Set())
+    setConfirmUninstall(false)
   }
 
-  const toggleTarget = (id: string): void => {
-    setSelection((current) => {
+  /** Open the scope modal; an installed plugin starts on its current scope. */
+  const openModal = (marketplaceId: string, plugin: MarketplacePluginView, record: InstalledPlugin | undefined): void => {
+    setModal({ marketplaceId, plugin })
+    if (record?.scope.kind === 'workspaces') {
+      setScopeMode('workspaces')
+      setChecked(new Set(record.scope.workspacePaths))
+    } else {
+      setScopeMode('global')
+      setChecked(new Set())
+    }
+    setConfirmUninstall(false)
+  }
+
+  const toggleWorkspace = (path: string): void => {
+    setChecked((current) => {
       const next = new Set(current)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
       return next
     })
   }
 
-  const confirmInstall = (): void => {
-    if (modal === undefined || selection.size === 0) return
-    const targets = [...selection].map((id): { scope: 'global' | 'workspace'; workspacePath?: string } =>
-      id === '' ? { scope: 'global' } : { scope: 'workspace', workspacePath: id })
-    void mutate('installPlugin', { marketplaceId: modal.marketplaceId, plugin: modal.plugin.name, targets })
-    setModal(undefined)
-    setSelection(new Set())
-  }
-
-  const uninstallTarget = (key: string, id: string): void => {
-    void mutate('uninstallPlugin', {
-      key,
-      target: id === '' ? { scope: 'global' } : { scope: 'workspace', workspacePath: id },
-    })
+  /** Install (fresh) or re-scope (installed) with the drafted scope. */
+  const confirmModal = (key: string, installed: boolean): void => {
+    if (modal === undefined) return
+    if (scopeMode === 'workspaces' && checked.size === 0) return
+    const scope = scopeMode === 'global'
+      ? { kind: 'global' }
+      : { kind: 'workspaces', workspacePaths: [...checked] }
+    if (installed) void mutate('setPluginScope', { key, scope })
+    else void mutate('installPlugin', { marketplaceId: modal.marketplaceId, plugin: modal.plugin.name, scope })
+    closeModal()
   }
 
   /**
@@ -301,18 +316,23 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
     })
   }, [catalog, providerFilter, installedOnly, search, byKey])
 
-  /** The Add/Manage modal: the skills panel's proven multi-target picker. */
+  /** The scope modal: one radio — Global (default) or Workspaces — and a
+   *  workspace checklist under the workspaces mode. Either/or, never a mix. */
   const modalDialog = (): React.ReactElement | null => {
     if (modal === undefined) return null
     const key = `${modal.marketplaceId}/${modal.plugin.name}`
     const record = byKey.get(key)
-    const heldIds = new Set((record?.targets ?? []).map((target) => (target.scope === 'workspace' ? (target.workspacePath ?? '') : '')))
-    const options: Array<{ id: string; label: string; installed: boolean }> = [
-      { id: '', label: t('modal.target.global'), installed: heldIds.has('') },
-      ...workspaces.map((w) => ({ id: w.path, label: w.title, installed: heldIds.has(w.path) })),
+    const installed = record !== undefined
+    // Checklist rows: the registry's workspaces plus any recorded path the
+    // registry no longer knows (so it stays visible and can be unchecked).
+    const rows: Array<{ path: string; title: string; missing: boolean }> = [
+      ...workspaces.map((w) => ({ path: w.path, title: w.title, missing: false })),
+      ...(record?.scope.kind === 'workspaces' ? record.scope.workspacePaths : [])
+        .filter((p) => !workspaces.some((w) => w.path === p))
+        .map((p) => ({ path: p, title: p, missing: true })),
     ]
     return (
-      <div className={styles.overlay} role="presentation" onClick={() => { setModal(undefined); setSelection(new Set()); setConfirmTarget(undefined) }}>
+      <div className={styles.overlay} role="presentation" onClick={closeModal}>
         <div
           className={styles.modal}
           role="dialog"
@@ -325,65 +345,88 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
             {`${modal.plugin.name}${record !== undefined && record.version !== '' ? ` (${t('card.installedVersion', { version: record.version })})` : ''}${modal.plugin.updateAvailable === true && modal.plugin.version !== '' ? ` — ${t('modal.available', { version: modal.plugin.version })}` : ''}`}
           </p>
           <p className={styles.modalHint}>{t('modal.hint')}</p>
-          <div className={styles.optionList}>
-            {options.map((option) => (
-              <label
-                key={option.id === '' ? 'global' : option.id}
-                className={styles.optionRow + (option.installed ? ` ${styles.optionLocked}` : '')}
-                data-testid="cc-target"
-              >
-                <input
-                  type="checkbox"
-                  checked={option.installed || selection.has(option.id)}
-                  disabled={busy || option.installed}
-                  onChange={() => toggleTarget(option.id)}
-                />
-                <span className={styles.optionLabel}>{option.label}</span>
-                {option.installed && (
-                  <>
-                    <span className={styles.addedBadge}>{t('modal.added')}</span>
-                    {confirmTarget === option.id ? (
-                      <button
-                        type="button"
-                        className={`${styles.danger} ${styles.optionAction}`}
-                        disabled={busy}
-                        onClick={() => uninstallTarget(key, option.id)}
-                      >{t('modal.confirm')}</button>
-                    ) : (
-                      <button
-                        type="button"
-                        className={`${styles.ghostDanger} ${styles.optionAction}`}
-                        disabled={busy}
-                        onClick={() => setConfirmTarget(option.id)}
-                      >{t('modal.uninstall')}</button>
-                    )}
-                  </>
-                )}
-              </label>
-            ))}
+          <div className={styles.optionList} data-testid="cc-scope">
+            <label className={styles.optionRow} data-testid="cc-scope-global">
+              <input
+                type="radio"
+                name="cc-plugin-scope"
+                checked={scopeMode === 'global'}
+                disabled={busy}
+                onChange={() => { setScopeMode('global'); setConfirmUninstall(false) }}
+              />
+              <span className={styles.optionLabel}>{t('modal.scope.global')}</span>
+            </label>
+            <label className={styles.optionRow} data-testid="cc-scope-workspaces">
+              <input
+                type="radio"
+                name="cc-plugin-scope"
+                checked={scopeMode === 'workspaces'}
+                disabled={busy}
+                onChange={() => { setScopeMode('workspaces'); setConfirmUninstall(false) }}
+              />
+              <span className={styles.optionLabel}>{t('modal.scope.workspaces')}</span>
+            </label>
           </div>
+          {scopeMode === 'workspaces' && (
+            <div className={styles.optionList} data-testid="cc-workspaces">
+              {rows.length === 0 ? (
+                <p className={styles.modalHint}>{t('modal.workspaces.empty')}</p>
+              ) : rows.map((row) => (
+                <label key={row.path} className={styles.optionRow} data-testid="cc-workspace">
+                  <input
+                    type="checkbox"
+                    checked={checked.has(row.path)}
+                    disabled={busy}
+                    onChange={() => toggleWorkspace(row.path)}
+                  />
+                  <span className={styles.optionLabel}>{row.title}</span>
+                  {row.missing && <span className={styles.addedBadge}>{t('modal.workspaceMissing')}</span>}
+                </label>
+              ))}
+              <p className={styles.modalHint}>{t('modal.workspaces.hint')}</p>
+            </div>
+          )}
           <div className={styles.modalActions}>
             <button
               type="button"
               className={styles.ghost}
               disabled={busy}
-              onClick={() => { setModal(undefined); setSelection(new Set()); setConfirmTarget(undefined) }}
+              onClick={closeModal}
             >{t('modal.cancel')}</button>
-            {record !== undefined && (
+            {installed && (
               <button
                 type="button"
                 className={styles.ghost}
                 disabled={busy}
-                onClick={() => { void mutate('updatePlugin', { key }); setModal(undefined) }}
-              >{t('modal.updateEverywhere')}</button>
+                onClick={() => { void mutate('updatePlugin', { key }); closeModal() }}
+              >{t('modal.update')}</button>
+            )}
+            {installed && (
+              confirmUninstall ? (
+                <button
+                  type="button"
+                  className={`${styles.danger} ${styles.optionAction}`}
+                  disabled={busy}
+                  onClick={() => { void mutate('uninstallPlugin', { key }); closeModal() }}
+                  data-testid="cc-uninstall-confirm"
+                >{t('modal.confirmUninstall')}</button>
+              ) : (
+                <button
+                  type="button"
+                  className={`${styles.ghostDanger} ${styles.optionAction}`}
+                  disabled={busy}
+                  onClick={() => setConfirmUninstall(true)}
+                  data-testid="cc-uninstall"
+                >{t('modal.uninstall')}</button>
+              )
             )}
             <button
               type="button"
               className={styles.primary}
-              disabled={busy || selection.size === 0}
-              onClick={confirmInstall}
-              data-testid="cc-modal-add"
-            >{selection.size > 1 ? t('modal.addTargets', { count: selection.size }) : t('card.add')}</button>
+              disabled={busy || (scopeMode === 'workspaces' && checked.size === 0)}
+              onClick={() => confirmModal(key, installed)}
+              data-testid="cc-modal-confirm"
+            >{installed ? t('modal.save') : t('card.add')}</button>
           </div>
         </div>
       </div>
@@ -601,7 +644,7 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
                       className={record !== undefined ? styles.ghost : styles.primary}
                       disabled={busy || plugin.sourceUnsupported !== undefined}
                       title={key}
-                      onClick={() => openModal(marketplace.id, plugin)}
+                      onClick={() => openModal(marketplace.id, plugin, record)}
                       data-testid="cc-add"
                     >{record !== undefined ? t('card.manage') : t('card.add')}</button>
                   </div>

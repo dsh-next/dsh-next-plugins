@@ -6,7 +6,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { parseTargets } from '../core/targets.ts'
+import { parseScope } from '../core/scope.ts'
 import type { CcMarketplaceService } from './service.ts'
 
 const RPC_PATH = '/dsh-next-cc-plugins/rpc'
@@ -19,24 +19,6 @@ function record(input: unknown): Record<string, unknown> {
 
 function str(input: unknown): string {
   return typeof input === 'string' ? input : ''
-}
-
-function optStr(input: unknown): string | undefined {
-  return typeof input === 'string' && input !== '' ? input : undefined
-}
-
-function scope(input: unknown): 'global' | 'workspace' {
-  return input === 'workspace' ? 'workspace' : 'global'
-}
-
-/** The uninstall target selector: '' = global, a path = that workspace. */
-function targetRequest(input: unknown): { scope: 'global' | 'workspace'; workspacePath?: string } | undefined {
-  if (input === null || typeof input !== 'object' || Array.isArray(input)) return undefined
-  const t = input as Record<string, unknown>
-  const sc = scope(t.scope)
-  const workspacePath = optStr(t.workspacePath)
-  if (sc === 'workspace' && workspacePath === undefined) return undefined
-  return sc === 'workspace' ? { scope: sc, workspacePath } : { scope: sc }
 }
 
 export function registerRpc(ctx: Context, service: CcMarketplaceService): void {
@@ -54,31 +36,29 @@ export function registerRpc(ctx: Context, service: CcMarketplaceService): void {
     },
     installPlugin: (args) => {
       const a = record(args)
-      // New shape: targets: [{scope, workspacePath?}]. The legacy single
-      // scope/workspacePath pair still works (one target).
-      const parsed = parseTargets(a.targets)
-      if ('error' in parsed) {
-        const legacyScope = scope(a.scope)
-        const legacyPath = optStr(a.workspacePath)
-        if (legacyScope === 'workspace' && legacyPath === undefined) {
-          return { ok: false, error: parsed.error }
-        }
-        return service.installPlugin({
-          marketplaceId: str(a.marketplaceId),
-          plugin: str(a.plugin),
-          targets: [legacyScope === 'workspace' ? { scope: legacyScope, workspacePath: legacyPath } : { scope: legacyScope }],
-        })
+      // The scope is either/or: `{ kind: 'global' }` (the default when
+      // absent) or `{ kind: 'workspaces', workspacePaths: [...] }`.
+      // Stale browser bundles may still send the old target-list form; a
+      // workspace-shaped one answers with the honest error instead of
+      // silently installing elsewhere.
+      if (Array.isArray(a.targets)) {
+        return { ok: false, error: 'multi-target installs are no longer supported; pass scope: { kind: "global" } or { kind: "workspaces", workspacePaths: [...] }' }
       }
+      const parsed = parseScope(a.scope)
+      if ('error' in parsed) return { ok: false, error: parsed.error }
       return service.installPlugin({
         marketplaceId: str(a.marketplaceId),
         plugin: str(a.plugin),
-        targets: parsed.targets,
+        scope: parsed.scope,
       })
     },
-    uninstallPlugin: (args) => {
+    setPluginScope: (args) => {
       const a = record(args)
-      return service.uninstallPlugin(str(a.key), a.target === undefined ? undefined : targetRequest(a.target))
+      const parsed = parseScope(a.scope)
+      if ('error' in parsed) return { ok: false, error: parsed.error }
+      return service.setPluginScope(str(a.key), parsed.scope)
     },
+    uninstallPlugin: (args) => service.uninstallPlugin(str(record(args).key)),
     updatePlugin: (args) => service.updatePlugin(str(record(args).key)),
     setAgentModelOverrides: (args) => service.setAgentModelOverrides(record(args).map),
   }

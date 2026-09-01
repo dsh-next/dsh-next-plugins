@@ -7,6 +7,18 @@
       "description": "Demo plugin for the mount smoke",
       "version": "1.0.0",
       "source": "./plugins/demo"
+    },
+    {
+      "name": "dep-provider",
+      "description": "Dependency target for the parity fixture",
+      "version": "1.0.0",
+      "source": "./plugins/dep-provider"
+    },
+    {
+      "name": "parity-tools",
+      "description": "Exercises dependency auto-install, user_config MCP templates, and plugin-level references",
+      "version": "1.0.0",
+      "source": "./plugins/parity-tools"
     }
   ]
 }

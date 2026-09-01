@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "parity-echo": {
+      "command": "node",
+      "args": ["-e", "process.stdin.resume()"],
+      "env": { "PARITY_TOKEN": "${user_config.parity_token}" }
+    }
+  }
+}

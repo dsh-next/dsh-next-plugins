@@ -18,6 +18,7 @@
  *      they gain UI.
  */
 import { join } from 'node:path'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { test, expect, type Page } from '@playwright/test'
 
 const BASE_URL = process.env.DSH_E2E_URL
@@ -221,9 +222,12 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await expect(page.getByText('anthropics/claude-plugins-official', { exact: false }).first()).toBeVisible()
     // A local-fixture marketplace drives the real add -> card -> detail ->
     // scope-modal install -> manage/uninstall flow offline: the panel lists
-    // its plugin, the detail modal shows the component inventory (including
+    // its plugins, the detail modal shows the component inventory (including
     // the not-bridged LSP family), and the radio modal installs globally and
-    // uninstalls through the real host service.
+    // uninstalls through the real host service. The parity fixture plugin
+    // additionally proves dependency auto-install, user_config MCP
+    // expansion, and plugin-level reference rewriting end to end — asserted
+    // on the scratch home's real filesystem, not just the DOM.
     const fixture = join(process.cwd(), 'tests/e2e/fixtures/tiny-marketplace')
     await page.getByTestId('cc-add-input').first().fill(fixture)
     await page.getByRole('button', { name: 'Add marketplace' }).first().click()
@@ -258,6 +262,46 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await page.getByTestId('cc-uninstall').click()
     await page.getByTestId('cc-uninstall-confirm').click()
     await expect(demoCard).not.toContainText('Manage')
+    // The parity fixture plugin drives the three newest bridges through
+    // the real host service: dependency auto-install, user_config MCP
+    // expansion, and plugin-level reference rewriting. Seed the user
+    // configuration first so the token expands instead of staying literal.
+    const ccRoot = join(process.env.DSH_HOME ?? '', 'cc-plugins')
+    mkdirSync(ccRoot, { recursive: true })
+    writeFileSync(join(ccRoot, 'user-config.json'), JSON.stringify({ parity_token: 'e2e-parity-token' }))
+    const parityCard = page.locator('[data-testid="cc-plugin"]:has([data-testid="cc-detail"]:text-is("parity-tools"))').first()
+    await parityCard.locator('[data-testid="cc-add"]').click()
+    await expect(page.getByTestId('cc-modal')).toBeVisible()
+    await page.getByTestId('cc-modal-confirm').click()
+    await expect(parityCard).toContainText('Manage')
+    // The declared dependency auto-installed alongside, and the outcome
+    // surfaced in the mutation message.
+    const depCard = page.locator('[data-testid="cc-plugin"]:has([data-testid="cc-detail"]:text-is("dep-provider"))').first()
+    await expect(depCard).toContainText('Manage')
+    await expect(depCard.getByTestId('cc-installed-version')).toBeVisible()
+    await expect(page.getByTestId('cc-message')).toContainText('auto-installed dependency "dep-provider"')
+    // On-disk effects through the real filesystem: the installed skill
+    // copy carries the rewritten absolute path into the materialized
+    // copy, and the managed MCP row carries the expanded user_config
+    // token (not the literal template).
+    const agentsHome = process.env.DSH_AGENTS_HOME ?? ''
+    const readerSkill = readFileSync(join(agentsHome, 'skills', 'reader', 'SKILL.md'), 'utf8')
+    expect(readerSkill).toContain('/references/guide.md')
+    expect(readerSkill).toContain(join(ccRoot, 'plugins'))
+    expect(readerSkill).not.toContain('../../references')
+    const patchYml = readFileSync(join(process.env.DSH_HOME ?? '', 'cordis.patch.yml'), 'utf8')
+    expect(patchYml).toContain('e2e-parity-token')
+    expect(patchYml).not.toContain('${user_config.parity_token}')
+    // Uninstall both: dependencies stay independent of their parent, so
+    // each card carries its own two-step uninstall.
+    await parityCard.locator('[data-testid="cc-add"]').click()
+    await page.getByTestId('cc-uninstall').click()
+    await page.getByTestId('cc-uninstall-confirm').click()
+    await expect(parityCard).not.toContainText('Manage')
+    await depCard.locator('[data-testid="cc-add"]').click()
+    await page.getByTestId('cc-uninstall').click()
+    await page.getByTestId('cc-uninstall-confirm').click()
+    await expect(depCard).not.toContainText('Manage')
     // Remove the fixture marketplace; the seeded official one remains
     // (the Remove button inside the tiny-tools row, not a foreign one).
     await settings.getByRole('tab', { name: 'Marketplaces' }).click({ force: true })

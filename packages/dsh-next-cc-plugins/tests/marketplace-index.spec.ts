@@ -136,11 +136,49 @@ describe('normalizePluginSource', () => {
     if (r.kind === 'unsupported') expect(r.reason).toContain('non-GitHub')
   })
 
-  it('marks npm, archive, and git-subdir sources unsupported with reasons', () => {
-    for (const raw of [{ source: 'npm', package: 'x' }, { source: 'archive', url: 'https://x/z.zip' }, { source: 'git-subdir', url: 'https://github.com/o/r', subdir: 'p' }]) {
+  it('marks npm, archive, and command sources unsupported with reasons', () => {
+    for (const raw of [
+      { source: 'npm', package: 'x' },
+      { source: 'archive', url: 'https://x/z.zip' },
+      { source: 'command', command: 'make plugin' },
+      { source: 'git-subdir', url: 'https://github.com/o/r.git' }, // no path
+      { source: 'git-subdir', url: 'https://gitlab.com/o/r', path: 'p' }, // non-GitHub host
+    ]) {
       const r = normalizePluginSource(raw, '')
       expect(r.kind).toBe('unsupported')
     }
+    const command = normalizePluginSource({ source: 'command', command: 'x' }, '')
+    expect(command.kind === 'unsupported' ? command.reason : '').toContain('execute a local command')
+  })
+
+  it('resolves git-subdir sources as a pinned GitHub repo plus subdirectory', () => {
+    // The official marketplace's monorepo form: url + path, pinned by sha.
+    expect(normalizePluginSource({
+      source: 'git-subdir',
+      url: 'https://github.com/Airtable/skills.git',
+      path: 'plugins/airtable',
+      ref: 'main',
+      sha: '812ee67f1fd3d76fb45ff8df40afaa0448602ba8',
+    }, '')).toEqual({
+      kind: 'github',
+      owner: 'Airtable',
+      repo: 'skills',
+      ref: '812ee67f1fd3d76fb45ff8df40afaa0448602ba8', // the exact pin beats the movable ref
+      subdir: 'plugins/airtable',
+    })
+    // ref-only still pins; a missing path stays unsupported.
+    expect(normalizePluginSource({ source: 'git-subdir', url: 'https://github.com/o/r', path: './p/', ref: 'v1' }, ''))
+      .toEqual({ kind: 'github', owner: 'o', repo: 'r', ref: 'v1', subdir: 'p' })
+  })
+
+  it('pins url and github sources by sha when one is carried', () => {
+    expect(normalizePluginSource({ source: 'url', url: 'https://github.com/o/r.git', sha: 'abc123' }, ''))
+      .toEqual({ kind: 'github', owner: 'o', repo: 'r', ref: 'abc123' })
+    expect(normalizePluginSource({ source: 'github', repo: 'o/r', ref: 'v2', sha: 'def456' }, ''))
+      .toEqual({ kind: 'github', owner: 'o', repo: 'r', ref: 'def456' })
+    // Unpinned forms stay unpinned.
+    expect(normalizePluginSource({ source: 'url', url: 'https://github.com/o/r' }, ''))
+      .toEqual({ kind: 'github', owner: 'o', repo: 'r' })
   })
 
   it('normalizes the Grok local-object form', () => {

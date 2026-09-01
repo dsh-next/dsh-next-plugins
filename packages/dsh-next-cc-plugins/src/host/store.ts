@@ -11,6 +11,7 @@
 import { createHash } from 'node:crypto'
 import { parseMarketplaceIndex } from '../core/marketplace-index.ts'
 import { sanitizeModelMap } from '../core/agents.ts'
+import { parseMarketplaceSpec } from '../core/source.ts'
 import { dirnamePath, isSafeRelativePath, joinPath } from '../core/path.ts'
 import { normalizeInstalledFile } from '../core/targets.ts'
 import type {
@@ -116,6 +117,30 @@ export class Store {
 
   async saveMarketplaces(list: StoredMarketplace[]): Promise<void> {
     await this.writeJson(this.marketplacesPath(), list)
+  }
+
+  /**
+   * Seed the default marketplaces on a fresh install: applied only when the
+   * registry file has never been written. Returns the specs it added (the
+   * caller logs them); an existing registry — including one emptied by
+   * removals — is never touched.
+   */
+  async seedDefaultMarketplaces(specs: readonly string[]): Promise<string[]> {
+    try {
+      await this.opts.fs.access(this.marketplacesPath())
+      return []
+    } catch {
+      // No registry file yet: a fresh install.
+    }
+    const added: StoredMarketplace[] = []
+    for (const spec of specs) {
+      const parsed = parseMarketplaceSpec(spec)
+      if ('error' in parsed) continue
+      if (added.some((m) => m.id === parsed.id)) continue
+      added.push({ id: parsed.id, spec: parsed.canonical, addedAt: new Date().toISOString() })
+    }
+    if (added.length > 0) await this.saveMarketplaces(added)
+    return added.map((m) => m.spec)
   }
 
   async readInstalled(): Promise<InstalledFile> {

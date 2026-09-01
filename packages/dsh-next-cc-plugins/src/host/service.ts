@@ -26,7 +26,7 @@ import { createHash } from 'node:crypto'
 import { agentFrontmatter, resolveAgentModel, sanitizeModelMap, translateTools } from '../core/agents.ts'
 import { parseFrontmatter } from '../core/frontmatter.ts'
 import { applyManagedBlockText, expandMcpServerTemplates, normalizeMcpServers, renderManagedBlock, resolveServerName, type ManagedRow, type RawAgentRow, type RawMcpServer } from '../core/mcp.ts'
-import { parseMarketplaceSpec } from '../core/source.ts'
+import { DEFAULT_MARKETPLACE_SPECS, parseMarketplaceSpec } from '../core/source.ts'
 import { classifyMirrorTarget, MIRROR_INHERIT, parseMirror, renderMirror, type SettingsMirror } from '../core/mirror.ts'
 import { targetId, type TargetRequest } from '../core/targets.ts'
 import { isSnapshotStale, isUpdateAvailable, manifestVersion } from '../core/versions.ts'
@@ -369,6 +369,19 @@ export class CcMarketplaceService {
     await this.store.saveMarketplaces(marketplaces.filter((m) => m.id !== id))
     await this.mirrorCurrentState()
     return { ok: true, message: `removed marketplace "${id}"`, state: await this.state() }
+  }
+
+  /**
+   * Seed the default marketplaces on a fresh install (registry file never
+   * written). Existing installs — including ones whose defaults were
+   * deliberately removed — are untouched; returns the specs it added.
+   */
+  async seedDefaultMarketplaces(): Promise<string[]> {
+    const added = await this.store.seedDefaultMarketplaces(DEFAULT_MARKETPLACE_SPECS)
+    if (added.length > 0) {
+      this.opts.logger?.info?.(`dsh-next-cc-plugins seeded default marketplace(s): ${added.join(', ')}`)
+    }
+    return added
   }
 
   async refreshMarketplaces(): Promise<MutationResult> {
@@ -1228,9 +1241,19 @@ export class CcMarketplaceService {
       } catch (error) {
         throw new Error(`downloading ${source.owner}/${source.repo}: ${error instanceof Error ? error.message : String(error)}`)
       }
-      const files: PluginFiles = {}
+      let files: PluginFiles = {}
       for (const e of extractTarEntries(tarball)) {
         if (isSafeRelativePath(e.path)) files[e.path] = e.content
+      }
+      // git-subdir sources name a subdirectory of the repository (the
+      // official marketplace's monorepo form): slice it like a relative
+      // plugin inside a marketplace snapshot.
+      if (source.subdir !== undefined) {
+        const sliced = this.pluginSubMap(files, source.subdir)
+        if (sliced === undefined) {
+          throw new Error(`plugin "${pluginName}" source path "${source.subdir}" is missing from the ${source.owner}/${source.repo} snapshot`)
+        }
+        files = sliced
       }
       return { files, entry, marketplaceSpec: marketplace.spec }
     }

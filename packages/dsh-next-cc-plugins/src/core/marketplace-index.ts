@@ -70,6 +70,9 @@ export function normalizePluginSource(raw: unknown, pluginRoot: string): PluginS
   }
   const s = raw as Record<string, unknown>
   const kind = str(s.source ?? s.type).toLowerCase()
+  // Claude pins external sources with `sha` (exact commit) and optionally
+  // `ref` (branch or tag); an exact pin beats a movable ref.
+  const pinnedRef = str(s.sha) !== '' ? str(s.sha) : str(s.ref)
 
   if (kind === 'local' || kind === 'relative' || kind === 'path') {
     const path = str(s.path)
@@ -82,21 +85,40 @@ export function normalizePluginSource(raw: unknown, pluginRoot: string): PluginS
     if (match === null) {
       return { kind: 'unsupported', raw: JSON.stringify(raw), reason: `github source has invalid repo "${repo}"` }
     }
-    return { kind: 'github', owner: match[1], repo: match[2], ...(str(s.ref) !== '' ? { ref: str(s.ref) } : {}) }
+    return { kind: 'github', owner: match[1], repo: match[2], ...(pinnedRef !== '' ? { ref: pinnedRef } : {}) }
+  }
+  if (kind === 'git-subdir') {
+    // `{ source: "git-subdir", url, path, ref?, sha? }` — a subdirectory of a
+    // git repository (the official marketplace uses this for monorepos).
+    const gh = githubUrlOf(str(s.url))
+    const path = normalizeRelativePath(str(s.path))
+    if (gh === null) {
+      return { kind: 'unsupported', raw: JSON.stringify(raw), reason: 'git-subdir source has no url' }
+    }
+    if (path === '') {
+      return { kind: 'unsupported', raw: JSON.stringify(raw), reason: `git-subdir source for ${gh.owner}/${gh.repo} has no path` }
+    }
+    return { kind: 'github', owner: gh.owner, repo: gh.repo, subdir: path, ...(pinnedRef !== '' ? { ref: pinnedRef } : {}) }
   }
   if (kind === 'url' || kind === 'git') {
     const url = str(s.url)
-    const gh = /^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/.exec(url)
+    const gh = githubUrlOf(url)
     if (gh !== null) {
-      return { kind: 'github', owner: gh[1], repo: gh[2], ...(str(s.ref) !== '' ? { ref: str(s.ref) } : {}) }
+      return { kind: 'github', owner: gh.owner, repo: gh.repo, ...(pinnedRef !== '' ? { ref: pinnedRef } : {}) }
     }
     if (url === '') return { kind: 'unsupported', raw: JSON.stringify(raw), reason: 'url source has no url' }
     return { kind: 'unsupported', raw: JSON.stringify(raw), reason: 'only GitHub git URLs are supported (got a non-GitHub host)' }
   }
   if (kind === 'npm') return { kind: 'unsupported', raw: JSON.stringify(raw), reason: 'npm plugin sources are not supported yet' }
   if (kind === 'archive') return { kind: 'unsupported', raw: JSON.stringify(raw), reason: 'archive plugin sources are not supported yet' }
-  if (kind === 'git-subdir') return { kind: 'unsupported', raw: JSON.stringify(raw), reason: 'git-subdir plugin sources are not supported yet' }
+  if (kind === 'command') return { kind: 'unsupported', raw: JSON.stringify(raw), reason: 'command plugin sources are not supported (they execute a local command)' }
   return { kind: 'unsupported', raw: JSON.stringify(raw), reason: `unknown source kind "${kind}"` }
+}
+
+/** A GitHub HTTPS URL as owner/repo, or null for anything else. */
+function githubUrlOf(url: string): { owner: string; repo: string } | null {
+  const gh = /^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/.exec(url)
+  return gh === null ? null : { owner: gh[1], repo: gh[2] }
 }
 
 export type IndexParseResult =

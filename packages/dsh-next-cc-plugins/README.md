@@ -8,8 +8,12 @@ with a built-in runtime for the components DSH activates in-process.
 
 ## What it does
 
-- **Add marketplaces** — GitHub repositories (owner/repo shorthand, GitHub
-  HTTPS/SSH URLs) or local directories holding a
+- **Add marketplaces** — the official Anthropic marketplace
+  (`anthropics/claude-plugins-official`, ~290 plugins) is **seeded on a
+  fresh install**, so the Plugins tab lists plugins immediately; removals
+  are final (the seed applies only before the registry file first exists).
+  Add any other source yourself: GitHub repositories (owner/repo shorthand,
+  GitHub HTTPS/SSH URLs) or local directories holding a
   `.claude-plugin/marketplace.json` index (`.grok-plugin/marketplace.json`
   is honored as a Grok Build interop fallback). Browse each marketplace's
   plugins with their component inventories, refresh, and remove. Snapshots
@@ -59,8 +63,11 @@ with a built-in runtime for the components DSH activates in-process.
 
 Plugin sources inside a marketplace index follow the Claude Code schema:
 relative paths (`"./plugins/foo"`, bare names under `metadata.pluginRoot`),
-`{"source": "github", "repo": "owner/repo"}`, and GitHub `url` sources.
-npm, archive, and git-subdir sources are listed as not installable.
+`{"source": "github", "repo": "owner/repo"}`, GitHub `url` sources, and
+`git-subdir` sources (a subdirectory of a GitHub monorepo — the form the
+official marketplace uses for most of its plugins). External sources
+carrying a `sha` or `ref` pin install exactly that commit. npm, archive,
+and `command` sources are listed as not installable.
 
 Component and version fidelity follows Claude Code's current reference:
 

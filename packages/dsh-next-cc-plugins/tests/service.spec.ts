@@ -281,6 +281,60 @@ describe('CcMarketplaceService marketplaces', () => {
     expect(updated.updateAvailable).toBeUndefined()
   })
 
+  it('seeds the official marketplace on a fresh registry and never after removal', async () => {
+    // Fresh install: no marketplaces.json exists yet.
+    const seeded = await f.service.seedDefaultMarketplaces()
+    expect(seeded).toEqual(['anthropics/claude-plugins-official'])
+    let list = (await f.service.state()).marketplaces
+    expect(list.map((m) => m.id)).toContain('github:anthropics/claude-plugins-official')
+
+    // Second call is a no-op (the registry file now exists).
+    expect(await f.service.seedDefaultMarketplaces()).toEqual([])
+
+    // A deliberate removal is final: the registry file exists (now empty),
+    // so seeding never resurrects the default.
+    await f.service.removeMarketplace('github:anthropics/claude-plugins-official')
+    expect(await f.service.seedDefaultMarketplaces()).toEqual([])
+    list = (await f.service.state()).marketplaces
+    expect(list.map((m) => m.id)).not.toContain('github:anthropics/claude-plugins-official')
+  })
+
+  it('installs a git-subdir source by slicing the pinned repository subdirectory', async () => {
+    f.gh.setRepo('owner', 'monorepo', {
+      '.claude-plugin/marketplace.json': JSON.stringify({
+        name: 'acme-tools',
+        plugins: [{
+          name: 'slicer',
+          source: { source: 'git-subdir', url: 'https://github.com/owner/monorepo.git', path: 'plugins/slicer', ref: 'v1', sha: 'abc123' },
+        }],
+      }),
+      'plugins/slicer/skills/cut/SKILL.md': SKILL('cut', 'Cuts things'),
+      'plugins/slicer/README.md': 'slicer readme',
+      'plugins/other/skills/nope/SKILL.md': SKILL('nope', 'Not part of the plugin'),
+    })
+    await f.service.addMarketplace('owner/monorepo')
+    const result = await f.service.installPlugin({ marketplaceId: 'github:owner/monorepo', plugin: 'slicer', targets: [{ scope: 'global' }] })
+    expect(result.ok).toBe(true)
+    // Only the subdirectory's files installed; the pin rode the tarball URL.
+    const snap = f.fs.snapshot()
+    expect(snap['/home/u/.agents/skills/cut/SKILL.md']).toBeDefined()
+    expect(snap['/home/u/.agents/skills/nope/SKILL.md']).toBeUndefined()
+    expect(f.gh.calls.some((u) => u.includes('abc123'))).toBe(true)
+  })
+
+  it('reports a git-subdir path missing from the repository snapshot', async () => {
+    f.gh.setRepo('owner', 'monorepo', {
+      '.claude-plugin/marketplace.json': JSON.stringify({
+        name: 'acme-tools',
+        plugins: [{ name: 'ghost', source: { source: 'git-subdir', url: 'https://github.com/owner/monorepo', path: 'plugins/ghost' } }],
+      }),
+    })
+    await f.service.addMarketplace('owner/monorepo')
+    const result = await f.service.installPlugin({ marketplaceId: 'github:owner/monorepo', plugin: 'ghost', targets: [{ scope: 'global' }] })
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toContain('"plugins/ghost" is missing from the owner/monorepo snapshot')
+  })
+
   it('removes an empty marketplace and refuses one with installed plugins', async () => {
     await f.service.addMarketplace('o/r')
     await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', targets: [{ scope: 'global' }] })

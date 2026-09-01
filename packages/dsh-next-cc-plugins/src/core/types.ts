@@ -70,7 +70,7 @@ export interface StoredMarketplace {
 /** Where a marketplace entry's plugin files live. */
 export type PluginSource =
   | { kind: 'relative'; path: string }
-  | { kind: 'github'; owner: string; repo: string; ref?: string }
+  | { kind: 'github'; owner: string; repo: string; ref?: string; /** Repository subdirectory holding the plugin (git-subdir sources). */ subdir?: string }
   | { kind: 'unsupported'; raw: string; reason: string }
 
 /** A normalized plugin entry from a marketplace index. */

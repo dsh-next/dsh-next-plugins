@@ -192,8 +192,10 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
   // the plugin data root. Opening it must reveal the tab bar, the empty
   // marketplaces state, and the add-marketplace control; switching to the
   // Installed tab must render its empty state (guards a silent payload-shape
-  // mismatch the crash-marker layer cannot see). No network: marketplaces are
-  // only added manually. The marker closes the Settings dialog afterwards:
+  // mismatch the crash-marker layer cannot see). The official Anthropic
+  // marketplace is seeded on the fresh scratch home (its GitHub sync is best
+  // effort; assertions never depend on it). The marker closes the Settings
+  // dialog afterwards:
   // this package sorts before dsh-next-notifier, whose openPluginCard only
   // handles a closed or Plugins-view Settings shell.
   'dsh-next-cc-plugins': async (page) => {
@@ -203,12 +205,15 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     const settings = page.getByRole('dialog', { name: 'Settings' })
     await expect(page.getByText('Plugins', { exact: true }).first()).toBeVisible()
     await expect(page.getByText('Marketplaces', { exact: true }).first()).toBeVisible()
-    await expect(page.getByText('No marketplaces added yet', { exact: false }).first()).toBeVisible()
     await expect(page.getByTestId('cc-search').first()).toBeVisible()
     await expect(page.getByTestId('cc-installed-only').first()).toBeVisible()
     await settings.getByRole('tab', { name: 'Marketplaces' }).click({ force: true })
     await expect(page.locator('input[placeholder*="owner/repo"]').first()).toBeVisible()
     await expect(page.getByText('refresh automatically', { exact: false }).first()).toBeVisible()
+    // A fresh install seeds the official Anthropic marketplace; the row
+    // renders from the registry alone, so this holds even when its sync
+    // cannot reach GitHub from the test environment.
+    await expect(page.getByText('anthropics/claude-plugins-official', { exact: false }).first()).toBeVisible()
     // A local-fixture marketplace drives the real add -> card -> detail flow
     // offline: the panel lists its plugin, and the detail modal shows the
     // component inventory including the not-bridged LSP family.
@@ -216,20 +221,25 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await page.getByTestId('cc-add-input').first().fill(fixture)
     await page.getByRole('button', { name: 'Add marketplace' }).first().click()
     await expect(page.getByText('tiny-tools', { exact: false }).first()).toBeVisible()
-    // Plugin cards live on the Plugins tab.
+    // Plugin cards live on the Plugins tab. The fixture card is located by
+    // name: the seeded official marketplace contributes cards of its own
+    // whenever its sync reaches GitHub.
     await settings.getByRole('tab', { name: 'Plugins' }).click({ force: true })
-    await expect(page.getByTestId('cc-plugin').first()).toBeVisible()
-    await page.getByTestId('cc-detail').first().click()
+    const demoCard = page.locator('[data-testid="cc-plugin"]:has([data-testid="cc-detail"]:text-is("demo-tools"))').first()
+    await expect(demoCard).toBeVisible()
+    await demoCard.locator('[data-testid="cc-detail"]').click()
     await expect(page.getByTestId('cc-plugin-detail')).toBeVisible()
     await expect(page.getByTestId('cc-detail-components')).toContainText('skills: demo-skill')
     await expect(page.getByTestId('cc-detail-components')).toContainText('commands: hello')
     await expect(page.getByTestId('cc-detail-components')).toContainText('LSP server')
     await page.getByTestId('cc-detail-close').click()
     await expect(page.getByTestId('cc-plugin-detail')).toHaveCount(0)
-    // Remove the fixture marketplace so the scratch home stays pristine.
+    // Remove the fixture marketplace; the seeded official one remains
+    // (the Remove button inside the tiny-tools row, not a foreign one).
     await settings.getByRole('tab', { name: 'Marketplaces' }).click({ force: true })
-    await page.getByRole('button', { name: 'Remove', exact: true }).first().click()
-    await expect(page.getByText('No marketplaces added yet', { exact: false }).first()).toBeVisible()
+    await page.locator('[data-testid="cc-marketplace"]:has-text("tiny-tools")').getByRole('button', { name: 'Remove', exact: true }).click()
+    await expect(page.getByText('tiny-tools', { exact: false })).toHaveCount(0)
+    await expect(page.getByText('anthropics/claude-plugins-official', { exact: false }).first()).toBeVisible()
     // The Models tab offers alias pickers over the runtime's live models.
     await settings.getByRole('tab', { name: 'Models' }).click({ force: true })
     await expect(page.getByTestId('cc-model-row').first()).toBeVisible()

@@ -143,6 +143,10 @@ export function apply(ctx: Context, config: PluginConfig = {}): void {
   })
 
   registerRpc(ctx, service)
+  // Fresh installs seed the official Claude marketplace so the panel lists
+  // plugins immediately; existing registries are never touched (the first
+  // panel open then syncs the seeded marketplace best effort).
+  void service.seedDefaultMarketplaces().catch(() => { /* seeding is best effort */ })
   runtime.attach(ctx)
 
   // The shareable settings mirror. The settings service usually activates

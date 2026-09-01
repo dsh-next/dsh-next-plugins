@@ -64,3 +64,11 @@ export function expandHome(path: string, home: string): string {
   if (path.startsWith('~/')) return `${home}/${path.slice(2)}`
   return path
 }
+
+/**
+ * Marketplace specs present on a fresh install (the registry file has never
+ * been written), so the Plugins tab shows plugins immediately. Applied once:
+ * once the registry file exists — including emptied by removals — these are
+ * never re-added, keeping deliberate removals final.
+ */
+export const DEFAULT_MARKETPLACE_SPECS: readonly string[] = ['anthropics/claude-plugins-official']

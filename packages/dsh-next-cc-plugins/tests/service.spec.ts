@@ -843,7 +843,7 @@ describe('CcMarketplaceService install', () => {
         metadata: { description: 'Nested description form' },
         plugins: [{ name: 'refsy', description: '', version: '1.0.0', source: './plugins/refsy' }],
       }),
-      'plugins/refsy/skills/deep/SKILL.md': '---\nname: deep\ndescription: d\n---\nRead ../references/guide.md.',
+      'plugins/refsy/skills/deep/SKILL.md': '---\nname: deep\ndescription: d\n---\nRead ../../references/guide.md.',
       'plugins/refsy/references/guide.md': 'content',
     })
     await f.service.addMarketplace('o/refs-repo')
@@ -853,11 +853,20 @@ describe('CcMarketplaceService install', () => {
     const result = await f.service.installPlugin({ marketplaceId: 'github:o/refs-repo', plugin: 'refsy', scope: { kind: 'global' } })
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.message).toContain('1 skill(s) reference plugin-level "references/"')
-    expect(result.message).toContain('do not resolve from the installed skills root')
-    // The note names the materialized copy the referenced files live in.
-    expect(result.message).toContain('read them from /home/u/.dsh/cc-plugins/plugins/github_o_refs-repo_refsy/references instead')
-    expect((await f.service.state()).installed[0].notes?.[0]).toContain('read them from /home/u/.dsh/cc-plugins/plugins/github_o_refs-repo_refsy/references instead')
+    // The resolvable reference was rewritten in the installed copy, so the
+    // dead-path note is gone and the rewrite is reported instead.
+    expect(result.message).toContain('rewrote 1 plugin-level reference(s) in 1 skill(s) to the materialized plugin copy')
+    expect(result.message).not.toContain('do not resolve from the installed skills root')
+    expect((await f.service.state()).installed[0].notes).toEqual([
+      'rewrote 1 plugin-level reference(s) in 1 skill(s) to the materialized plugin copy',
+    ])
+    // The installed skill copy carries the absolute path; the materialized
+    // plugin copy stays verbatim.
+    const snap = f.fs.snapshot()
+    expect(snap['/home/u/.agents/skills/deep/SKILL.md']).toContain('Read /home/u/.dsh/cc-plugins/plugins/github_o_refs-repo_refsy/references/guide.md.')
+    expect(snap['/home/u/.dsh/cc-plugins/plugins/github_o_refs-repo_refsy/skills/deep/SKILL.md']).toContain('Read ../../references/guide.md.')
+    // And the referenced file is actually there for the model to read.
+    expect(snap['/home/u/.dsh/cc-plugins/plugins/github_o_refs-repo_refsy/references/guide.md']).toBe('content')
   })
 
   it('installs a root-source plugin (the marketplace repo IS the plugin) with inline manifest MCP servers', async () => {

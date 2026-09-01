@@ -10,10 +10,11 @@
  *    globally (skills in the shared skills root, the default) or in a
  *    chosen set of workspaces (skills in each workspace's own
  *    `.agents/skills` root; re-scoping moves the copies): its `skills/`
- *    components are copied verbatim into the scope's skills roots (the
- *    same roots the native filesystem skill provider scans, so installs go
- *    live through its watcher), its `.mcp.json` servers become managed
- *    `dsh-mcp-client` rows
+ *    components are copied into the scope's skills roots (the same roots
+ *    the native filesystem skill provider scans, so installs go live
+ *    through its watcher) with plugin-level references rewritten to the
+ *    materialized copy's absolute paths, its `.mcp.json` servers become
+ *    managed `dsh-mcp-client` rows
  *    and its `agents/*.md` become managed `dsh-tool-subagent` rows spliced
  *    into `$DSH_HOME/cordis.patch.yml`, and its full file set is
  *    materialized under the plugin data root so the runtime bridge (slash
@@ -37,6 +38,7 @@ import { isSnapshotStale, isUpdateAvailable, manifestVersion } from '../core/ver
 import { isSkillName, sanitizeIdentifier } from '../core/name.ts'
 import { dirnamePath, isSafeRelativePath, joinPath } from '../core/path.ts'
 import { dependencyNotes, pluginInventory, pluginLevelReferenceNotes, readManifestPaths, skillFiles, skillSemanticNotes, unbridgedNotes, type PluginFiles } from '../core/plugin-inventory.ts'
+import { rewriteSkillFiles } from '../core/references.ts'
 import { extractTarEntries } from './tarball.ts'
 import { fetchRepoTarball } from './github-client.ts'
 import { Store, safeDirId } from './store.ts'
@@ -477,6 +479,11 @@ export class CcMarketplaceService {
     }
     const inventory = pluginInventory(resolved.files)
 
+    // 0. Installed skill copies carry plugin-level references rewritten to
+    //    absolute paths into the materialized copy (existence-checked
+    //    only); the materialized copy and the cached files stay verbatim.
+    const rewritten = rewriteSkillFiles(resolved.files, inventory.skills, this.pluginRootOf(key))
+
     // 1. Skills: copy each skill directory into every root the scope
     //    spans. Any failure rolls back every copy.
     const copiedDirs: string[] = []
@@ -495,7 +502,7 @@ export class CcMarketplaceService {
         } catch {
           // not installed yet
         }
-        const failure = await this.copySkill(resolved.files, skill, target, key)
+        const failure = await this.copySkill(rewritten.files, skill, target, key)
         if (failure !== undefined) {
           await this.opts.fs.rm(target, { recursive: true, force: true }).catch(() => {})
           await this.rollbackDirs(copiedDirs)
@@ -528,7 +535,7 @@ export class CcMarketplaceService {
     // 5. Registry record + managed-block rewrite from the registry. The
     //    install notes persist on the record so they stay reviewable long
     //    after the panel toast is gone.
-    const notes = [materializeNote, ...mcp.notes, ...agents.notes, ...unbridgedNotes(inventory.unbridged), ...dependencyNotes(inventory.dependencies), ...skillSemanticNotes(resolved.files, inventory.skills), ...pluginLevelReferenceNotes(resolved.files, inventory.skills, this.pluginRootOf(key))].filter((n): n is string => n !== undefined)
+    const notes = [materializeNote, ...mcp.notes, ...agents.notes, ...unbridgedNotes(inventory.unbridged), ...dependencyNotes(inventory.dependencies), ...skillSemanticNotes(resolved.files, inventory.skills), ...(rewritten.rewrites > 0 ? [`rewrote ${rewritten.rewrites} plugin-level reference(s) in ${rewritten.skills} skill(s) to the materialized plugin copy`] : []), ...pluginLevelReferenceNotes(rewritten.files, inventory.skills, this.pluginRootOf(key))].filter((n): n is string => n !== undefined)
     const now = new Date().toISOString()
     // Claude's precedence: the marketplace entry's version, then the
     // plugin's own plugin.json version; the snapshot digest is the update
@@ -738,6 +745,10 @@ export class CcMarketplaceService {
       return { ok: false, error: `plugin "${record.pluginName}" source became non-installable: ${resolved.entry.source.reason}` }
     }
     const inventory = pluginInventory(resolved.files)
+    // Installed skill copies carry plugin-level references rewritten to
+    // absolute paths into the materialized copy (existence-checked only);
+    // the materialized copy and the cached files stay verbatim.
+    const rewritten = rewriteSkillFiles(resolved.files, inventory.skills, this.pluginRootOf(key))
 
     // Skills refresh in every root the scope spans; per-skill failures
     // skip that skill, and skills removed upstream are trashed.
@@ -752,7 +763,7 @@ export class CcMarketplaceService {
         }
         seen.add(skill.name)
         const target = joinPath(root, skill.name)
-        const failure = await this.copySkill(resolved.files, skill, target, key)
+        const failure = await this.copySkill(rewritten.files, skill, target, key)
         if (failure !== undefined) {
           errors.push(failure)
           continue
@@ -784,7 +795,7 @@ export class CcMarketplaceService {
 
     const effectiveVersion = resolved.entry.version !== '' ? resolved.entry.version : manifestVersion(resolved.files)
     const snapshotDigest = (await this.store.readSnapshot(record.marketplaceId))?.digest
-    const notes = [materializeNote, ...mcp.notes, ...agents.notes, ...unbridgedNotes(inventory.unbridged), ...dependencyNotes(inventory.dependencies), ...skillSemanticNotes(resolved.files, inventory.skills), ...pluginLevelReferenceNotes(resolved.files, inventory.skills, this.pluginRootOf(key))].filter((n): n is string => n !== undefined)
+    const notes = [materializeNote, ...mcp.notes, ...agents.notes, ...unbridgedNotes(inventory.unbridged), ...dependencyNotes(inventory.dependencies), ...skillSemanticNotes(resolved.files, inventory.skills), ...(rewritten.rewrites > 0 ? [`rewrote ${rewritten.rewrites} plugin-level reference(s) in ${rewritten.skills} skill(s) to the materialized plugin copy`] : []), ...pluginLevelReferenceNotes(rewritten.files, inventory.skills, this.pluginRootOf(key))].filter((n): n is string => n !== undefined)
     const updated: InstalledPlugin = {
       ...record,
       version: effectiveVersion,

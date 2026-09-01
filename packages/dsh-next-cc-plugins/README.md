@@ -186,12 +186,17 @@ Agent frontmatter translation notes:
   form); the file wins when both are present.
 - Skills that reference **plugin-level directories** (`references/`,
   `assets/`, ... — files that sit beside `skills/`, not inside a skill)
-  install with a note: Claude Code runs skills from the plugin root so
-  those links resolve there, but DSH installs each skill standalone in the
-  skills root and the referenced paths do not resolve. The note names the
-  exact readable location — the same directory inside the materialized
-  plugin copy under `$DSH_HOME/cc-plugins/plugins/` (kept for hook
-  commands); skill bodies needing those files must be read from there.
+  keep working as in Claude Code: at install/update time every reference
+  that provably resolves inside the plugin is rewritten, in the installed
+  skill copy only, to an absolute path into the materialized plugin copy
+  under `$DSH_HOME/cc-plugins/plugins/` — `../`-chains resolve
+  file-relative (Claude's semantic), bare `dir/...` forms resolve
+  plugin-root-relative, and both are existence-checked against the
+  plugin's file map, so URLs, prose, unknown paths, and in-skill
+  relatives stay byte-identical. The materialized copy itself and the
+  cached files feeding the runtime bridge stay verbatim; the install
+  note reports the rewrites, and references that resolve nowhere stay
+  verbatim with a note naming the readable location.
 - A skill may assume an MCP server the plugin itself does not ship (no
   `.mcp.json`, only prose like "set up the Holistics MCP"). Nothing
   auto-configures in that case — add the server yourself (this plugin's

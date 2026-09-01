@@ -594,8 +594,11 @@ export function pluginLevelReferenceNotes(files: PluginFiles, skills: readonly S
     if (text === '') continue
     for (const dir of roots) {
       // The trailing path part is optional so bare directory links
-      // (`[](../../references/)`) count as references too.
-      const pattern = new RegExp(`(?:\\.\\./|(^|[^A-Za-z0-9_.-]))${dir}/[A-Za-z0-9_./-]*`)
+      // (`[](../../references/)`) count as references too. A slash before
+      // the directory means the mention sits inside a larger path (an
+      // in-skill relative, or a rewritten absolute into the materialized
+      // copy) — not a standalone plugin-level reference.
+      const pattern = new RegExp(`(?:\\.\\./|(^|[^A-Za-z0-9_./-]))${dir}/[A-Za-z0-9_./-]*`)
       if (pattern.test(text)) byDir.set(dir, (byDir.get(dir) ?? 0) + 1)
     }
   }

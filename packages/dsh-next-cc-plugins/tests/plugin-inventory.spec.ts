@@ -273,6 +273,20 @@ describe('pluginLevelReferenceNotes', () => {
     ])
   })
 
+  it('stays silent for mentions embedded in larger paths', () => {
+    // An in-skill relative path through a same-named subdir, and a
+    // rewritten absolute path into the materialized copy, are not
+    // standalone plugin-level references.
+    const files = {
+      ...REF_PLUGIN(),
+      'skills/analyze/SKILL.md': '---\nname: analyze\ndescription: d\n---\nSee docs/references/notes.md and /home/u/.dsh/cc-plugins/plugins/k/references/aql.md.',
+    }
+    const inv = pluginInventory(files)
+    expect(pluginLevelReferenceNotes(files, inv.skills, '/plugin/root')).toEqual([
+      '1 skill(s) reference plugin-level "references/"; those paths do not resolve from the installed skills root; read them from /plugin/root/references instead',
+    ])
+  })
+
   it('stays silent when the directory does not exist or the mention is prose', () => {
     // No references/ directory at all: the ../references mention is prose.
     const prose = { 'skills/analyze/SKILL.md': REF_PLUGIN()['skills/analyze/SKILL.md'] }

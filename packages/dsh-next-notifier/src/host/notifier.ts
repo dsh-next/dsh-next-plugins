@@ -95,11 +95,15 @@ export class Notifier {
     return null
   }
 
-  /** Detect backend players and pre-generate the sound set. */
+  /**
+   * Detect backend players and pre-generate the sound set. Never registers
+   * effects: `start` races the profile's loading phase, and an effect
+   * (`ctx.on`) created after an await lands on an inactive context and
+   * aborts the whole load (the boot crash this once caused).
+   */
   async start(): Promise<void> {
     this.backends = await this.driver.detect()
     await this.driver.ensureSounds(this.config().volume, this.backends)
-    this.wire()
   }
 
   /** Re-synthesize sounds after a volume change (keeps last good on failure). */
@@ -197,7 +201,13 @@ export class Notifier {
     }
   }
 
-  private wire(): void {
+  /**
+   * Register the event listeners. Public because the entry must call this
+   * synchronously during `apply` — an effect (`ctx.on`) created after an
+   * await (as `start` used to do) lands on an inactive context and aborts
+   * the whole profile load. Listening never depends on sound detection.
+   */
+  wire(): void {
     const { ctx } = this.opts
     this.disposers.push(ctx.on('agent/status', (payload: unknown) => {
       if (!payload || typeof payload !== 'object') return

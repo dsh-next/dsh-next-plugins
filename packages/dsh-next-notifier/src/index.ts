@@ -37,6 +37,11 @@ export function apply(ctx: Context): void {
 
   registerRpc(ctx, notifier, scope)
 
+  // Wire the event listeners synchronously: effects created after an await
+  // (start's async sound detection used to wire) land on an inactive context
+  // once loading has moved on, which aborted the whole profile load.
+  notifier.wire()
+
   void notifier.start()
 
   ctx.effect(() => () => notifier.dispose())

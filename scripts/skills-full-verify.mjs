@@ -10,7 +10,7 @@
  *   - Settings.yaml: providers/installed/scopes round-trip on disk
  *   - Providers: default seed + auto-sync, add by URL and by bare spec,
  *     refresh all, remove (defaults survive)
- *   - Update: tampered manifest -> Update button -> update clears it
+ *   - Update: tampered settings record -> Update button -> update clears it
  *   - Composer: after a remove, a NEW session's "/" menu must not list the
  *     removed skill (client cache invalidation)
  *
@@ -106,12 +106,11 @@ async function noErrorExceptRateLimit() {
   const count = await page.locator('[data-testid="skills-message"][class*="noticeErr"]').count()
   if (count === 0) return
   const text = await page.locator('[data-testid="skills-message"]').first().textContent()
-  if (!text.includes('rate limit') && !/exposes \d+ skills \(limit/.test(text)) {
+  if (!text.includes('rate limit')) {
     throw new Error('error banner visible: ' + text)
   }
   console.log('  (tolerated environmental/upstream refresh failure)')
 }
-const manifestPath = (base, name) => join(base, name, '.dsh-next-provider.json')
 
 /** Open the scope modal for a skill and return its root element. */
 async function openScopeModal(name, action = 'skills-add') {
@@ -377,10 +376,24 @@ await check('Scope modal: re-scope to a workspace whitelist and back', async () 
 })
 
 // ---- Update flow ----------------------------------------------------------
-await check('Update: tampered manifest enables the Update button', async () => {
-  const manifest = JSON.parse(readFileSync(manifestPath(AGENT_SKILLS, 'find-skills'), 'utf8'))
-  manifest.version = 'tampered000000'
-  writeFileSync(manifestPath(AGENT_SKILLS, 'find-skills'), JSON.stringify(manifest, null, 2))
+await check('Update: tampered settings version enables the Update button', async () => {
+  // settings.yaml is the single source: the RECORD's version is what the
+  // update flag compares against, so the tamper lands there.
+  const settingsPath = join(SCRATCH, 'home', 'settings.yaml')
+  const lines = readFileSync(settingsPath, 'utf8').split('\n')
+  let inRecord = false
+  let hit = false
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\s*- name: find-skills\s*$/.test(lines[i])) inRecord = true
+    else if (/^\s*- name:/.test(lines[i])) inRecord = false
+    if (inRecord && /^\s*version:/.test(lines[i])) {
+      lines[i] = lines[i].replace(/version: .*/, 'version: tampered000000')
+      inRecord = false
+      hit = true
+    }
+  }
+  if (!hit) throw new Error('could not tamper the find-skills record version')
+  writeFileSync(settingsPath, lines.join('\n'))
   await openTab('Providers') // switching tabs refreshes state
   await openTab('Skills')
   await until('update button visible', async () => await cardButton(skillCard('find-skills'), 'skills-update').isVisible())
@@ -389,8 +402,11 @@ await check('Update: tampered manifest enables the Update button', async () => {
 await check('Update: Update overwrites and clears the flag', async () => {
   await cardButton(skillCard('find-skills'), 'skills-update').click({ force: true })
   await until('update finished', async () => {
-    const manifest = JSON.parse(readFileSync(manifestPath(AGENT_SKILLS, 'find-skills'), 'utf8'))
-    if (manifest.version === 'tampered000000') throw new Error('manifest not rewritten yet')
+    // The settings record (not the manifest) is the compared state.
+    const settings = readFileSync(join(SCRATCH, 'home', 'settings.yaml'), 'utf8')
+    if (settings.includes('version: tampered000000')) {
+      throw new Error('settings record not rewritten yet')
+    }
     if (await cardButton(skillCard('find-skills'), 'skills-update').isVisible().catch(() => false)) {
       throw new Error('Update still visible')
     }

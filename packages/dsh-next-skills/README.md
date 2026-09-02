@@ -66,10 +66,16 @@ no shadow copies, no file writes.
 **Settings-backed state.** Providers, installed records, and scopes persist
 in the plugin's own namespace of the harness settings file
 (`$DSH_HOME/settings.yaml`, key `dsh-next-skills:`) — readable, hand-editable,
-and easy to share between developers. After the provider caches sync, a skill
-recorded in settings whose files are missing is reinstalled from the cache, so
-copying the settings section to a teammate (or a new machine) reproduces the
-same skill set.
+and easy to share between developers. That section is the single source
+managing the plugin's state: a provider exists because the section lists it,
+and a skill is plugin-managed because the section records it — never because
+of a cache file or manifest sidecar (both are replicas: the provider catalog
+cache under `$DSH_HOME/skills-market/` and the per-skill
+`.dsh-next-provider.json` are informational only, and a cache entry without a
+settings record does not exist as far as the panel is concerned). After the
+provider caches sync, a skill recorded in settings whose files are missing is
+reinstalled from the cache, so copying the settings section to a teammate
+(or a new machine) reproduces the same skill set.
 
 Removal is recoverable: confirming the modal moves a managed skill into the
 `.trash` directory of its root (skipped by discovery), so an accidental
@@ -107,7 +113,9 @@ Adding a provider downloads every skill into a plugin-owned cache at
 DSH filesystem provider scans, so cached skills never activate by themselves.
 The Skills tab reads that cache; installing copies the files into the global
 root and records a small manifest (`.dsh-next-provider.json`) alongside the
-settings record.
+settings record. A provider may expose any number of skills — there is no
+cap (the grid paginates, and syncing is content-hash incremental), so even
+repositories with hundreds of skills sync and browse fine.
 
 **Fast syncs via repository snapshots.** Instead of one request per file, a
 sync downloads the repository's default-branch snapshot in a single request

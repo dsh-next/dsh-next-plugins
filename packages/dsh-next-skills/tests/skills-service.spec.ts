@@ -72,7 +72,9 @@ describe('listInstalled / state', () => {
     expect(state.installed).toHaveLength(0)
   })
 
-  it('enriches managed skills with provider and update facts from the manifest', async () => {
+  it('a manifest without a settings record is custom, not managed', async () => {
+    // settings.yaml is the single source managing installs: the manifest
+    // sidecar never confers managed-ness on its own.
     const h = makeHarness({
       '/home/u/.agents/skills/find-skills/SKILL.md': SKILL('find-skills'),
       '/home/u/.agents/skills/find-skills/.dsh-next-provider.json': JSON.stringify({
@@ -82,9 +84,9 @@ describe('listInstalled / state', () => {
     await seedCatalog(h)
     const state = await h.service.state()
     const row = state.installed.find((s) => s.name === 'find-skills')!
-    expect(row.managed).toBe(true)
-    expect(row.provider).toBe('o/r')
-    expect(row.updateAvailable).toBe(true) // manifest says old, catalog is fresh
+    expect(row.managed).toBe(false)
+    expect(row.provider).toBeUndefined()
+    expect(row.updateAvailable).toBeUndefined()
   })
 
   it('carries the config scope per name and the settings sections in the envelope', async () => {
@@ -197,10 +199,19 @@ describe('updateSkill (managed, global)', () => {
     expect(manifest.version).toBe(record.version)
   })
 
-  it('refuses skills the plugin does not manage', async () => {
-    const h = makeHarness({ '/home/u/.agents/skills/hand/SKILL.md': SKILL('hand') })
-    expect(await h.service.updateSkill({ name: 'hand' })).toEqual({ ok: false, error: 'skill "hand" was not installed from a provider' })
+  it('refuses skills the settings section does not record', async () => {
+    // A manifest sidecar alone proves nothing: the settings record is the
+    // only proof of a plugin install.
+    const h = makeHarness({
+      '/home/u/.agents/skills/hand/SKILL.md': SKILL('hand'),
+      '/home/u/.agents/skills/hand/.dsh-next-provider.json': JSON.stringify({
+        providerId: 'o-r', providerSpec: 'o/r', skillPath: 'skills/find-skills', version: 'v', installedAt: 't',
+      }),
+    })
+    await seedCatalog(h)
+    expect(await h.service.updateSkill({ name: 'hand' })).toEqual({ ok: false, error: 'skill "hand" was not installed by the plugin' })
     expect(await h.service.updateSkill({ name: 'ghost' })).toEqual({ ok: false, error: 'skill "ghost" not found' })
+    expect(await h.service.uninstallSkill({ name: 'hand' })).toEqual({ ok: false, error: 'skill "hand" was not installed by the plugin' })
   })
 })
 
@@ -246,6 +257,25 @@ describe('provider management on the settings config', () => {
     expect((await h.service.removeProvider('o-r')).ok).toBe(true)
     expect(h.config.raw().providers).toEqual([])
     expect(await h.service.removeProvider('o-r')).toEqual({ ok: false, error: 'provider "o-r" is not configured' })
+  })
+
+  it('provider rows derive from the settings section, not the catalog cache', async () => {
+    const h = makeHarness()
+    await seedCatalog(h)
+    await h.service.addProvider('o/r')
+    // A cache entry whose settings record is gone is invisible: the cache is
+    // a replica, never a source.
+    await h.config.replace({ providers: [], installed: [], scopes: {} })
+    expect((await h.service.state()).providers).toEqual([])
+    // A settings provider without a synced snapshot renders as never synced.
+    await h.config.replace({
+      providers: [{ id: 'o-r', spec: 'o/r', addedAt: 't' }, { id: 'x-y', spec: 'x/y', addedAt: 't' }],
+      installed: [],
+      scopes: {},
+    })
+    const rows = (await h.service.state()).providers
+    expect(rows.map((r) => [r.spec, r.error ?? ''])).toEqual([['o/r', ''], ['x/y', 'never synced']])
+    expect(rows[0].lastRefresh).not.toBe('')
   })
 
   it('rejects invalid specs and records sync failures on the catalog row', async () => {

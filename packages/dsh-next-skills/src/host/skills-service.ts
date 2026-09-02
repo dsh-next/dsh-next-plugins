@@ -198,8 +198,8 @@ export class SkillsService {
 
   /**
    * Enumerate skills across the global roots and (optionally) the given
-   * workspaces' project roots, merged by precedence, enriched with manifest
-   * (managed/update) facts and the config scope for each name.
+   * workspaces' project roots, merged by precedence, enriched with the
+   * settings record's managed/update facts and the config scope per name.
    */
   async listInstalled(workspacePaths?: readonly string[]): Promise<InstalledSkill[]> {
     const paths = [...new Set((workspacePaths ?? []).filter((p) => typeof p === 'string' && p !== ''))]
@@ -227,19 +227,18 @@ export class SkillsService {
       for (const skill of provider.skills) byProviderSkill.set(`${provider.id}\n${skill.skillPath}`, skill)
     }
     return Promise.all(discovered.map(async (skill): Promise<InstalledSkill> => {
+      // settings.yaml is the single source managing installs: a skill is
+      // managed when it is RECORDED here, never because of a manifest file.
+      // The manifest sidecar is informational only and is never read for
+      // decisions. The settings record also keys update detection.
       const record = config.installed.find((r) => r.name === skill.name)
-      const manifest = skill.kind === 'bundle' ? await this.readManifest(skill.directory) : undefined
-      const managed = manifest !== undefined || record !== undefined
+      const managed = record !== undefined
       let updateAvailable: boolean | undefined
-      const upstreamKey = manifest !== undefined
-        ? `${manifest.providerId}\n${manifest.skillPath}`
-        : record !== undefined ? `${record.providerId}\n${record.skillPath}` : undefined
-      const upstream = upstreamKey !== undefined ? byProviderSkill.get(upstreamKey) : undefined
+      const upstream = record !== undefined ? byProviderSkill.get(`${record.providerId}\n${record.skillPath}`) : undefined
       if (managed && upstream !== undefined) {
-        const currentVersion = manifest?.version ?? record?.version ?? ''
-        updateAvailable = upstream.version !== currentVersion
+        updateAvailable = upstream.version !== record.version
       }
-      const providerSpecLabel = manifest?.providerSpec ?? record?.providerSpec
+      const providerSpecLabel = record?.providerSpec
       return {
         name: skill.name,
         description: skill.description,
@@ -270,13 +269,19 @@ export class SkillsService {
     }
   }
 
-  /** Provider status rows: synced catalog rows plus configured-but-unsynced ones. */
+  /**
+   * Provider status rows derive from the settings section — the single
+   * source managing which providers exist. Each configured provider is
+   * enriched with its catalog-cache metadata (sync age, stars, error) when
+   * a synced snapshot exists, and shows as "never synced" until then. A
+   * cache entry WITHOUT a settings record is invisible: the cache is a
+   * replica, never a source.
+   */
   private providerRows(catalog: Catalog): ProviderView[] {
-    const known = new Set(catalog.providers.map((p) => p.id))
-    const unsynced = this.config().providers
-      .filter((p) => !known.has(p.id))
-      .map<ProviderView>((p) => ({ id: p.id, spec: p.spec, skillCount: 0, lastRefresh: '', error: 'never synced' }))
-    return [...providerViews(catalog), ...unsynced].sort((a, b) => a.spec.localeCompare(b.spec))
+    const cached = new Map(providerViews(catalog).map((row) => [row.id, row]))
+    return this.config().providers
+      .map((p) => cached.get(p.id) ?? { id: p.id, spec: p.spec, skillCount: 0, lastRefresh: '', error: 'never synced' })
+      .sort((a, b) => a.spec.localeCompare(b.spec))
   }
 
   /**
@@ -476,21 +481,23 @@ export class SkillsService {
   }
 
   /**
-   * Update one managed skill to the cached version: overwrite the files,
+   * Update one recorded skill to the cached version: overwrite the files,
    * drop files that no longer exist upstream, and refresh the manifest and
-   * settings record.
+   * settings record. The settings record keys the whole flow — a skill the
+   * settings section does not list is not plugin-managed.
    */
   async updateSkill(args: { name: string }): Promise<MutationResult> {
     if (!isSkillName(args.name)) return { ok: false, error: `invalid skill name "${args.name}"` }
     const existing = await this.findSkill(this.rootsFor('global'), args.name)
     if (!existing) return { ok: false, error: `skill "${args.name}" not found` }
-    const manifest = await this.readManifest(existing.directory)
-    if (manifest === undefined) return { ok: false, error: `skill "${args.name}" was not installed from a provider` }
+    const configBefore = this.config()
+    const record = configBefore.installed.find((r) => r.name === args.name)
+    if (record === undefined) return { ok: false, error: `skill "${args.name}" was not installed by the plugin` }
     const catalog = await this.store.readCatalog()
-    const provider = catalog.providers.find((p) => p.id === manifest.providerId)
-    const skill = provider?.skills.find((s) => s.skillPath === manifest.skillPath)
+    const provider = catalog.providers.find((p) => p.id === record.providerId)
+    const skill = provider?.skills.find((s) => s.skillPath === record.skillPath)
     if (provider === undefined || skill === undefined) {
-      return { ok: false, error: `provider "${manifest.providerSpec}" no longer offers "${args.name}"` }
+      return { ok: false, error: `provider "${record.providerSpec}" no longer offers "${args.name}"` }
     }
 
     // Remove files that are gone upstream (never the manifest itself).
@@ -574,19 +581,20 @@ export class SkillsService {
   }
 
   /**
-   * Remove a managed skill recoverably: move it into the sibling `.trash`
+   * Remove a recorded skill recoverably: move it into the sibling `.trash`
    * directory of its root (skipped by discovery), so an accidental confirm
-   * can be undone by hand. Only plugin-managed skills (manifest present, or
-   * recorded in settings) can be removed; hand-created skills are never
-   * touched. The settings record and scope entry are dropped.
+   * can be undone by hand. Only skills listed in the settings section (the
+   * single source managing installs) can be removed; hand-created skills
+   * are never touched. The settings record and scope entry are dropped.
    */
   async uninstallSkill(args: { name: string }): Promise<MutationResult> {
     if (!isSkillName(args.name)) return { ok: false, error: `invalid skill name "${args.name}"` }
     const existing = await this.findSkill(this.rootsFor('global'), args.name)
     if (!existing) return { ok: false, error: `skill "${args.name}" not found` }
-    const manifest = existing.kind === 'bundle' ? await this.readManifest(existing.directory) : undefined
+    // The settings record is the only proof of a plugin install: a skill the
+    // settings section does not list is hand-created, whatever lies on disk.
     const recorded = this.config().installed.some((r) => r.name === args.name)
-    if (manifest === undefined && !recorded) {
+    if (!recorded) {
       return { ok: false, error: `skill "${args.name}" was not installed by the plugin` }
     }
     if (existing.shadow) {

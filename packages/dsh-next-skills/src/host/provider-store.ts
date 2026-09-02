@@ -12,7 +12,7 @@
  * Sync is incremental: content hashes from the repository snapshot decide
  * which files (re-)download; unchanged skills keep their cached copies.
  */
-import { MAX_FILES_PER_SKILL, MAX_SKILLS_PER_PROVIDER, parseCatalog } from '../core/catalog.ts'
+import { MAX_FILES_PER_SKILL, parseCatalog } from '../core/catalog.ts'
 import { parseSkillFile } from '../core/frontmatter.ts'
 import { isSafeRelativePath, joinPath } from '../core/path.ts'
 import { cacheDirSlug, hashContent, isIgnoredRepoPath, parseProviderSpec, providerId, providerSpec, versionHash } from '../core/provider.ts'
@@ -179,9 +179,6 @@ export class ProviderStore {
       .filter((f) => !isIgnoredRepoPath(f.path))
       .map((f) => ({ path: f.path, type: 'blob', sha: hashContent(f.content) }))
     const grouped = groupTreeBySkill(fileEntries)
-    if (grouped.size > MAX_SKILLS_PER_PROVIDER) {
-      throw new Error(`provider ${parsed.owner}/${parsed.repo} exposes ${grouped.size} skills (limit ${MAX_SKILLS_PER_PROVIDER})`)
-    }
 
     const { owner, repo: repoName } = parsed
     const nextSkills: CatalogSkill[] = []

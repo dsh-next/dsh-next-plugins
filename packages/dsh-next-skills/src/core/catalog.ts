@@ -4,8 +4,11 @@
  */
 import type * as T from './types.ts'
 
-/** Soft limits guarding a runaway provider repository. */
-export const MAX_SKILLS_PER_PROVIDER = 500
+/** Per-skill file guard: a repo-root SKILL.md would otherwise hoover every
+ * loose file in the repository into one bogus skill. Such oversized groups
+ * are skipped, not fatal. There is deliberately NO cap on the number of
+ * skills a provider may expose — the panel paginates, and a large catalog
+ * is the repository's honest content. */
 export const MAX_FILES_PER_SKILL = 200
 
 /** Build the marketplace skill view rows from a persisted catalog. */

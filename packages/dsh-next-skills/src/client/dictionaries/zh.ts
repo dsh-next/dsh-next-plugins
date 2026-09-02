@@ -30,6 +30,10 @@ export const zh: Record<MessageKey, string> = {
   'card.manage': '管理',
   'card.add': '添加',
   'card.updateAvailable': '有可用更新',
+  'card.updateAll': '全部更新（{count}）',
+  'card.updateAllTitle': '更新：{names}',
+  'card.updatingProgress': '正在更新 {done}/{total}…',
+  'card.updateAllFailed': '{count} 个技能更新失败：{items}',
 
   'presence.everywhere': '所有位置',
   'presence.workspaces.one': '{count} 个工作区',

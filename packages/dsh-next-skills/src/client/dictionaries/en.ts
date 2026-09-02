@@ -37,6 +37,10 @@ export const en = {
   'card.manage': 'Manage',
   'card.add': 'Add',
   'card.updateAvailable': 'update available',
+  'card.updateAll': 'Update all ({count})',
+  'card.updateAllTitle': 'Update: {names}',
+  'card.updatingProgress': 'Updating {done}/{total}…',
+  'card.updateAllFailed': 'Update failed for {count} skill(s): {items}',
 
   'presence.everywhere': 'Everywhere',
   'presence.workspaces.one': '{count} workspace',

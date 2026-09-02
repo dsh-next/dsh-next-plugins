@@ -12,15 +12,19 @@ import Schema from '@deepseek-ai/schemastery'
 
 export const SKILLS_NAMESPACE = 'dsh-next-skills' as const
 
+// Casts to the global schema-instance interface keep declaration emit
+// nameable: array/dict members otherwise infer types that reference
+// @deepseek-ai/cosmokit transitively (TS2742).
 export const skillsConfigSchema = Schema.object({
-  providers: Schema.array(
+  providers: (Schema.array(
     Schema.object({
       id: Schema.string(),
       spec: Schema.string(),
       addedAt: Schema.string().default(''),
     }),
-  ).default([]).description('Configured skill providers (GitHub owner/repo sources)'),
-  installed: Schema.array(
+  ) as Schemastery<Array<{ id: string; spec: string; addedAt: string }>>)
+    .default([]).description('Configured skill providers (GitHub owner/repo sources)'),
+  installed: (Schema.array(
     Schema.object({
       name: Schema.string(),
       providerId: Schema.string(),
@@ -29,10 +33,17 @@ export const skillsConfigSchema = Schema.object({
       version: Schema.string(),
       installedAt: Schema.string(),
     }),
-  ).default([]).description('Skills the plugin installed into the global root'),
-  scopes: Schema.dict(
-    Schema.any(),
-  ).default({}).description('Per-skill-name enablement: { kind: global } or { kind: workspaces, workspacePaths: [...] }'),
+  ) as Schemastery<Array<{
+    name: string
+    providerId: string
+    providerSpec: string
+    skillPath: string
+    version: string
+    installedAt: string
+  }>>)
+    .default([]).description('Skills the plugin installed into the global root'),
+  scopes: (Schema.dict(Schema.any()) as Schemastery<Record<string, unknown>>)
+    .default({}).description('Per-skill-name enablement: { kind: global } or { kind: workspaces, workspacePaths: [...] }'),
 })
 
 export type SkillsConfigShape = Schemastery.TypeT<typeof skillsConfigSchema>

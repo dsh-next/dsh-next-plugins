@@ -190,6 +190,8 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
   const [confirmUninstall, setConfirmUninstall] = React.useState(false)
   /** The provider a sequential Refresh all is currently downloading. */
   const [refreshingId, setRefreshingId] = React.useState<string | undefined>()
+  /** Progress of a sequential Update all: done/total. */
+  const [updating, setUpdating] = React.useState<{ done: number; total: number } | undefined>()
   /** The open detail modal's entry plus its loaded content. */
   const [detail, setDetail] = React.useState<GridEntry | undefined>()
   const [detailData, setDetailData] = React.useState<SkillDetail | undefined>()
@@ -334,6 +336,45 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
     () => filterEntries(entries, search, providerFilter, installedOnly),
     [entries, search, providerFilter, installedOnly],
   )
+
+  /** Skills an Update can actually apply to: flagged by the last refresh AND
+   *  installed in the global root (updates rewrite the global install). */
+  const updatable = React.useMemo(
+    () => entries.filter((e) => e.row?.updateAvailable === true && e.row.scope === 'global'),
+    [entries],
+  )
+
+  /** Update every updatable skill, one RPC at a time, reporting progress on
+   *  the button. Failures are summarized; the rest keep updating. */
+  const updateAllSequential = async (): Promise<void> => {
+    const list = updatable
+    if (list.length === 0) return
+    setBusy(true)
+    setMessage(undefined)
+    const failures: string[] = []
+    for (let done = 0; done < list.length; done++) {
+      setUpdating({ done: done + 1, total: list.length })
+      const entry = list[done]
+      try {
+        const result = await deps.rpc('updateSkill', { name: entry.name }) as MutationResult
+        if (isMutationError(result)) {
+          failures.push(`${entry.name}: ${result.error ?? 'update failed'}`)
+        } else if (result.state !== undefined) {
+          setState(result.state)
+        }
+      } catch (error) {
+        failures.push(`${entry.name}: ${errMsg(error)}`)
+      }
+    }
+    setUpdating(undefined)
+    if (failures.length > 0) {
+      setMessage({ ok: false, text: t('card.updateAllFailed', { count: failures.length, items: failures.join('; ') }) })
+    } else {
+      setMessage({ ok: true, text: t('status.done') })
+    }
+    deps.notifyInstalledChanged?.()
+    setBusy(false)
+  }
 
   const closeModal = (): void => {
     setModal(undefined)
@@ -600,6 +641,16 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
             />
             {t('filter.installedOnly')}
           </label>
+          <button
+            type="button"
+            className={styles.ghost}
+            disabled={busy || updatable.length === 0}
+            onClick={() => void updateAllSequential()}
+            title={updatable.length > 0 ? t('card.updateAllTitle', { names: updatable.map((e) => e.name).join(', ') }) : undefined}
+            data-testid="skills-update-all"
+          >{updating !== undefined
+            ? t('card.updatingProgress', { done: updating.done, total: updating.total })
+            : t('card.updateAll', { count: updatable.length })}</button>
         </div>
       )}
 

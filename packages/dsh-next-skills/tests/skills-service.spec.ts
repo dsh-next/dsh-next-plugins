@@ -314,8 +314,10 @@ describe('provider management on the settings config', () => {
     await h.fs.rm('/home/u/.agents/skills/find-skills', { recursive: true, force: true })
     const result = await h.service.refreshProvider('o-r')
     expect(result.ok).toBe(true)
-    expect(result.warning).toContain('find-skills')
-    expect(result.warning).toContain('reinstalled from o/r')
+    if (result.ok) {
+      expect(result.warning).toContain('find-skills')
+      expect(result.warning).toContain('reinstalled from o/r')
+    }
     expect(h.fs.has('/home/u/.agents/skills/find-skills/SKILL.md')).toBe(true)
   })
 

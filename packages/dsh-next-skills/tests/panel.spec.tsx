@@ -187,6 +187,47 @@ describe('SkillsPanel rendering', () => {
     expect(call![1]).toEqual({ workspacePaths: ['/w1', '/w2'] })
   })
 
+  it('Update all counts updatable skills and sits disabled when there are none', async () => {
+    const { container, unmount } = await render(rpcMock(), WS)
+    const button = byTestId(container, 'skills-update-all') as HTMLButtonElement
+    // One updatable global skill in the fixture.
+    expect(button.textContent).toBe('Update all (1)')
+    expect(button.disabled).toBe(false)
+    const none: SkillsState = { ...STATE, installed: [{ ...skill, updateAvailable: undefined }] }
+    const { container: empty, unmount: unmountEmpty } = await render(rpcMock(none))
+    const off = byTestId(empty, 'skills-update-all') as HTMLButtonElement
+    expect(off.textContent).toBe('Update all (0)')
+    expect(off.disabled).toBe(true)
+    await unmountEmpty()
+    await unmount()
+  })
+
+  it('Update all updates each updatable skill sequentially and reports failures', async () => {
+    const rpc = rpcMock()
+    const notify = vi.fn()
+    const { container, unmount } = await render(rpc, WS, notify)
+    await click(byTestId(container, 'skills-update-all'))
+    await act(async () => {})
+    expect(rpcCalls(rpc).filter(([m]) => m === 'updateSkill').map(([, a]) => a))
+      .toEqual([{ name: 'security-review' }])
+    expect(notify).toHaveBeenCalled()
+    expect(byTestId(container, 'skills-message').textContent).toBe('Done')
+    await unmount()
+  })
+
+  it('a failing Update all keeps its failure summary in the banner', async () => {
+    const rpc: RpcFn = vi.fn(async (method: string) => {
+      if (method === 'getState') return STATE
+      if (method === 'updateSkill') return { ok: false, error: 'provider cache missing' }
+      return { ok: true, state: STATE }
+    })
+    const { container, unmount } = await render(rpc)
+    await click(byTestId(container, 'skills-update-all'))
+    await act(async () => {})
+    expect(byTestId(container, 'skills-message').textContent).toContain('provider cache missing')
+    await unmount()
+  })
+
   it('the project chip renders for workspace rows', async () => {
     const state: SkillsState = {
       ...STATE,
@@ -443,7 +484,8 @@ describe('providers tab', () => {
   })
 
   it('refresh all ends with a reconcile that surfaces reinstalled skills', async () => {
-    const rpc: RpcFn = vi.fn(async (method: string) => {
+    // No RpcFn annotation here: rpcCalls needs the Mock type it erases.
+    const rpc = vi.fn(async (method: string) => {
       if (method === 'getState') return STATE
       if (method === 'refreshProvider') return { ok: true, state: STATE }
       if (method === 'reconcileInstalled') {

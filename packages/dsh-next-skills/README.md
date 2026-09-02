@@ -23,7 +23,9 @@ tabs:
   `project` chip for hand-created project skills, an orange `custom` chip
   for skills the plugin did not install, an `update available` flag when a
   newer catalog version exists that only applies to the global install, and
-  the provider spec chip on the bottom row. The **Add/Manage** button opens
+  the provider spec chip on the bottom row. An **Update all** button in the
+  filter row shows how many updatable skills there are, sits disabled at
+  zero, and updates them one at a time. The **Add/Manage** button opens
   the scope modal: a radio picks where the skill is enabled — Global (the
   default, every workspace) or only in a checklist of registered workspaces
   — and installing or saving applies that scope as pure configuration. A

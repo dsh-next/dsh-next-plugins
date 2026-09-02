@@ -95,3 +95,17 @@ Tests: refreshProvider heals a recorded-but-missing skill (warning names
 the reinstall), reconcile without gaps answers without a warning, the
 panel fires the trailing reconcileInstalled and surfaces its warning.
 213 tests / 17 files; gates + 24/24 verify re-run.
+
+## Follow-up: Update all button
+
+The Skills-tab filter row gains an **Update all ({count})** button
+(`skills-update-all`): the count is the number of skills flagged by the last
+refresh whose global install an Update can apply to, the button sits
+disabled at zero, and clicking it updates those skills one RPC at a time
+with progress on the label ("Updating 2/5…") and a failure summary in the
+banner (per-skill failures never stop the rest), then notifies the
+composer. Verified live: with one drifted record the button showed
+"Update all (1)" with the card's Update button, updated it, and returned
+to "Update all (0)" disabled with the record's true hash restored
+(test-results/skills/update-all/). The filter-row override now allows a
+clean wrap so the button never clips on narrow panes.

@@ -101,7 +101,6 @@ describe('ProviderStore.syncProvider (snapshot download)', () => {
     const { fs, gh, store } = makeStore()
     const provider = await store.syncProvider('o/r')
     expect(provider.spec).toBe('o/r')
-    expect(provider.branch).toBe('HEAD')
     expect(provider.description).toBe('Test repository for skills sync')
     expect(provider.stars).toBe(42)
     expect(provider.skills.map((s) => s.name).sort()).toEqual(['find-skills', 'other-skill', 'third-skill'])

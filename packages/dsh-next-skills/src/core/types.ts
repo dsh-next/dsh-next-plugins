@@ -3,17 +3,16 @@
  * or Node runtime identity — both halves may import this module.
  */
 
-import type { SkillScopeSetting, SkillsConfig } from './settings.ts'
+import type { SkillScopeSetting } from './settings.ts'
 /** The discovery bucket a skill came from (mirrors the DSH filesystem provider). */
 export type SkillSourceBucket =
   | 'project-dsh'
   | 'project-agents'
-  | 'custom'
   | 'user-dsh'
   | 'user-agents'
   | 'bundled'
 
-/** One discovered skill as shown in the Skills tab (merged by precedence). */
+/** One discovered skill copy as shown in the Skills tab (one entry per copy). */
 export interface InstalledSkill {
   name: string
   description: string
@@ -26,16 +25,22 @@ export interface InstalledSkill {
   path: string
   /** Directory holding the skill's resources (equals the root for flat skills). */
   directory: string
-  /** Frontmatter invocation flags (the skill author's defaults, for display). */
-  fileModelInvocable: boolean
-  fileUserInvocable: boolean
-  /** True when the plugin installed this skill (manifest present). */
-  managed: boolean  /** The provider spec (`owner/repo`) when this skill was installed from a provider. */
+  /** Provider spec (`owner/repo`) when installed from a provider; undefined for local skills. */
   provider?: string
-  /** True when the provider catalog holds a newer version than the installed manifest. */
+  /** True when a same-name catalog skill differs from this copy's content. */
   updateAvailable?: boolean
+  /** Same-name catalog skills whose content differs (driver of the update picker). */
+  updateCandidates?: CatalogSkillMatch[]
   /** The config enablement scope for this name (undefined = global default). */
   configScope?: SkillScopeSetting
+}
+
+/** A catalog skill that can replace a local copy (name match + version differs). */
+export interface CatalogSkillMatch {
+  providerId: string
+  providerSpec: string
+  skillPath: string
+  version: string
 }
 
 /** Where a skill physically lives: a user/global root or a project root. */
@@ -71,9 +76,7 @@ export interface ProviderView {
 
 /** The full browser-facing state envelope (RPC contract). */
 export interface SkillsState {
-  /** The settings-backed configuration (providers, installed, scopes). */
-  config: SkillsConfig
-  /** Discovered skills across the global roots and the requested workspaces. */
+  /** Discovered skill copies across the global roots and the requested workspaces. */
   installed: InstalledSkill[]
   /** Provider status rows. */
   providers: ProviderView[]
@@ -115,25 +118,11 @@ export interface MutationErr {
 
 export type MutationResult = MutationOk | MutationErr
 
-/**
- * Manifest written inside every provider-installed skill directory
- * (`.dsh-next-provider.json`) so updates can compare the installed version
- * against the provider catalog, and so a directory is recognizable as
- * plugin-managed even when settings are absent.
- */
-export interface ProviderManifest {
-  providerId: string
-  providerSpec: string
-  skillPath: string
-  version: string
-  installedAt: string
-}
-
 /** Persisted catalog entry for one file of a provider skill. */
 export interface CatalogFile {
   /** Path relative to the skill directory. */
   path: string
-  /** Git blob SHA from the repository tree (change detection). */
+  /** Content hash of the file (snapshot sync). */
   sha: string
 }
 
@@ -153,7 +142,6 @@ export interface CatalogSkill {
 export interface ProviderCatalog {
   id: string
   spec: string
-  branch: string
   lastRefresh: string
   /** Repository description captured at sync time. */
   description?: string
@@ -180,7 +168,6 @@ export interface FsLike {
   mkdir(path: string, opts?: { recursive?: boolean }): Promise<void>
   readdir(path: string): Promise<FsDirent[]>
   rm(path: string, opts?: { recursive?: boolean; force?: boolean }): Promise<void>
-  stat(path: string): Promise<{ isDirectory(): boolean }>
   access(path: string): Promise<void>
   /** Move a file or directory (recoverable-delete support). */
   rename(from: string, to: string): Promise<void>
@@ -191,7 +178,6 @@ export interface FetchResponse {
   ok: boolean
   status: number
   json(): Promise<unknown>
-  text(): Promise<string>
   bytes(): Promise<Uint8Array>
 }
 

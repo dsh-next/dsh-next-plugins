@@ -1,10 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   catalogSkillViews,
-  filterCatalogSkills,
-  lastRefreshEpoch,
   parseCatalog,
-  parseManifest,
   providerViews,
 } from '../src/core/catalog.ts'
 import type { Catalog } from '../src/core/types.ts'
@@ -14,7 +11,6 @@ const CATALOG: Catalog = {
     {
       id: 'a-b',
       spec: 'a/b',
-      branch: 'main',
       lastRefresh: '2026-08-29T10:00:00.000Z',
       skills: [
         { name: 'find-skills', description: 'Find skills', cacheDir: 'skills__find-skills', skillPath: 'skills/find-skills', version: 'v1', files: [{ path: 'SKILL.md', sha: 's1' }] },
@@ -24,7 +20,6 @@ const CATALOG: Catalog = {
     {
       id: 'c-d',
       spec: 'c/d',
-      branch: 'main',
       lastRefresh: '',
       error: 'boom',
       skills: [],
@@ -48,16 +43,16 @@ describe('catalog views', () => {
     expect(catalogSkillViews(withWhen)[0].whenToUse).toBe('x')
     expect(catalogSkillViews(CATALOG)[0].whenToUse).toBeUndefined()
   })
-})
-
-describe('filterCatalogSkills', () => {
-  it('filters by name, description, and provider spec', () => {
-    const skills = catalogSkillViews(CATALOG)
-    expect(filterCatalogSkills(skills, 'find')).toHaveLength(1)
-    expect(filterCatalogSkills(skills, 'OTHER')).toHaveLength(1)
-    expect(filterCatalogSkills(skills, 'a/b')).toHaveLength(2)
-    expect(filterCatalogSkills(skills, 'zzz')).toHaveLength(0)
-    expect(filterCatalogSkills(skills, '')).toHaveLength(2)
+  it('keeps same names from different providers as separate rows (the update picker)', () => {
+    const duplicated: Catalog = {
+      providers: [
+        CATALOG.providers[0],
+        { ...CATALOG.providers[1], skills: [{ ...CATALOG.providers[0].skills[0], skillPath: 'dup/find-skills' }] },
+      ],
+    }
+    const skills = catalogSkillViews(duplicated)
+    expect(skills.filter((s) => s.name === 'find-skills')).toHaveLength(2)
+    expect(skills.filter((s) => s.name === 'find-skills').map((s) => s.providerSpec)).toEqual(['a/b', 'c/d'])
   })
 })
 
@@ -81,25 +76,5 @@ describe('parseCatalog', () => {
     expect(parsed.providers).toHaveLength(1)
     expect(parsed.providers[0].skills).toHaveLength(1)
     expect(parsed.providers[0].skills[0]).toMatchObject({ name: 'x', cacheDir: 'x' })
-  })
-})
-
-describe('parseManifest', () => {
-  it('parses a valid manifest and fills installedAt', () => {
-    expect(parseManifest({ providerId: 'a-b', providerSpec: 'a/b', skillPath: 's/x', version: 'v1' }))
-      .toEqual({ providerId: 'a-b', providerSpec: 'a/b', skillPath: 's/x', version: 'v1', installedAt: '' })
-  })
-  it('rejects missing fields', () => {
-    expect(parseManifest(undefined)).toBeUndefined()
-    expect(parseManifest({ providerId: 'a-b' })).toBeUndefined()
-    expect(parseManifest({ providerId: 'a-b', providerSpec: 'a/b', skillPath: 1, version: 'v' })).toBeUndefined()
-  })
-})
-
-describe('lastRefreshEpoch', () => {
-  it('takes the newest successful sync and ignores errored providers', () => {
-    expect(lastRefreshEpoch(CATALOG)).toBe(Date.parse('2026-08-29T10:00:00.000Z'))
-    expect(lastRefreshEpoch({ providers: [] })).toBe(0)
-    expect(lastRefreshEpoch({ providers: [{ id: 'x', spec: 'x/y', branch: 'main', lastRefresh: 'bogus', skills: [] }] })).toBe(0)
   })
 })

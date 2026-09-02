@@ -30,6 +30,7 @@
  */
 import * as React from 'react'
 import type {
+  CatalogSkillMatch,
   CatalogSkillView,
   InstalledSkill,
   MutationResult,
@@ -61,8 +62,8 @@ type Tab = 'skills' | 'providers'
 /** Cards rendered before the "Show more" button appends the next page. */
 const PAGE_SIZE = 30
 
-/** Mutations whose success changes the skill set the chat UI surfaces. */
-const CATALOG_MUTATIONS = new Set(['installSkill', 'setSkillScope', 'updateSkill', 'uninstallSkill', 'addProvider', 'removeProvider', 'reconcileInstalled'])
+/** Mutations whose success may change the installed copies the chat UI surfaces. */
+const CATALOG_MUTATIONS = new Set(['installSkill', 'setSkillScope', 'updateSkill', 'deleteSkill', 'addProvider', 'removeProvider', 'reconcileInstalled'])
 
 function isMutationError(result: unknown): result is { ok: false; error: string } {
   return !!result && typeof result === 'object' && (result as { ok?: unknown }).ok === false
@@ -100,7 +101,18 @@ export function presenceLabel(scope: SkillScopeSetting | undefined, t: Translate
   return countOf(t, scope.length, 'presence.workspaces.one', 'presence.workspaces.many')
 }
 
-/** One card in the skills grid: a discovered row, a catalog skill, or both. */
+/** Dictionary key for a skill copy's origin root (the `source` bucket). */
+export function sourceKey(source: string): MessageKey {
+  switch (source) {
+    case 'project-dsh': return 'source.projectDsh'
+    case 'project-agents': return 'source.projectAgents'
+    case 'user-dsh': return 'source.userDsh'
+    case 'user-agents': return 'source.userAgents'
+    default: return 'source.custom'
+  }
+}
+
+/** One card in the skills grid: a name with copies, backed by a catalog skill. */
 export interface GridEntry {
   key: string
   name: string
@@ -108,8 +120,10 @@ export interface GridEntry {
   whenToUse?: string
   /** The catalog skill backing this entry (Add flow), when offered. */
   catalog?: CatalogSkillView
-  /** The discovered on-disk skill (Manage flow), when present. */
+  /** The first discovered copy (convenience for name-level UI). */
   row?: InstalledSkill
+  /** Every discovered copy of this name (per-copy delete/update targets). */
+  copies: InstalledSkill[]
   /** Catalog provider id (the provider filter compares ids). */
   providerId?: string
   /** Provider spec label (`owner/repo`), when provider-installed. */
@@ -117,22 +131,29 @@ export interface GridEntry {
 }
 
 /**
- * Merge the discovered rows and the provider catalog into grid entries:
- * rows first (each group alphabetical by name, provider spec as tie-break).
+ * Group the discovered copies by name and join the provider catalog: one
+ * entry per name (copies preserved), catalog-only skills as Add rows.
  */
 export function buildGridEntries(state: SkillsState): GridEntry[] {
-  const byName = new Map(state.installed.map((r) => [r.name, r]))
+  const byName = new Map<string, InstalledSkill[]>()
+  for (const row of state.installed) {
+    const list = byName.get(row.name) ?? []
+    list.push(row)
+    byName.set(row.name, list)
+  }
   const byCatalogName = new Map(state.catalog.map((s) => [s.name, s]))
   const compare = (a: GridEntry, b: GridEntry): number =>
     a.name.localeCompare(b.name) || (a.providerSpec ?? '').localeCompare(b.providerSpec ?? '')
-  const rows: GridEntry[] = state.installed.map((row) => {
-    const catalog = byCatalogName.get(row.name)
+  const rows: GridEntry[] = [...byName.entries()].map(([name, copies]) => {
+    const row = copies[0]
+    const catalog = byCatalogName.get(name)
     return {
-      key: `row:${row.name}`,
-      name: row.name,
+      key: `row:${name}`,
+      name,
       description: row.description,
       ...(row.whenToUse !== undefined ? { whenToUse: row.whenToUse } : {}),
       row,
+      copies,
       ...(catalog !== undefined ? { catalog } : {}),
       ...(catalog !== undefined ? { providerId: catalog.providerId } : {}),
       ...(row.provider !== undefined || catalog !== undefined
@@ -148,6 +169,7 @@ export function buildGridEntries(state: SkillsState): GridEntry[] {
       description: s.description,
       ...(s.whenToUse !== undefined ? { whenToUse: s.whenToUse } : {}),
       catalog: s,
+      copies: [],
       providerId: s.providerId,
       providerSpec: s.providerSpec,
     }))
@@ -163,7 +185,7 @@ export function filterEntries(
 ): GridEntry[] {
   const q = search.trim().toLowerCase()
   return entries.filter((entry) => {
-    if (installedOnly && entry.row === undefined) return false
+    if (installedOnly && entry.copies.length === 0) return false
     if (providerFilter !== '' && entry.providerId !== providerFilter) return false
     if (q !== '' && !`${entry.name} ${entry.description} ${entry.providerSpec ?? ''}`.toLowerCase().includes(q)) return false
     return true
@@ -186,8 +208,6 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
   const [scopeMode, setScopeMode] = React.useState<'global' | 'workspaces'>('global')
   /** Checked workspace names while the modal is in workspaces mode. */
   const [checked, setChecked] = React.useState<Set<string>>(new Set())
-  /** Two-step uninstall confirm inside the modal. */
-  const [confirmUninstall, setConfirmUninstall] = React.useState(false)
   /** The provider a sequential Refresh all is currently downloading. */
   const [refreshingId, setRefreshingId] = React.useState<string | undefined>()
   /** Progress of a sequential Update all: done/total. */
@@ -255,13 +275,12 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
     try {
       const result = await deps.rpc(method, args) as MutationResult
       if (isMutationError(result)) {
-        setMessage({ ok: false, text: result.error ?? 'request failed' })
+        setMessage({ ok: false, text: result.error ?? t('status.requestFailed') })
       } else {
         if (result.state !== undefined) setState(result.state)
         else await refresh()
         setMessage({ ok: true, text: result.warning ?? t('status.done') })
         if (CATALOG_MUTATIONS.has(method)) deps.notifyInstalledChanged?.()
-        setConfirmUninstall(false)
       }
     } catch (error) {
       setMessage({ ok: false, text: errMsg(error) })
@@ -276,21 +295,13 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
     setAddSpec('')
   }
 
-  /**
-   * Refresh every provider ONE RPC AT A TIME so the panel knows exactly
-   * which row is downloading at any moment: the active row's Remove button
-   * swaps for a spinner + "Refreshing…" until the next provider starts.
-   * A failure is shown on its own row immediately (the host marks the error
-   * into the snapshot) and the sequence continues; the summary message lists
-   * every failure at the end — the same contract the host-side
-   * refreshProviders loop has, made visible.
-   */
   const refreshAllSequential = async (): Promise<void> => {
     const list = providers
     if (list.length === 0) return
     setBusy(true)
     setMessage(undefined)
     const failures: string[] = []
+    const healed: string[] = []
     for (const provider of list) {
       setRefreshingId(provider.id)
       try {
@@ -298,8 +309,12 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
         if (isMutationError(result)) {
           failures.push(`${provider.spec}: ${result.error ?? 'refresh failed'}`)
           await refresh()
-        } else if (result.state !== undefined) {
-          setState(result.state)
+        } else {
+          // The host already reconciles inside refreshProvider and reports
+          // reinstalled skills as `warning`; surface it and skip an extra pass.
+          if (result.warning !== undefined) healed.push(result.warning)
+          if (result.state !== undefined) setState(result.state)
+          else deps.notifyInstalledChanged?.()
         }
       } catch (error) {
         failures.push(`${provider.spec}: ${errMsg(error)}`)
@@ -307,21 +322,6 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
       }
     }
     setRefreshingId(undefined)
-    // Heal the replica before reporting: recorded skills whose files were
-    // missing (a cloned settings section, or a failed first-boot sync)
-    // install now that the snapshots are cached.
-    const healed: string[] = []
-    try {
-      const result = await deps.rpc('reconcileInstalled') as MutationResult
-      if (!isMutationError(result)) {
-        if (result.warning !== undefined) healed.push(result.warning)
-        if (result.state !== undefined) setState(result.state)
-        deps.notifyInstalledChanged?.()
-      }
-    } catch {
-      // The next refresh retries; the state refresh above already reflects
-      // whatever the caches could serve.
-    }
     let text = failures.length > 0
       ? t('providers.refreshFailed', { count: failures.length, items: failures.join('; ') })
       : t('status.done')
@@ -337,14 +337,20 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
     [entries, search, providerFilter, installedOnly],
   )
 
-  /** Skills an Update can actually apply to: flagged by the last refresh AND
-   *  installed in the global root (updates rewrite the global install). */
-  const updatable = React.useMemo(
-    () => entries.filter((e) => e.row?.updateAvailable === true && e.row.scope === 'global'),
-    [entries],
-  )
+  /** Copies an Update can apply to: flagged by the last refresh, with a
+   *  candidate provider skill picked (first same-name catalog match). */
+  const updatable = React.useMemo(() => {
+    const out: Array<{ name: string; copy: InstalledSkill; candidate: CatalogSkillMatch }> = []
+    for (const entry of entries) {
+      for (const copy of entry.copies) {
+        if (copy.updateAvailable !== true || copy.updateCandidates === undefined || copy.updateCandidates.length === 0) continue
+        out.push({ name: entry.name, copy, candidate: copy.updateCandidates[0] })
+      }
+    }
+    return out
+  }, [entries])
 
-  /** Update every updatable skill, one RPC at a time, reporting progress on
+  /** Update every updatable copy, one RPC at a time, reporting progress on
    *  the button. Failures are summarized; the rest keep updating. */
   const updateAllSequential = async (): Promise<void> => {
     const list = updatable
@@ -354,16 +360,21 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
     const failures: string[] = []
     for (let done = 0; done < list.length; done++) {
       setUpdating({ done: done + 1, total: list.length })
-      const entry = list[done]
+      const { name, copy, candidate } = list[done]
       try {
-        const result = await deps.rpc('updateSkill', { name: entry.name }) as MutationResult
+        const result = await deps.rpc('updateSkill', {
+          name,
+          directory: copy.directory,
+          providerId: candidate.providerId,
+          skillPath: candidate.skillPath,
+        }) as MutationResult
         if (isMutationError(result)) {
-          failures.push(`${entry.name}: ${result.error ?? 'update failed'}`)
+          failures.push(`${name}: ${result.error ?? 'update failed'}`)
         } else if (result.state !== undefined) {
           setState(result.state)
         }
       } catch (error) {
-        failures.push(`${entry.name}: ${errMsg(error)}`)
+        failures.push(`${name}: ${errMsg(error)}`)
       }
     }
     setUpdating(undefined)
@@ -380,7 +391,6 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
     setModal(undefined)
     setScopeMode('global')
     setChecked(new Set())
-    setConfirmUninstall(false)
   }
 
   /** Open the scope modal; an installed skill starts on its current scope. */
@@ -394,7 +404,6 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
       setScopeMode('global')
       setChecked(new Set())
     }
-    setConfirmUninstall(false)
   }
 
   const toggleWorkspace = (name: string): void => {
@@ -427,8 +436,6 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
   const modalDialog = (): React.ReactElement | null => {
     if (modal === undefined) return null
     const row = modal.row
-    const removable = row?.managed === true
-    const canUpdate = removable === true && row?.updateAvailable === true && row.scope === 'global'
     // Checklist rows: the registry's workspaces plus any recorded name the
     // registry no longer knows (so it stays visible and can be unchecked).
     const recordedNames = row?.configScope ?? []
@@ -441,7 +448,7 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
     // Both handlers set an ABSOLUTE value, so onClick (which label-forwarded
     // clicks deliver reliably) and onChange (which React's change detection
     // delivers) can run in any combination without double effects.
-    const pick = (mode: 'global' | 'workspaces') => (): void => { setScopeMode(mode); setConfirmUninstall(false) }
+    const pick = (mode: 'global' | 'workspaces') => (): void => { setScopeMode(mode) }
     return (
       <div className={styles.overlay} role="presentation" onClick={closeModal}>
         <div
@@ -497,6 +504,7 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
               <p className={styles.modalHint}>{t('modal.workspaces.hint')}</p>
             </div>
           )}
+          <p className={styles.modalHint}>{t('modal.effectHint')}</p>
           <div className={styles.modalActions}>
             <button
               type="button"
@@ -504,34 +512,6 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
               disabled={busy}
               onClick={closeModal}
             >{t('modal.cancel')}</button>
-            {canUpdate && (
-              <button
-                type="button"
-                className={styles.ghost}
-                disabled={busy}
-                onClick={() => { void mutate('updateSkill', { name: modal.name }); closeModal() }}
-                data-testid="skills-modal-update"
-              >{t('modal.update')}</button>
-            )}
-            {removable && (
-              confirmUninstall ? (
-                <button
-                  type="button"
-                  className={`${styles.danger} ${styles.optionAction}`}
-                  disabled={busy}
-                  onClick={() => { void mutate('uninstallSkill', { name: modal.name }); closeModal() }}
-                  data-testid="skills-uninstall-confirm"
-                >{t('modal.confirmUninstall')}</button>
-              ) : (
-                <button
-                  type="button"
-                  className={`${styles.ghostDanger} ${styles.optionAction}`}
-                  disabled={busy}
-                  onClick={() => setConfirmUninstall(true)}
-                  data-testid="skills-uninstall"
-                >{t('modal.uninstall')}</button>
-              )
-            )}
             <button
               type="button"
               className={styles.primary}
@@ -662,13 +642,8 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
         <div className={styles.pluginGrid} data-testid="skills-grid">
           {filtered.slice(0, visible).map((entry) => {
             const row = entry.row
-            const installedHere = row !== undefined
-            const project = installedHere && row.scope === 'workspace'
-            const unmanagedCustom = installedHere && !project && row.managed === false && row.provider === undefined && entry.catalog === undefined
-            // The Update button only applies to the global install; a
-            // workspace-scoped managed skill flags the newer version instead.
-            const updateFlagged = installedHere && row.updateAvailable === true && row.scope !== 'global'
-            const presenceTitle = installedHere && row.configScope !== undefined ? row.configScope.join('\n') : undefined
+            const installedHere = entry.copies.length > 0
+            const presenceTitle = row !== undefined && row.configScope !== undefined ? row.configScope.join('\n') : undefined
             return (
               <div key={entry.key} className={styles.pluginCard} data-testid="skills-card">
                 <div className={styles.pluginCardTop}>
@@ -687,26 +662,47 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
                   {installedHere && (
                     <div className={styles.badges}>
                       <span className={styles.presenceBadge} data-testid="skills-presence" title={presenceTitle}>
-                        {presenceLabel(row.configScope, t)}
+                        {presenceLabel(row?.configScope, t)}
                       </span>
-                      {project && <span className={styles.projectChip}>{t('badge.project')}</span>}
-                      {unmanagedCustom && <span className={styles.customBadge}>{t('badge.custom')}</span>}
-                      {updateFlagged && <span className={styles.updateChip}>{t('card.updateAvailable')}</span>}
                     </div>
                   )}
                 </div>
+                {installedHere && (
+                  <div className={styles.copies} data-testid="skills-copies">
+                    {entry.copies.map((copy) => {
+                      const candidate = copy.updateCandidates !== undefined && copy.updateCandidates.length > 0 ? copy.updateCandidates[0] : undefined
+                      const updatable = candidate !== undefined
+                      return (
+                        <div key={copy.directory} className={styles.copyRow} data-testid="skills-copy">
+                          <span className={styles.sourceChip}>{t(sourceKey(copy.source))}</span>
+                          {copy.provider !== undefined && <span className={styles.providerChip}>{copy.provider}</span>}
+                          <span className={styles.copyPath} title={copy.path}>{copy.path}</span>
+                          <div className={styles.rowActions}>
+                            {updatable && (
+                              <button
+                                type="button"
+                                className={styles.ghost}
+                                disabled={busy}
+                                onClick={() => { void mutate('updateSkill', { name: entry.name, directory: copy.directory, providerId: candidate.providerId, skillPath: candidate.skillPath }) }}
+                                data-testid="skills-update"
+                              >{t('card.update')}</button>
+                            )}
+                            <button
+                              type="button"
+                              className={styles.ghostDanger}
+                              disabled={busy}
+                              onClick={() => { void mutate('deleteSkill', { name: entry.name, directory: copy.directory, kind: copy.kind, path: copy.path }) }}
+                              data-testid="skills-delete"
+                            >{t('card.delete')}</button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
                 <div className={styles.pluginCardTop}>
                   {entry.providerSpec !== undefined && <span className={styles.providerChip}>{entry.providerSpec}</span>}
                   <div className={styles.rowActions}>
-                    {installedHere && row.updateAvailable === true && row.scope === 'global' && (
-                      <button
-                        type="button"
-                        className={styles.ghost}
-                        disabled={busy}
-                        onClick={() => { void mutate('updateSkill', { name: entry.name }) }}
-                        data-testid="skills-update"
-                      >{t('card.update')}</button>
-                    )}
                     <button
                       type="button"
                       className={installedHere ? styles.ghost : styles.primary}

@@ -30,7 +30,6 @@ export interface ManagedProviderDeps {
   fs: FsLike
   dshHome: string
   agentsHome: string
-  customSkillDirs?: string[]
   config: ConfigScopeFace
 }
 
@@ -47,7 +46,6 @@ export function createManagedSkillProvider(deps: ManagedProviderDeps): SkillProv
         projectRoot: options.cwd,
         dshHome: deps.dshHome,
         agentsHome: deps.agentsHome,
-        customSkillDirs: deps.customSkillDirs,
       }))
       const out: SkillCandidate[] = []
       for (const root of roots) {

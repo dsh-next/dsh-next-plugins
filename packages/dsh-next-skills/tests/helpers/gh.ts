@@ -37,13 +37,12 @@ function respond(data: unknown, status = 200): FetchResponse {
     ok: status >= 200 && status < 300,
     status,
     json: async () => JSON.parse(payload.length === 0 ? '{}' : Buffer.from(payload).toString('utf8')),
-    text: async () => Buffer.from(payload).toString('utf8'),
     bytes: async () => payload,
   }
 }
 
 function serveBytes(bytes: Uint8Array, status = 200): FetchResponse {
-  return { ok: status >= 200 && status < 300, status, json: async () => ({}), text: async () => '', bytes: async () => bytes }
+  return { ok: status >= 200 && status < 300, status, json: async () => ({}), bytes: async () => bytes }
 }
 
 /** Build a ustar archive (512-byte headers, no long-path entries needed). */

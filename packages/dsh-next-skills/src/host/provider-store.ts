@@ -202,7 +202,6 @@ export class ProviderStore {
     const next: ProviderCatalog = {
       id,
       spec: `${parsed.owner}/${parsed.repo}`,
-      branch: 'HEAD',
       lastRefresh: new Date().toISOString(),
       ...(info.description !== '' ? { description: info.description } : {}),
       stars: info.stars,
@@ -236,7 +235,7 @@ export class ProviderStore {
     }
     if (spec === undefined) return
     await this.writeCatalog({
-      providers: [...catalog.providers, { id, spec, branch: '', lastRefresh: '', error, skills: [] }],
+      providers: [...catalog.providers, { id, spec, lastRefresh: '', error, skills: [] }],
     })
   }
 

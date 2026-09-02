@@ -59,11 +59,6 @@ export function cacheDirSlug(skillPath: string): string {
   return skillPath.split('/').filter(Boolean).join('__')
 }
 
-/** Reverse of {@link cacheDirSlug} (best effort, used for diagnostics only). */
-export function skillPathFromCacheDir(cacheDir: string): string {
-  return cacheDir.split('__').join('/')
-}
-
 function fnv1a(input: string): string {
   let h = 0x811c9dc5
   for (let i = 0; i < input.length; i++) {
@@ -93,6 +88,23 @@ export function versionHash(files: readonly CatalogFile[]): string {
     .sort()
     .join('\n')
   return fnv1a(input)
+}
+
+/** One file's relative path and raw content, for local skill fingerprints. */
+export interface FingerprintFile {
+  path: string
+  content: string
+}
+
+/**
+ * Content fingerprint of a local skill file set, computed with the same
+ * recipe as a provider catalog's `version` (path-relative content hashes fed
+ * through `versionHash`). A local copy's fingerprint equals a catalog
+ * skill's `version` exactly when the two file sets have identical content;
+ * any added, removed, or changed file produces a different value.
+ */
+export function fingerprintVersion(files: readonly FingerprintFile[]): string {
+  return versionHash(files.map((f) => ({ path: f.path, sha: hashContent(f.content) })))
 }
 
 /** Directory segments never considered part of a skill tree. */

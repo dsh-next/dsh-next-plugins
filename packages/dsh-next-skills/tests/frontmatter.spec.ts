@@ -1,10 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  SHADOW_MARKER,
-  isShadowSkill,
   parseSkillFile,
   splitFrontmatter,
-  stripDisabledFlags,
 } from '../src/core/frontmatter.ts'
 
 const sample = [
@@ -84,40 +81,5 @@ describe('parseSkillFile', () => {
   it('parses a metadata object', () => {
     const s = parseSkillFile('---\nname: n\ndescription: d\nmetadata:\n  a: 1\n---\n')
     expect(s!.metadata).toEqual({ a: 1 })
-  })
-})
-
-describe('stripDisabledFlags (legacy toggle cleanup for the migration)', () => {
-  it('removes both legacy toggle lines and keeps everything else', () => {
-    const disabled = '---\nname: n\ndescription: d\ndisable-model-invocation: true\nlicense: MIT\nuser-invocable: false\n---\nbody'
-    const out = stripDisabledFlags(disabled)
-    const yaml = splitFrontmatter(out).yaml!
-    expect(yaml).not.toContain('disable-model-invocation')
-    expect(yaml).not.toContain('user-invocable')
-    expect(yaml).toContain('license: MIT')
-    expect(out.endsWith('body')).toBe(true)
-    expect(parseSkillFile(out)!.modelInvocable).toBe(true)
-  })
-  it('leaves other boolean forms untouched (author intent)', () => {
-    const author = '---\nname: n\ndescription: d\ndisable-model-invocation: false\nuser-invocable: true\n---\nbody'
-    expect(stripDisabledFlags(author)).toBe(author)
-  })
-  it('returns the input unchanged when there is no frontmatter', () => {
-    const plain = '# no frontmatter'
-    expect(stripDisabledFlags(plain)).toBe(plain)
-  })
-  it('preserves CRLF endings', () => {
-    const crlf = '---\r\nname: n\r\ndescription: d\r\ndisable-model-invocation: true\r\nuser-invocable: false\r\n---\r\nbody'
-    const out = stripDisabledFlags(crlf)
-    expect(out.split('\r\n').length).toBeGreaterThan(1)
-    expect(out).not.toContain('disable-model-invocation')
-  })
-})
-
-describe('isShadowSkill (legacy artifact recognition)', () => {
-  it('recognizes the legacy shadow marker in the body', () => {
-    const shadow = `---\nname: foo\ndescription: d\n---\n<!-- ${SHADOW_MARKER} -->\n`
-    expect(isShadowSkill(shadow)).toBe(true)
-    expect(isShadowSkill(sample)).toBe(false)
   })
 })

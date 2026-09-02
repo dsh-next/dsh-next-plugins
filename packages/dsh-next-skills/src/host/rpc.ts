@@ -68,12 +68,27 @@ export function registerRpc(ctx: Context, service: SkillsService): void {
         workspaces: parseWorkspacesInput(a),
       })
     },
-    updateSkill: (args) => service.updateSkill({ name: str(record(args).name) }),
-    uninstallSkill: (args) => service.uninstallSkill({ name: str(record(args).name) }),
+    updateSkill: (args) => {
+      const a = record(args)
+      return service.updateSkill({
+        name: str(a.name),
+        directory: str(a.directory),
+        providerId: str(a.providerId),
+        skillPath: str(a.skillPath),
+      })
+    },
+    deleteSkill: (args) => {
+      const a = record(args)
+      return service.deleteSkill({
+        name: str(a.name),
+        directory: str(a.directory),
+        kind: a.kind === 'flat' ? 'flat' : 'bundle',
+        path: str(a.path),
+      })
+    },
     addProvider: (args) => service.addProvider(str(record(args).spec)),
     removeProvider: (args) => service.removeProvider(str(record(args).providerId)),
     refreshProvider: (args) => service.refreshProvider(str(record(args).providerId)),
-    refreshProviders: () => service.refreshProviders(),
     reconcileInstalled: () => service.reconcile(),
     getCatalogSkillDetail: (args) => {
       const a = record(args)

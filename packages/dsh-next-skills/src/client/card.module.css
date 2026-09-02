@@ -366,16 +366,6 @@
   min-width: 0;
 }
 
-/* Locked rows (skill already installed there): readable, not inviting. */
-.optionLocked {
-  cursor: default;
-  opacity: 0.7;
-}
-
-.optionLocked:hover {
-  border-color: var(--dsw-alias-border-l2);
-}
-
 .addedBadge {
   border: 0;
   border-radius: 999px;
@@ -418,6 +408,47 @@
   padding: 1px 8px;
   flex: none;
   white-space: nowrap;
+}
+
+/* Per-copy list under a grouped card. */
+.copies {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.copyRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+/* Origin-root pill for a copy (which `.dsh`/`.agents` root it lives in). */
+.sourceChip {
+  border: 0;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  padding: 1px 8px;
+  flex: none;
+  white-space: nowrap;
+}
+
+/* Truncated absolute path of a copy, muted. */
+.copyPath {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
 }
 
 /* Project-skill marker, same pill family. */

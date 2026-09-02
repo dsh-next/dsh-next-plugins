@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cacheDirSlug, isIgnoredRepoPath, parseProviderSpec, providerId, providerSpec, skillPathFromCacheDir, versionHash } from '../src/core/provider.ts'
+import { cacheDirSlug, fingerprintVersion, hashContent, isIgnoredRepoPath, parseProviderSpec, providerId, providerSpec, versionHash } from '../src/core/provider.ts'
 
 describe('parseProviderSpec', () => {
   it('accepts owner/repo', () => {
@@ -45,9 +45,6 @@ describe('cacheDirSlug', () => {
   it('flattens nested skill paths', () => {
     expect(cacheDirSlug('native-skills/default/holistics-common/review-chat')).toBe('native-skills__default__holistics-common__review-chat')
   })
-  it('round-trips through skillPathFromCacheDir', () => {
-    expect(skillPathFromCacheDir(cacheDirSlug('a/b/c'))).toBe('a/b/c')
-  })
 })
 
 describe('versionHash', () => {
@@ -69,6 +66,27 @@ describe('versionHash', () => {
   it('is a stable hex string', () => {
     expect(versionHash([])).toMatch(/^[0-9a-f]+$/)
     expect(versionHash([{ path: 'SKILL.md', sha: 'abc' }])).toMatch(/^[0-9a-f]+$/)
+  })
+})
+
+describe('fingerprintVersion', () => {
+  it('hashes equal file sets to the same value regardless of order', () => {
+    const a = [{ path: 'SKILL.md', content: 'hello' }, { path: 'r/n.md', content: 'note' }]
+    const b = [{ path: 'r/n.md', content: 'note' }, { path: 'SKILL.md', content: 'hello' }]
+    expect(fingerprintVersion(a)).toBe(fingerprintVersion(b))
+  })
+  it('changes when a file changes, is added, or is removed', () => {
+    const base = [{ path: 'SKILL.md', content: 'hello' }]
+    expect(fingerprintVersion([{ path: 'SKILL.md', content: 'changed' }])).not.toBe(fingerprintVersion(base))
+    expect(fingerprintVersion([...base, { path: 'x.md', content: 'x' }])).not.toBe(fingerprintVersion(base))
+    expect(fingerprintVersion([{ path: 'renamed.md', content: 'hello' }])).not.toBe(fingerprintVersion(base))
+  })
+  it('uses the same recipe as a catalog version (content hashes through versionHash)', () => {
+    const files = [{ path: 'SKILL.md', content: 'hello' }, { path: 'r/n.md', content: 'note' }]
+    expect(fingerprintVersion(files)).toBe(versionHash(files.map((f) => ({ path: f.path, sha: hashContent(f.content) }))))
+  })
+  it('is a stable hex string for an empty file set', () => {
+    expect(fingerprintVersion([])).toMatch(/^[0-9a-f]+$/)
   })
 })
 

@@ -25,7 +25,7 @@ import type { SkillRegistry } from '@deepseek-ai/dsh-skill'
 import { settingsNamespace, type SettingsScope } from '@deepseek-ai/dsh-settings'
 import { nodeFs } from './host/fs-adapter.ts'
 import { registerRpc } from './host/rpc.ts'
-import { readWorkspaceRegistryPaths, SkillsService, type ConfigScopeFace } from './host/skills-service.ts'
+import { SkillsService, type ConfigScopeFace } from './host/skills-service.ts'
 import { createManagedSkillProvider, MANAGED_PROVIDER_NAME } from './host/skills-provider.ts'
 import { SKILLS_NAMESPACE, skillsConfigSchema } from './core/schema.ts'
 import { DEFAULT_PROVIDER_SPECS } from './core/defaults.ts'
@@ -57,6 +57,7 @@ export function apply(ctx: Context): void {
     fetch: (url, init) => fetch(url, init),
     dshHome,
     agentsHome,
+    logWarn: (message) => ctx.logger.warn(message),
     config: configFace,
   })
 
@@ -78,21 +79,16 @@ export function apply(ctx: Context): void {
 
   registerRpc(ctx, service)
 
-  // Boot sequence: migrate legacy state once, seed defaults on a fresh
-  // install, sync the provider caches, and reconcile recorded installs whose
-  // global files are missing (what makes a shared settings section portable).
+  // Boot sequence: seed defaults on a fresh install, sync the provider
+  // caches, and reconcile recorded installs whose files are missing (what
+  // makes a shared settings section portable).
   ctx.effect(() => {
     const timer = setTimeout(() => {
       void (async () => {
         try {
-          const workspacePaths = await readWorkspaceRegistryPaths(fs, dshHome)
-          const migration = await service.migrateLegacy(workspacePaths)
-          if (migration.migrated && migration.notes.length > 0) {
-            ctx.logger.warn(`dsh-next-skills migration: ${migration.notes.join('; ')}`)
-          }
           await service.ensureDefaultProviders(DEFAULT_PROVIDER_SPECS)
         } catch (error) {
-          ctx.logger.warn(`dsh-next-skills boot (migration/defaults): ${error instanceof Error ? error.message : String(error)}`)
+          ctx.logger.warn(`dsh-next-skills boot (defaults): ${error instanceof Error ? error.message : String(error)}`)
         }
         try {
           const result = await service.refreshProviders()
@@ -109,5 +105,5 @@ export function apply(ctx: Context): void {
       })()
     }, BOOT_DELAY_MS)
     return () => clearTimeout(timer)
-  }, 'dsh-next-skills: boot sequence (migrate, defaults, sync, reconcile)')
+  }, 'dsh-next-skills: boot sequence (defaults, sync, reconcile)')
 }

@@ -164,8 +164,8 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
   // nav level as General/Models/Plugins) with Skills and Providers tabs over
   // a card grid, backed by the settings.yaml configuration. Opening it must
   // reveal the tab bar and the seeded throwaway skill's card; the card's
-  // scope modal must offer Global vs the workspaces checklist and uninstall
-  // the skill end-to-end through the two-step confirm (guards a client-side
+  // scope modal must offer Global vs the workspaces checklist and the copy
+  // row's Delete must remove the skill end-to-end (guards a client-side
   // state-refresh regression the "section renders" check cannot see).
   // No network: providers are only added manually.
   'dsh-next-skills': async (page) => {
@@ -185,9 +185,11 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     const wsList = page.getByTestId('skills-workspaces')
     await expect(wsList).toContainText('workspace-a')
     await expect(wsList).toContainText('workspace-b')
-    // Two-step uninstall drives the real host service; the card disappears.
-    await modal.locator('[data-testid="skills-uninstall"]').click()
-    await modal.locator('[data-testid="skills-uninstall-confirm"]').click()
+    // Per-copy delete drives the real host service; the card disappears.
+    // The seeded skill has one copy, whose Delete button sits on the copy row.
+    await modal.locator('[data-testid="skills-modal-confirm"]').click()
+    await expect(card.locator('[data-testid="skills-copy"]').first()).toBeVisible()
+    await card.locator('[data-testid="skills-delete"]').first().click()
     await expect(page.locator('[data-testid="skills-card"]', { hasText: 'e2e-test-skill' })).toHaveCount(0)
     // Providers tab renders with the add-provider control; the host seeds its
     // default providers shortly after boot, so rows may already be present —

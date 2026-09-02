@@ -24,26 +24,22 @@ export const skillsConfigSchema = Schema.object({
     }),
   ) as Schemastery<Array<{ id: string; spec: string; addedAt: string }>>)
     .default([]).description('Configured skill providers (GitHub owner/repo sources)'),
-  installed: (Schema.array(
+  installations: (Schema.array(
     Schema.object({
       name: Schema.string(),
       providerId: Schema.string(),
       providerSpec: Schema.string(),
       skillPath: Schema.string(),
-      version: Schema.string(),
-      installedAt: Schema.string(),
     }),
   ) as Schemastery<Array<{
     name: string
     providerId: string
     providerSpec: string
     skillPath: string
-    version: string
-    installedAt: string
   }>>)
-    .default([]).description('Skills the plugin installed into the global root'),
+    .default([]).description('Skills the plugin installed into the global root (provenance ledger)'),
   scopes: (Schema.dict(Schema.any()) as Schemastery<Record<string, unknown>>)
-    .default({}).description('Per-skill-name enablement: { kind: global } or { kind: workspaces, workspacePaths: [...] }'),
+    .default({}).description('Per-skill-name enablement: absent = enabled everywhere; [] = off everywhere; [workspaceFolderName, ...] = enabled only in those workspaces'),
 })
 
 export type SkillsConfigShape = Schemastery.TypeT<typeof skillsConfigSchema>

@@ -66,11 +66,6 @@ export function createMemFs(seed: Record<string, string> = {}): MemFs {
       if (toDelete.length === 0 && !opts?.force) throw new Error('ENOENT: ' + p)
       for (const k of toDelete) nodes.delete(k)
     },
-    stat: async (p) => {
-      const n = nodes.get(norm(p))
-      if (!n) throw new Error('ENOENT: ' + p)
-      return { isDirectory: () => n.type === 'dir' }
-    },
     access: async (p) => {
       if (!nodes.has(norm(p))) throw new Error('ENOENT: ' + p)
     },

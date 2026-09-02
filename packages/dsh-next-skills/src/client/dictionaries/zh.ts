@@ -27,9 +27,9 @@ export const zh: Record<MessageKey, string> = {
   'card.noDescription': '暂无描述',
   'card.detailsTitle': '查看 {name}',
   'card.update': '更新',
+  'card.delete': '删除',
   'card.manage': '管理',
   'card.add': '添加',
-  'card.updateAvailable': '有可用更新',
   'card.updateAll': '全部更新（{count}）',
   'card.updateAllTitle': '更新：{names}',
   'card.updatingProgress': '正在更新 {done}/{total}…',
@@ -40,8 +40,11 @@ export const zh: Record<MessageKey, string> = {
   'presence.workspaces.many': '{count} 个工作区',
   'presence.off': '已关闭',
 
-  'badge.custom': '自建',
-  'badge.project': '项目',
+  'source.projectDsh': '项目 .dsh',
+  'source.projectAgents': '项目 .agents',
+  'source.userDsh': '用户 .dsh',
+  'source.userAgents': '用户 .agents',
+  'source.custom': '自定义',
 
   'sync.never': '从未同步',
   'sync.unknown': '未知',
@@ -58,10 +61,8 @@ export const zh: Record<MessageKey, string> = {
   'modal.workspaces.hint': '该技能只在勾选的工作区内启用。',
   'modal.workspaceMissing': '未注册',
   'modal.save': '保存作用域',
-  'modal.update': '更新',
-  'modal.uninstall': '卸载',
-  'modal.confirmUninstall': '确认卸载',
   'modal.cancel': '取消',
+  'modal.effectHint': '作用域更改会在下次查找或新会话时生效。',
 
   'providers.placeholder': 'owner/repo 或 GitHub 链接…',
   'providers.add': '添加提供方',
@@ -87,4 +88,6 @@ export const zh: Record<MessageKey, string> = {
 
   'status.working': '处理中…',
   'status.done': '完成',
+  'status.requestFailed': '请求失败',
+  'rpc.failed': '技能请求“{method}”失败（HTTP {status}）',
 }

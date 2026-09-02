@@ -34,9 +34,9 @@ export const en = {
   'card.noDescription': 'no description',
   'card.detailsTitle': 'details for {name}',
   'card.update': 'Update',
+  'card.delete': 'Delete',
   'card.manage': 'Manage',
   'card.add': 'Add',
-  'card.updateAvailable': 'update available',
   'card.updateAll': 'Update all ({count})',
   'card.updateAllTitle': 'Update: {names}',
   'card.updatingProgress': 'Updating {done}/{total}…',
@@ -47,8 +47,11 @@ export const en = {
   'presence.workspaces.many': '{count} workspaces',
   'presence.off': 'Off',
 
-  'badge.custom': 'custom',
-  'badge.project': 'project',
+  'source.projectDsh': 'project .dsh',
+  'source.projectAgents': 'project .agents',
+  'source.userDsh': 'user .dsh',
+  'source.userAgents': 'user .agents',
+  'source.custom': 'custom',
 
   'sync.never': 'never',
   'sync.unknown': 'unknown',
@@ -67,10 +70,8 @@ export const en = {
   'modal.workspaces.empty': 'No workspaces registered.',
   'modal.workspaceMissing': 'not registered',
   'modal.save': 'Save scope',
-  'modal.update': 'Update',
-  'modal.uninstall': 'Uninstall',
-  'modal.confirmUninstall': 'Confirm uninstall',
   'modal.cancel': 'Cancel',
+  'modal.effectHint': 'Scope changes take effect on the next lookup or a new session.',
 
   'providers.placeholder': 'owner/repo or GitHub URL…',
   'providers.add': 'Add provider',
@@ -96,6 +97,8 @@ export const en = {
 
   'status.working': 'Working…',
   'status.done': 'Done',
+  'status.requestFailed': 'Request failed',
+  'rpc.failed': 'Skills request "{method}" failed (HTTP {status})',
 }
 
 /** Every dictionary key. */

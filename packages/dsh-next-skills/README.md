@@ -14,24 +14,22 @@ as General, Models, and Plugins — registered through the official
 `settings.section` slot), styled after the Claude Plugins page, with two
 tabs:
 
-- **Skills** — one two-column card grid holding every discovered skill
-  (project, custom, and user roots — cards that exist on disk come first,
-  each group alphabetical) plus every provider catalog skill. A search box,
-  a provider filter, an installed-only toggle, and a Show more button (30
-  cards per page) keep large catalogs fast. Each card shows the name, the
-  description, a presence badge (`Everywhere`, `N workspaces`, or `Off`), a
-  `project` chip for hand-created project skills, an orange `custom` chip
-  for skills the plugin did not install, an `update available` flag when a
-  newer catalog version exists that only applies to the global install, and
-  the provider spec chip on the bottom row. An **Update all** button in the
-  filter row shows how many updatable skills there are, sits disabled at
-  zero, and updates them one at a time. The **Add/Manage** button opens
-  the scope modal: a radio picks where the skill is enabled — Global (the
-  default, every workspace) or only in a checklist of registered workspaces
-  — and installing or saving applies that scope as pure configuration. A
-  managed card whose provider catalog moved ahead carries an **Update**
-  button; the modal also hosts Update and a two-step Uninstall (managed
-  skills only). Clicking a name opens the full SKILL.md rendered as markdown.
+- **Skills** — one two-column card grid holding every discovered skill across
+  the project and user roots (`.dsh/skills` and `.agents/skills`, each scanned
+  for the current workspace and globally) plus every provider catalog skill. A
+  search box, a provider filter, an installed-only toggle, and a Show more
+  button (30 cards per page) keep large catalogs fast. A skill that exists in
+  several roots shows one card per **name** with a copy row per location —
+  each copy carries an origin chip (`project .agents`, `user .dsh`, …), the
+  absolute path, and per-copy **Delete** (recoverable) and **Update** (when a
+  same-name catalog skill differs) buttons; the name-level **presence badge**
+  (`Everywhere`, `N workspaces`, or `Off`) reflects its scope. An **Update
+  all** button in the filter row shows how many updatable copies there are,
+  sits disabled at zero, and updates them one at a time. The **Add/Manage**
+  button opens the scope modal: a radio picks where the skill is enabled —
+  Global (the default, every workspace) or only in a checklist of registered
+  workspaces — and installing or saving applies that scope as pure
+  configuration. Clicking a name opens the full SKILL.md rendered as markdown.
 - **Providers** — manages GitHub skill repositories: add by URL
   (`https://github.com/owner/repo` or `owner/repo`), Refresh all, remove.
   Each row shows the repository description, the number of cached skills,
@@ -46,10 +44,10 @@ tabs:
 ## How it works
 
 **Global-only installs.** Installing copies a skill's files into the global
-root (`~/.agents/skills/<name>/`) and records it in settings. The plugin
-never writes skill files into a project; a workspace's `.agents/skills/`
+root (`~/.agents/skills/<name>/`) and records the provenance in settings. The
+plugin never writes skill files into a project; a workspace's `.agents/skills/`
 (or `.dsh/skills/`) is scanned read-only so hand-created, version-controlled
-project skills appear in the grid with a `project` chip.
+project skills appear in the grid too.
 
 **Enablement is configuration.** Per skill name, a scope setting decides
 where the skill is enabled: absent means enabled in every workspace; a list
@@ -65,32 +63,30 @@ from the scope — a disabled skill simply carries both invocation flags off,
 so it disappears from every model and command surface. No frontmatter edits,
 no shadow copies, no file writes.
 
-**Settings-backed state.** Providers, installed records, and scopes persist
-in the plugin's own namespace of the harness settings file
-(`$DSH_HOME/settings.yaml`, key `dsh-next-skills:`) — readable, hand-editable,
-and easy to share between developers. That section is the single source
-managing the plugin's state: a provider exists because the section lists it,
-and a skill is plugin-managed because the section records it — never because
-of a cache file or manifest sidecar (both are replicas: the provider catalog
-cache under `$DSH_HOME/skills-market/` and the per-skill
-`.dsh-next-provider.json` are informational only, and a cache entry without a
+**Settings-backed state.** Providers, the install-provenance ledger
+(`installations`), and scopes persist in the plugin's own namespace of the
+harness settings file (`$DSH_HOME/settings.yaml`, key `dsh-next-skills:`) —
+readable, hand-editable, and easy to share between developers. That section
+is the single source managing the plugin's state: a provider exists because
+the section lists it, and a skill's provenance is whatever the section
+records — never a cache file or a per-skill sidecar (the provider catalog
+cache under `$DSH_HOME/skills-market/` is a replica: a cache entry without a
 settings record does not exist as far as the panel is concerned). After the
 provider caches sync, a skill recorded in settings whose files are missing is
-reinstalled from the cache, so copying the settings section to a teammate
-(or a new machine) reproduces the same skill set: providers configure
-immediately, the first boot syncs the caches and installs the recorded
-skills, and scopes apply as-is (they are folder names). Every Refresh all
-ends with the same reconcile, so a provider that failed during a first
-boot's sync self-corrects on the next refresh.
+reinstalled from the cache, so copying the settings section to a teammate (or
+a new machine) reproduces the same skill set: providers configure immediately,
+the first boot syncs the caches and installs the recorded skills, and scopes
+apply as-is (they are folder names). Every Refresh all ends with the same
+reconcile, so a provider that failed during a first boot's sync self-corrects
+on the next refresh.
 
-Removal is recoverable: confirming the modal moves a managed skill into the
-`.trash` directory of its root (skipped by discovery), so an accidental
-removal can be undone by hand. Hand-created skills are never removed by the
-plugin. A first launch migrates the pre-settings state (providers.json,
-frontmatter toggles, workspace shadow copies, workspace installs) into the
-settings section: managed workspace copies move into the global root,
-shadows are deleted, and previously disabled skills start as an explicit
-"enabled nowhere" scope.
+Deletion is recoverable and universal: a copy's Delete button moves that
+copy into the `.trash` directory of its root (skipped by discovery), so an
+accidental removal can be undone by hand. Any `.dsh`/`.agents` copy can be
+removed — not just plugin-installed ones — and when the last copy of a name
+is removed, the provenance record and scope entry are dropped together.
+Scope entries whose name no longer resolves to any copy or catalog skill are
+pruned automatically.
 
 ## Providers and the cache
 
@@ -118,10 +114,10 @@ Adding a provider downloads every skill into a plugin-owned cache at
 `$DSH_HOME/skills-market/` — deliberately outside `$DSH_HOME/skills`, which the
 DSH filesystem provider scans, so cached skills never activate by themselves.
 The Skills tab reads that cache; installing copies the files into the global
-root and records a small manifest (`.dsh-next-provider.json`) alongside the
-settings record. A provider may expose any number of skills — there is no
-cap (the grid paginates, and syncing is content-hash incremental), so even
-repositories with hundreds of skills sync and browse fine.
+root and records the provenance in settings. A provider may expose any number
+of skills — there is no cap (the grid paginates, and syncing is content-hash
+incremental), so even repositories with hundreds of skills sync and browse
+fine.
 
 **Fast syncs via repository snapshots.** Instead of one request per file, a
 sync downloads the repository's default-branch snapshot in a single request
@@ -132,12 +128,14 @@ Metadata (repository description and star count) comes from one cheap API
 call. That keeps even large default providers well within GitHub's 60
 req/hr unauthenticated budget and makes first syncs a matter of seconds.
 
-**Change detection** compares those content-hash versions against the version
-recorded for an installed skill: when they differ, its card shows an Update
-button; updating overwrites the files (pruning ones that disappeared
-upstream), keeps the manifest and the settings record current, and leaves the
-scope untouched. Refresh is manual (per provider or Refresh all) and
-detect-only: nothing is installed or overwritten without a click.
+**Change detection** fingerprints each local copy with the same content-hash
+recipe used for catalog versions and compares it against same-name catalog
+skills: when they differ, the copy's card shows an Update button (with a
+provider picker when several providers offer the name); updating overwrites
+the copy in place (pruning files that disappeared upstream) and adopts the
+name into the settings provenance record, leaving the scope untouched.
+Refresh is manual (Refresh all) and detect-only: nothing is installed or
+overwritten without a click.
 
 ## Install
 

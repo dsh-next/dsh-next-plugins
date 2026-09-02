@@ -7,9 +7,9 @@ import { MemConfigFace } from './helpers/config-face.ts'
 
 /**
  * RPC contract test: pins the browser-facing envelopes. `state()` must return
- * the full envelope (config + installed + providers + catalog), and the
- * mutation methods must answer with the shared `{ ok, error | state }` shape.
- * A `setSkillScope` write must round-trip through the settings scope face so a
+ * the full envelope (installed + providers + catalog), and the mutation
+ * methods must answer with the shared `{ ok, error | state }` shape. A
+ * `setSkillScope` write must round-trip through the settings scope face so a
  * fresh `getState` observes it — the settings-persistence guarantee the panel
  * and cross-developer sharing rely on.
  */
@@ -34,15 +34,12 @@ function makeService(): { service: SkillsService; config: MemConfigFace } {
 }
 
 describe('skills state() RPC contract', () => {
-  it('returns the full envelope: config, installed, providers, catalog', async () => {
+  it('returns the full envelope: installed, providers, catalog (no config section)', async () => {
     const state = await makeService().service.state()
-    expect(state).toHaveProperty('installed')
-    expect(state).toHaveProperty('config')
-    expect(state).toHaveProperty('providers')
-    expect(state).toHaveProperty('catalog')
-    expect(state.config).toHaveProperty('providers')
-    expect(state.config).toHaveProperty('installed')
-    expect(state.config).toHaveProperty('scopes')
+    expect(Object.keys(state).sort()).toEqual(['catalog', 'installed', 'providers'])
+    expect(Array.isArray(state.installed)).toBe(true)
+    expect(Array.isArray(state.providers)).toBe(true)
+    expect(Array.isArray(state.catalog)).toBe(true)
   })
 
   it('envelope.installed carries the normalized skill fields', async () => {
@@ -52,7 +49,7 @@ describe('skills state() RPC contract', () => {
     expect(skill.name).toBe('foo')
     expect(skill.scope).toBe('global')
     expect(Object.keys(skill).sort()).toEqual([
-      'description', 'directory', 'fileModelInvocable', 'fileUserInvocable', 'kind', 'managed', 'name', 'path', 'scope', 'source',
+      'description', 'directory', 'kind', 'name', 'path', 'scope', 'source',
     ])
   })
 
@@ -63,26 +60,26 @@ describe('skills state() RPC contract', () => {
     expect(result).toHaveProperty('state')
     // The settings face (settings.yaml section) received the name list.
     expect(config.raw().scopes).toEqual({ foo: ['repo'] })
-    // A fresh read observes the write (round-trip).
+    // A fresh read observes the write (round-trip) through the envelope's
+    // per-copy configScope projection.
     const state = await service.state() as SkillsState
-    expect(state.config.scopes.foo).toEqual(['repo'])
     expect(state.installed.find((s) => s.name === 'foo')!.configScope).toEqual(['repo'])
   })
 
   it('a null workspaces list clears the scope (distinct from an empty list)', async () => {
-    const { service } = makeService()
+    const { service, config } = makeService()
     await service.setSkillScope({ name: 'foo', workspaces: [] })
-    expect((await service.state()).config.scopes.foo).toEqual([]) // off everywhere
+    expect(config.raw().scopes).toEqual({ foo: [] }) // off everywhere
     // Through the same path the browser uses, null means "clear".
     const cleared = await service.setSkillScope({ name: 'foo', workspaces: null })
     expect(cleared).toHaveProperty('ok', true)
-    expect((await service.state()).config.scopes.foo).toBeUndefined()
+    expect(config.raw().scopes).toEqual({})
   })
 
   it('mutation failures carry { ok: false, error } and success { ok: true, state }', async () => {
     const { service } = makeService()
-    const fail = await service.uninstallSkill({ name: 'missing' })
-    expect(fail).toEqual({ ok: false, error: 'skill "missing" not found' })
+    const fail = await service.deleteSkill({ name: 'foo', directory: '/tmp/outside', kind: 'bundle', path: '/tmp/outside/SKILL.md' })
+    expect(fail).toEqual({ ok: false, error: 'directory is not inside a managed skill root' })
     const ok = await service.setSkillScope({ name: 'foo', workspaces: null })
     expect(ok).toHaveProperty('ok', true)
     expect(ok).toHaveProperty('state')

@@ -13,32 +13,31 @@
  * faces, and config access through a structural scope face, so the service is
  * fully testable with in-memory doubles.
  */
-import { catalogSkillViews, parseCatalog, parseManifest, providerViews } from '../core/catalog.ts'
-import { isShadowSkill, parseSkillFile, stripDisabledFlags } from '../core/frontmatter.ts'
+import { catalogSkillViews, parseCatalog, providerViews } from '../core/catalog.ts'
+import { parseSkillFile } from '../core/frontmatter.ts'
 import { isSkillName } from '../core/name.ts'
 import { basenamePath, dirnamePath, isSafeRelativePath, joinPath } from '../core/path.ts'
-import { providerId, providerSpec } from '../core/provider.ts'
+import { fingerprintVersion, providerId, providerSpec, type FingerprintFile } from '../core/provider.ts'
 import { globalSkillsRoot, resolveSkillRoots, sortRootsByPrecedence, type SkillRoot } from '../core/scope.ts'
-import { mergeInstalled } from '../core/skill-list.ts'
 import {
   configForStorage,
   normalizeSkillsConfig,
+  pruneOrphanScopes,
   withScope,
   type InstalledRecord,
   type ProviderRecord,
   type SkillScopeSetting,
   type SkillsConfig,
 } from '../core/settings.ts'
-import { planMigration, type MigrationSkill, type MigrationWorkspace } from '../core/migration.ts'
 import type {
   Catalog,
   CatalogSkill,
+  CatalogSkillMatch,
   CatalogSkillView,
   FetchLike,
   FsLike,
   InstalledSkill,
   MutationResult,
-  ProviderManifest,
   ProviderView,
   SkillDetail,
   SkillScope,
@@ -47,7 +46,6 @@ import type {
 } from '../core/types.ts'
 import { ProviderStore } from './provider-store.ts'
 
-export const MANIFEST_FILE = '.dsh-next-provider.json'
 /** Recoverable-delete directory inside every skill root (skipped by discovery). */
 export const TRASH_DIR = '.trash'
 
@@ -67,7 +65,8 @@ export interface SkillsServiceOptions {
   fetch: FetchLike
   dshHome: string
   agentsHome: string
-  customSkillDirs?: string[]
+  /** Optional warning sink (the host passes ctx.logger.warn). */
+  logWarn?: (message: string) => void
   /** The registered settings scope face (required in the real host). */
   config: ConfigScopeFace
 }
@@ -82,12 +81,8 @@ export interface DiscoveredSkill {
   scope: SkillScope
   source: SkillSourceBucket
   kind: 'bundle' | 'flat'
-  /** True for plugin-generated workspace shadows (legacy artifacts). */
-  shadow: boolean
   path: string
   directory: string
-  /** Manifest facts when the skill was provider-installed. */
-  manifest?: ProviderManifest
 }
 
 /** Scan one root into discovered skills (invalid files are skipped silently). */
@@ -134,7 +129,6 @@ export async function discoverRoot(fs: FsLike, root: SkillRoot): Promise<Discove
       scope: root.scope,
       source: root.source,
       kind,
-      shadow: kind === 'bundle' && isShadowSkill(content),
       path: skillPath,
       directory,
     })
@@ -172,30 +166,6 @@ export class SkillsService {
     return normalizeSkillsConfig(this.opts.config.get())
   }
 
-  private rootsFor(scope: 'global' | 'workspace', workspacePath?: string): SkillRoot[] {
-    const all = resolveSkillRoots({
-      projectRoot: scope === 'workspace' ? workspacePath : undefined,
-      dshHome: this.opts.dshHome,
-      agentsHome: this.opts.agentsHome,
-      customSkillDirs: this.opts.customSkillDirs,
-    })
-    return sortRootsByPrecedence(all.filter((r) => r.scope === scope))
-  }
-
-  private async readManifest(directory: string): Promise<ProviderManifest | undefined> {
-    let raw: string
-    try {
-      raw = await this.opts.fs.readFile(joinPath(directory, MANIFEST_FILE))
-    } catch {
-      return undefined
-    }
-    try {
-      return parseManifest(JSON.parse(raw))
-    } catch {
-      return undefined
-    }
-  }
-
   /**
    * Enumerate skills across the global roots and (optionally) the given
    * workspaces' project roots, merged by precedence, enriched with the
@@ -207,38 +177,42 @@ export class SkillsService {
       ...resolveSkillRoots({
         dshHome: this.opts.dshHome,
         agentsHome: this.opts.agentsHome,
-        customSkillDirs: this.opts.customSkillDirs,
       }),
       ...paths.flatMap((workspacePath) =>
         resolveSkillRoots({
           projectRoot: workspacePath,
           dshHome: this.opts.dshHome,
           agentsHome: this.opts.agentsHome,
-          customSkillDirs: this.opts.customSkillDirs,
         }).filter((r) => r.scope === 'workspace'),
       ),
     ])
     const lists = await Promise.all(roots.map((root) => discoverRoot(this.opts.fs, root)))
-    const discovered = mergeInstalled(...lists)
+    // Multi-copy: keep every discovered copy, no name-precedence collapse.
+    const discovered: DiscoveredSkill[] = lists.flat()
     const config = this.config()
     const catalog = await this.store.readCatalog()
-    const byProviderSkill = new Map<string, CatalogSkill>()
+    // Same-name catalog matches, indexed by name for the update candidates.
+    const catalogByName = new Map<string, CatalogSkillMatch[]>()
     for (const provider of catalog.providers) {
-      for (const skill of provider.skills) byProviderSkill.set(`${provider.id}\n${skill.skillPath}`, skill)
+      for (const skill of provider.skills) {
+        const matches = catalogByName.get(skill.name) ?? []
+        matches.push({ providerId: provider.id, providerSpec: provider.spec, skillPath: skill.skillPath, version: skill.version })
+        catalogByName.set(skill.name, matches)
+      }
     }
     return Promise.all(discovered.map(async (skill): Promise<InstalledSkill> => {
-      // settings.yaml is the single source managing installs: a skill is
-      // managed when it is RECORDED here, never because of a manifest file.
-      // The manifest sidecar is informational only and is never read for
-      // decisions. The settings record also keys update detection.
-      const record = config.installed.find((r) => r.name === skill.name)
-      const managed = record !== undefined
-      let updateAvailable: boolean | undefined
-      const upstream = record !== undefined ? byProviderSkill.get(`${record.providerId}\n${record.skillPath}`) : undefined
-      if (managed && upstream !== undefined) {
-        updateAvailable = upstream.version !== record.version
+      const record = config.installations.find((r) => r.name === skill.name)
+      // Only bundle skills are updatable; flat skills are DSH-native single
+      // files with no bundled directory to fingerprint against a catalog.
+      let updateCandidates: CatalogSkillMatch[] | undefined
+      if (skill.kind === 'bundle') {
+        const matches = catalogByName.get(skill.name) ?? []
+        if (matches.length > 0) {
+          const local = await this.fingerprintCopy(skill.directory)
+          const differing = matches.filter((m) => m.version !== local)
+          updateCandidates = differing.length > 0 ? differing : undefined
+        }
       }
-      const providerSpecLabel = record?.providerSpec
       return {
         name: skill.name,
         description: skill.description,
@@ -248,21 +222,60 @@ export class SkillsService {
         kind: skill.kind,
         path: skill.path,
         directory: skill.directory,
-        fileModelInvocable: skill.fileModelInvocable,
-        fileUserInvocable: skill.fileUserInvocable,
-        managed,
-        ...(providerSpecLabel !== undefined ? { provider: providerSpecLabel } : {}),
-        ...(updateAvailable !== undefined ? { updateAvailable } : {}),
+        ...(record?.providerSpec !== undefined ? { provider: record.providerSpec } : {}),
+        ...(updateCandidates !== undefined ? { updateAvailable: true, updateCandidates } : {}),
         ...(config.scopes[skill.name] !== undefined ? { configScope: config.scopes[skill.name] } : {}),
       }
     }))
   }
 
+  /**
+   * Content fingerprint of a bundle skill directory, using the same recipe
+   * as a catalog `version`. Every regular file (recursively) contributes a
+   * `<rel-path>:content-hash` line; a legacy `.dsh-next-provider.json`
+   * sidecar is skipped so a leftover manifest never falsifies the compare.
+   */
+  private async fingerprintCopy(directory: string): Promise<string> {
+    const files: FingerprintFile[] = []
+    const walk = async (rel: string): Promise<void> => {
+      let entries
+      try {
+        entries = await this.opts.fs.readdir(rel === '' ? directory : joinPath(directory, rel))
+      } catch {
+        return
+      }
+      for (const entry of entries) {
+        if (entry.name === '.dsh-next-provider.json' || entry.name === '.trash') continue
+        const relPath = rel === '' ? entry.name : `${rel}/${entry.name}`
+        if (entry.isDirectory()) {
+          await walk(relPath)
+        } else {
+          try {
+            const content = await this.opts.fs.readFile(joinPath(directory, relPath))
+            files.push({ path: relPath, content })
+          } catch {
+            // unreadable file: skip
+          }
+        }
+      }
+    }
+    await walk('')
+    return fingerprintVersion(files)
+  }
+
   /** The full browser-facing state envelope. */
   async state(workspacePaths?: readonly string[]): Promise<SkillsState> {
     const [installed, catalog] = await Promise.all([this.listInstalled(workspacePaths), this.store.readCatalog()])
+    // Orphan-scope GC: drop enablement keys whose name no longer resolves to
+    // a discovered copy or a catalog skill (a deleted/renamed skill).
+    const config = this.config()
+    const installedNames = [...new Set(installed.map((s) => s.name))]
+    const catalogNames = [...new Set(catalogSkillViews(catalog).map((s) => s.name))]
+    const pruned = pruneOrphanScopes(config, installedNames, catalogNames)
+    if (Object.keys(pruned.scopes).length !== Object.keys(config.scopes).length) {
+      await this.writeConfig(pruned)
+    }
     return {
-      config: this.config(),
       installed,
       providers: this.providerRows(catalog),
       catalog: catalogSkillViews(catalog),
@@ -336,16 +349,6 @@ export class SkillsService {
     return skillDetailFromContent(content)
   }
 
-  /** Find the winning skill by name across the given roots (first = lowest rank). */
-  private async findSkill(roots: SkillRoot[], name: string): Promise<DiscoveredSkill | undefined> {
-    for (const root of roots) {
-      const skills = await discoverRoot(this.opts.fs, root)
-      const hit = skills.find((s) => s.name === name)
-      if (hit) return hit
-    }
-    return undefined
-  }
-
   /**
    * Set the enablement scope for one skill name: the workspace DIRECTORY
    * NAMES where it is enabled (entries may arrive as full paths and are
@@ -386,7 +389,9 @@ export class SkillsService {
     try {
       await this.store.syncProvider(canonical)
     } catch (error) {
-      await this.store.markProviderError(id, error instanceof Error ? error.message : String(error), canonical).catch(() => {})
+      await this.store.markProviderError(id, error instanceof Error ? error.message : String(error), canonical).catch((e) => {
+        this.opts.logWarn?.(`could not persist provider error: ${e instanceof Error ? e.message : String(e)}`)
+      })
       return { ok: false, error: error instanceof Error ? error.message : String(error) }
     }
     return { ok: true, state: await this.state() }
@@ -413,7 +418,9 @@ export class SkillsService {
       await this.store.syncProvider(provider.spec)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      await this.store.markProviderError(id, message, provider.spec).catch(() => {})
+      await this.store.markProviderError(id, message, provider.spec).catch((e) => {
+        this.opts.logWarn?.(`could not persist provider error: ${e instanceof Error ? e.message : String(e)}`)
+      })
       return { ok: false, error: message }
     }
     const notes = await this.reconcileInstalled()
@@ -438,7 +445,9 @@ export class SkillsService {
         await this.store.syncProvider(provider.spec)
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        await this.store.markProviderError(provider.id, message, provider.spec).catch(() => {})
+        await this.store.markProviderError(provider.id, message, provider.spec).catch((e) => {
+          this.opts.logWarn?.(`could not persist provider error: ${e instanceof Error ? e.message : String(e)}`)
+        })
         failures.push(`${provider.spec}: ${message}`)
       }
     }
@@ -472,69 +481,61 @@ export class SkillsService {
     }
     const err = await this.copySkillFiles(provider.id, skill, targetDir)
     if (err !== undefined) return { ok: false, error: err }
-    const manifest = await this.writeManifest(targetDir, provider, skill)
 
     const config = this.config()
-    const installed: InstalledRecord[] = [
-      ...config.installed.filter((r) => r.name !== skill.name),
+    const installations: InstalledRecord[] = [
+      ...config.installations.filter((r) => r.name !== skill.name),
       {
         name: skill.name,
-        providerId: manifest.providerId,
-        providerSpec: manifest.providerSpec,
-        skillPath: manifest.skillPath,
-        version: manifest.version,
-        installedAt: manifest.installedAt,
+        providerId: provider.id,
+        providerSpec: provider.spec,
+        skillPath: skill.skillPath,
       },
     ]
     const initialScope: SkillScopeSetting | undefined = args.workspaces !== undefined && args.workspaces !== null
       ? [...new Set(args.workspaces.map((p) => basenamePath(p.trim())).filter((p) => p !== ''))]
       : undefined
     const scopes = withScope(config.scopes, skill.name, initialScope)
-    await this.writeConfig({ ...config, installed, scopes })
+    await this.writeConfig({ ...config, installations, scopes })
     return { ok: true, state: await this.state() }
   }
 
   /**
-   * Update one recorded skill to the cached version: overwrite the files,
-   * drop files that no longer exist upstream, and refresh the manifest and
-   * settings record. The settings record keys the whole flow — a skill the
-   * settings section does not list is not plugin-managed.
+   * Update one copy in place to the cached catalog version: overwrite the
+   * files, drop files that no longer exist upstream, and adopt the name into
+   * the installations ledger so future updates track. The target directory
+   * must be inside a known skill root; the provider skill must match the copy
+   * name. Works for any copy (managed or hand-created).
    */
-  async updateSkill(args: { name: string }): Promise<MutationResult> {
+  async updateSkill(args: { name: string; directory: string; providerId: string; skillPath: string }): Promise<MutationResult> {
     if (!isSkillName(args.name)) return { ok: false, error: `invalid skill name "${args.name}"` }
-    const existing = await this.findSkill(this.rootsFor('global'), args.name)
-    if (!existing) return { ok: false, error: `skill "${args.name}" not found` }
-    const configBefore = this.config()
-    const record = configBefore.installed.find((r) => r.name === args.name)
-    if (record === undefined) return { ok: false, error: `skill "${args.name}" was not installed by the plugin` }
+    if (!this.isWithinKnownRoot(args.directory)) return { ok: false, error: `directory is not inside a managed skill root` }
     const catalog = await this.store.readCatalog()
-    const provider = catalog.providers.find((p) => p.id === record.providerId)
-    const skill = provider?.skills.find((s) => s.skillPath === record.skillPath)
+    const provider = catalog.providers.find((p) => p.id === args.providerId)
+    const skill = provider?.skills.find((s) => s.skillPath === args.skillPath)
     if (provider === undefined || skill === undefined) {
-      return { ok: false, error: `provider "${record.providerSpec}" no longer offers "${args.name}"` }
+      return { ok: false, error: `provider "${args.providerId}" no longer offers "${args.name}"` }
     }
+    if (skill.name !== args.name) return { ok: false, error: `skill "${args.skillPath}" has a different name` }
 
-    // Remove files that are gone upstream (never the manifest itself).
+    // Remove files that are gone upstream (keeps the caller's own extras).
     const keep = new Set(skill.files.map((f) => f.path))
-    await this.pruneDirectory(existing.directory, keep)
+    await this.pruneDirectory(args.directory, keep)
 
-    const err = await this.copySkillFiles(provider.id, skill, existing.directory)
+    const err = await this.copySkillFiles(provider.id, skill, args.directory)
     if (err !== undefined) return { ok: false, error: err }
-    const fresh = await this.writeManifest(existing.directory, provider, skill)
 
     const config = this.config()
-    const installed: InstalledRecord[] = [
-      ...config.installed.filter((r) => r.name !== args.name),
+    const installations: InstalledRecord[] = [
+      ...config.installations.filter((r) => r.name !== args.name),
       {
         name: args.name,
-        providerId: fresh.providerId,
-        providerSpec: fresh.providerSpec,
-        skillPath: fresh.skillPath,
-        version: fresh.version,
-        installedAt: fresh.installedAt,
+        providerId: provider.id,
+        providerSpec: provider.spec,
+        skillPath: skill.skillPath,
       },
     ]
-    await this.writeConfig({ ...config, installed })
+    await this.writeConfig({ ...config, installations })
     return { ok: true, state: await this.state() }
   }
 
@@ -554,7 +555,7 @@ export class SkillsService {
           // Drop the directory when nothing inside is kept.
           const kept = [...keep].some((k) => k === relPath || k.startsWith(relPath + '/'))
           if (!kept) await this.opts.fs.rm(joinPath(base, relPath), { recursive: true, force: true }).catch(() => {})
-        } else if (!keep.has(relPath) && relPath !== MANIFEST_FILE) {
+        } else if (!keep.has(relPath)) {
           await this.opts.fs.rm(joinPath(base, relPath), { force: true }).catch(() => {})
         }
       }
@@ -582,51 +583,48 @@ export class SkillsService {
     return undefined
   }
 
-  private async writeManifest(targetDir: string, provider: { id: string; spec: string }, skill: CatalogSkill): Promise<ProviderManifest> {
-    const manifest: ProviderManifest = {
-      providerId: provider.id,
-      providerSpec: provider.spec,
-      skillPath: skill.skillPath,
-      version: skill.version,
-      installedAt: new Date().toISOString(),
-    }
-    await this.opts.fs.writeFile(joinPath(targetDir, MANIFEST_FILE), JSON.stringify(manifest, null, 2))
-    return manifest
-  }
-
   /**
-   * Remove a recorded skill recoverably: move it into the sibling `.trash`
+   * Remove one skill copy recoverably: move it into the sibling `.trash`
    * directory of its root (skipped by discovery), so an accidental confirm
-   * can be undone by hand. Only skills listed in the settings section (the
-   * single source managing installs) can be removed; hand-created skills
-   * are never touched. The settings record and scope entry are dropped.
+   * can be undone by hand. Any copy from a known root can be removed — not
+   * just plugin-installed ones. When no other copy of the name remains, the
+   * installations record and scope entry are dropped.
    */
-  async uninstallSkill(args: { name: string }): Promise<MutationResult> {
+  async deleteSkill(args: { name: string; directory: string; kind: 'bundle' | 'flat'; path: string }): Promise<MutationResult> {
     if (!isSkillName(args.name)) return { ok: false, error: `invalid skill name "${args.name}"` }
-    const existing = await this.findSkill(this.rootsFor('global'), args.name)
-    if (!existing) return { ok: false, error: `skill "${args.name}" not found` }
-    // The settings record is the only proof of a plugin install: a skill the
-    // settings section does not list is hand-created, whatever lies on disk.
-    const recorded = this.config().installed.some((r) => r.name === args.name)
-    if (!recorded) {
-      return { ok: false, error: `skill "${args.name}" was not installed by the plugin` }
-    }
-    if (existing.shadow) {
-      await this.opts.fs.rm(existing.directory, { recursive: true, force: true })
-    } else {
-      const from = existing.kind === 'bundle' ? existing.directory : existing.path
-      const root = dirnamePath(from)
-      const trashDir = joinPath(root, TRASH_DIR)
-      await this.opts.fs.mkdir(trashDir, { recursive: true })
-      await this.opts.fs.rename(from, joinPath(trashDir, `${Date.now()}-${existing.name}`))
-    }
+    if (!this.isWithinKnownRoot(args.directory)) return { ok: false, error: `directory is not inside a managed skill root` }
+    const from = args.kind === 'bundle' ? args.directory : args.path
+    const root = dirnamePath(from)
+    const trashDir = joinPath(root, TRASH_DIR)
+    await this.opts.fs.mkdir(trashDir, { recursive: true })
+    await this.opts.fs.rename(from, joinPath(trashDir, `${Date.now()}-${args.name}`))
+
+    // Drop provenance + scope only when no other copy of the name remains.
+    const remaining = (await this.listInstalled()).filter((s) => s.name === args.name)
+    if (remaining.length > 0) return { ok: true, state: await this.state() }
     const config = this.config()
     await this.writeConfig({
       ...config,
-      installed: config.installed.filter((r) => r.name !== args.name),
+      installations: config.installations.filter((r) => r.name !== args.name),
       scopes: withScope(config.scopes, args.name, undefined),
     })
     return { ok: true, state: await this.state() }
+  }
+
+  /** Whether a directory sits inside one of the resolvable skill roots. */
+  private isWithinKnownRoot(directory: string): boolean {
+    const d = directory.replace(/\/+$/, '')
+    const globalRoots = [
+      joinPath(this.opts.dshHome, 'skills'),
+      joinPath(this.opts.agentsHome, 'skills'),
+    ]
+    if (globalRoots.some((p) => d === p || d.startsWith(`${p}/`))) return true
+    // Project convention roots: <any>/.dsh/skills and <any>/.agents/skills.
+    const segments = d.split('/')
+    for (let i = 0; i < segments.length - 1; i++) {
+      if ((segments[i] === '.dsh' || segments[i] === '.agents') && segments[i + 1] === 'skills') return true
+    }
+    return false
   }
 
   /**
@@ -638,9 +636,9 @@ export class SkillsService {
   async reconcileInstalled(): Promise<string[]> {
     const notes: string[] = []
     const config = this.config()
-    if (config.installed.length === 0) return notes
+    if (config.installations.length === 0) return notes
     const catalog = await this.store.readCatalog()
-    for (const record of config.installed) {
+    for (const record of config.installations) {
       const targetDir = joinPath(globalSkillsRoot(this.opts.agentsHome), record.name)
       try {
         await this.opts.fs.access(targetDir)
@@ -659,123 +657,8 @@ export class SkillsService {
         notes.push(`"${record.name}": ${err}`)
         continue
       }
-      await this.writeManifest(targetDir, provider, skill)
       notes.push(`"${record.name}" reinstalled from ${record.providerSpec}`)
     }
     return notes
   }
-
-  /**
-   * One-time migration from the legacy state model (providers.json +
-   * frontmatter toggles + workspace shadows + workspace installs) into the
-   * settings-backed configuration. Runs only when the config section is
-   * empty; a previously migrated or hand-seeded config is never touched.
-   *
-   * `workspacePaths` are the registered workspaces (best-effort read by the
-   * entry point); their project roots are scanned for managed installs and
-   * legacy shadows. Managed workspace copies move into the global root.
-   */
-  async migrateLegacy(workspacePaths: readonly string[]): Promise<{ migrated: boolean; notes: string[] }> {
-    const config = this.config()
-    if (config.providers.length > 0 || config.installed.length > 0 || Object.keys(config.scopes).length > 0) {
-      return { migrated: false, notes: [] }
-    }
-    const legacyProviders = await this.store.readLegacyProviders()
-
-    const toMigrationSkill = async (root: SkillRoot): Promise<MigrationSkill[]> => {
-      const skills = await discoverRoot(this.opts.fs, root)
-      return Promise.all(skills.map(async (skill): Promise<MigrationSkill> => ({
-        name: skill.name,
-        path: skill.path,
-        directory: skill.kind === 'bundle' ? skill.directory : skill.path,
-        kind: skill.kind,
-        fileModelInvocable: skill.fileModelInvocable,
-        fileUserInvocable: skill.fileUserInvocable,
-        ...(skill.shadow ? { shadow: true } : {}),
-        ...(skill.kind === 'bundle' ? { manifest: await this.readManifest(skill.directory) } : {}),
-      })))
-    }
-
-    const globalRoots = this.rootsFor('global')
-    const globalLists = await Promise.all(globalRoots.map((root) => toMigrationSkill(root)))
-    const workspaces: MigrationWorkspace[] = []
-    for (const workspacePath of workspacePaths) {
-      const roots = this.rootsFor('workspace', workspacePath)
-      const lists = await Promise.all(roots.map((root) => toMigrationSkill(root)))
-      workspaces.push({ workspacePath, skills: mergeInstalled(...lists) })
-    }
-
-    const plan = planMigration({
-      agentsHome: this.opts.agentsHome,
-      legacyProviders: legacyProviders.map((p) => ({ id: p.id, spec: p.spec, addedAt: p.addedAt })),
-      globalSkills: mergeInstalled(...globalLists),
-      workspaces,
-      existing: config,
-    })
-
-    // Apply file moves: managed workspace copies into the global root.
-    for (const move of plan.moveToGlobal) {
-      try {
-        await this.opts.fs.mkdir(dirnamePath(move.to), { recursive: true })
-        await this.opts.fs.rename(move.from, move.to)
-        plan.notes.push(`moved "${move.name}" into the global root`)
-      } catch (error) {
-        plan.notes.push(`could not move "${move.name}": ${error instanceof Error ? error.message : String(error)}`)
-      }
-    }
-    // Apply deletions: legacy shadow directories.
-    for (const dir of plan.deleteDirs) {
-      try {
-        await this.opts.fs.rm(dir, { recursive: true, force: true })
-        plan.notes.push(`removed legacy shadow ${dir}`)
-      } catch (error) {
-        plan.notes.push(`could not remove shadow ${dir}: ${error instanceof Error ? error.message : String(error)}`)
-      }
-    }
-    // Apply cleanups: strip legacy toggle lines from disabled skill files so
-    // a later config re-enable actually shows the skill again.
-    for (const path of plan.stripFlags) {
-      try {
-        const content = await this.opts.fs.readFile(path)
-        await this.opts.fs.writeFile(path, stripDisabledFlags(content))
-      } catch (error) {
-        plan.notes.push(`could not clean ${path}: ${error instanceof Error ? error.message : String(error)}`)
-      }
-    }
-
-    await this.writeConfig(plan.config)
-    // Reconcile: freshly moved/recorded skills whose global copy is missing
-    // (for example a recorded skill whose move failed) reinstall later via
-    // reconcileInstalled(); nothing else to do here.
-    return { migrated: true, notes: plan.notes }
-  }
-}
-
-/**
- * Best-effort read of the workspace registry (`$DSH_HOME/storages/
- * workspace.json`): returns the registered workspace paths, canonical as
- * stored. A missing or unreadable registry yields an empty list.
- */
-export async function readWorkspaceRegistryPaths(fs: FsLike, dshHome: string): Promise<string[]> {
-  let raw: string
-  try {
-    raw = await fs.readFile(joinPath(dshHome, 'storages/workspace.json'))
-  } catch {
-    return []
-  }
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw)
-  } catch {
-    return []
-  }
-  const tables = (parsed && typeof parsed === 'object' ? (parsed as { tables?: unknown }).tables : undefined)
-  const workspaces = (tables && typeof tables === 'object' ? (tables as { workspaces?: unknown }).workspaces : undefined)
-  if (!workspaces || typeof workspaces !== 'object') return []
-  const out: string[] = []
-  for (const row of Object.values(workspaces as Record<string, unknown>)) {
-    const path = (row && typeof row === 'object' ? (row as { path?: unknown }).path : undefined)
-    if (typeof path === 'string' && path !== '') out.push(path)
-  }
-  return out
 }

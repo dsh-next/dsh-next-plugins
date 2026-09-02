@@ -43,16 +43,6 @@ export function providerViews(catalog: T.Catalog): T.ProviderView[] {
   }))
 }
 
-/** Case-insensitive substring filter over name, description, and provider spec. */
-export function filterCatalogSkills(skills: readonly T.CatalogSkillView[], query: string): T.CatalogSkillView[] {
-  const q = query.trim().toLowerCase()
-  if (q === '') return [...skills]
-  return skills.filter((s) =>
-    s.name.toLowerCase().includes(q)
-    || s.description.toLowerCase().includes(q)
-    || s.providerSpec.toLowerCase().includes(q))
-}
-
 /** Parse the persisted catalog JSON defensively; a corrupt file yields an empty catalog. */
 export function parseCatalog(raw: unknown): T.Catalog {
   if (!raw || typeof raw !== 'object' || !Array.isArray((raw as T.Catalog).providers)) return { providers: [] }
@@ -63,7 +53,6 @@ export function parseCatalog(raw: unknown): T.Catalog {
       .map((p) => ({
         id: p.id,
         spec: p.spec,
-        branch: typeof p.branch === 'string' ? p.branch : '',
         lastRefresh: typeof p.lastRefresh === 'string' ? p.lastRefresh : '',
         ...(p.description !== undefined && typeof p.description === 'string' ? { description: p.description } : {}),
         ...(p.stars !== undefined && typeof p.stars === 'number' ? { stars: p.stars } : {}),
@@ -81,31 +70,4 @@ export function parseCatalog(raw: unknown): T.Catalog {
           })),
       })),
   }
-}
-
-/** Parse a provider manifest JSON defensively; unreadable content yields undefined. */
-export function parseManifest(raw: unknown): T.ProviderManifest | undefined {
-  if (!raw || typeof raw !== 'object') return undefined
-  const m = raw as Partial<T.ProviderManifest>
-  if (typeof m.providerId !== 'string' || typeof m.providerSpec !== 'string' || typeof m.skillPath !== 'string' || typeof m.version !== 'string') {
-    return undefined
-  }
-  return {
-    providerId: m.providerId,
-    providerSpec: m.providerSpec,
-    skillPath: m.skillPath,
-    version: m.version,
-    installedAt: typeof m.installedAt === 'string' ? m.installedAt : '',
-  }
-}
-
-/** The most recent successful sync timestamp across the catalog (0 when never). */
-export function lastRefreshEpoch(catalog: T.Catalog): number {
-  let latest = 0
-  for (const provider of catalog.providers) {
-    if (provider.error !== undefined) continue
-    const t = Date.parse(provider.lastRefresh)
-    if (Number.isFinite(t) && t > latest) latest = t
-  }
-  return latest
 }

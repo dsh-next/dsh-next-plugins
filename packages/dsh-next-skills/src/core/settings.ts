@@ -7,9 +7,10 @@ import { basenamePath } from './path.ts'
  *
  * Three sections:
  *  - `providers`: the configured skill sources (GitHub `owner/repo` specs).
- *  - `installed`: one record per skill the plugin installed into the global
- *    root, so the list is readable, copyable between developers, and a fresh
- *    machine can reconcile missing copies from the provider caches.
+ *  - `installations`: one provenance record per skill the plugin installed
+ *    into the global root, so the list is readable, copyable between
+ *    developers, and a fresh machine can reconcile missing copies from the
+ *    provider caches.
  *  - `scopes`: per-skill-name enablement, stored as the workspace DIRECTORY
  *    NAMES where the skill is enabled — names, not absolute paths, so the
  *    section is portable between developers whose checkouts live in
@@ -44,26 +45,24 @@ export interface ProviderRecord {
   addedAt: string
 }
 
-/** One skill installed by the plugin into the global root. */
+/** One skill installed by the plugin into the global root (pure provenance). */
 export interface InstalledRecord {
   name: string
   providerId: string
   providerSpec: string
   skillPath: string
-  version: string
-  installedAt: string
 }
 
 /** The whole persisted settings section. */
 export interface SkillsConfig {
   providers: ProviderRecord[]
-  installed: InstalledRecord[]
+  installations: InstalledRecord[]
   scopes: Record<string, SkillScopeSetting>
 }
 
 /** The empty configuration (also the shape of a fresh namespace). */
 export function emptySkillsConfig(): SkillsConfig {
-  return { providers: [], installed: [], scopes: {} }
+  return { providers: [], installations: [], scopes: {} }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -100,7 +99,7 @@ export function parseScopeSetting(raw: unknown): SkillScopeSetting | undefined {
 /** Normalize one raw installed record; undefined when unusable. */
 export function parseInstalledRecord(raw: unknown): InstalledRecord | undefined {
   if (!isRecord(raw)) return undefined
-  const strings = ['name', 'providerId', 'providerSpec', 'skillPath', 'version', 'installedAt'] as const
+  const strings = ['name', 'providerId', 'providerSpec', 'skillPath'] as const
   for (const key of strings) {
     if (typeof raw[key] !== 'string' || (raw[key] as string) === '') return undefined
   }
@@ -109,8 +108,6 @@ export function parseInstalledRecord(raw: unknown): InstalledRecord | undefined 
     providerId: raw.providerId as string,
     providerSpec: raw.providerSpec as string,
     skillPath: raw.skillPath as string,
-    version: raw.version as string,
-    installedAt: raw.installedAt as string,
   }
 }
 
@@ -120,13 +117,6 @@ export function parseProviderRecord(raw: unknown): ProviderRecord | undefined {
   if (typeof raw.id !== 'string' || raw.id === '') return undefined
   if (typeof raw.spec !== 'string' || raw.spec === '') return undefined
   return { id: raw.id, spec: raw.spec, addedAt: typeof raw.addedAt === 'string' ? raw.addedAt : '' }
-}
-
-/** Light path normalization for comparisons: trimmed, no trailing slash. */
-export function normalizePathForCompare(path: string): string {
-  let out = path.trim()
-  while (out.length > 1 && out.endsWith('/')) out = out.slice(0, -1)
-  return out
 }
 
 /**
@@ -154,9 +144,12 @@ export function normalizeSkillsConfig(raw: unknown): SkillsConfig {
     ? raw.providers.map(parseProviderRecord).filter((p): p is ProviderRecord => p !== undefined)
     : []
   // One installed record per name (last wins) and one provider per id.
+  // Read the settings section under the `installations` key; the older
+  // `installed` key is accepted as a one-time compatibility read.
   const installedByName = new Map<string, InstalledRecord>()
-  if (Array.isArray(raw.installed)) {
-    for (const rawRecord of raw.installed) {
+  const rawInstalled = Array.isArray(raw.installations) ? raw.installations : raw.installed
+  if (Array.isArray(rawInstalled)) {
+    for (const rawRecord of rawInstalled) {
       const record = parseInstalledRecord(rawRecord)
       if (record !== undefined) installedByName.set(record.name, record)
     }
@@ -173,7 +166,7 @@ export function normalizeSkillsConfig(raw: unknown): SkillsConfig {
   }
   return {
     providers,
-    installed: [...installedByName.values()].sort((a, b) => a.name.localeCompare(b.name)),
+    installations: [...installedByName.values()].sort((a, b) => a.name.localeCompare(b.name)),
     scopes,
   }
 }
@@ -181,12 +174,12 @@ export function normalizeSkillsConfig(raw: unknown): SkillsConfig {
 /** Canonical JSON-able config for persistence (scopes keep name lists). */
 export function configForStorage(config: SkillsConfig): {
   providers: ProviderRecord[]
-  installed: InstalledRecord[]
+  installations: InstalledRecord[]
   scopes: Record<string, SkillScopeSetting>
 } {
   return {
     providers: [...config.providers].sort((a, b) => a.id.localeCompare(b.id)),
-    installed: [...config.installed].sort((a, b) => a.name.localeCompare(b.name)),
+    installations: [...config.installations].sort((a, b) => a.name.localeCompare(b.name)),
     scopes: Object.fromEntries(Object.entries(config.scopes).map(([name, names]) => [name, [...names]])),
   }
 }
@@ -201,4 +194,20 @@ export function withScope(
   if (scope === undefined) delete next[name]
   else next[name] = [...scope]
   return next
+}
+
+/**
+ * Drop scope entries whose name has neither a discovered copy nor a catalog
+ * skill, so a deleted or renamed skill never leaves a dangling enablement
+ * key behind. Returns a new config (scopes replaced) when anything changed.
+ */
+export function pruneOrphanScopes(
+  config: SkillsConfig,
+  installedNames: readonly string[],
+  catalogNames: readonly string[],
+): SkillsConfig {
+  const known = new Set([...installedNames, ...catalogNames])
+  const entries = Object.entries(config.scopes).filter(([name]) => known.has(name))
+  if (entries.length === Object.keys(config.scopes).length) return config
+  return { ...config, scopes: Object.fromEntries(entries) }
 }

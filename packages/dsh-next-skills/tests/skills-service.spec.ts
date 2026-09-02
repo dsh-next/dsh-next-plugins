@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { FetchLike } from '../src/core/types.ts'
-import { MANIFEST_FILE, SkillsService } from '../src/host/skills-service.ts'
+import { fingerprintVersion } from '../src/core/provider.ts'
+import { TRASH_DIR, SkillsService } from '../src/host/skills-service.ts'
 import { createMemFs, type MemFs } from './helpers/memfs.ts'
 import { createGhDouble, type GhDouble } from './helpers/gh.ts'
 import { MemConfigFace } from './helpers/config-face.ts'
@@ -13,11 +14,15 @@ const CATALOG_FILES: Record<string, string> = {
   'skills/other-skill/SKILL.md': SKILL('other-skill'),
 }
 
+const GLOBAL_DIR = '/home/u/.agents/skills/find-skills'
+const CATALOG_CACHE = '/home/u/.dsh/skills-market'
+
 interface Harness {
   fs: MemFs
   gh: GhDouble
   service: SkillsService
   config: MemConfigFace
+  warnings: string[]
 }
 
 function makeHarness(seed: Record<string, string> = {}, configSection: Record<string, unknown> = {}): Harness {
@@ -25,19 +30,41 @@ function makeHarness(seed: Record<string, string> = {}, configSection: Record<st
   const gh = createGhDouble({ files: CATALOG_FILES })
   const config = new MemConfigFace()
   config.setSection(configSection)
+  const warnings: string[] = []
   const service = new SkillsService({
     fs,
     fetch: gh.fetch as FetchLike,
     dshHome: '/home/u/.dsh',
     agentsHome: '/home/u/.agents',
+    logWarn: (message) => warnings.push(message),
     config,
   })
-  return { fs, gh, service, config }
+  return { fs, gh, service, config, warnings }
 }
 
 /** Sync the catalog double so the provider cache holds the two skills. */
 async function seedCatalog(h: Harness): Promise<void> {
   await h.service.addProvider('o/r')
+}
+
+/** Seed a second provider's catalog entry + cache files directly (the replica). */
+async function seedSecondProvider(h: Harness, skillMd: string, version: string): Promise<void> {
+  const catalog = JSON.parse(await h.fs.readFile(`${CATALOG_CACHE}/catalog.json`))
+  catalog.providers.push({
+    id: 'p-q',
+    spec: 'p/q',
+    lastRefresh: '2026-01-01T00:00:00.000Z',
+    skills: [{
+      name: 'find-skills',
+      description: 'find-skills skill (p/q)',
+      cacheDir: 'native__find-skills',
+      skillPath: 'native/find-skills',
+      version,
+      files: [{ path: 'SKILL.md', sha: 'y' }],
+    }],
+  })
+  await h.fs.writeFile(`${CATALOG_CACHE}/catalog.json`, JSON.stringify(catalog))
+  await h.fs.writeFile(`${CATALOG_CACHE}/files/p-q/native__find-skills/SKILL.md`, skillMd)
 }
 
 describe('listInstalled / state', () => {
@@ -53,14 +80,19 @@ describe('listInstalled / state', () => {
     expect(state.installed.find((s) => s.name === 'bundle-skill')!.kind).toBe('bundle')
   })
 
-  it('merges workspace skills above global on name collision', async () => {
+  it('keeps multiple copies of one name (no name-collapse)', async () => {
     const h = makeHarness({
       '/home/u/.agents/skills/shared/SKILL.md': SKILL('shared'),
       '/repo/.agents/skills/shared/SKILL.md': SKILL('shared'),
     })
     const state = await h.service.state(['/repo'])
-    const shared = state.installed.find((s) => s.name === 'shared')!
-    expect(shared.scope).toBe('workspace')
+    expect(state.installed).toHaveLength(2)
+    const project = state.installed.find((s) => s.scope === 'workspace')!
+    const global = state.installed.find((s) => s.scope === 'global')!
+    expect(project.source).toBe('project-agents')
+    expect(project.directory).toBe('/repo/.agents/skills/shared')
+    expect(global.source).toBe('user-agents')
+    expect(global.directory).toBe('/home/u/.agents/skills/shared')
   })
 
   it('skips the .system and .trash directories in the user-dsh root', async () => {
@@ -72,24 +104,26 @@ describe('listInstalled / state', () => {
     expect(state.installed).toHaveLength(0)
   })
 
-  it('a manifest without a settings record is custom, not managed', async () => {
-    // settings.yaml is the single source managing installs: the manifest
-    // sidecar never confers managed-ness on its own.
+  it('a legacy manifest sidecar confers nothing and is skipped by the fingerprint', async () => {
+    // settings.yaml is the single source of provenance: the sidecar file
+    // neither marks a copy as provider-installed nor falsifies the update
+    // compare (it is excluded from the fingerprint).
     const h = makeHarness({
-      '/home/u/.agents/skills/find-skills/SKILL.md': SKILL('find-skills'),
-      '/home/u/.agents/skills/find-skills/.dsh-next-provider.json': JSON.stringify({
+      [`${GLOBAL_DIR}/SKILL.md`]: SKILL('find-skills'),
+      [`${GLOBAL_DIR}/references/note.md`]: 'note',
+      [`${GLOBAL_DIR}/.dsh-next-provider.json`]: JSON.stringify({
         providerId: 'o-r', providerSpec: 'o/r', skillPath: 'skills/find-skills', version: 'old', installedAt: 't',
       }),
     })
     await seedCatalog(h)
     const state = await h.service.state()
     const row = state.installed.find((s) => s.name === 'find-skills')!
-    expect(row.managed).toBe(false)
     expect(row.provider).toBeUndefined()
     expect(row.updateAvailable).toBeUndefined()
+    expect(row.updateCandidates).toBeUndefined()
   })
 
-  it('carries the config scope per name and the settings sections in the envelope', async () => {
+  it('carries the config scope per name and exposes only the three envelope sections', async () => {
     const h = makeHarness({
       '/home/u/.agents/skills/s/SKILL.md': SKILL('s'),
     }, {
@@ -97,35 +131,69 @@ describe('listInstalled / state', () => {
     })
     const state = await h.service.state()
     expect(state.installed.find((x) => x.name === 's')!.configScope).toEqual(['repo'])
-    expect(state.config.scopes.s).toBeDefined()
-    expect(Array.isArray(state.providers)).toBe(true)
-    expect(Array.isArray(state.catalog)).toBe(true)
+    expect(Object.keys(state).sort()).toEqual(['catalog', 'installed', 'providers'])
   })
 
-  it('treats a settings record as managed even when the manifest is missing', async () => {
+  it('a settings record attributes provider provenance without any sidecar file', async () => {
     const h = makeHarness({
-      '/home/u/.agents/skills/find-skills/SKILL.md': SKILL('find-skills'),
+      [`${GLOBAL_DIR}/SKILL.md`]: SKILL('find-skills'),
+      [`${GLOBAL_DIR}/references/note.md`]: 'note',
     }, {
-      installed: [{ name: 'find-skills', providerId: 'o-r', providerSpec: 'o/r', skillPath: 'skills/find-skills', version: 'v', installedAt: 't' }],
+      installations: [{ name: 'find-skills', providerId: 'o-r', providerSpec: 'o/r', skillPath: 'skills/find-skills' }],
     })
     await seedCatalog(h)
     const row = (await h.service.state()).installed.find((s) => s.name === 'find-skills')!
-    expect(row.managed).toBe(true)
     expect(row.provider).toBe('o/r')
+    expect(row.updateAvailable).toBeUndefined()
+  })
+
+  it('flags updateAvailable on the copies whose content differs from the catalog', async () => {
+    const h = makeHarness({
+      // Hand-edited after install: the content no longer matches the catalog.
+      [`${GLOBAL_DIR}/SKILL.md`]: SKILL('find-skills', 'local-tweak: true\n'),
+      '/home/u/.agents/skills/clean/SKILL.md': SKILL('clean'),
+    }, {
+      installations: [
+        { name: 'find-skills', providerId: 'o-r', providerSpec: 'o/r', skillPath: 'skills/find-skills' },
+        { name: 'clean', providerId: 'o-r', providerSpec: 'o/r', skillPath: 'skills/clean' },
+      ],
+    })
+    await seedCatalog(h)
+    h.gh.setFiles({ ...CATALOG_FILES, 'skills/clean/SKILL.md': SKILL('clean') })
+    await h.service.refreshProvider('o-r')
+    const state = await h.service.state()
+    const dirty = state.installed.find((s) => s.name === 'find-skills')!
+    expect(dirty.updateAvailable).toBe(true)
+    expect(dirty.updateCandidates).toEqual([
+      { providerId: 'o-r', providerSpec: 'o/r', skillPath: 'skills/find-skills', version: expect.any(String) },
+    ])
+    // Equal content fingerprints produce no update flag.
+    const clean = state.installed.find((s) => s.name === 'clean')!
+    expect(clean.updateAvailable).toBeUndefined()
+  })
+
+  it('state() prunes orphan scopes (no discovered copy and no catalog entry)', async () => {
+    const h = makeHarness({
+      '/home/u/.agents/skills/s/SKILL.md': SKILL('s'),
+    }, {
+      scopes: { s: ['repo'], gone: ['api'] },
+    })
+    await h.service.state()
+    expect(h.config.raw().scopes).toEqual({ s: ['repo'] })
   })
 })
 
 describe('installSkill (global-only)', () => {
-  it('copies the skill into the global root, writes the manifest, and records it', async () => {
+  it('copies the skill into the global root and records the provenance in settings', async () => {
     const h = makeHarness()
     await seedCatalog(h)
     const result = await h.service.installSkill({ providerId: 'o-r', skillPath: 'skills/find-skills' })
     expect(result.ok).toBe(true)
-    expect(h.fs.has('/home/u/.agents/skills/find-skills/SKILL.md')).toBe(true)
-    expect(h.fs.has('/home/u/.agents/skills/find-skills/references/note.md')).toBe(true)
-    const manifest = JSON.parse(await h.fs.readFile(`/home/u/.agents/skills/find-skills/${MANIFEST_FILE}`))
-    expect(manifest.providerSpec).toBe('o/r')
-    expect(h.config.raw().installed).toEqual([
+    expect(h.fs.has(`${GLOBAL_DIR}/SKILL.md`)).toBe(true)
+    expect(h.fs.has(`${GLOBAL_DIR}/references/note.md`)).toBe(true)
+    // No sidecar is written anymore: settings is the only ledger.
+    expect(h.fs.has(`${GLOBAL_DIR}/.dsh-next-provider.json`)).toBe(false)
+    expect(h.config.raw().installations).toEqual([
       expect.objectContaining({ name: 'find-skills', providerSpec: 'o/r', skillPath: 'skills/find-skills' }),
     ])
   })
@@ -170,14 +238,16 @@ describe('setSkillScope (pure config)', () => {
   })
 
   it('validates the skill name and workspace paths', async () => {
-    const h = makeHarness()
+    // The skill must exist somewhere (copy or catalog): state() prunes the
+    // enablement of an orphan name, so scope for a ghost name cannot persist.
+    const h = makeHarness({ '/home/u/.agents/skills/ok/SKILL.md': SKILL('ok') })
     expect(await h.service.setSkillScope({ name: 'not a name' })).toMatchObject({ ok: false })
     await h.service.setSkillScope({ name: 'ok', workspaces: ['/x/repo', 'repo', 'other'] })
     expect((h.config.raw().scopes as Record<string, unknown>)['ok']).toEqual(['repo', 'other'])
   })
 })
 
-describe('updateSkill (managed, global)', () => {
+describe('updateSkill (in place, explicit copy target)', () => {
   async function installedHarness(): Promise<Harness> {
     const h = makeHarness()
     await seedCatalog(h)
@@ -185,64 +255,149 @@ describe('updateSkill (managed, global)', () => {
     return h
   }
 
-  it('overwrites files, prunes dropped upstream files, and refreshes the record', async () => {
+  it('overwrites files, prunes dropped upstream files, and refreshes the ledger record', async () => {
     const h = await installedHarness()
     h.gh.setFiles({ 'skills/find-skills/SKILL.md': SKILL('find-skills', 'updated: true\n') })
     await h.service.refreshProvider('o-r')
-    expect((await h.service.updateSkill({ name: 'find-skills' })).ok).toBe(true)
-    const content = await h.fs.readFile('/home/u/.agents/skills/find-skills/SKILL.md')
+    const result = await h.service.updateSkill({
+      name: 'find-skills', directory: GLOBAL_DIR, providerId: 'o-r', skillPath: 'skills/find-skills',
+    })
+    expect(result.ok).toBe(true)
+    const content = await h.fs.readFile(`${GLOBAL_DIR}/SKILL.md`)
     expect(content).toContain('updated: true')
-    expect(h.fs.has('/home/u/.agents/skills/find-skills/references/note.md')).toBe(false) // pruned
-    const record = (h.config.raw().installed as Array<{ name: string; version: string }>)[0]
-    expect(record.name).toBe('find-skills')
-    const manifest = JSON.parse(await h.fs.readFile(`/home/u/.agents/skills/find-skills/${MANIFEST_FILE}`))
-    expect(manifest.version).toBe(record.version)
+    expect(h.fs.has(`${GLOBAL_DIR}/references/note.md`)).toBe(false) // pruned
+    expect(h.config.raw().installations).toEqual([
+      expect.objectContaining({ name: 'find-skills', providerSpec: 'o/r', skillPath: 'skills/find-skills' }),
+    ])
+    // The refreshed fingerprint matches the catalog again: no update flag.
+    const row = (await h.service.state()).installed.find((s) => s.name === 'find-skills')!
+    expect(row.updateAvailable).toBeUndefined()
   })
 
-  it('refuses skills the settings section does not record', async () => {
-    // A manifest sidecar alone proves nothing: the settings record is the
-    // only proof of a plugin install.
+  it('adopts a hand-created copy: overwrites it and records it in the ledger', async () => {
     const h = makeHarness({
-      '/home/u/.agents/skills/hand/SKILL.md': SKILL('hand'),
-      '/home/u/.agents/skills/hand/.dsh-next-provider.json': JSON.stringify({
-        providerId: 'o-r', providerSpec: 'o/r', skillPath: 'skills/find-skills', version: 'v', installedAt: 't',
-      }),
+      [`${GLOBAL_DIR}/SKILL.md`]: SKILL('find-skills', 'hand-edited: true\n'),
     })
     await seedCatalog(h)
-    expect(await h.service.updateSkill({ name: 'hand' })).toEqual({ ok: false, error: 'skill "hand" was not installed by the plugin' })
-    expect(await h.service.updateSkill({ name: 'ghost' })).toEqual({ ok: false, error: 'skill "ghost" not found' })
-    expect(await h.service.uninstallSkill({ name: 'hand' })).toEqual({ ok: false, error: 'skill "hand" was not installed by the plugin' })
+    const result = await h.service.updateSkill({
+      name: 'find-skills', directory: GLOBAL_DIR, providerId: 'o-r', skillPath: 'skills/find-skills',
+    })
+    expect(result.ok).toBe(true)
+    expect(await h.fs.readFile(`${GLOBAL_DIR}/SKILL.md`)).toBe(SKILL('find-skills'))
+    expect(h.fs.has(`${GLOBAL_DIR}/references/note.md`)).toBe(true)
+    expect(h.config.raw().installations).toEqual([
+      expect.objectContaining({ name: 'find-skills', providerId: 'o-r', providerSpec: 'o/r', skillPath: 'skills/find-skills' }),
+    ])
+  })
+
+  it('picks the requested provider when several catalog skills share the name', async () => {
+    const candidateB = SKILL('find-skills', 'from-pq: true\n')
+    const h = makeHarness({
+      // Local copy differs from both catalog versions.
+      [`${GLOBAL_DIR}/SKILL.md`]: SKILL('find-skills', 'local: true\n'),
+    })
+    await seedCatalog(h)
+    await seedSecondProvider(h, candidateB, fingerprintVersion([{ path: 'SKILL.md', content: candidateB }]))
+    const row = (await h.service.state()).installed.find((s) => s.name === 'find-skills')!
+    expect(row.updateAvailable).toBe(true)
+    expect(row.updateCandidates!.map((c) => c.providerId)).toEqual(['o-r', 'p-q'])
+
+    const result = await h.service.updateSkill({
+      name: 'find-skills', directory: GLOBAL_DIR, providerId: 'p-q', skillPath: 'native/find-skills',
+    })
+    expect(result.ok).toBe(true)
+    expect(await h.fs.readFile(`${GLOBAL_DIR}/SKILL.md`)).toBe(candidateB)
+    expect(h.config.raw().installations).toEqual([
+      expect.objectContaining({ name: 'find-skills', providerId: 'p-q', providerSpec: 'p/q', skillPath: 'native/find-skills' }),
+    ])
+    // The adopted candidate no longer differs; the untouched one still does.
+    const after = (await h.service.state()).installed.find((s) => s.name === 'find-skills')!
+    expect(after.updateCandidates!.map((c) => c.providerId)).toEqual(['o-r'])
+  })
+
+  it('refuses an unknown directory, unknown provider skills, and name mismatches', async () => {
+    const h = await installedHarness()
+    expect(await h.service.updateSkill({
+      name: 'find-skills', directory: '/tmp/evil/find-skills', providerId: 'o-r', skillPath: 'skills/find-skills',
+    })).toEqual({ ok: false, error: 'directory is not inside a managed skill root' })
+    expect(await h.service.updateSkill({
+      name: 'find-skills', directory: GLOBAL_DIR, providerId: 'none', skillPath: 'skills/find-skills',
+    })).toEqual({ ok: false, error: 'provider "none" no longer offers "find-skills"' })
+    expect(await h.service.updateSkill({
+      name: 'find-skills', directory: GLOBAL_DIR, providerId: 'o-r', skillPath: 'skills/nope',
+    })).toEqual({ ok: false, error: 'provider "o-r" no longer offers "find-skills"' })
+    expect(await h.service.updateSkill({
+      name: 'other-skill', directory: '/home/u/.agents/skills/other-skill', providerId: 'o-r', skillPath: 'skills/find-skills',
+    })).toEqual({ ok: false, error: 'skill "skills/find-skills" has a different name' })
+    expect(await h.service.updateSkill({
+      name: 'not a name', directory: GLOBAL_DIR, providerId: 'o-r', skillPath: 'skills/find-skills',
+    })).toEqual({ ok: false, error: 'invalid skill name "not a name"' })
   })
 })
 
-describe('remove (managed, global, recoverable)', () => {
-  it('trashes the directory and drops the record and scope', async () => {
+describe('deleteSkill (recoverable, per copy)', () => {
+  it('trashes the directory and drops the ledger record and scope on the last copy', async () => {
     const h = makeHarness()
     await seedCatalog(h)
     await h.service.installSkill({ providerId: 'o-r', skillPath: 'skills/find-skills' })
     await h.service.setSkillScope({ name: 'find-skills', workspaces: [] })
-    await h.service.setSkillScope({ name: 'find-skills', workspaces: [] })
-    expect((await h.service.uninstallSkill({ name: 'find-skills' })).ok).toBe(true)
-    expect(h.fs.has('/home/u/.agents/skills/find-skills/SKILL.md')).toBe(false)
-    expect(h.fs.has('/home/u/.agents/skills/.trash')).toBe(true)
-    expect(h.config.raw().installed).toEqual([])
+    const result = await h.service.deleteSkill({
+      name: 'find-skills', directory: GLOBAL_DIR, kind: 'bundle', path: `${GLOBAL_DIR}/SKILL.md`,
+    })
+    expect(result.ok).toBe(true)
+    expect(h.fs.has(`${GLOBAL_DIR}/SKILL.md`)).toBe(false)
+    expect(h.fs.has(`/home/u/.agents/skills/${TRASH_DIR}`)).toBe(true)
+    expect(h.config.raw().installations).toEqual([])
     expect(h.config.raw().scopes).toEqual({})
   })
 
-  it('removes a legacy shadow outright', async () => {
-    const shadow = `---\nname: s\ndescription: s skill\ndisable-model-invocation: true\nuser-invocable: false\n---\n<!-- dsh-next-skills:workspace-shadow -->\n`
+  it('keeps the ledger record and scope while another copy of the name remains', async () => {
+    const record = { name: 'shared', providerId: 'o-r', providerSpec: 'o/r', skillPath: 'skills/shared' }
     const h = makeHarness({
-      '/home/u/.agents/skills/s/SKILL.md': shadow,
-    }, { installed: [{ name: 's', providerId: 'p', providerSpec: 'o/r', skillPath: 'skills/s', version: 'v', installedAt: 't' }] })
-    expect((await h.service.uninstallSkill({ name: 's' })).ok).toBe(true)
-    expect(h.fs.has('/home/u/.agents/skills/s')).toBe(false)
+      '/home/u/.agents/skills/shared/SKILL.md': SKILL('shared'),
+      '/repo/.agents/skills/shared/SKILL.md': SKILL('shared'),
+    }, {
+      installations: [record],
+      scopes: { shared: ['repo'] },
+    })
+    const result = await h.service.deleteSkill({
+      name: 'shared', directory: '/repo/.agents/skills/shared', kind: 'bundle', path: '/repo/.agents/skills/shared/SKILL.md',
+    })
+    expect(result.ok).toBe(true)
+    expect(h.fs.has('/repo/.agents/skills/shared/SKILL.md')).toBe(false)
+    expect(h.fs.has('/home/u/.agents/skills/shared/SKILL.md')).toBe(true)
+    expect(h.config.raw().installations).toEqual([record])
+    expect((h.config.raw().scopes as Record<string, unknown>).shared).toEqual(['repo'])
   })
 
-  it('refuses unmanaged skills (hand-created files are never touched)', async () => {
+  it('trashes a flat skill file in place', async () => {
+    const h = makeHarness({ '/home/u/.agents/skills/flat-skill.md': SKILL('flat-skill') })
+    const result = await h.service.deleteSkill({
+      name: 'flat-skill', directory: '/home/u/.agents/skills', kind: 'flat', path: '/home/u/.agents/skills/flat-skill.md',
+    })
+    expect(result.ok).toBe(true)
+    expect(h.fs.has('/home/u/.agents/skills/flat-skill.md')).toBe(false)
+    expect(h.fs.has(`/home/u/.agents/skills/${TRASH_DIR}`)).toBe(true)
+  })
+
+  it('removes any copy from a known root, even a hand-created one', async () => {
     const h = makeHarness({ '/home/u/.agents/skills/hand/SKILL.md': SKILL('hand') })
-    expect(await h.service.uninstallSkill({ name: 'hand' })).toEqual({ ok: false, error: 'skill "hand" was not installed by the plugin' })
+    const result = await h.service.deleteSkill({
+      name: 'hand', directory: '/home/u/.agents/skills/hand', kind: 'bundle', path: '/home/u/.agents/skills/hand/SKILL.md',
+    })
+    expect(result.ok).toBe(true)
+    expect(h.fs.has('/home/u/.agents/skills/hand/SKILL.md')).toBe(false)
+  })
+
+  it('rejects directories outside a known skill root and invalid names', async () => {
+    const h = makeHarness({ '/home/u/.agents/skills/hand/SKILL.md': SKILL('hand') })
+    expect(await h.service.deleteSkill({
+      name: 'hand', directory: '/tmp/evil/hand', kind: 'bundle', path: '/tmp/evil/hand/SKILL.md',
+    })).toEqual({ ok: false, error: 'directory is not inside a managed skill root' })
     expect(h.fs.has('/home/u/.agents/skills/hand/SKILL.md')).toBe(true)
-    expect(await h.service.uninstallSkill({ name: 'ghost' })).toEqual({ ok: false, error: 'skill "ghost" not found' })
+    expect(await h.service.deleteSkill({
+      name: 'not a name', directory: '/home/u/.agents/skills/hand', kind: 'bundle', path: '/home/u/.agents/skills/hand/SKILL.md',
+    })).toEqual({ ok: false, error: 'invalid skill name "not a name"' })
   })
 })
 
@@ -265,12 +420,12 @@ describe('provider management on the settings config', () => {
     await h.service.addProvider('o/r')
     // A cache entry whose settings record is gone is invisible: the cache is
     // a replica, never a source.
-    await h.config.replace({ providers: [], installed: [], scopes: {} })
+    await h.config.replace({ providers: [], installations: [], scopes: {} })
     expect((await h.service.state()).providers).toEqual([])
     // A settings provider without a synced snapshot renders as never synced.
     await h.config.replace({
       providers: [{ id: 'o-r', spec: 'o/r', addedAt: 't' }, { id: 'x-y', spec: 'x/y', addedAt: 't' }],
-      installed: [],
+      installations: [],
       scopes: {},
     })
     const rows = (await h.service.state()).providers
@@ -288,11 +443,26 @@ describe('provider management on the settings config', () => {
     expect(state.providers.find((p) => p.id === 'o-r')?.error).toBeTruthy()
   })
 
+  it('logs a warning when a provider error cannot be persisted', async () => {
+    const h = makeHarness()
+    h.gh.setRepoStatus(500)
+    // Force the catalog write inside markProviderError to fail, so the
+    // diagnostic sink is the only place the failure can surface.
+    const originalWrite = h.fs.writeFile
+    h.fs.writeFile = async (p: string, content: string) => {
+      if (p.endsWith('catalog.json')) throw new Error('disk full')
+      return originalWrite(p, content)
+    }
+    const fail = await h.service.addProvider('o/r')
+    expect(fail).toMatchObject({ ok: false })
+    expect(h.warnings.some((w) => w.includes('could not persist provider error'))).toBe(true)
+  })
+
   it('refreshAll reports a failure when any provider fails', async () => {
     const h = makeHarness({}, {
       providers: [
         { id: 'o-r', spec: 'o/r', addedAt: 't' },
-        { id: 'github.com/x/y', spec: 'x/y', addedAt: 't' },
+        { id: 'x-y', spec: 'x/y', addedAt: 't' },
       ],
     })
     h.gh.setRepoStatus(500)
@@ -311,14 +481,14 @@ describe('provider management on the settings config', () => {
     await h.service.installSkill({ providerId: 'o-r', skillPath: 'skills/find-skills' })
     // The clone-sharing failure mode: the settings record exists but the
     // files (or the whole global root) are missing until the cache syncs.
-    await h.fs.rm('/home/u/.agents/skills/find-skills', { recursive: true, force: true })
+    await h.fs.rm(GLOBAL_DIR, { recursive: true, force: true })
     const result = await h.service.refreshProvider('o-r')
     expect(result.ok).toBe(true)
     if (result.ok) {
       expect(result.warning).toContain('find-skills')
       expect(result.warning).toContain('reinstalled from o/r')
     }
-    expect(h.fs.has('/home/u/.agents/skills/find-skills/SKILL.md')).toBe(true)
+    expect(h.fs.has(`${GLOBAL_DIR}/SKILL.md`)).toBe(true)
   })
 
   it('reconcile with nothing missing answers without a warning', async () => {
@@ -347,77 +517,25 @@ describe('ensureDefaultProviders', () => {
   })
 })
 
-describe('migrateLegacy', () => {
-  it('is a no-op when the settings section already holds configuration', async () => {
-    const h = makeHarness({}, { providers: [{ id: 'p', spec: 'o/r', addedAt: 't' }] })
-    const result = await h.service.migrateLegacy([])
-    expect(result).toEqual({ migrated: false, notes: [] })
-  })
-
-  it('migrates providers, moves a managed workspace copy, deletes shadows, and un-toggles disabled skills', async () => {
-    const legacyProviders = '/home/u/.dsh/skills-market/providers.json'
-    const h = makeHarness({
-      [legacyProviders]: JSON.stringify({ providers: [{ id: 'o-r', spec: 'o/r', addedAt: 't0' }] }),
-      // Managed global skill the old panel disabled (both toggle lines).
-      '/home/u/.agents/skills/g/SKILL.md': SKILL('g', 'disable-model-invocation: true\nuser-invocable: false\n'),
-      [`/home/u/.agents/skills/g/${MANIFEST_FILE}`]: JSON.stringify({
-        providerId: 'o-r', providerSpec: 'o/r', skillPath: 'skills/g', version: 'v1', installedAt: 't',
-      }),
-      // Managed workspace copy to move into the global root.
-      '/repo/.agents/skills/m/SKILL.md': SKILL('m'),
-      [`/repo/.agents/skills/m/${MANIFEST_FILE}`]: JSON.stringify({
-        providerId: 'o-r', providerSpec: 'o/r', skillPath: 'skills/m', version: 'v2', installedAt: 't',
-      }),
-      // Legacy workspace shadow.
-      '/repo/.agents/skills/shadow/SKILL.md': '---\nname: shadow\ndescription: shadow skill\ndisable-model-invocation: true\nuser-invocable: false\n---\n\n<!-- dsh-next-skills:workspace-shadow -->\n',
-      // Hand-created skills: never touched.
-      '/repo/.agents/skills/manual/SKILL.md': SKILL('manual'),
-    })
-    const result = await h.service.migrateLegacy(['/repo'])
-    expect(result.migrated).toBe(true)
-
-    const config = h.config.raw()
-    expect(config.providers).toEqual([{ id: 'o-r', spec: 'o/r', addedAt: 't0' }])
-    expect(config.installed as Array<{ name: string }>).toEqual([
-      expect.objectContaining({ name: 'g' }),
-      expect.objectContaining({ name: 'm' }),
-    ])
-    expect(config.scopes as Record<string, unknown>).toEqual({
-      g: [],
-      shadow: [],
-    })
-    // The moved copy landed globally; the shadow is gone; the manual skill stayed.
-    expect(h.fs.has('/home/u/.agents/skills/m/SKILL.md')).toBe(true)
-    expect(h.fs.has('/repo/.agents/skills/m')).toBe(false)
-    expect(h.fs.has('/repo/.agents/skills/shadow')).toBe(false)
-    expect(h.fs.has('/repo/.agents/skills/manual/SKILL.md')).toBe(true)
-    // The disabled global skill's toggle lines were stripped so a re-enable shows it.
-    const g = await h.fs.readFile('/home/u/.agents/skills/g/SKILL.md')
-    expect(g).not.toContain('disable-model-invocation')
-    expect(g).not.toContain('user-invocable: false')
-  })
-})
-
 describe('reconcileInstalled (the sharing payoff)', () => {
   it('reinstalls recorded skills whose global files are missing', async () => {
     const h = makeHarness()
     await seedCatalog(h)
-    const config = h.config.raw()
-    config.installed = [{ name: 'find-skills', providerId: 'o-r', providerSpec: 'o/r', skillPath: 'skills/find-skills', version: 'v', installedAt: 't' }]
-    h.config.setSection(config)
+    await h.service.installSkill({ providerId: 'o-r', skillPath: 'skills/find-skills' })
+    await h.fs.rm(GLOBAL_DIR, { recursive: true, force: true })
     const notes = await h.service.reconcileInstalled()
     expect(notes).toEqual(['"find-skills" reinstalled from o/r'])
-    expect(h.fs.has('/home/u/.agents/skills/find-skills/SKILL.md')).toBe(true)
-    expect(h.fs.has(`/home/u/.agents/skills/find-skills/${MANIFEST_FILE}`)).toBe(true)
+    expect(h.fs.has(`${GLOBAL_DIR}/SKILL.md`)).toBe(true)
+    expect(h.fs.has(`${GLOBAL_DIR}/references/note.md`)).toBe(true)
   })
 
   it('notes providers that are not synced yet and skips present skills', async () => {
     const h = makeHarness({
       '/home/u/.agents/skills/find-skills/SKILL.md': SKILL('find-skills'),
     }, {
-      installed: [
-        { name: 'find-skills', providerId: 'o-r', providerSpec: 'o/r', skillPath: 'skills/find-skills', version: 'v', installedAt: 't' },
-        { name: 'missing', providerId: 'github.com/none/none', providerSpec: 'none/none', skillPath: 'skills/missing', version: 'v', installedAt: 't' },
+      installations: [
+        { name: 'find-skills', providerId: 'o-r', providerSpec: 'o/r', skillPath: 'skills/find-skills' },
+        { name: 'missing', providerId: 'none', providerSpec: 'none/none', skillPath: 'skills/missing' },
       ],
     })
     const notes = await h.service.reconcileInstalled()

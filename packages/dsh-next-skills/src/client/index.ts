@@ -41,7 +41,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 const RPC_PATH = '/dsh-next-skills/rpc'
 
-function rpc(method: string, args?: unknown): Promise<unknown> {
+function rpc(method: string, args: unknown | undefined, t: (key: MessageKey, params?: Record<string, string | number>) => string): Promise<unknown> {
   return fetch(RPC_PATH, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -49,17 +49,17 @@ function rpc(method: string, args?: unknown): Promise<unknown> {
   }).then((res) => {
     if (res.ok) return res.json()
     // Prefer the server's JSON `{ error }` message so business failures surface
-    // readable text; fall back to a generic HTTP status when the body is not JSON.
+    // readable text; fall back to a localized HTTP status when the body is not JSON.
     return res.json()
       .then((body) => {
         const msg = body && typeof body === 'object' && typeof (body as { error?: unknown }).error === 'string'
           ? (body as { error: string }).error
-          : `HTTP ${res.status}`
+          : t('rpc.failed', { method, status: res.status })
         throw new Error(msg)
       })
       .catch((error: unknown) => {
         if (error instanceof Error && error.message !== '') throw error
-        throw new Error('dsh-next-skills rpc ' + method + ' failed: HTTP ' + res.status)
+        throw new Error(t('rpc.failed', { method, status: res.status }))
       })
   })
 }
@@ -113,7 +113,7 @@ export function apply(ctx: Context): void {
     const off = slots.register(
       { name: 'settings.section', id: 'skills', order: 16, label: () => t('nav'), locale: NS },
       () => React.createElement(SkillsPanel, {
-        rpc: (method: string, args?: unknown) => rpc(method, args),
+        rpc: (method: string, args?: unknown) => rpc(method, args, t),
         getWorkspaces,
         notifyInstalledChanged,
         t,

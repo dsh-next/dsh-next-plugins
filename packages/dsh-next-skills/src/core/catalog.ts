@@ -11,11 +11,31 @@ import type * as T from './types.ts'
  * is the repository's honest content. */
 export const MAX_FILES_PER_SKILL = 200
 
-/** Build the marketplace skill view rows from a persisted catalog. */
+/** Build the marketplace skill view rows from a persisted catalog.
+ *
+ * A provider may store one skill in several directories — a canonical
+ * `skills/<name>` plus translation copies under `docs/<locale>/skills/<name>`
+ * and vendor copies under `.kiro`/`.agents`/`.cursor/skills`. Each becomes its
+ * own catalog row, which would flood the marketplace with duplicate Add cards
+ * for the same skill name. The view therefore collapses rows to one per
+ * `(provider, name)`, preferring the canonical `skills/<name>` copy when one
+ * exists and otherwise the first (path-sorted) copy. Cross-provider same-name
+ * rows stay separate: each provider is an independent source.
+ */
 export function catalogSkillViews(catalog: T.Catalog): T.CatalogSkillView[] {
   const out: T.CatalogSkillView[] = []
   for (const provider of catalog.providers) {
+    // One representative skill per name within this provider: a canonical
+    // `skills/<name>` copy wins when present; otherwise the lexicographically
+    // first path. Deterministic regardless of catalog array order.
+    const byName = new Map<string, T.CatalogSkill>()
     for (const skill of provider.skills) {
+      const current = byName.get(skill.name)
+      if (current === undefined || compareCatalogCopies(skill, current) < 0) {
+        byName.set(skill.name, skill)
+      }
+    }
+    for (const skill of byName.values()) {
       out.push({
         name: skill.name,
         description: skill.description,
@@ -27,7 +47,21 @@ export function catalogSkillViews(catalog: T.Catalog): T.CatalogSkillView[] {
       })
     }
   }
-  return out.sort((a, b) => a.name.localeCompare(b.name) || a.providerSpec.localeCompare(b.providerSpec))
+  return out.sort((a, b) => a.name.localeCompare(b.name) || a.providerSpec.localeCompare(b.providerSpec) || a.skillPath.localeCompare(b.skillPath))
+}
+
+/** Ordering for two copies of one skill name: canonical first, then path.
+ *  Returns <0 when `a` is the better representative. */
+function compareCatalogCopies(a: T.CatalogSkill, b: T.CatalogSkill): number {
+  const ac = isCanonicalPath(a) ? 1 : 0
+  const bc = isCanonicalPath(b) ? 1 : 0
+  if (ac !== bc) return bc - ac
+  return a.skillPath.localeCompare(b.skillPath)
+}
+
+/** Whether a skill is the canonical `skills/<name>` copy of its provider repo. */
+function isCanonicalPath(skill: T.CatalogSkill): boolean {
+  return skill.skillPath === `skills/${skill.name}`
 }
 
 /** Build the provider status rows from a persisted catalog. */

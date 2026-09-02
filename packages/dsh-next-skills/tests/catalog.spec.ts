@@ -54,6 +54,43 @@ describe('catalog views', () => {
     expect(skills.filter((s) => s.name === 'find-skills')).toHaveLength(2)
     expect(skills.filter((s) => s.name === 'find-skills').map((s) => s.providerSpec)).toEqual(['a/b', 'c/d'])
   })
+  it('collapses within-provider name duplicates, preferring the canonical skills/<name> copy', () => {
+    const withCopies: Catalog = {
+      providers: [
+        {
+          id: 'a-b',
+          spec: 'a/b',
+          lastRefresh: '',
+          skills: [
+            { name: 'find-skills', description: 'Find skills', cacheDir: 'docs__es__skills__find-skills', skillPath: 'docs/es/skills/find-skills', version: 'es', files: [{ path: 'SKILL.md', sha: 's0' }] },
+            { name: 'find-skills', description: 'Find skills', cacheDir: 'skills__find-skills', skillPath: 'skills/find-skills', version: 'v1', files: [{ path: 'SKILL.md', sha: 's1' }] },
+            { name: 'find-skills', description: 'Find skills', cacheDir: 'docs__ja-JP__skills__find-skills', skillPath: 'docs/ja-JP/skills/find-skills', version: 'ja', files: [{ path: 'SKILL.md', sha: 's2' }] },
+          ],
+        },
+      ],
+    }
+    const skills = catalogSkillViews(withCopies)
+    expect(skills).toHaveLength(1)
+    expect(skills[0]).toMatchObject({ name: 'find-skills', providerId: 'a-b', skillPath: 'skills/find-skills', version: 'v1' })
+  })
+  it('without a canonical skills/<name> copy, keeps the first (path-sorted) copy', () => {
+    const noCanonical: Catalog = {
+      providers: [
+        {
+          id: 'u-x',
+          spec: 'u/x',
+          lastRefresh: '',
+          skills: [
+            { name: 'brand', description: 'Brand', cacheDir: 'cli__assets__skills__brand', skillPath: 'cli/assets/skills/brand', version: 'c', files: [{ path: 'SKILL.md', sha: 's1' }] },
+            { name: 'brand', description: 'Brand', cacheDir: '.claude__skills__brand', skillPath: '.claude/skills/brand', version: 'd', files: [{ path: 'SKILL.md', sha: 's2' }] },
+          ],
+        },
+      ],
+    }
+    const skills = catalogSkillViews(noCanonical)
+    expect(skills).toHaveLength(1)
+    expect(skills[0].skillPath).toBe('.claude/skills/brand')
+  })
 })
 
 describe('parseCatalog', () => {

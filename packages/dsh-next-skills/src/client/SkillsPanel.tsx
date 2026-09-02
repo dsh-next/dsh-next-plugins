@@ -62,7 +62,7 @@ type Tab = 'skills' | 'providers'
 const PAGE_SIZE = 30
 
 /** Mutations whose success changes the skill set the chat UI surfaces. */
-const CATALOG_MUTATIONS = new Set(['installSkill', 'setSkillScope', 'updateSkill', 'uninstallSkill', 'addProvider', 'removeProvider'])
+const CATALOG_MUTATIONS = new Set(['installSkill', 'setSkillScope', 'updateSkill', 'uninstallSkill', 'addProvider', 'removeProvider', 'reconcileInstalled'])
 
 function isMutationError(result: unknown): result is { ok: false; error: string } {
   return !!result && typeof result === 'object' && (result as { ok?: unknown }).ok === false
@@ -305,14 +305,26 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
       }
     }
     setRefreshingId(undefined)
-    if (failures.length > 0) {
-      setMessage({
-        ok: false,
-        text: t('providers.refreshFailed', { count: failures.length, items: failures.join('; ') }),
-      })
-    } else {
-      setMessage({ ok: true, text: t('status.done') })
+    // Heal the replica before reporting: recorded skills whose files were
+    // missing (a cloned settings section, or a failed first-boot sync)
+    // install now that the snapshots are cached.
+    const healed: string[] = []
+    try {
+      const result = await deps.rpc('reconcileInstalled') as MutationResult
+      if (!isMutationError(result)) {
+        if (result.warning !== undefined) healed.push(result.warning)
+        if (result.state !== undefined) setState(result.state)
+        deps.notifyInstalledChanged?.()
+      }
+    } catch {
+      // The next refresh retries; the state refresh above already reflects
+      // whatever the caches could serve.
     }
+    let text = failures.length > 0
+      ? t('providers.refreshFailed', { count: failures.length, items: failures.join('; ') })
+      : t('status.done')
+    if (healed.length > 0) text += ` — ${healed.join('; ')}`
+    setMessage({ ok: failures.length === 0, text })
     setBusy(false)
   }
 

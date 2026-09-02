@@ -402,7 +402,10 @@ export class SkillsService {
     return { ok: true, state: await this.state() }
   }
 
-  /** Re-sync one provider; a failure is recorded on its catalog row. */
+  /** Re-sync one provider; a failure is recorded on its catalog row. The
+   *  trailing reconcile heals the replica: recorded skills whose files are
+   *  missing (e.g. a cloned settings section, or a first boot whose sync
+   *  failed) install now that the snapshot is in the cache. */
   async refreshProvider(id: string): Promise<MutationResult> {
     const provider = this.config().providers.find((p) => p.id === id)
     if (provider === undefined) return { ok: false, error: `provider "${id}" is not configured` }
@@ -413,7 +416,18 @@ export class SkillsService {
       await this.store.markProviderError(id, message, provider.spec).catch(() => {})
       return { ok: false, error: message }
     }
-    return { ok: true, state: await this.state() }
+    const notes = await this.reconcileInstalled()
+    const healed = notes.filter((n) => n.includes('reinstalled from'))
+    return { ok: true, state: await this.state(), ...(healed.length > 0 ? { warning: healed.join('; ') } : {}) }
+  }
+
+  /** Restore every recorded-but-missing skill from the synced caches: the
+   *  settings section is the source, the disk is its replica. Exposed to the
+   *  panel so a manual Refresh ends with the replica healed. */
+  async reconcile(): Promise<MutationResult> {
+    const notes = await this.reconcileInstalled()
+    const healed = notes.filter((n) => n.includes('reinstalled from'))
+    return { ok: true, state: await this.state(), ...(healed.length > 0 ? { warning: healed.join('; ') } : {}) }
   }
 
   /** Re-sync every configured provider; failures are collected per provider. */

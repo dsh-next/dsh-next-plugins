@@ -75,7 +75,11 @@ cache under `$DSH_HOME/skills-market/` and the per-skill
 settings record does not exist as far as the panel is concerned). After the
 provider caches sync, a skill recorded in settings whose files are missing is
 reinstalled from the cache, so copying the settings section to a teammate
-(or a new machine) reproduces the same skill set.
+(or a new machine) reproduces the same skill set: providers configure
+immediately, the first boot syncs the caches and installs the recorded
+skills, and scopes apply as-is (they are folder names). Every Refresh all
+ends with the same reconcile, so a provider that failed during a first
+boot's sync self-corrects on the next refresh.
 
 Removal is recoverable: confirming the modal moves a managed skill into the
 `.trash` directory of its root (skipped by discovery), so an accidental

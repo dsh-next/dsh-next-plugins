@@ -442,6 +442,24 @@ describe('providers tab', () => {
     await unmount()
   })
 
+  it('refresh all ends with a reconcile that surfaces reinstalled skills', async () => {
+    const rpc: RpcFn = vi.fn(async (method: string) => {
+      if (method === 'getState') return STATE
+      if (method === 'refreshProvider') return { ok: true, state: STATE }
+      if (method === 'reconcileInstalled') {
+        return { ok: true, state: STATE, warning: '"find-skills" reinstalled from vercel-labs/skills' }
+      }
+      return { ok: true, state: STATE }
+    })
+    const { container, unmount } = await openProviders(rpc)
+    await click(byTestId(container, 'skills-provider-refresh-all'))
+    await act(async () => {})
+    const call = rpcCalls(rpc).find(([m]) => m === 'reconcileInstalled')
+    expect(call).toBeTruthy()
+    expect(byTestId(container, 'skills-message').textContent).toContain('reinstalled from vercel-labs/skills')
+    await unmount()
+  })
+
   it('an error response surfaces in the message banner', async () => {
     const rpc: RpcFn = vi.fn(async (method: string) => {
       if (method === 'getState') return STATE

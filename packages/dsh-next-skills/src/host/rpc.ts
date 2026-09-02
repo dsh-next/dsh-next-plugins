@@ -74,6 +74,7 @@ export function registerRpc(ctx: Context, service: SkillsService): void {
     removeProvider: (args) => service.removeProvider(str(record(args).providerId)),
     refreshProvider: (args) => service.refreshProvider(str(record(args).providerId)),
     refreshProviders: () => service.refreshProviders(),
+    reconcileInstalled: () => service.reconcile(),
     getCatalogSkillDetail: (args) => {
       const a = record(args)
       return service.getCatalogSkillDetail({ providerId: str(a.providerId), skillPath: str(a.skillPath) })

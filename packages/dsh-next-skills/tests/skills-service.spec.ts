@@ -304,6 +304,28 @@ describe('provider management on the settings config', () => {
     const h = makeHarness()
     expect(await h.service.refreshProvider('o-r')).toEqual({ ok: false, error: 'provider "o-r" is not configured' })
   })
+
+  it('refreshProvider heals the replica: a recorded-but-missing skill reinstalls', async () => {
+    const h = makeHarness()
+    await seedCatalog(h)
+    await h.service.installSkill({ providerId: 'o-r', skillPath: 'skills/find-skills' })
+    // The clone-sharing failure mode: the settings record exists but the
+    // files (or the whole global root) are missing until the cache syncs.
+    await h.fs.rm('/home/u/.agents/skills/find-skills', { recursive: true, force: true })
+    const result = await h.service.refreshProvider('o-r')
+    expect(result.ok).toBe(true)
+    expect(result.warning).toContain('find-skills')
+    expect(result.warning).toContain('reinstalled from o/r')
+    expect(h.fs.has('/home/u/.agents/skills/find-skills/SKILL.md')).toBe(true)
+  })
+
+  it('reconcile with nothing missing answers without a warning', async () => {
+    const h = makeHarness()
+    await seedCatalog(h)
+    const result = await h.service.reconcile()
+    expect(result).toMatchObject({ ok: true })
+    expect(result).not.toHaveProperty('warning')
+  })
 })
 
 describe('ensureDefaultProviders', () => {

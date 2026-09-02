@@ -335,10 +335,15 @@ export class SkillsService {
     return skillDetailFromContent(content)
   }
 
-  /** Full SKILL.md content for a discovered skill (detail modal). */
-  async getInstalledSkillDetail(args: { name: string; workspacePaths?: readonly string[] }): Promise<SkillDetail | undefined> {
+  /** Full SKILL.md content for a discovered skill (detail modal). The copy is
+   *  resolved by its `path` when given — under the per-copy model a name may
+   *  have several copies, and the modal must show the body of the copy whose
+   *  name was clicked, not the first name match. */
+  async getInstalledSkillDetail(args: { name: string; path?: string; workspacePaths?: readonly string[] }): Promise<SkillDetail | undefined> {
     const rows = await this.listInstalled(args.workspacePaths)
-    const row = rows.find((r) => r.name === args.name)
+    const row = args.path !== undefined
+      ? rows.find((r) => r.path === args.path && r.name === args.name)
+      : rows.find((r) => r.name === args.name)
     if (row === undefined) return undefined
     let content: string
     try {

@@ -96,7 +96,7 @@ export function registerRpc(ctx: Context, service: SkillsService): void {
     },
     getInstalledSkillDetail: (args) => {
       const a = record(args)
-      return service.getInstalledSkillDetail({ name: str(a.name), workspacePaths: strArray(a.workspacePaths) })
+      return service.getInstalledSkillDetail({ name: str(a.name), path: optStr(a.path), workspacePaths: strArray(a.workspacePaths) })
     },
   }
 

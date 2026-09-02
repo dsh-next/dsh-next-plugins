@@ -467,7 +467,11 @@ describe('detail modal', () => {
     await click(byTestId(container, 'skills-detail'))
     const detail = byTestId(container, 'skills-skill-detail')
     await act(async () => {})
-    expect(rpcCalls(rpc).find(([m]) => m === 'getInstalledSkillDetail')).toBeTruthy()
+    const call = rpcCalls(rpc).find(([m]) => m === 'getInstalledSkillDetail')
+    expect(call).toBeTruthy()
+    // The click's copy path rides the detail RPC, so a name with several
+    // copies opens the body of the copy that was clicked, not the first.
+    expect(call![1]).toMatchObject({ name: 'security-review', path: '/a/SKILL.md' })
     const body = byTestId(detail, 'skills-detail-body')
     expect(body.querySelector('h1')?.textContent).toBe('Heading')
     expect(body.querySelector('p')?.textContent).toBe('Paragraph text.')

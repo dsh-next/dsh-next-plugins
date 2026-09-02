@@ -569,4 +569,25 @@ describe('detail payloads', () => {
     const detail = await h.service.getInstalledSkillDetail({ name: 'w', workspacePaths: ['/repo'] })
     expect(detail).toMatchObject({ name: 'w' })
   })
+
+  it('resolves the detail by copy path when the name has several copies', async () => {
+    const h = makeHarness({
+      '/home/u/.agents/skills/dup/SKILL.md': '---\nname: dup\ndescription: global\n---\nGLOBAL-BODY\n',
+      '/repo/.agents/skills/dup/SKILL.md': '---\nname: dup\ndescription: workspace\n---\nWORKSPACE-BODY\n',
+    })
+    const global = await h.service.getInstalledSkillDetail({
+      name: 'dup',
+      path: '/home/u/.agents/skills/dup/SKILL.md',
+      workspacePaths: ['/repo'],
+    })
+    const workspace = await h.service.getInstalledSkillDetail({
+      name: 'dup',
+      path: '/repo/.agents/skills/dup/SKILL.md',
+      workspacePaths: ['/repo'],
+    })
+    expect(global!.body).toBe('GLOBAL-BODY\n')
+    expect(workspace!.body).toBe('WORKSPACE-BODY\n')
+    // A path that does not match the name is not served.
+    expect(await h.service.getInstalledSkillDetail({ name: 'dup', path: '/home/u/.agents/skills/other/SKILL.md', workspacePaths: ['/repo'] })).toBeUndefined()
+  })
 })

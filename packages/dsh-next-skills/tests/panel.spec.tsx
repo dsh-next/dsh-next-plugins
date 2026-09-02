@@ -2,10 +2,11 @@
  * jsdom render test for the Skills settings panel: proves the panel renders
  * the cc-plugins-style page (Skills / Providers tabs over a two-column card
  * grid) from the Host envelope and that the interactive controls dispatch the
- * right RPC calls — the scope modal (add / re-scope), the per-copy Update and
- * Delete controls, the detail modal (markdown body), the provider filter, and
- * the notification hook. Complements the Host RPC contract test (shape) and
- * the real-mount e2e marker (whole shell).
+ * right RPC calls — the scope modal (Add for catalog-only rows / Manage for
+ * installed copies), the per-copy Update and two-step Delete controls, the
+ * detail modal (markdown body), the provider filter, and the notification
+ * hook. Complements the Host RPC contract test (shape) and the real-mount e2e
+ * marker (whole shell).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as React from 'react'
@@ -30,6 +31,14 @@ const STATE: SkillsState = {
     { name: 'find-skills', description: 'Find skills', providerId: 'o-r', providerSpec: 'o/r', skillPath: 'skills/find-skills', version: 'v1' },
     { name: 'deploy-helper', description: 'Deploy things', providerId: 'o-r', providerSpec: 'o/r', skillPath: 'skills/deploy-helper', version: 'v2' },
   ],
+}
+
+/** A second copy of `security-review` under a workspace root, with no update. */
+const workspaceCopy: InstalledSkill = {
+  ...skill, scope: 'workspace', source: 'project-agents', provider: undefined,
+  updateAvailable: undefined, updateCandidates: undefined,
+  path: '/w1/.agents/skills/security-review/SKILL.md',
+  directory: '/w1/.agents/skills/security-review',
 }
 
 const WS: WorkspaceRow[] = [
@@ -111,6 +120,11 @@ function byTestId(container: HTMLElement, id: string): HTMLElement {
   return found as HTMLElement
 }
 
+/** Every element carrying a testid (used to assert several copies of a card). */
+function allByTestId(container: HTMLElement, id: string): HTMLElement[] {
+  return [...container.querySelectorAll<HTMLElement>(`[data-testid="${id}"]`)]
+}
+
 function dialog(container: HTMLElement): HTMLElement {
   return byTestId(container, 'skills-modal')
 }
@@ -139,31 +153,40 @@ describe('grid composition (buildGridEntries + filterEntries)', () => {
   })
   it('a discovered row adopts its provider spec, and catalog entries carry the filter id', () => {
     const entries = buildGridEntries(STATE)
-    // The row has no same-name catalog entry: no provider id, but the row's
-    // own provider spec feeds the label.
+    // The installed copy has no same-name catalog entry in STATE, so there is
+    // no provider id, but the row's own provider spec feeds the label.
     expect(entries[0].providerId).toBeUndefined()
     expect(entries[0].providerSpec).toBe('o/r')
     expect(entries[1].providerId).toBe('o-r')
   })
-  it('duplicate copies of one name collapse into one entry that keeps every copy', () => {
-    const workspaceCopy: InstalledSkill = {
-      ...skill, scope: 'workspace', source: 'project-agents', provider: undefined,
-      updateAvailable: undefined, updateCandidates: undefined,
-      path: '/w1/.agents/skills/security-review/SKILL.md',
-      directory: '/w1/.agents/skills/security-review',
-    }
+  it('duplicate copies of one name stay split: one entry per copy with its own key', () => {
     const entries = buildGridEntries({ ...STATE, installed: [skill, workspaceCopy] })
-    const grouped = entries.filter((e) => e.name === 'security-review')
-    expect(grouped).toHaveLength(1)
-    expect(grouped[0].copies).toEqual([skill, workspaceCopy])
-    expect(grouped[0].row).toBe(skill) // first copy drives the name-level UI
-    expect(grouped[0].key).toBe('row:security-review')
+    const security = entries.filter((e) => e.name === 'security-review')
+    // Two copies -> two entries, not one grouped card.
+    expect(security).toHaveLength(2)
+    // Each entry points at its single copy via `row` and a source:path key.
+    // (Sort is name then providerSpec, so the provider-less workspace copy
+    // comes before the provider-installed global copy.)
+    expect(security.map((e) => e.key)).toEqual([
+      'row:project-agents:/w1/.agents/skills/security-review/SKILL.md',
+      'row:user-agents:/a/SKILL.md',
+    ])
+    const globalEntry = security.find((e) => e.row === skill)!
+    const workspaceEntry = security.find((e) => e.row === workspaceCopy)!
+    expect(globalEntry.key).toBe('row:user-agents:/a/SKILL.md')
+    expect(workspaceEntry.key).toBe('row:project-agents:/w1/.agents/skills/security-review/SKILL.md')
+    // The ordered rows come before the two catalog-only entries.
+    expect(entries.map((e) => e.name))
+      .toEqual(['security-review', 'security-review', 'deploy-helper', 'find-skills'])
   })
   it('filters by search, provider, and installed-only', () => {
     const entries = buildGridEntries(STATE)
     expect(filterEntries(entries, 'deploy', '', false).map((e) => e.name)).toEqual(['deploy-helper'])
     expect(filterEntries(entries, '', 'p-q', false)).toEqual([])
+    // Installed-only keeps the copy (row set) and drops catalog-only rows.
     expect(filterEntries(entries, '', '', true).map((e) => e.name)).toEqual(['security-review'])
+    // Catalog-only entries (no row) are excluded by the installed-only toggle.
+    expect(filterEntries(entries, '', '', true).every((e) => e.row !== undefined)).toBe(true)
   })
 })
 
@@ -191,12 +214,14 @@ describe('SkillsPanel rendering', () => {
     expect(byTestId(container, 'skills-tab-providers')).toBeTruthy()
     expect(byTestId(container, 'skills-search')).toBeTruthy()
     expect(byTestId(container, 'skills-provider-filter')).toBeTruthy()
+    // One installed copy plus two catalog-only skills -> three cards.
     const cards = container.querySelectorAll('[data-testid="skills-card"]')
     expect(cards).toHaveLength(3)
-    // The installed card shows the presence badge and one Add/Manage button.
+    // The installed card shows the presence badge and Manage/Delete actions.
     expect(byTestId(container, 'skills-presence').textContent).toBe('Everywhere')
-    expect(byTestId(container, 'skills-add')).toBeTruthy()
-    // The copy with an update candidate carries the Update button.
+    expect(byTestId(container, 'skills-manage')).toBeTruthy()
+    expect(byTestId(container, 'skills-delete')).toBeTruthy()
+    // The installed copy with an update candidate carries the Update button.
     expect(byTestId(container, 'skills-update')).toBeTruthy()
     await unmount()
   })
@@ -208,21 +233,36 @@ describe('SkillsPanel rendering', () => {
     expect(call![1]).toEqual({ workspacePaths: ['/w1', '/w2'] })
   })
 
-  it('renders one row per discovered copy with its own source chip and controls', async () => {
-    const workspaceCopy: InstalledSkill = {
-      ...skill, scope: 'workspace', source: 'project-agents', provider: undefined,
-      updateAvailable: undefined, updateCandidates: undefined,
-      path: '/w1/.agents/skills/security-review/SKILL.md',
-      directory: '/w1/.agents/skills/security-review',
-    }
+  it('renders one card per discovered copy, each with its own source chip and controls', async () => {
     const { container, unmount } = await render(rpcMock({ ...STATE, installed: [skill, workspaceCopy] }), WS)
-    const copies = [...container.querySelectorAll('[data-testid="skills-copy"]')]
-    expect(copies).toHaveLength(2)
-    expect(copies[0].textContent).toContain('user .agents')
-    expect(copies[1].textContent).toContain('project .agents')
+    // Two copies of the same name -> two cards (plus two catalog-only skills).
+    const cards = allByTestId(container, 'skills-card')
+    expect(cards).toHaveLength(4)
+    // Find each copy's card by its origin source chip, regardless of sort order.
+    const userCard = cards.find((c) => c.textContent!.includes('user .agents'))!
+    const projectCard = cards.find((c) => c.textContent!.includes('project .agents'))!
+    expect(userCard).toBeTruthy()
+    expect(projectCard).toBeTruthy()
+    expect(userCard).not.toBe(projectCard)
     // Only the copy with an update candidate gets the Update control.
-    expect(copies[0].querySelector('[data-testid="skills-update"]')).toBeTruthy()
-    expect(copies[1].querySelector('[data-testid="skills-update"]')).toBeNull()
+    expect(userCard.querySelector('[data-testid="skills-update"]')).toBeTruthy()
+    expect(projectCard.querySelector('[data-testid="skills-update"]')).toBeNull()
+    // Every installed copy has its own Manage and Delete, side by side.
+    for (const card of [userCard, projectCard]) {
+      expect(card.querySelector('[data-testid="skills-manage"]')).toBeTruthy()
+      expect(card.querySelector('[data-testid="skills-delete"]')).toBeTruthy()
+    }
+    await unmount()
+  })
+
+  it('the provider chip renders only for a copy whose provider is set', async () => {
+    const { container, unmount } = await render(rpcMock({ ...STATE, installed: [skill, workspaceCopy] }), WS)
+    const cards = allByTestId(container, 'skills-card')
+    const userCard = cards.find((c) => c.textContent!.includes('user .agents'))!
+    const projectCard = cards.find((c) => c.textContent!.includes('project .agents'))!
+    // The global copy is provider-installed (o/r); the workspace copy is not.
+    expect(userCard.textContent).toContain('o/r')
+    expect(projectCard.textContent).not.toContain('o/r')
     await unmount()
   })
 
@@ -238,18 +278,50 @@ describe('SkillsPanel rendering', () => {
     await unmount()
   })
 
-  it('the per-copy Delete button calls deleteSkill with that copy coordinates', async () => {
-    const workspaceCopy: InstalledSkill = {
-      ...skill, scope: 'workspace', source: 'project-agents', provider: undefined,
-      updateAvailable: undefined, updateCandidates: undefined,
-      path: '/w1/.agents/skills/security-review/SKILL.md',
-      directory: '/w1/.agents/skills/security-review',
-    }
+  it('the per-copy Delete button opens the confirm modal without deleting yet', async () => {
     const rpc = rpcMock({ ...STATE, installed: [skill, workspaceCopy] })
     const { container, unmount } = await render(rpc, WS)
-    const deletes = [...container.querySelectorAll('[data-testid="skills-delete"]')]
+    const deletes = allByTestId(container, 'skills-delete')
     expect(deletes).toHaveLength(2)
-    await click(deletes[1]) // the workspace copy
+    // Target the workspace copy's card (identified by its source chip).
+    const projectCard = [...container.querySelectorAll('[data-testid="skills-card"]')]
+      .find((c) => c.textContent!.includes('project .agents'))!
+    await click(projectCard.querySelector('[data-testid="skills-delete"]')!)
+    await act(async () => {})
+    // The confirm modal is present and no deleteSkill RPC has fired.
+    const confirm = byTestId(container, 'skills-delete-confirm')
+    expect(confirm.textContent).toContain('Delete security-review?')
+    expect(confirm.textContent).toContain('trash')
+    expect(byTestId(confirm, 'skills-delete-path').textContent)
+      .toBe('/w1/.agents/skills/security-review/SKILL.md')
+    expect(rpcCalls(rpc).filter(([m]) => m === 'deleteSkill')).toHaveLength(0)
+    await unmount()
+  })
+
+  it('cancelling the delete confirm leaves the card and issues no deleteSkill', async () => {
+    const rpc = rpcMock({ ...STATE, installed: [skill, workspaceCopy] })
+    const { container, unmount } = await render(rpc, WS)
+    await click(allByTestId(container, 'skills-delete')[1])
+    await act(async () => {})
+    expect(byTestId(container, 'skills-delete-confirm')).toBeTruthy()
+    await click(byTestId(container, 'skills-delete-cancel'))
+    await act(async () => {})
+    // The modal closes and no RPC ran; the copy's cards remain.
+    expect(container.querySelector('[data-testid="skills-delete-confirm"]')).toBeNull()
+    expect(rpcCalls(rpc).filter(([m]) => m === 'deleteSkill')).toHaveLength(0)
+    expect(container.querySelectorAll('[data-testid="skills-card"]')).toHaveLength(4)
+    await unmount()
+  })
+
+  it('confirming the delete calls deleteSkill with the copy directory/kind/path, then closes', async () => {
+    const rpc = rpcMock({ ...STATE, installed: [skill, workspaceCopy] })
+    const { container, unmount } = await render(rpc, WS)
+    const projectCard = [...container.querySelectorAll('[data-testid="skills-card"]')]
+      .find((c) => c.textContent!.includes('project .agents'))!
+    await click(projectCard.querySelector('[data-testid="skills-delete"]')!)
+    await act(async () => {})
+    await click(byTestId(container, 'skills-delete-confirm-btn'))
+    await act(async () => {})
     const call = rpcCalls(rpc).find(([m]) => m === 'deleteSkill')
     expect(call![1]).toEqual({
       name: 'security-review',
@@ -257,6 +329,7 @@ describe('SkillsPanel rendering', () => {
       kind: 'bundle',
       path: '/w1/.agents/skills/security-review/SKILL.md',
     })
+    expect(container.querySelector('[data-testid="skills-delete-confirm"]')).toBeNull()
     await unmount()
   })
 
@@ -320,13 +393,12 @@ describe('SkillsPanel rendering', () => {
   })
 })
 
-describe('scope modal: add + re-scope', () => {
-  it('Add installs the catalog skill with the drafted scope and notifies', async () => {
+describe('scope modal: add + manage', () => {
+  it('Add (catalog-only entry) installs the catalog skill with the drafted scope and notifies', async () => {
     const rpc = rpcMock()
     const notify = vi.fn()
     const { container, unmount } = await render(rpc, WS, notify)
-    // skills-add names the card's single action button (Add or Manage), so
-    // the Add flow targets the deploy-helper card explicitly.
+    // skills-add renders only on catalog-only cards; target the deploy-helper card.
     const addCard = [...container.querySelectorAll('[data-testid="skills-card"]')]
       .find((c) => c.textContent!.includes('deploy-helper'))!
     await click(addCard.querySelector('[data-testid="skills-add"]')!)
@@ -340,10 +412,21 @@ describe('scope modal: add + re-scope', () => {
     await unmount()
   })
 
+  it('Manage (installed copy) opens the scope modal instead of an Add button', async () => {
+    const { container, unmount } = await render(rpcMock(), WS)
+    // Installed copies expose Manage, not Add.
+    expect(container.querySelector('[data-testid="skills-manage"]')).toBeTruthy()
+    await click(byTestId(container, 'skills-manage'))
+    const scope = dialog(container)
+    expect(scope.textContent).toContain('security-review')
+    expect(scope.querySelector('[data-testid="skills-add"]')).toBeNull()
+    await unmount()
+  })
+
   it('the workspaces radio reveals the checklist and Save scopes to the checked workspaces', async () => {
     const rpc = rpcMock()
     const { container, unmount } = await render(rpc, WS)
-    await click(byTestId(container, 'skills-add'))
+    await click(byTestId(container, 'skills-manage'))
     const scope = dialog(container)
     expect(radioByName(scope, 'skills-scope-global').checked).toBe(true)
     await click(radioByName(scope, 'skills-scope-workspaces'))
@@ -371,7 +454,7 @@ describe('scope modal: add + re-scope', () => {
       installed: [{ ...skill, configScope: ['w2'] }],
     }
     const { container, unmount } = await render(rpcMock(state), WS)
-    await click(byTestId(container, 'skills-add'))
+    await click(byTestId(container, 'skills-manage'))
     const scope = dialog(container)
     expect(radioByName(scope, 'skills-scope-workspaces').checked).toBe(true)
     expect(checkboxByTitle(scope, 'Project Two').checked).toBe(true)
@@ -382,7 +465,7 @@ describe('scope modal: add + re-scope', () => {
   it('saving the workspaces mode with none checked disables everywhere', async () => {
     const rpc = rpcMock()
     const { container, unmount } = await render(rpc, WS)
-    await click(byTestId(container, 'skills-add'))
+    await click(byTestId(container, 'skills-manage'))
     const scope = dialog(container)
     await click(radioByName(scope, 'skills-scope-workspaces'))
     await click(button(scope, 'Save scope'))
@@ -391,7 +474,16 @@ describe('scope modal: add + re-scope', () => {
     await unmount()
   })
 
-  it('a copy without an update candidate has no Update control but still scopes and deletes', async () => {
+  it('the scope modal is scope-only: no per-copy Update or Delete inside', async () => {
+    const { container, unmount } = await render(rpcMock(), WS)
+    await click(byTestId(container, 'skills-manage'))
+    const scope = dialog(container)
+    expect(scope.querySelector('[data-testid="skills-update"]')).toBeNull()
+    expect(scope.querySelector('[data-testid="skills-delete"]')).toBeNull()
+    await unmount()
+  })
+
+  it('a copy without an update candidate has no Update control but still manages and deletes', async () => {
     const state: SkillsState = {
       ...STATE,
       installed: [{ ...skill, provider: undefined, updateAvailable: undefined, updateCandidates: undefined }],
@@ -400,7 +492,7 @@ describe('scope modal: add + re-scope', () => {
     const { container, unmount } = await render(rpc)
     expect(container.querySelector('[data-testid="skills-update"]')).toBeNull()
     expect(byTestId(container, 'skills-delete')).toBeTruthy()
-    await click(byTestId(container, 'skills-add'))
+    await click(byTestId(container, 'skills-manage'))
     const scope = dialog(container)
     await click(button(scope, 'Save scope'))
     const call = rpcCalls(rpc).find(([m]) => m === 'setSkillScope')
@@ -437,7 +529,6 @@ describe('detail modal', () => {
       }))
     })
     await act(async () => {})
-    const baseCalls = rpcCalls(rpc).length
     await click(byTestId(container, 'skills-detail'))
     await act(async () => {})
     const detail = byTestId(container, 'skills-skill-detail')
@@ -446,7 +537,6 @@ describe('detail modal', () => {
     // No render loop: the detail RPC fired exactly once for this open.
     const detailCalls = rpcCalls(rpc).filter(([m]) => m === 'getInstalledSkillDetail').length
     expect(detailCalls).toBe(1)
-    void baseCalls
     await act(async () => root.unmount())
     container.remove()
   })

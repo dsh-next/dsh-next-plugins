@@ -164,16 +164,16 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
   // nav level as General/Models/Plugins) with Skills and Providers tabs over
   // a card grid, backed by the settings.yaml configuration. Opening it must
   // reveal the tab bar and the seeded throwaway skill's card; the card's
-  // scope modal must offer Global vs the workspaces checklist and the copy
-  // row's Delete must remove the skill end-to-end (guards a client-side
-  // state-refresh regression the "section renders" check cannot see).
-  // No network: providers are only added manually.
+  // scope modal must offer Global vs the workspaces checklist and the red
+  // Delete must remove the skill end-to-end through the two-step confirm
+  // (guards a client-side state-refresh regression the "section renders"
+  // check cannot see). No network: providers are only added manually.
   'dsh-next-skills': async (page) => {
     await openSkillsSection(page)
     await expect(page.getByText('Providers', { exact: true })).toBeVisible()
     const card = page.locator('[data-testid="skills-card"]', { hasText: 'e2e-test-skill' }).first()
     await expect(card).toBeVisible()
-    await card.locator('[data-testid="skills-add"]').click()
+    await card.locator('[data-testid="skills-manage"]').click()
     const modal = page.getByTestId('skills-modal')
     await expect(modal).toBeVisible()
     await expect(page.getByTestId('skills-scope-global').locator('input')).toBeChecked()
@@ -185,11 +185,14 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     const wsList = page.getByTestId('skills-workspaces')
     await expect(wsList).toContainText('workspace-a')
     await expect(wsList).toContainText('workspace-b')
-    // Per-copy delete drives the real host service; the card disappears.
-    // The seeded skill has one copy, whose Delete button sits on the copy row.
     await modal.locator('[data-testid="skills-modal-confirm"]').click()
-    await expect(card.locator('[data-testid="skills-copy"]').first()).toBeVisible()
-    await card.locator('[data-testid="skills-delete"]').first().click()
+    // Two-step delete drives the real host service; the confirm modal shows
+    // the copy path, and confirming removes the card.
+    await card.locator('[data-testid="skills-delete"]').click()
+    const confirm = page.getByTestId('skills-delete-confirm')
+    await expect(confirm).toBeVisible()
+    await expect(confirm.getByTestId('skills-delete-path')).toContainText('e2e-test-skill')
+    await confirm.getByTestId('skills-delete-confirm-btn').click()
     await expect(page.locator('[data-testid="skills-card"]', { hasText: 'e2e-test-skill' })).toHaveCount(0)
     // Providers tab renders with the add-provider control; the host seeds its
     // default providers shortly after boot, so rows may already be present —

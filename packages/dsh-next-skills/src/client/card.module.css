@@ -170,6 +170,57 @@
   cursor: default;
 }
 
+/* Equal-width action row (Update / Delete / Manage) under a skill card. */
+.cardActions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+  width: 100%;
+}
+
+.cardActions > * {
+  width: 100%;
+}
+
+/* Solid orange "Update" action. */
+.updateBtn {
+  appearance: none;
+  font: inherit;
+  cursor: pointer;
+  border-radius: 8px;
+  padding: 7px 12px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  background: #f97316;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.updateBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Solid red "Delete" action. */
+.deleteBtn {
+  appearance: none;
+  font: inherit;
+  cursor: pointer;
+  border-radius: 8px;
+  padding: 7px 12px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  background: #dc2626;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.deleteBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .noticeOk,
 .noticeErr {
   border-radius: 8px;
@@ -408,24 +459,6 @@
   padding: 1px 8px;
   flex: none;
   white-space: nowrap;
-}
-
-/* Per-copy list under a grouped card. */
-.copies {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 8px;
-}
-
-.copyRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  padding: 4px 8px;
-  border-radius: 8px;
-  background: var(--dsw-alias-bg-layer-2);
 }
 
 /* Origin-root pill for a copy (which `.dsh`/`.agents` root it lives in). */

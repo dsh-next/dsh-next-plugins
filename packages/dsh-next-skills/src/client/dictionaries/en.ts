@@ -72,6 +72,11 @@ export const en = {
   'modal.save': 'Save scope',
   'modal.cancel': 'Cancel',
   'modal.effectHint': 'Scope changes take effect on the next lookup or a new session.',
+  'modal.confirmDelete': 'Delete',
+
+  'delete.aria': 'Delete skill "{name}"',
+  'delete.title': 'Delete {name}?',
+  'delete.hint': 'This moves the copy below into the trash of its root (recoverable).',
 
   'providers.placeholder': 'owner/repo or GitHub URL…',
   'providers.add': 'Add provider',

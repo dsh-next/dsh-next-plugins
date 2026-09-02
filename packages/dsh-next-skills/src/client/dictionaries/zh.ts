@@ -63,6 +63,11 @@ export const zh: Record<MessageKey, string> = {
   'modal.save': '保存作用域',
   'modal.cancel': '取消',
   'modal.effectHint': '作用域更改会在下次查找或新会话时生效。',
+  'modal.confirmDelete': '删除',
+
+  'delete.aria': '删除技能“{name}”',
+  'delete.title': '删除 {name}？',
+  'delete.hint': '这会将下方副本移入其根目录的回收站（可恢复）。',
 
   'providers.placeholder': 'owner/repo 或 GitHub 链接…',
   'providers.add': '添加提供方',

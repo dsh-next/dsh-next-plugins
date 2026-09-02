@@ -4,18 +4,16 @@
  * chrome: `card.module.css` mirrors cc-plugins' module byte-for-byte on every
  * shared class, so the two settings pages read as one product.
  *
- *  - Skills: every discovered skill (project, custom, and user roots) plus
- *    every provider catalog skill in one two-column card grid — rows that
- *    exist on disk first, each group alphabetical, with a provider filter, a
- *    search box, and an installed-only toggle. Each card opens the scope
- *    modal: a radio picks where the skill is enabled — Global (the default,
- *    everywhere) or only in a checklist of workspaces — and installing or
- *    saving applies that scope as pure configuration (enable/disable never
- *    writes skill files; skills install once, into the global root). A
- *    managed card with a newer catalog version carries an Update button, and
- *    the modal manages scope, updates, and uninstalling it (two-step
- *    confirm). The name button opens the skill's full SKILL.md rendered as
- *    markdown.
+ *  - Skills: every discovered skill copy (project `.dsh`/`.agents` and user
+ *    roots) plus every provider catalog skill in one two-column card grid —
+ *    one card per copy, with a provider filter, a search box, and an
+ *    installed-only toggle. Each card shows the name, an origin chip, the
+ *    provider spec, and a presence badge, then an equal-width action row
+ *    below the description: Update (orange, only when a newer catalog
+ *    version exists), Delete (red, two-step confirm), and Manage (opens the
+ *    scope modal — Global by default or a checklist of workspaces).
+ *    Catalog skills with no installed copy render an Add button. The name
+ *    button opens the skill's full SKILL.md rendered as markdown.
  *  - Providers: source management (add by owner/repo shorthand or GitHub
  *    URL, refresh all, remove) with per-source sync age and error rows.
  *
@@ -112,7 +110,7 @@ export function sourceKey(source: string): MessageKey {
   }
 }
 
-/** One card in the skills grid: a name with copies, backed by a catalog skill. */
+/** One card in the skills grid: one discovered copy, or a catalog skill (Add). */
 export interface GridEntry {
   key: string
   name: string
@@ -120,10 +118,8 @@ export interface GridEntry {
   whenToUse?: string
   /** The catalog skill backing this entry (Add flow), when offered. */
   catalog?: CatalogSkillView
-  /** The first discovered copy (convenience for name-level UI). */
+  /** The discovered copy this card manages (undefined for catalog-only rows). */
   row?: InstalledSkill
-  /** Every discovered copy of this name (per-copy delete/update targets). */
-  copies: InstalledSkill[]
   /** Catalog provider id (the provider filter compares ids). */
   providerId?: string
   /** Provider spec label (`owner/repo`), when provider-installed. */
@@ -131,29 +127,23 @@ export interface GridEntry {
 }
 
 /**
- * Group the discovered copies by name and join the provider catalog: one
- * entry per name (copies preserved), catalog-only skills as Add rows.
+ * One card per discovered copy (a skill present in several roots produces a
+ * card per root), joined with the provider catalog; catalog-only skills that
+ * have no copy become Add rows.
  */
 export function buildGridEntries(state: SkillsState): GridEntry[] {
-  const byName = new Map<string, InstalledSkill[]>()
-  for (const row of state.installed) {
-    const list = byName.get(row.name) ?? []
-    list.push(row)
-    byName.set(row.name, list)
-  }
+  const installedNames = new Set(state.installed.map((r) => r.name))
   const byCatalogName = new Map(state.catalog.map((s) => [s.name, s]))
   const compare = (a: GridEntry, b: GridEntry): number =>
     a.name.localeCompare(b.name) || (a.providerSpec ?? '').localeCompare(b.providerSpec ?? '')
-  const rows: GridEntry[] = [...byName.entries()].map(([name, copies]) => {
-    const row = copies[0]
-    const catalog = byCatalogName.get(name)
+  const rows: GridEntry[] = state.installed.map((row) => {
+    const catalog = byCatalogName.get(row.name)
     return {
-      key: `row:${name}`,
-      name,
+      key: `row:${row.source}:${row.path}`,
+      name: row.name,
       description: row.description,
       ...(row.whenToUse !== undefined ? { whenToUse: row.whenToUse } : {}),
       row,
-      copies,
       ...(catalog !== undefined ? { catalog } : {}),
       ...(catalog !== undefined ? { providerId: catalog.providerId } : {}),
       ...(row.provider !== undefined || catalog !== undefined
@@ -162,14 +152,13 @@ export function buildGridEntries(state: SkillsState): GridEntry[] {
     }
   })
   const catalogOnly: GridEntry[] = state.catalog
-    .filter((s) => !byName.has(s.name))
+    .filter((s) => !installedNames.has(s.name))
     .map((s) => ({
       key: `cat:${s.providerId}/${s.skillPath}`,
       name: s.name,
       description: s.description,
       ...(s.whenToUse !== undefined ? { whenToUse: s.whenToUse } : {}),
       catalog: s,
-      copies: [],
       providerId: s.providerId,
       providerSpec: s.providerSpec,
     }))
@@ -185,7 +174,7 @@ export function filterEntries(
 ): GridEntry[] {
   const q = search.trim().toLowerCase()
   return entries.filter((entry) => {
-    if (installedOnly && entry.copies.length === 0) return false
+    if (installedOnly && entry.row === undefined) return false
     if (providerFilter !== '' && entry.providerId !== providerFilter) return false
     if (q !== '' && !`${entry.name} ${entry.description} ${entry.providerSpec ?? ''}`.toLowerCase().includes(q)) return false
     return true
@@ -215,6 +204,8 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
   /** The open detail modal's entry plus its loaded content. */
   const [detail, setDetail] = React.useState<GridEntry | undefined>()
   const [detailData, setDetailData] = React.useState<SkillDetail | undefined>()
+  /** The copy awaiting delete confirmation (two-step before the RPC). */
+  const [confirmDelete, setConfirmDelete] = React.useState<GridEntry | undefined>()
   const [addSpec, setAddSpec] = React.useState('')
   const workspaces = deps.getWorkspaces()
   // Key the memo on the joined paths, not the array: the workspace reader
@@ -242,13 +233,13 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
   }, [refresh])
 
   React.useEffect(() => {
-    if (modal === undefined && detail === undefined) return
+    if (modal === undefined && detail === undefined && confirmDelete === undefined) return
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') { closeModal(); setDetail(undefined); setDetailData(undefined) }
+      if (e.key === 'Escape') { closeModal(); setDetail(undefined); setDetailData(undefined); setConfirmDelete(undefined) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [modal, detail])
+  }, [modal, detail, confirmDelete])
 
   // Load the detail body whenever the detail modal opens for a new entry.
   React.useEffect(() => {
@@ -342,10 +333,10 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
   const updatable = React.useMemo(() => {
     const out: Array<{ name: string; copy: InstalledSkill; candidate: CatalogSkillMatch }> = []
     for (const entry of entries) {
-      for (const copy of entry.copies) {
-        if (copy.updateAvailable !== true || copy.updateCandidates === undefined || copy.updateCandidates.length === 0) continue
-        out.push({ name: entry.name, copy, candidate: copy.updateCandidates[0] })
-      }
+      const copy = entry.row
+      if (copy === undefined) continue
+      if (copy.updateAvailable !== true || copy.updateCandidates === undefined || copy.updateCandidates.length === 0) continue
+      out.push({ name: entry.name, copy, candidate: copy.updateCandidates[0] })
     }
     return out
   }, [entries])
@@ -565,6 +556,37 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
     )
   }
 
+  /** Two-step delete confirm: shows the target copy and path before the RPC. */
+  const confirmDeleteDialog = (): React.ReactElement | null => {
+    if (confirmDelete === undefined || confirmDelete.row === undefined) return null
+    const copy = confirmDelete.row
+    const close = (): void => setConfirmDelete(undefined)
+    const doDelete = (): void => {
+      void mutate('deleteSkill', { name: confirmDelete.name, directory: copy.directory, kind: copy.kind, path: copy.path })
+      close()
+    }
+    return (
+      <div className={styles.overlay} role="presentation" onClick={close}>
+        <div
+          className={styles.modal}
+          role="dialog"
+          aria-modal="true"
+          aria-label={t('delete.aria', { name: confirmDelete.name })}
+          data-testid="skills-delete-confirm"
+          onClick={(e: React.MouseEvent) => e.stopPropagation()}
+        >
+          <p className={styles.modalTitle}>{t('delete.title', { name: confirmDelete.name })}</p>
+          <p className={styles.modalHint}>{t('delete.hint')}</p>
+          <p className={styles.copyPath} data-testid="skills-delete-path">{copy.path}</p>
+          <div className={styles.modalActions}>
+            <button type="button" className={styles.ghost} disabled={busy} onClick={close} data-testid="skills-delete-cancel">{t('modal.cancel')}</button>
+            <button type="button" className={styles.deleteBtn} disabled={busy} onClick={doDelete} data-testid="skills-delete-confirm-btn">{t('modal.confirmDelete')}</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className={styles.page}>
       <div className={styles.tabs} role="tablist">
@@ -642,7 +664,8 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
         <div className={styles.pluginGrid} data-testid="skills-grid">
           {filtered.slice(0, visible).map((entry) => {
             const row = entry.row
-            const installedHere = entry.copies.length > 0
+            const installedHere = row !== undefined
+            const candidate = row !== undefined && row.updateCandidates !== undefined && row.updateCandidates.length > 0 ? row.updateCandidates[0] : undefined
             const presenceTitle = row !== undefined && row.configScope !== undefined ? row.configScope.join('\n') : undefined
             return (
               <div key={entry.key} className={styles.pluginCard} data-testid="skills-card">
@@ -656,62 +679,60 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
                         onClick={() => setDetail(entry)}
                         data-testid="skills-detail"
                       >{entry.name}</button>
+                      {installedHere && <span className={styles.sourceChip}>{t(sourceKey(row.source))}</span>}
+                      {installedHere && row.provider !== undefined && <span className={styles.providerChip}>{row.provider}</span>}
                     </div>
                     <div className={styles.desc}>{entry.description !== '' ? entry.description : t('card.noDescription')}</div>
                   </div>
                   {installedHere && (
                     <div className={styles.badges}>
                       <span className={styles.presenceBadge} data-testid="skills-presence" title={presenceTitle}>
-                        {presenceLabel(row?.configScope, t)}
+                        {presenceLabel(row.configScope, t)}
                       </span>
                     </div>
                   )}
                 </div>
                 {installedHere && (
-                  <div className={styles.copies} data-testid="skills-copies">
-                    {entry.copies.map((copy) => {
-                      const candidate = copy.updateCandidates !== undefined && copy.updateCandidates.length > 0 ? copy.updateCandidates[0] : undefined
-                      const updatable = candidate !== undefined
-                      return (
-                        <div key={copy.directory} className={styles.copyRow} data-testid="skills-copy">
-                          <span className={styles.sourceChip}>{t(sourceKey(copy.source))}</span>
-                          {copy.provider !== undefined && <span className={styles.providerChip}>{copy.provider}</span>}
-                          <span className={styles.copyPath} title={copy.path}>{copy.path}</span>
-                          <div className={styles.rowActions}>
-                            {updatable && (
-                              <button
-                                type="button"
-                                className={styles.ghost}
-                                disabled={busy}
-                                onClick={() => { void mutate('updateSkill', { name: entry.name, directory: copy.directory, providerId: candidate.providerId, skillPath: candidate.skillPath }) }}
-                                data-testid="skills-update"
-                              >{t('card.update')}</button>
-                            )}
-                            <button
-                              type="button"
-                              className={styles.ghostDanger}
-                              disabled={busy}
-                              onClick={() => { void mutate('deleteSkill', { name: entry.name, directory: copy.directory, kind: copy.kind, path: copy.path }) }}
-                              data-testid="skills-delete"
-                            >{t('card.delete')}</button>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-                <div className={styles.pluginCardTop}>
-                  {entry.providerSpec !== undefined && <span className={styles.providerChip}>{entry.providerSpec}</span>}
-                  <div className={styles.rowActions}>
+                  <div className={styles.cardActions} data-testid="skills-actions">
+                    {candidate !== undefined && (
+                      <button
+                        type="button"
+                        className={styles.updateBtn}
+                        disabled={busy}
+                        onClick={() => { void mutate('updateSkill', { name: entry.name, directory: row.directory, providerId: candidate.providerId, skillPath: candidate.skillPath }) }}
+                        data-testid="skills-update"
+                      >{t('card.update')}</button>
+                    )}
                     <button
                       type="button"
-                      className={installedHere ? styles.ghost : styles.primary}
+                      className={styles.deleteBtn}
+                      disabled={busy}
+                      onClick={() => setConfirmDelete(entry)}
+                      data-testid="skills-delete"
+                    >{t('card.delete')}</button>
+                    <button
+                      type="button"
+                      className={styles.ghost}
                       disabled={busy}
                       onClick={() => openModal(entry)}
-                      data-testid="skills-add"
-                    >{installedHere ? t('card.manage') : t('card.add')}</button>
+                      data-testid="skills-manage"
+                    >{t('card.manage')}</button>
                   </div>
-                </div>
+                )}
+                {!installedHere && (
+                  <div className={styles.pluginCardTop}>
+                    {entry.providerSpec !== undefined && <span className={styles.providerChip}>{entry.providerSpec}</span>}
+                    <div className={styles.rowActions}>
+                      <button
+                        type="button"
+                        className={styles.primary}
+                        disabled={busy}
+                        onClick={() => openModal(entry)}
+                        data-testid="skills-add"
+                      >{t('card.add')}</button>
+                    </div>
+                  </div>
+                )}
               </div>
             )
           })}
@@ -798,6 +819,7 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
 
       {modalDialog()}
       {detailDialog()}
+      {confirmDeleteDialog()}
     </div>
   )
 }

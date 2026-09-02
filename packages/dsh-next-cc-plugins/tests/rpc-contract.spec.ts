@@ -63,6 +63,18 @@ describe('cc-plugins state() RPC contract', () => {
     expect((ok as { state?: unknown }).state).toHaveProperty('marketplaces')
   })
 
+  it('refreshMarketplace answers the mutation envelope for one row', async () => {
+    const service = makeService()
+    const missing = await service.refreshMarketplace('missing')
+    expect(missing).toEqual({ ok: false, error: 'marketplace "missing" is not configured' })
+
+    await service.addMarketplace('o/r')
+    const ok = await service.refreshMarketplace('github:o/r')
+    expect(ok).toHaveProperty('ok', true)
+    expect(typeof (ok as { message?: unknown }).message).toBe('string')
+    expect((ok as { state?: unknown }).state).toHaveProperty('marketplaces')
+  })
+
   it('state.installed entries carry the normalized record fields', async () => {
     const service = makeService()
     await service.addMarketplace('o/r')

@@ -496,7 +496,7 @@ describe('CcPanel', () => {
   it('shows the mutation message and surfaces failures', async () => {
     await renderAsync()
     await act(async () => { button('Marketplaces').click() })
-    await act(async () => { button('Refresh all').click() })
+    await act(async () => { button('Remove').click() })
     expect(document.querySelector('[data-testid="cc-message"]')?.textContent).toContain('done')
 
     const rpc = vi.fn<RpcFn>(async (method: string) => {
@@ -505,7 +505,7 @@ describe('CcPanel', () => {
     })
     await renderAsync({ rpc })
     await act(async () => { button('Marketplaces').click() })
-    await act(async () => { button('Refresh all').click() })
+    await act(async () => { button('Remove').click() })
     expect(document.querySelector('[data-testid="cc-message"]')?.textContent).toContain('boom')
   })
 
@@ -624,6 +624,54 @@ describe('CcPanel', () => {
     await act(async () => { button('Marketplaces').click() })
     expect(button('Refresh all').disabled).toBe(true)
     expect(document.body.textContent).toContain('No marketplaces added yet')
+  })
+
+  it('Refresh all runs one marketplace at a time, swapping the active row\'s Remove for a spinner', async () => {
+    const pending: Array<(value: unknown) => void> = []
+    const rpc = vi.fn<RpcFn>(async (method: string) => {
+      if (method === 'getState') return STATE
+      if (method === 'refreshMarketplace') return new Promise((resolve) => { pending.push(resolve) })
+      const result: MutationResult = { ok: true, message: 'done', state: STATE }
+      return result
+    })
+    await renderAsync({ rpc })
+    await act(async () => { button('Marketplaces').click() })
+    await act(async () => { button('Refresh all').click() })
+
+    // First marketplace in flight: its Remove is the spinner, the second
+    // row keeps its Remove, and the button counts progress.
+    const rows = () => [...container.querySelectorAll('[data-testid="cc-marketplace"]')]
+    expect(rpc).toHaveBeenCalledWith('refreshMarketplace', { marketplaceId: 'github:o/r' })
+    expect(rows()[0].querySelector('[data-testid="cc-marketplace-refreshing"]')?.textContent).toContain('Refreshing')
+    expect(rows()[0].querySelector('[data-testid="cc-marketplace-remove"]')).toBeNull()
+    expect(rows()[1].querySelector('[data-testid="cc-marketplace-remove"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="cc-marketplace-refresh-all"]')?.textContent).toBe('Refreshing 1/2…')
+
+    // First resolves: it gets its Remove back and the spinner moves on.
+    await act(async () => { pending[0]({ ok: true, message: 'refreshed marketplace "acme-tools"', state: STATE }) })
+    expect(rpc).toHaveBeenCalledWith('refreshMarketplace', { marketplaceId: 'github:o/other' })
+    expect(rows()[0].querySelector('[data-testid="cc-marketplace-remove"]')).not.toBeNull()
+    expect(rows()[1].querySelector('[data-testid="cc-marketplace-refreshing"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="cc-marketplace-refresh-all"]')?.textContent).toBe('Refreshing 2/2…')
+
+    // A failing second marketplace names it in the summary; the sequence
+    // still finished, so every spinner is gone.
+    await act(async () => { pending[1]({ ok: false, error: 'refreshing "o/other" failed: HTTP 500', state: STATE }) })
+    expect(document.querySelector('[data-testid="cc-marketplace-refreshing"]')).toBeNull()
+    const message = document.querySelector('[data-testid="cc-message"]')?.textContent ?? ''
+    expect(message).toContain('Refresh failed for 1 marketplace(s)')
+    expect(message).toContain('other-mkt: refreshing "o/other" failed: HTTP 500')
+  })
+
+  it('Refresh all summarizes success when every marketplace re-syncs', async () => {
+    const rpc = rpcMock()
+    await renderAsync({ rpc })
+    await act(async () => { button('Marketplaces').click() })
+    await act(async () => { button('Refresh all').click() })
+    expect(rpc).toHaveBeenCalledWith('refreshMarketplace', { marketplaceId: 'github:o/r' })
+    expect(rpc).toHaveBeenCalledWith('refreshMarketplace', { marketplaceId: 'github:o/other' })
+    expect(document.querySelector('[data-testid="cc-message"]')?.textContent).toContain('Refreshed 2 marketplace(s)')
+    expect(document.querySelector('[data-testid="cc-marketplace-refreshing"]')).toBeNull()
   })
 
   it('locks every card action while a mutation is in flight', async () => {

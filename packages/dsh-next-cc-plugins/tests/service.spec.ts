@@ -177,6 +177,38 @@ describe('CcMarketplaceService marketplaces', () => {
     if (!failed.ok) expect(failed.error).toContain('HTTP 500')
   })
 
+  it('refreshes one marketplace by id, covering every error branch', async () => {
+    await f.service.addMarketplace('o/r')
+    const ok = await f.service.refreshMarketplace('github:o/r')
+    expect(ok.ok).toBe(true)
+    if (ok.ok) {
+      expect(ok.message).toContain('acme-tools')
+      expect(ok.state).toHaveProperty('marketplaces')
+    }
+
+    // Unknown id: the honest not-configured error, no state churn.
+    const missing = await f.service.refreshMarketplace('nope')
+    expect(missing).toEqual({ ok: false, error: 'marketplace "nope" is not configured' })
+
+    // A failing download still answers with state over the cached snapshot.
+    f.gh.failRepo('o', 'r', 500)
+    const failed = await f.service.refreshMarketplace('github:o/r')
+    expect(failed.ok).toBe(false)
+    if (!failed.ok) {
+      expect(failed.error).toContain('refreshing "o/r" failed')
+      expect(failed.error).toContain('HTTP 500')
+    }
+    expect((failed as { state?: { marketplaces: unknown[] } }).state?.marketplaces).toHaveLength(1)
+
+    // A hand-edited registry row whose spec no longer parses fails honestly.
+    await f.fs.writeFile('/home/u/.dsh/cc-plugins/marketplaces.json', JSON.stringify([
+      { id: 'github:bad', spec: 'gitlab.com/x/y', addedAt: '2026-01-01T00:00:00.000Z' },
+    ]))
+    const unparsed = await f.service.refreshMarketplace('github:bad')
+    expect(unparsed.ok).toBe(false)
+    if (!unparsed.ok) expect(unparsed.error).toContain('refreshing "gitlab.com/x/y" failed')
+  })
+
   it('getState re-syncs stale snapshots but leaves fresh ones alone', async () => {
     await f.service.addMarketplace('o/r')
     const afterAdd = f.gh.calls.length

@@ -357,6 +357,11 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     // Remove the fixture marketplace; the seeded official one remains
     // (the Remove button inside the tiny-tools row, not a foreign one).
     await settings.getByRole('tab', { name: 'Marketplaces' }).click({ force: true })
+    // Refresh all runs one marketplace at a time (the active row's Remove
+    // swaps for a spinner): wait for the label to revert and the summary.
+    await page.getByTestId('cc-marketplace-refresh-all').click()
+    await expect(page.getByTestId('cc-marketplace-refresh-all')).toContainText('Refresh all')
+    await expect(page.getByTestId('cc-message')).toContainText(/Refreshed \d+ marketplace|Refresh failed/)
     await page.locator('[data-testid="cc-marketplace"]:has-text("tiny-tools")').getByRole('button', { name: 'Remove', exact: true }).click()
     await expect(page.getByText('tiny-tools', { exact: false })).toHaveCount(0)
     await expect(page.getByText('anthropics/claude-plugins-official', { exact: false }).first()).toBeVisible()

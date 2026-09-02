@@ -30,6 +30,7 @@ export function registerRpc(ctx: Context, service: CcMarketplaceService): void {
     addMarketplace: (args) => service.addMarketplace(str(record(args).spec)),
     removeMarketplace: (args) => service.removeMarketplace(str(record(args).marketplaceId)),
     refreshMarketplaces: () => service.refreshMarketplaces(),
+    refreshMarketplace: (args) => service.refreshMarketplace(str(record(args).marketplaceId)),
     getPluginDetail: (args) => {
       const a = record(args)
       return service.getPluginDetail({ marketplaceId: str(a.marketplaceId), plugin: str(a.plugin) })

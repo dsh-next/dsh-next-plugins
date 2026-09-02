@@ -21,7 +21,10 @@ with a built-in runtime for the components DSH activates in-process.
   plugins with their component inventories, refresh, and remove. Snapshots
   older than 24 hours re-sync automatically whenever the panel opens
   (best-effort: a failed refresh keeps the cached catalog), each source shows
-  its last-synced age, and Refresh all forces a re-sync now.
+  its last-synced age, and Refresh all forces a re-sync now — one source at a
+  time, with a spinner replacing the active row's Remove button and a
+  per-source progress counter on the button, so you always know which
+  marketplace is downloading.
 - **Browse and install plugins** — the Plugins tab lists every plugin across
   all marketplaces in a two-column card grid (installed plugins first, each
   group alphabetical by name) with search, a marketplace

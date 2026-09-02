@@ -457,6 +457,27 @@ export class CcMarketplaceService {
     return { ok: true, message: `refreshed ${marketplaces.length} marketplace(s)`, state }
   }
 
+  /**
+   * Re-sync one marketplace; the panel's Refresh all drives this per row so
+   * it can show exactly which source is downloading. A failure keeps the
+   * cached snapshot answering (the row keeps its previous lastSync) and
+   * still returns state, so the caller renders the freshest honest view.
+   */
+  async refreshMarketplace(id: string): Promise<MutationResult> {
+    const marketplaces = await this.store.listMarketplaces()
+    const row = marketplaces.find((m) => m.id === id)
+    if (row === undefined) return { ok: false, error: `marketplace "${id}" is not configured` }
+    const parsed = parseMarketplaceSpec(row.spec)
+    if ('error' in parsed) {
+      return { ok: false, error: `refreshing "${row.spec}" failed: ${parsed.error}`, state: await this.state() }
+    }
+    const sync = await this.store.sync(parsed.source, parsed.id)
+    if ('error' in sync) {
+      return { ok: false, error: `refreshing "${row.spec}" failed: ${sync.error}`, state: await this.state() }
+    }
+    return { ok: true, message: `refreshed marketplace "${sync.snapshot.index.name}"`, state: await this.state() }
+  }
+
   // -------------------------------------------------------------------------
   // Plugin detail
   // -------------------------------------------------------------------------

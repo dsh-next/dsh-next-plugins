@@ -14,7 +14,8 @@
  *    same modal manages the scope (saving re-scopes it), updates it, and
  *    uninstalls it after a two-step confirm.
  *  - Marketplaces: source management (add by owner/repo shorthand, GitHub
- *    URL, or local path; refresh; remove) with per-source last-synced age.
+ *    URL, or local path; refresh, one source at a time so the active row's
+ *    Remove swaps for a spinner; remove) with per-source last-synced age.
  *    Snapshots older than 24 hours re-sync automatically when the panel
  *    opens (Host `getState`), so versions stay current without a timer.
  *  - Models: map the Claude model names your agents use onto models the
@@ -162,6 +163,8 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
   const [confirmUninstall, setConfirmUninstall] = React.useState(false)
   /** Unsaved Models-tab selections, alias to model id ('' = inherit). */
   const [modelDraft, setModelDraft] = React.useState<Record<string, string>>({})
+  /** The marketplace a sequential Refresh all is currently re-syncing. */
+  const [refreshingId, setRefreshingId] = React.useState<string | undefined>()
   const workspaces = deps.getWorkspaces()
 
   const refresh = React.useCallback(async (): Promise<void> => {
@@ -280,6 +283,46 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
     }
     await mutate('setAgentModelOverrides', { map })
     setModelDraft({})
+  }
+
+  /**
+   * Refresh every marketplace ONE RPC AT A TIME so the panel knows exactly
+   * which row is downloading at any moment: the active row's Remove button
+   * swaps for a spinner + "Refreshing…" until the next marketplace starts,
+   * and the button counts progress. A failure is reported on the summary
+   * message and the sequence continues — the same contract the host-side
+   * refreshMarketplaces loop has, made visible.
+   */
+  const refreshAllSequential = async (): Promise<void> => {
+    const list = marketplaces
+    if (list.length === 0) return
+    setBusy(true)
+    setMessage(undefined)
+    const failures: string[] = []
+    for (const m of list) {
+      setRefreshingId(m.id)
+      try {
+        const result = await deps.rpc('refreshMarketplace', { marketplaceId: m.id }) as MutationResult
+        // Read before the error-narrowing below: both outcomes carry state,
+        // so each finished row shows its fresh lastSync (or the cached one,
+        // on failure) before the next marketplace starts.
+        const nextState = result.state
+        if (isMutationError(result)) {
+          failures.push(`${m.name}: ${result.error ?? 'refresh failed'}`)
+        }
+        if (nextState !== undefined) setState(nextState)
+      } catch (error) {
+        failures.push(`${m.name}: ${errMsg(error)}`)
+      }
+    }
+    setRefreshingId(undefined)
+    setMessage({
+      ok: failures.length === 0,
+      text: failures.length > 0
+        ? t('marketplaces.refreshFailed', { count: failures.length, items: failures.join('; ') })
+        : t('marketplaces.refreshedAll', { count: list.length }),
+    })
+    setBusy(false)
   }
 
   // The flat plugin catalog across every marketplace, filtered in-panel.
@@ -668,7 +711,18 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
             data-testid="cc-add-input"
           />
           <button type="button" className={styles.primary} disabled={busy || spec.trim() === ''} onClick={() => void addMarketplace()}>{t('marketplaces.add')}</button>
-          <button type="button" className={styles.ghost} disabled={busy || marketplaces.length === 0} onClick={() => void mutate('refreshMarketplaces')}>{t('marketplaces.refreshAll')}</button>
+          <button
+            type="button"
+            className={styles.ghost}
+            disabled={busy || marketplaces.length === 0}
+            onClick={() => void refreshAllSequential()}
+            data-testid="cc-marketplace-refresh-all"
+          >{refreshingId !== undefined
+            ? t('marketplaces.refreshProgress', {
+              done: Math.max(0, marketplaces.findIndex((m) => m.id === refreshingId)) + 1,
+              total: marketplaces.length,
+            })
+            : t('marketplaces.refreshAll')}</button>
         </div>
       )}
 
@@ -692,12 +746,20 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
               </div>
               {m.error !== undefined && <div className={styles.errText}>{m.error}</div>}
             </div>
-            <button
-              type="button"
-              className={styles.ghostDanger}
-              disabled={busy}
-              onClick={() => void mutate('removeMarketplace', { marketplaceId: m.id })}
-            >{t('marketplaces.remove')}</button>
+            {refreshingId === m.id ? (
+              <span className={styles.refreshing} data-testid="cc-marketplace-refreshing">
+                <span className={styles.spinner} aria-hidden="true" />
+                {t('marketplaces.refreshing')}
+              </span>
+            ) : (
+              <button
+                type="button"
+                className={styles.ghostDanger}
+                disabled={busy}
+                onClick={() => void mutate('removeMarketplace', { marketplaceId: m.id })}
+                data-testid="cc-marketplace-remove"
+              >{t('marketplaces.remove')}</button>
+            )}
           </div>
         </div>
       )))}

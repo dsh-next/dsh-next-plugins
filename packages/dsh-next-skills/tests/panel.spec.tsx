@@ -394,7 +394,51 @@ describe('providers tab', () => {
     expect(rpcCalls(rpc).find(([m]) => m === 'addProvider')![1])
       .toEqual({ spec: 'vercel/agent-skills' })
     await click(byTestId(container, 'skills-provider-refresh-all'))
-    expect(rpcCalls(rpc).map(([m]) => m)).toContain('refreshProviders')
+    // Refresh all drives one refreshProvider RPC per configured provider.
+    expect(rpcCalls(rpc).filter(([m]) => m === 'refreshProvider').map(([, a]) => a))
+      .toEqual([{ providerId: 'o-r' }])
+    await unmount()
+  })
+
+  it('refresh all shows the active provider and hides its Remove until done', async () => {
+    // Gate the first refreshProvider: the panel must show the spinner pill on
+    // that row (Remove gone) and the progress label on the button mid-run.
+    let releaseFirst: (value: unknown) => void = () => {}
+    const first = new Promise((resolve) => { releaseFirst = resolve })
+    const rpc: RpcFn = vi.fn(async (method: string, args?: unknown) => {
+      if (method === 'getState') return STATE
+      if (method === 'refreshProvider') {
+        if ((args as { providerId?: string }).providerId === 'o-r') await first
+        return { ok: true, state: STATE }
+      }
+      return { ok: true, state: STATE }
+    })
+    const { container, unmount } = await openProviders(rpc)
+    await click(byTestId(container, 'skills-provider-refresh-all'))
+    await act(async () => { await Promise.resolve() })
+    const active = byTestId(container, 'skills-provider-refreshing')
+    expect(active.textContent).toContain('Refreshing…')
+    expect(container.querySelector('[data-testid="skills-provider-remove"]')).toBeNull()
+    expect(byTestId(container, 'skills-provider-refresh-all').textContent).toContain('1/1')
+    await act(async () => { releaseFirst(undefined) })
+    await act(async () => {})
+    expect(container.querySelector('[data-testid="skills-provider-refreshing"]')).toBeNull()
+    expect(byTestId(container, 'skills-provider-remove')).toBeTruthy()
+    expect(byTestId(container, 'skills-message').textContent).toContain('Done')
+    await unmount()
+  })
+
+  it('a failing provider keeps the sequence running and reports it at the end', async () => {
+    const rpc: RpcFn = vi.fn(async (method: string) => {
+      if (method === 'getState') return STATE
+      if (method === 'refreshProvider') return { ok: false, error: 'rate limited' }
+      return { ok: true, state: STATE }
+    })
+    const { container, unmount } = await openProviders(rpc)
+    await click(byTestId(container, 'skills-provider-refresh-all'))
+    await act(async () => {})
+    // One failure with one provider: the summary names the count and the error.
+    expect(byTestId(container, 'skills-message').textContent).toContain('rate limited')
     await unmount()
   })
 

@@ -6,6 +6,10 @@
 # Teardown: kill $(cat .skills-e2e.pid)
 #
 # Env: SKILLS_E2E_PORT fixed port (default 0 = OS-assigned)
+# Env: SKILLS_E2E_HOME reuse a specific home INSTEAD of a fresh scratch — the
+# script seeds that home from scratch (it OVERWRITES settings.yaml and the
+# workspace registry), so an existing settings file is refused unless
+# SKILLS_E2E_OVERWRITE=1 is set too.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -15,6 +19,12 @@ DSH_CMD="${DSH_CMD:-dsh}"
 PORT="${SKILLS_E2E_PORT:-0}"
 
 SCRATCH="${SKILLS_E2E_HOME:-$(mktemp -d /tmp/dsh-next-skills.XXXXXX)}"
+if [ -f "$SCRATCH/home/settings.yaml" ] && [ "${SKILLS_E2E_OVERWRITE:-0}" != "1" ]; then
+  echo "refusing to boot: $SCRATCH/home/settings.yaml already exists." >&2
+  echo "This script seeds its home from scratch and would clobber it." >&2
+  echo "Use a fresh SKILLS_E2E_HOME, remove the home, or set SKILLS_E2E_OVERWRITE=1." >&2
+  exit 1
+fi
 export DSH_HOME="$SCRATCH/home"
 export DSH_AGENTS_HOME="$SCRATCH/home/agents"
 mkdir -p "$DSH_HOME/profiles/smoke"

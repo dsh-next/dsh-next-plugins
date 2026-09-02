@@ -33,8 +33,13 @@ tabs:
 - **Providers** — manages GitHub skill repositories: add by URL
   (`https://github.com/owner/repo` or `owner/repo`), Refresh all, remove.
   Each row shows the repository description, the number of cached skills,
-  the last sync age, and any sync error. Default providers seed on a fresh
-  install and sync once shortly after boot; removals persist.
+  the last sync age, and any sync error. Refresh all runs one provider at a
+  time: the downloading row swaps its Remove button for a spinner reading
+  "Refreshing…" until the next provider starts (so the active provider is
+  always identifiable), the button shows the progress ("Refreshing 2/9…"),
+  and a failing provider shows its error on its own row while the rest
+  continue. Default providers seed on a fresh install and sync once shortly
+  after boot; removals persist.
 
 ## How it works
 

@@ -188,6 +188,8 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
   const [checked, setChecked] = React.useState<Set<string>>(new Set())
   /** Two-step uninstall confirm inside the modal. */
   const [confirmUninstall, setConfirmUninstall] = React.useState(false)
+  /** The provider a sequential Refresh all is currently downloading. */
+  const [refreshingId, setRefreshingId] = React.useState<string | undefined>()
   /** The open detail modal's entry plus its loaded content. */
   const [detail, setDetail] = React.useState<GridEntry | undefined>()
   const [detailData, setDetailData] = React.useState<SkillDetail | undefined>()
@@ -270,6 +272,48 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
     if (addSpec.trim() === '') return
     await mutate('addProvider', { spec: addSpec.trim() })
     setAddSpec('')
+  }
+
+  /**
+   * Refresh every provider ONE RPC AT A TIME so the panel knows exactly
+   * which row is downloading at any moment: the active row's Remove button
+   * swaps for a spinner + "Refreshing…" until the next provider starts.
+   * A failure is shown on its own row immediately (the host marks the error
+   * into the snapshot) and the sequence continues; the summary message lists
+   * every failure at the end — the same contract the host-side
+   * refreshProviders loop has, made visible.
+   */
+  const refreshAllSequential = async (): Promise<void> => {
+    const list = providers
+    if (list.length === 0) return
+    setBusy(true)
+    setMessage(undefined)
+    const failures: string[] = []
+    for (const provider of list) {
+      setRefreshingId(provider.id)
+      try {
+        const result = await deps.rpc('refreshProvider', { providerId: provider.id }) as MutationResult
+        if (isMutationError(result)) {
+          failures.push(`${provider.spec}: ${result.error ?? 'refresh failed'}`)
+          await refresh()
+        } else if (result.state !== undefined) {
+          setState(result.state)
+        }
+      } catch (error) {
+        failures.push(`${provider.spec}: ${errMsg(error)}`)
+        await refresh()
+      }
+    }
+    setRefreshingId(undefined)
+    if (failures.length > 0) {
+      setMessage({
+        ok: false,
+        text: t('providers.refreshFailed', { count: failures.length, items: failures.join('; ') }),
+      })
+    } else {
+      setMessage({ ok: true, text: t('status.done') })
+    }
+    setBusy(false)
   }
 
   const providers: ProviderView[] = state?.providers ?? []
@@ -644,9 +688,14 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
             type="button"
             className={styles.ghost}
             disabled={busy || providers.length === 0}
-            onClick={() => void mutate('refreshProviders')}
+            onClick={() => void refreshAllSequential()}
             data-testid="skills-provider-refresh-all"
-          >{t('providers.refreshAll')}</button>
+          >{refreshingId !== undefined
+            ? t('providers.refreshProgress', {
+              done: Math.max(0, providers.findIndex((p) => p.id === refreshingId)) + 1,
+              total: providers.length,
+            })
+            : t('providers.refreshAll')}</button>
         </div>
       )}
 
@@ -670,13 +719,20 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
               </div>
               {p.error !== undefined && <div className={styles.errText}>{p.error}</div>}
             </div>
-            <button
-              type="button"
-              className={styles.ghostDanger}
-              disabled={busy}
-              onClick={() => { void mutate('removeProvider', { providerId: p.id }) }}
-              data-testid="skills-provider-remove"
-            >{t('providers.remove')}</button>
+            {refreshingId === p.id ? (
+              <span className={styles.refreshing} data-testid="skills-provider-refreshing">
+                <span className={styles.spinner} aria-hidden="true" />
+                {t('providers.refreshing')}
+              </span>
+            ) : (
+              <button
+                type="button"
+                className={styles.ghostDanger}
+                disabled={busy}
+                onClick={() => { void mutate('removeProvider', { providerId: p.id }) }}
+                data-testid="skills-provider-remove"
+              >{t('providers.remove')}</button>
+            )}
           </div>
         </div>
       )))}

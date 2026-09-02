@@ -15,19 +15,22 @@ runs `changeset publish`, which publishes exactly the packages whose version
 is new to the registry and creates per-package GitHub Releases from the
 changelog entries.
 
-## Not-yet-released packages (ignore)
+## Not-yet-released packages (private manifest)
 
-A plugin under active development that must not publish yet is listed in the
-`ignore` array in `.changeset/config.json` (Changesets' mechanism for exactly
-this: changes merge without publishing). An ignored package:
+A plugin under active development that must not publish yet is marked
+`"private": true` in its own `package.json` — npm refuses to publish a private
+package, and changesets skips it on version/publish, so the manifest is the
+single source of truth for publishability. This is also the strongest
+guardrail: even a raw `pnpm publish -r` cannot ship it. A private package:
 
 - needs **no** change file for its changes (the CI gate checks this), and
-- is **never** named in a change file — a changeset mixing an ignored with a
+- is **never** named in a change file — a changeset mixing a private with a
   released package makes `changeset version` fail, so the gate rejects it.
 
 It keeps being built, tested, and mounted by the e2e smoke. When the package
-is ready, remove it from `ignore` and the next change file releases it.
-`shared/` and the root `package.json` are private and never publish.
+is ready, remove `"private": true` from its manifest and the next change file
+releases it. `shared/` and the root `package.json` are private and never
+publish.
 
 ## Release order
 

@@ -125,28 +125,35 @@ describe('verify-changeset gate', () => {
     assert.equal(result.code, 0, result.out)
   })
 
-  it('passes without a change file when the touched package is ignored', () => {
-    write('.changeset/config.json', '{"ignore":["@dsh-next/dsh-next-cron"]}\n')
+  it('passes without a change file when the touched package is private', () => {
+    // The manifest is the source of truth: private packages are never released.
+    write('packages/dsh-next-cron/package.json', '{"name":"@dsh-next/dsh-next-cron","version":"0.1.0","private":true}\n')
+    git('add', '-A')
+    git('commit', '-qm', 'mark cron private')
     write('packages/dsh-next-cron/src/index.ts', 'export const c = 2\n')
     const result = runGate()
     assert.equal(result.code, 0, result.out)
   })
 
-  it('fails when a change file names an ignored package', () => {
-    write('.changeset/config.json', '{"ignore":["@dsh-next/dsh-next-cron"]}\n')
+  it('fails when a change file names a private package', () => {
+    write('packages/dsh-next-cron/package.json', '{"name":"@dsh-next/dsh-next-cron","version":"0.1.0","private":true}\n')
+    git('add', '-A')
+    git('commit', '-qm', 'mark cron private')
     write('packages/dsh-next-skills/src/index.ts', 'export const a = 2\n')
-    write('.changeset/ignored.md', '---\n"@dsh-next/dsh-next-cron": patch\n---\n\ntest\n')
+    write('.changeset/private.md', '---\n"@dsh-next/dsh-next-cron": patch\n---\n\ntest\n')
     const result = runGate()
     assert.equal(result.code, 1)
-    assert.match(result.out, /ignored package/)
+    assert.match(result.out, /private package/)
   })
 
-  it('fails when a change file mixes an ignored and a released package', () => {
-    write('.changeset/config.json', '{"ignore":["@dsh-next/dsh-next-cron"]}\n')
+  it('fails when a change file mixes a private and a released package', () => {
+    write('packages/dsh-next-cron/package.json', '{"name":"@dsh-next/dsh-next-cron","version":"0.1.0","private":true}\n')
+    git('add', '-A')
+    git('commit', '-qm', 'mark cron private')
     write('packages/dsh-next-skills/src/index.ts', 'export const a = 2\n')
     write('.changeset/mixed.md', '---\n"@dsh-next/dsh-next-cron": patch\n"@dsh-next/dsh-next-skills": patch\n---\n\ntest\n')
     const result = runGate()
     assert.equal(result.code, 1)
-    assert.match(result.out, /ignored package/)
+    assert.match(result.out, /private package/)
   })
 })

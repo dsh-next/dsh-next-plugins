@@ -10,8 +10,5 @@
   "privatePackages": {
     "version": false,
     "tag": false
-  },
-  "ignore": [
-    "@dsh-next/dsh-next-cc-plugins"
-  ]
+  }
 }

@@ -72,5 +72,6 @@
     "README.md"
   ],
   "license": "MIT",
-  "author": "Rok Grabnar <sitegroove>"
+  "author": "Rok Grabnar <sitegroove>",
+  "private": true
 }

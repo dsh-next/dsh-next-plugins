@@ -14,11 +14,13 @@
  * present. When change files exist, each touched package must be named by at
  * least one of them.
  *
- * Packages listed under `ignore` in `.changeset/config.json` are exempt: they
- * are not released (changes merge silently, no change file needed) and MUST
- * NOT appear in a change file — a mixed changeset (ignored + released
+ * Packages whose manifest marks them private (`"private": true`) are exempt:
+ * they are not released (changes merge silently, no change file needed) and
+ * MUST NOT appear in a change file — a mixed changeset (private + released
  * package) makes `changeset version`/`publish` fail, breaking the Version
- * Packages pipeline.
+ * Packages pipeline. The manifest is the single source of truth for
+ * publishability, so holding a package back is `"private": true` in the
+ * package's own package.json.
  *
  * Usage: node scripts/verify-changeset.mjs --base <git ref>
  *
@@ -44,14 +46,26 @@ if (base === undefined) {
   process.exit(2)
 }
 
-/** Packages listed under `ignore` in .changeset/config.json (never released). */
-function ignoredPackages() {
-  try {
-    const config = JSON.parse(readFileSync('.changeset/config.json', 'utf8'))
-    return new Set(Array.isArray(config.ignore) ? config.ignore : [])
-  } catch {
-    return new Set()
+/**
+ * Packages whose manifest marks them private (`"private": true`). They are
+ * never published — changesets skips them on version/publish, and npm refuses
+ * a private publish — so they need no change file and must never appear in
+ * one. `private: true` in the package manifest is the single source of truth,
+ * so holding a package back is a one-field flip in the package itself.
+ */
+function privatePackages() {
+  const out = new Set()
+  for (const entry of execFileSync('git', ['ls-files', 'packages/*/package.json'], { encoding: 'utf8' }).split('\n').filter(Boolean)) {
+    const m = /^packages\/(dsh-next-[^/]+)\/package\.json$/.exec(entry)
+    if (m === null) continue
+    try {
+      const pkg = JSON.parse(readFileSync(entry, 'utf8'))
+      if (pkg.private === true) out.add(`@dsh-next/${m[1]}`)
+    } catch {
+      // unreadable manifest: treat as not private (the gate's file check fails fast)
+    }
   }
+  return out
 }
 
 /** All paths changed between `base` and the working tree (staged or not). */
@@ -76,22 +90,22 @@ function isNonSource(path) {
 }
 
 const paths = changedPaths()
-const ignored = ignoredPackages()
+const privateSet = privatePackages()
 
-/** Package dir names touched that are candidates for release (not ignored). */
+/** Package dir names touched that are candidates for release (not private). */
 const touchedReleasable = new Set()
 for (const p of paths) {
   const m = /^packages\/(dsh-next-[^/]+)\//.exec(p)
   if (m === null || isNonSource(p)) continue
-  if (ignored.has(`@dsh-next/${m[1]}`)) continue // not released; no change file needed
+  if (privateSet.has(`@dsh-next/${m[1]}`)) continue // private: never released; no change file needed
   touchedReleasable.add(m[1])
 }
 
 const changesetFiles = paths.filter((p) => /^\.changeset\/[^/]+\.md$/.test(p))
 
-// The changesets CLI forbids a change file mixing an ignored package with a
-// released one, and one naming an ignored package alone would block version
-// too; better to reject at the gate with a clear message.
+// The changesets CLI forbids a change file mixing a private package with a
+// released one, and one naming a private package alone would also produce no
+// bump; better to reject at the gate with a clear message.
 if (changesetFiles.length > 0) {
   const named = new Set()
   for (const file of changesetFiles) {
@@ -101,14 +115,14 @@ if (changesetFiles.length > 0) {
       if (m !== null) named.add(m[1])
     }
   }
-  const bad = [...named].filter((name) => ignored.has(name))
+  const bad = [...named].filter((name) => privateSet.has(name))
   if (bad.length > 0) {
     console.error(
-      `verify-changeset: change file(s) name ignored package(s) ${bad.join(', ')}. ` +
-      'Ignored packages are not released, so they must not appear in a change file ' +
+      `verify-changeset: change file(s) name private package(s) ${bad.join(', ')}. ` +
+      'Private packages are never published, so they must not appear in a change file ' +
       '(a mixed changeset breaks changeset version/publish). Remove the package ' +
-      'from the change file; when the package is ready, delete it from the `ignore` ' +
-      'array in .changeset/config.json.',
+      'from the change file; when the package is ready, remove `"private": true` ' +
+      'from its package.json.',
     )
     process.exit(1)
   }

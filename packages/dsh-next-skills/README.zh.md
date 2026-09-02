@@ -15,12 +15,13 @@
   用户根目录——磁盘上已存在的卡片排在前面，各组按字母排序），以及每个
   提供方目录中的技能。搜索框、提供方筛选、仅显示已安装开关，以及
   Show more 按钮（每页 30 张卡片）让大型目录依然流畅。每张卡片显示
-  名称、提供方徽标、描述、生效范围徽标（`Everywhere`、`N workspaces`
-  或 `Off`）、手工创建的项目技能的 `project` 徽标，以及插件未安装技能的
-  橙色 `custom` 徽标。**Add/Manage** 按钮会打开作用域弹窗：单选按钮决定
-  该技能在哪里启用——Everywhere（默认）或仅在勾选的已注册工作区中——
+  名称、描述、生效范围徽标（`Everywhere`、`N workspaces` 或 `Off`）、
+  手工创建的项目技能的 `project` 徽标、插件未安装技能的橙色 `custom`
+  徽标、仅全局安装可更新时的 `update available` 标记，以及卡片底行的
+  提供方徽标。**Add/Manage** 按钮会打开作用域弹窗：单选按钮决定该技能
+  在哪里启用——Global（默认，所有工作区）或仅在勾选的已注册工作区中——
   安装或保存都会把该作用域写为纯配置。当提供方目录出现更新时，受管理的
-  卡片会带有 **Update** 按钮；弹窗中还有 Update 与两步确认的 Remove
+  卡片会带有 **Update** 按钮；弹窗中还有 Update 与两步确认的 Uninstall
   （仅限受管理的技能）。点击名称可以打开渲染为 markdown 的完整 SKILL.md。
 - **Providers** — 管理 GitHub 技能仓库：通过 URL 添加
   （`https://github.com/owner/repo` 或 `owner/repo`）、全部刷新、移除。

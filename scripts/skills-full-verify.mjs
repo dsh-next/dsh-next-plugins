@@ -114,10 +114,10 @@ async function noErrorExceptRateLimit() {
 const manifestPath = (base, name) => join(base, name, '.dsh-next-provider.json')
 
 /** Open the scope modal for a skill and return its root element. */
-async function openScopeModal(name, action = 'skills-manage') {
+async function openScopeModal(name, action = 'skills-add') {
   const card = skillCard(name)
   await card.locator(`[data-testid="${action}"]`).first().click({ force: true })
-  const modal = page.getByTestId('skills-scope-modal')
+  const modal = page.getByTestId('skills-modal')
   await until('scope modal', async () => await modal.isVisible())
   return modal
 }
@@ -128,8 +128,8 @@ async function ensureUninstalled(name) {
   const card = skillCard(name)
   if (await card.locator('[data-testid="skills-add"]').first().isVisible().catch(() => false)) return
   const modal = await openScopeModal(name)
-  await modal.getByTestId('skills-remove').click({ force: true })
-  await modal.getByTestId('skills-remove-confirm').click({ force: true })
+  await modal.getByTestId('skills-uninstall').click({ force: true })
+  await modal.getByTestId('skills-uninstall-confirm').click({ force: true })
   await until('modal closed', async () => !(await modal.isVisible().catch(() => false)))
   await until('card uninstalled', async () =>
     await card.locator('[data-testid="skills-add"]').first().isVisible())
@@ -179,7 +179,7 @@ await check('Skills: seeded skills render as cards with the custom chip', async 
   const managed = skillCard('grill-me')
   await until('provider chip on grill-me', async () => (await managed.textContent()).includes('e2e/local'))
   const card = skillCard('hand-made')
-  const badge = card.locator('[class*="installedChip"]').first()
+  const badge = card.locator('[class*="customBadge"]').first()
   await until('custom chip on hand-made', async () => await badge.isVisible())
   const bg = await badge.evaluate((el) => getComputedStyle(el).backgroundColor)
   const m = bg.match(/rgba?\((\d+), (\d+), (\d+)/)
@@ -232,7 +232,7 @@ await check('Providers: settings.yaml holds the provider records', async () => {
   }
 })
 await check('Providers: add https://github.com/vercel-labs/skills', async () => {
-  const input = page.getByTestId('skills-provider-input').first()
+  const input = page.getByTestId('skills-add-input').first()
   await input.fill('https://github.com/vercel-labs/skills')
   await page.getByRole('button', { name: 'Add provider', exact: true }).first().click({ force: true })
   await until('provider row synced', async () => {
@@ -301,8 +301,8 @@ await check('Skills: Show more pages the catalog (30 per page)', async () => {
   await until('find-skills card', async () => await skillCard('find-skills').isVisible())
 })
 await check('Skills: detail modal shows name and rendered markdown body', async () => {
-  await page.locator('[data-testid="skills-detail-open"]').first().click({ force: true })
-  const detail = page.getByTestId('skills-detail')
+  await page.locator('[data-testid="skills-detail"]').first().click({ force: true })
+  const detail = page.getByTestId('skills-skill-detail')
   await until('detail modal', async () => await detail.isVisible())
   const bodyEl = detail.locator('[data-testid="skills-detail-body"]')
   await until('rendered body elements', async () => (await bodyEl.locator('h1, h2, h3, p, li, pre').count()) > 0)
@@ -317,7 +317,7 @@ await check('Skills: detail modal shows name and rendered markdown body', async 
 await check('Skills: empty state on a non-matching search', async () => {
   await page.getByTestId('skills-search').first().fill('zzz-no-match')
   await until('empty message', async () =>
-    await page.getByText('No skills match this search.').isVisible())
+    await page.getByText('No skills match the current filters.').isVisible())
   await shot('04-skills-no-match')
   await page.getByTestId('skills-search').first().fill('find')
   await until('find-skills back', async () => await skillCard('find-skills').isVisible())
@@ -329,7 +329,7 @@ await check('Scope modal: Add installs globally and records settings', async () 
   await ensureUninstalled('find-skills')
   const card = skillCard('find-skills')
   await cardButton(card, 'skills-add').click({ force: true })
-  const modal = page.getByTestId('skills-scope-modal')
+  const modal = page.getByTestId('skills-modal')
   await until('scope modal visible', async () => await modal.isVisible())
   // Global is the default radio; the seeded workspace appears in the
   // checklist under the workspaces mode.
@@ -402,11 +402,11 @@ await check('Update: Update overwrites and clears the flag', async () => {
 // ---- Remove: two-step confirm + composer staleness ------------------------
 await check('Remove: two-step confirm trashes recoverably and the composer refreshes', async () => {
   const modal = await openScopeModal('find-skills')
-  await modal.getByTestId('skills-remove').click({ force: true })
+  await modal.getByTestId('skills-uninstall').click({ force: true })
   // The first click only reveals the confirmation button.
-  if ((await modal.getByTestId('skills-remove-confirm').count()) === 0) throw new Error('confirm button missing')
+  if ((await modal.getByTestId('skills-uninstall-confirm').count()) === 0) throw new Error('confirm button missing')
   await shot('09-remove-confirm')
-  await modal.getByTestId('skills-remove-confirm').click({ force: true })
+  await modal.getByTestId('skills-uninstall-confirm').click({ force: true })
   await until('modal closed', async () => !(await modal.isVisible().catch(() => false)))
   // The skill leaves the installed set but stays a catalog offering: the
   // card flips back to the uninstalled (Add) state.
@@ -461,7 +461,7 @@ await check('Skills: reinstall find-skills with a workspace-restricted scope', a
   await ensureUninstalled('find-skills')
   const card = skillCard('find-skills')
   await cardButton(card, 'skills-add').click({ force: true })
-  const modal = page.getByTestId('skills-scope-modal')
+  const modal = page.getByTestId('skills-modal')
   await until('scope modal visible', async () => await modal.isVisible())
   await page.getByTestId('skills-scope-workspaces').click()
   const wsBox = modal.locator('[data-testid="skills-workspace"]', { hasText: 'Alpha' }).first().locator('input')
@@ -487,12 +487,12 @@ await check('Scope RPC: installs are global-only even with a workspace scope', a
     throw new Error('whitelist not recorded as folder names: ' + JSON.stringify(scope))
   }
   // Reset to the everywhere default for a clean final state.
-  const reset = await rpc('setScope', { name: 'find-skills', workspaces: null })
+  const reset = await rpc('setSkillScope', { name: 'find-skills', workspaces: null })
   if (reset.ok !== true) throw new Error('setScope reset failed: ' + reset.error)
   if (reset.state.config.scopes['find-skills'] !== undefined) throw new Error('scope not cleared')
 })
 await check('Scope RPC: setScope refuses invalid input without writing', async () => {
-  const bad = await rpc('setScope', { name: 'not a name', workspaces: null })
+  const bad = await rpc('setSkillScope', { name: 'not a name', workspaces: null })
   if (bad.ok !== false) throw new Error('invalid name accepted')
   const s = await rpc('getState')
   if (s.config.scopes['find-skills'] !== undefined) throw new Error('unexpected scope after the refused write')
@@ -508,7 +508,7 @@ await check('Providers: remove the URL-form provider (defaults survive)', async 
   await until('settings provider dropped', async () => !settingsSection().includes('spec: vercel-labs/skills'))
 })
 await check('Providers: bare vercel-labs/skills works and defaults to GitHub', async () => {
-  const input = page.getByTestId('skills-provider-input').first()
+  const input = page.getByTestId('skills-add-input').first()
   await input.fill('vercel-labs/skills')
   await page.getByRole('button', { name: 'Add provider', exact: true }).first().click({ force: true })
   await until('canonical row present', async () => {

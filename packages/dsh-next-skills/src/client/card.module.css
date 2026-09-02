@@ -1,37 +1,88 @@
+/**
+ * Skills settings page styling.
+ *
+ * The shared-chrome block is kept byte-identical to the Claude Plugins page
+ * (packages/dsh-next-cc-plugins/src/client/card.module.css) — tabs, filter
+ * row, inputs, buttons, cards, notices, and the scope modal all read as one
+ * product. Skills-specific extensions live in the marked section at the end;
+ * everything else must be changed in both files together.
+ */
+
+/* --- Shared chrome (mirror of dsh-next-cc-plugins) ----------------------- */
+
 .page {
   flex-direction: column;
   gap: 12px;
   display: flex;
 }
+
+.tabs {
+  gap: 8px;
+  display: flex;
+}
+
+.tab,
+.tabActive {
+  appearance: none;
+  font: inherit;
+  cursor: pointer;
+  border-radius: 8px;
+  padding: 8px 14px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.tabActive {
+  border-color: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-label-primary);
+  font-weight: 600;
+}
+
+.addRow {
+  gap: 8px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.input {
+  flex: 1;
+  min-width: 240px;
+  font: inherit;
+  color: inherit;
+  border-radius: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.select {
+  font: inherit;
+  color: inherit;
+  border-radius: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-2);
+}
+
 .card {
   border: 1px solid var(--dsw-alias-border-l2);
   background: var(--dsw-alias-bg-layer-3);
   border-radius: 12px;
-  list-style: none;
-  transition: border-color 0.16s, background 0.16s;
-}
-.card:hover {
-  border-color: var(--dsw-alias-label-dimmed);
-}
-.header {
-  appearance: none;
-  width: 100%;
-  font: inherit;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-  background: transparent;
-  border: 0;
-  border-radius: 12px;
-  align-items: center;
-  gap: 12px;
   padding: 14px 16px;
   display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
-.header:focus-visible {
-  outline: 2px solid var(--dsw-alias-brand-primary);
-  outline-offset: -2px;
+
+.marketHead {
+  align-items: flex-start;
+  gap: 12px;
+  display: flex;
+  justify-content: space-between;
 }
+
 .headText {
   flex-direction: column;
   flex: 1;
@@ -39,248 +90,215 @@
   min-width: 0;
   display: flex;
 }
+
 .name {
   color: var(--dsw-alias-label-primary);
   font-size: 15px;
   font-weight: 600;
   line-height: 1.4;
 }
+
+.pluginName {
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
 .desc {
   color: var(--dsw-alias-label-tertiary);
   font-size: 13px;
   line-height: 1.5;
 }
-.chevron {
-  color: var(--dsw-alias-label-tertiary);
+
+.errText {
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.rowActions {
+  gap: 8px;
   flex: none;
-  transition: transform 0.16s;
+  display: flex;
+  align-items: center;
 }
-.chevOpen {
-  transform: rotate(180deg);
+
+.primary,
+.ghost,
+.ghostDanger,
+.danger {
+  appearance: none;
+  font: inherit;
+  cursor: pointer;
+  border-radius: 8px;
+  padding: 7px 12px;
+  border: 1px solid transparent;
+  white-space: nowrap;
 }
-.body {
-  border-top: 1px solid var(--dsw-alias-border-l2);
-  margin: 0 16px;
-  padding: 10px 0 12px;
+
+.primary {
+  background: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-bg-layer-1);
+  font-weight: 600;
+}
+
+.ghost {
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  border-color: var(--dsw-alias-border-l2);
+}
+
+.ghostDanger {
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  border-color: var(--dsw-alias-border-l2);
+}
+
+.danger {
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  border-color: var(--dsw-alias-label-primary);
+  font-weight: 600;
+}
+
+.primary:disabled,
+.ghost:disabled,
+.ghostDanger:disabled,
+.danger:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.noticeOk,
+.noticeErr {
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 10px 12px;
+}
+
+.noticeOk {
+  border: 1px solid var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.noticeErr {
+  border: 1px solid var(--dsw-alias-label-primary);
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.empty {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+  line-height: 1.6;
+  border: 1px dashed var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  padding: 18px 16px;
+}
+
+.filterRow {
+  gap: 8px;
+  display: flex;
+  align-items: center;
+  /* One line always: the search box shrinks (min-width: 0) instead of the
+   * installed-only toggle wrapping below the filters. */
+  flex-wrap: nowrap;
+}
+
+.filterRow .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.filterRow .select,
+.filterRow .toggleWrap {
+  flex: none;
+}
+
+.toggleWrap {
+  align-items: center;
+  gap: 6px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  white-space: nowrap;
+}
+
+.toggleWrap input[type='checkbox'] {
+  accent-color: var(--dsw-alias-brand-primary);
+  width: 15px;
+  height: 15px;
+  margin: 0;
+}
+
+.pluginGrid {
+  display: grid;
+  /* Two comfortable columns on wide panes; collapses to one when narrow. */
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 10px;
+}
+
+.pluginCard {
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-2);
+  padding: 12px;
   flex-direction: column;
+  gap: 6px;
+  display: flex;
+}
+
+.pluginCardTop {
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 8px;
   display: flex;
 }
-.row {
-  align-items: center;
-  gap: 12px;
-  padding: 6px 0;
-  display: flex;
+
+.presenceBadge {
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 999px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  padding: 1px 8px;
+  flex: none;
+  white-space: nowrap;
 }
-.text {
+
+/* Presence + kind chips stack on the card's top-right corner. */
+.badges {
+  flex: none;
+  align-items: flex-end;
+  gap: 4px;
+  display: flex;
   flex-direction: column;
-  flex: 1;
-  gap: 2px;
-  min-width: 0;
-  display: flex;
 }
-.label {
-  color: var(--dsw-alias-label-primary);
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 1.5;
-}
+
 .hint {
   color: var(--dsw-alias-label-tertiary);
   font-size: 12px;
   line-height: 1.5;
-  white-space: pre-line;
 }
-.badge {
-  color: var(--dsw-alias-label-secondary);
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 999px;
-  font-size: 11px;
-  padding: 1px 8px;
-  flex: none;
-}
-.tabs {
-  display: flex;
-  gap: 4px;
-  border-bottom: 1px solid var(--dsw-alias-border-l2);
-}
-.tab {
-  appearance: none;
-  font: inherit;
-  cursor: pointer;
-  color: var(--dsw-alias-label-tertiary);
-  background: transparent;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  padding: 6px 12px;
-  font-size: 13px;
-}
-.tabActive {
-  color: var(--dsw-alias-label-primary);
-  border-bottom-color: var(--dsw-alias-brand-primary);
-}
-.skill {
-  align-items: center;
-  gap: 10px;
-  padding: 8px 0;
-  display: flex;
-}
-.skillMain {
-  align-items: center;
-  gap: 10px;
-  flex: 1;
-  min-width: 0;
-  display: flex;
-}
-.skill + .skill {
-  border-top: 1px solid var(--dsw-alias-border-l2);
-}
-/* Disabled skills dim only their title/description; badges and actions stay crisp. */
-.skillDisabled {
-  opacity: 0.55;
-}
-.skillText {
-  flex-direction: column;
-  flex: 1;
-  gap: 2px;
-  min-width: 0;
-  display: flex;
-}
-.market {
-  flex-direction: column;
-  gap: 4px;
-  display: flex;
-}
-.input {
-  flex: 1;
-  border: 1px solid var(--dsw-alias-border-l2);
-  background: var(--dsw-alias-bg-layer-3);
-  height: 32px;
-  font: inherit;
-  color: var(--dsw-alias-label-primary);
-  border-radius: 8px;
-  padding: 0 8px;
-  font-size: 13px;
-}
-.input:focus-visible {
-  border-color: var(--dsw-alias-brand-primary);
-  outline: none;
-}
-.select {
-  min-width: 150px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  background: var(--dsw-alias-bg-layer-3);
-  height: 32px;
-  font: inherit;
-  color: var(--dsw-alias-label-primary);
-  border-radius: 8px;
-  padding: 0 8px;
-  font-size: 13px;
-}
-.select:focus-visible {
-  border-color: var(--dsw-alias-brand-primary);
-  outline: none;
-}
-.ghost {
-  appearance: none;
-  font: inherit;
-  cursor: pointer;
-  border: 1px solid var(--dsw-alias-border-l2);
-  color: var(--dsw-alias-label-secondary);
-  background: transparent;
-  border-radius: 8px;
-  padding: 4px 12px;
-  font-size: 13px;
-  flex: none;
-}
-.ghost:hover:not(:disabled) {
-  color: var(--dsw-alias-label-primary);
-  border-color: var(--dsw-alias-label-dimmed);
-}
-.ghost:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-.ghost.danger,
-.ghost.danger:hover:not(:disabled) {
-  color: var(--dsw-alias-state-error-primary);
-  border-color: var(--dsw-alias-state-error-primary);
-}
-.repo {
-  align-items: center;
-  gap: 10px;
-  padding: 4px 0;
-  display: flex;
-}
-.footer {
-  flex-direction: column;
-  gap: 8px;
-  padding-top: 8px;
-  display: flex;
-}
-.selectWrap {
-  flex: none;
-}
-.status {
-  color: var(--dsw-alias-label-tertiary);
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.5;
-}
-.statusErr {
-  color: var(--dsw-alias-state-error-primary);
-}
-.skillActions {
-  align-items: center;
-  gap: 8px;
-  flex: none;
-  display: flex;
-}
-/* Installed rows stack vertically: title line, provider line, description,
-   then the action buttons below the description. */
-.skillVertical {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 6px;
-}
-.titleRow {
-  align-items: center;
-  gap: 10px;
-  display: flex;
-}
-.titleRow .badge {
-  margin-left: auto;
-  flex: none;
-}
-.metaRow {
-  flex-wrap: wrap;
-  gap: 6px;
-  display: flex;
-}
-.customBadge {
-  border-color: transparent;
-  /* Orange background, white text (the theme ships no orange token). */
-  background: #f97316;
-  color: var(--dsw-static-neutral-bluish-00, #fff);
-}
-.ghost.success,
-.ghost.success:hover:not(:disabled) {
-  color: var(--dsw-alias-state-success-primary);
-  border-color: var(--dsw-alias-state-success-primary);
-}
+
+/* --- Add/Manage modal (shared with dsh-next-cc-plugins) ------------------ */
+
 .overlay {
   position: fixed;
   inset: 0;
   z-index: 1000;
-  /* Dim the page behind the dialog; the theme's bg-overlay alias is far too
-     light, so use an explicit scrim (user-tuned to 0.5). */
+  /* Explicit scrim: the theme's bg-overlay alias is far too light. */
   background: rgba(0, 0, 0, 0.5);
   align-items: center;
   justify-content: center;
   display: flex;
 }
+
 .modal {
-  width: min(420px, calc(100vw - 48px));
+  width: min(440px, calc(100vw - 48px));
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 12px;
   background: var(--dsw-alias-bg-layer-3);
@@ -290,6 +308,7 @@
   gap: 10px;
   display: flex;
 }
+
 .modalTitle {
   color: var(--dsw-alias-label-primary);
   margin: 0;
@@ -297,22 +316,159 @@
   font-weight: 600;
   line-height: 1.5;
 }
+
+.modalHint {
+  color: var(--dsw-alias-label-tertiary);
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .modalActions {
   justify-content: flex-end;
   gap: 8px;
   padding-top: 4px;
   display: flex;
 }
-.clickable {
+
+.optionList {
+  flex-direction: column;
+  gap: 6px;
+  display: flex;
+}
+
+.optionRow {
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  padding: 7px 10px;
+  cursor: pointer;
+  display: flex;
+}
+
+.optionRow:hover {
+  border-color: var(--dsw-alias-label-dimmed);
+}
+
+.optionRow input[type='checkbox'] {
+  accent-color: var(--dsw-alias-brand-primary);
+  width: 15px;
+  height: 15px;
+  flex: none;
+  margin: 0;
+}
+
+.optionLabel {
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Locked rows (skill already installed there): readable, not inviting. */
+.optionLocked {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.optionLocked:hover {
+  border-color: var(--dsw-alias-border-l2);
+}
+
+.addedBadge {
+  border: 0;
+  border-radius: 999px;
+  background: var(--dsw-alias-state-success-primary);
+  color: var(--dsw-static-neutral-bluish-00, #fff);
+  font-size: 11px;
+  padding: 1px 8px;
+  flex: none;
+}
+
+.optionAction {
+  flex: none;
+}
+
+/* The skill name doubles as the detail-modal trigger: looks like text. */
+.nameButton {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-weight: inherit;
+  color: inherit;
+  text-align: left;
   cursor: pointer;
 }
-.clickable:hover .label {
+
+.nameButton:hover {
   text-decoration: underline;
-  text-underline-offset: 2px;
 }
+
+/* --- Skills-specific extensions ------------------------------------------ */
+
+/* Provider spec pill on the card's bottom row (the marketplace chip's twin). */
+.providerChip {
+  border: 0;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  padding: 1px 8px;
+  flex: none;
+  white-space: nowrap;
+}
+
+/* Project-skill marker, same pill family. */
+.projectChip {
+  border: 0;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+
+/* Custom (hand-written, unmanaged) skill marker: orange background, white
+ * text — the theme ships no orange token. */
+.customBadge {
+  border: 0;
+  border-radius: 999px;
+  background: #f97316;
+  color: var(--dsw-static-neutral-bluish-00, #fff);
+  font-size: 11px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+
+/* Update-available flag for rows whose Update button cannot show (the skill
+ * is workspace-scoped; updates only apply to the global install). Same pill
+ * family as the plugins page's notes chip. */
+.updateChip {
+  border: 0;
+  border-radius: 999px;
+  background: var(--dsw-alias-state-warn-primary, #b45309);
+  color: var(--dsw-static-neutral-bluish-00, #fff);
+  font-size: 11px;
+  padding: 1px 8px;
+  margin-left: 6px;
+  white-space: nowrap;
+}
+
+.showMoreRow {
+  align-items: center;
+  justify-content: center;
+  display: flex;
+  padding: 4px 0;
+}
+
+/* Wide detail modal + its scrollable rendered-markdown body. */
 .modalWide {
   width: min(640px, calc(100vw - 48px));
 }
+
 .modalBody {
   margin: 0;
   border: 1px solid var(--dsw-alias-border-l2);
@@ -328,6 +484,7 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+
 /* Rendered markdown preview: readable typography over the scroll container. */
 .md {
   font-family: inherit;
@@ -411,284 +568,4 @@
 .md th {
   color: var(--dsw-alias-label-primary);
   background: var(--dsw-alias-bg-layer-3);
-}
-.moreRow {
-  align-items: center;
-  gap: 6px;
-  padding: 8px 0 2px;
-  flex-direction: column;
-  display: flex;
-}
-/* Add-modal target picker: one togglable row per install target. */
-.optionList {
-  flex-direction: column;
-  gap: 6px;
-  display: flex;
-}
-.optionRow {
-  align-items: center;
-  gap: 10px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
-  padding: 7px 10px;
-  cursor: pointer;
-  display: flex;
-}
-.optionRow:hover {
-  border-color: var(--dsw-alias-label-dimmed);
-}
-.optionRow input[type='checkbox'] {
-  accent-color: var(--dsw-alias-brand-primary);
-  width: 15px;
-  height: 15px;
-  flex: none;
-  margin: 0;
-}
-.optionLabel {
-  color: var(--dsw-alias-label-primary);
-  font-size: 13px;
-  flex: 1;
-  min-width: 0;
-}
-/* Locked rows (skill already installed there): still readable, not inviting. */
-.optionLocked {
-  cursor: default;
-  opacity: 0.7;
-}
-.optionLocked:hover {
-  border-color: var(--dsw-alias-border-l2);
-}
-.addedBadge {
-  border: 0;
-  border-radius: 999px;
-  background: var(--dsw-alias-state-success-primary);
-  color: var(--dsw-static-neutral-bluish-00, #fff);
-  font-size: 11px;
-  padding: 1px 8px;
-  flex: none;
-}
-
-/* ---- Scope-modal + grid styling aligned with the Claude Plugins page ---- */
-.modalHint {
-  color: var(--dsw-alias-label-tertiary);
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.5;
-}
-.optionAction {
-  white-space: nowrap;
-}
-.filterRow {
-  gap: 8px;
-  display: flex;
-  align-items: center;
-  /* One line always: the search box shrinks (min-width: 0) instead of the
-   * installed-only toggle wrapping below the filters. */
-  flex-wrap: nowrap;
-}
-.filterRow .input {
-  flex: 1;
-  min-width: 0;
-}
-.filterRow .select,
-.filterRow .toggleWrap {
-  flex: none;
-}
-.toggleWrap {
-  align-items: center;
-  gap: 6px;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 13px;
-  cursor: pointer;
-  display: flex;
-  white-space: nowrap;
-}
-.toggleWrap input[type='checkbox'] {
-  accent-color: var(--dsw-alias-brand-primary);
-}
-.pluginGrid {
-  display: grid;
-  /* Two comfortable columns on wide panes; collapses to one when narrow. */
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 10px;
-}
-.pluginCard {
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 10px;
-  background: var(--dsw-alias-bg-layer-2);
-  padding: 12px;
-  flex-direction: column;
-  gap: 6px;
-  display: flex;
-}
-.pluginCardTop {
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-  display: flex;
-}
-.pluginName {
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-  display: flex;
-  flex-wrap: wrap;
-}
-.nameButton {
-  appearance: none;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  color: var(--dsw-alias-label-primary);
-  background: transparent;
-  border: 0;
-  font-size: 15px;
-  font-weight: 600;
-  padding: 0;
-}
-.nameButton:hover {
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-.providerChip {
-  border: 0;
-  border-radius: 999px;
-  background: var(--dsw-alias-bg-layer-3);
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 11px;
-  padding: 1px 8px;
-  white-space: nowrap;
-}
-.projectChip {
-  border: 0;
-  border-radius: 999px;
-  background: var(--dsw-alias-bg-layer-3);
-  color: var(--dsw-alias-label-secondary);
-  font-size: 11px;
-  padding: 1px 8px;
-  white-space: nowrap;
-}
-.presenceBadge {
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 999px;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 11px;
-  padding: 1px 8px;
-  flex: none;
-  white-space: nowrap;
-}
-.badges {
-  flex: none;
-  align-items: flex-end;
-  gap: 4px;
-  display: flex;
-  flex-direction: column;
-}
-.installedChip {
-  border: 0;
-  border-radius: 999px;
-  /* Orange background, white text (the theme ships no orange token) — the
-   * same custom-skill marker the panel has always used. */
-  background: #f97316;
-  color: var(--dsw-static-neutral-bluish-00, #fff);
-  font-size: 11px;
-  padding: 1px 8px;
-  white-space: nowrap;
-}
-.providerKind {
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 11px;
-  align-self: center;
-}
-.rowActions {
-  gap: 8px;
-  flex: none;
-  display: flex;
-  align-items: center;
-}
-.marketHead {
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  display: flex;
-}
-.errText {
-  color: var(--dsw-alias-state-error-primary);
-  font-size: 12px;
-  line-height: 1.5;
-}
-.showMoreRow {
-  align-items: center;
-  justify-content: center;
-  display: flex;
-  padding: 4px 0;
-}
-.primary,
-.ghostDanger,
-.danger {
-  appearance: none;
-  font: inherit;
-  cursor: pointer;
-  border-radius: 8px;
-  padding: 7px 12px;
-  border: 1px solid transparent;
-  white-space: nowrap;
-  font-size: 13px;
-}
-.primary {
-  background: var(--dsw-alias-brand-primary);
-  color: var(--dsw-alias-bg-layer-1);
-  font-weight: 600;
-}
-.primary:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-.ghostDanger {
-  background: transparent;
-  color: var(--dsw-alias-label-secondary);
-  border-color: var(--dsw-alias-border-l2);
-}
-.ghostDanger:hover:not(:disabled) {
-  color: var(--dsw-alias-state-error-primary);
-  border-color: var(--dsw-alias-state-error-primary);
-}
-.ghostDanger:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-.danger {
-  background: var(--dsw-alias-state-error-primary);
-  border-color: var(--dsw-alias-state-error-primary);
-  color: var(--dsw-static-neutral-bluish-00, #fff);
-  font-weight: 600;
-}
-.danger:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-.noticeOk,
-.noticeErr {
-  border-radius: 10px;
-  font-size: 13px;
-  line-height: 1.5;
-  padding: 8px 12px;
-}
-.noticeOk {
-  border: 1px solid var(--dsw-alias-border-l2);
-  color: var(--dsw-alias-label-secondary);
-  background: var(--dsw-alias-bg-layer-2);
-}
-.noticeErr {
-  border: 1px solid var(--dsw-alias-state-error-primary);
-  color: var(--dsw-alias-state-error-primary);
-  background: var(--dsw-alias-bg-layer-2);
-}
-.empty {
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 13px;
-  line-height: 1.6;
-  border: 1px dashed var(--dsw-alias-border-l2);
-  border-radius: 12px;
-  padding: 18px 16px;
 }

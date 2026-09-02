@@ -2,7 +2,7 @@
  * jsdom render test for the Skills settings panel: proves the panel renders
  * the cc-plugins-style page (Skills / Providers tabs over a two-column card
  * grid) from the Host envelope and that the interactive controls dispatch the
- * right RPC calls — the scope modal (add / re-scope / two-step remove), the
+ * right RPC calls — the scope modal (add / re-scope / two-step uninstall), the
  * detail modal (markdown body), the provider filter, and the notification
  * hook. Complements the Host RPC contract test (shape) and the real-mount
  * e2e marker (whole shell).
@@ -105,7 +105,7 @@ function byTestId(container: HTMLElement, id: string): HTMLElement {
 }
 
 function dialog(container: HTMLElement): HTMLElement {
-  return byTestId(container, 'skills-scope-modal')
+  return byTestId(container, 'skills-modal')
 }
 
 function radioByName(scope: HTMLElement, testId: string): HTMLInputElement {
@@ -155,11 +155,11 @@ describe('formatters', () => {
   })
   it('formatLastSync renders relative ages', () => {
     const now = Date.parse('2026-09-01T12:00:00Z')
-    expect(formatLastSync('', now)).toBe('never synced')
-    expect(formatLastSync(new Date(now - 30_000).toISOString(), now)).toBe('synced just now')
-    expect(formatLastSync(new Date(now - 5 * 60_000).toISOString(), now)).toBe('synced 5 min ago')
-    expect(formatLastSync(new Date(now - 3 * 3_600_000).toISOString(), now)).toBe('synced 3 h ago')
-    expect(formatLastSync(new Date(now - 2 * 86_400_000).toISOString(), now)).toBe('synced 2 d ago')
+    expect(formatLastSync('', now)).toBe('never')
+    expect(formatLastSync(new Date(now - 30_000).toISOString(), now)).toBe('just now')
+    expect(formatLastSync(new Date(now - 5 * 60_000).toISOString(), now)).toBe('5m ago')
+    expect(formatLastSync(new Date(now - 3 * 3_600_000).toISOString(), now)).toBe('3h ago')
+    expect(formatLastSync(new Date(now - 2 * 86_400_000).toISOString(), now)).toBe('2d ago')
   })
 })
 
@@ -172,9 +172,8 @@ describe('SkillsPanel rendering', () => {
     expect(byTestId(container, 'skills-provider-filter')).toBeTruthy()
     const cards = container.querySelectorAll('[data-testid="skills-card"]')
     expect(cards).toHaveLength(3)
-    // The installed card shows the presence badge and both action buttons.
+    // The installed card shows the presence badge and one Add/Manage button.
     expect(byTestId(container, 'skills-presence').textContent).toBe('Everywhere')
-    expect(byTestId(container, 'skills-manage')).toBeTruthy()
     expect(byTestId(container, 'skills-add')).toBeTruthy()
     // The managed card with a newer catalog version carries the Update button.
     expect(byTestId(container, 'skills-update')).toBeTruthy()
@@ -207,13 +206,16 @@ describe('SkillsPanel rendering', () => {
   })
 })
 
-describe('scope modal: add + re-scope + remove', () => {
+describe('scope modal: add + re-scope + uninstall', () => {
   it('Add installs the catalog skill with the drafted scope and notifies', async () => {
     const rpc = rpcMock()
     const notify = vi.fn()
     const { container, unmount } = await render(rpc, WS, notify)
-    // The first Add button belongs to the first catalog-only card (deploy-helper).
-    await click(byTestId(container, 'skills-add'))
+    // skills-add names the card's single action button (Add or Manage), so
+    // the Add flow targets the deploy-helper card explicitly.
+    const addCard = [...container.querySelectorAll('[data-testid="skills-card"]')]
+      .find((c) => c.textContent!.includes('deploy-helper'))!
+    await click(addCard.querySelector('[data-testid="skills-add"]')!)
     const scope = dialog(container)
     expect(radioByName(scope, 'skills-scope-global').checked).toBe(true)
     expect(scope.textContent).toContain('deploy-helper')
@@ -227,7 +229,7 @@ describe('scope modal: add + re-scope + remove', () => {
   it('the workspaces radio reveals the checklist and Save scopes to the checked workspaces', async () => {
     const rpc = rpcMock()
     const { container, unmount } = await render(rpc, WS)
-    await click(byTestId(container, 'skills-manage'))
+    await click(byTestId(container, 'skills-add'))
     const scope = dialog(container)
     expect(radioByName(scope, 'skills-scope-global').checked).toBe(true)
     await click(radioByName(scope, 'skills-scope-workspaces'))
@@ -237,14 +239,14 @@ describe('scope modal: add + re-scope + remove', () => {
       checkboxByTitle(byTestId(container, 'skills-workspaces'), title)
     // The confirm stays enabled even with zero checked: an empty whitelist
     // is the off-everywhere master switch.
-    expect((button(scope, 'Save') as HTMLButtonElement).disabled).toBe(false)
+    expect((button(scope, 'Save scope') as HTMLButtonElement).disabled).toBe(false)
     await click(box('Project One'))
     await click(box('Project Two'))
     expect(box('Project Two').checked).toBe(true)
     await click(box('Project Two')) // toggle back off
     expect(box('Project One').checked).toBe(true)
-    await click(button(byTestId(container, 'skills-scope-modal'), 'Save'))
-    const call = rpcCalls(rpc).find(([m]) => m === 'setScope')
+    await click(button(byTestId(container, 'skills-modal'), 'Save scope'))
+    const call = rpcCalls(rpc).find(([m]) => m === 'setSkillScope')
     expect(call![1]).toEqual({ name: 'security-review', workspaces: ['w1'] })
     await unmount()
   })
@@ -256,24 +258,24 @@ describe('scope modal: add + re-scope + remove', () => {
       config: { ...STATE.config, scopes: { 'security-review': ['w2'] } },
     }
     const { container, unmount } = await render(rpcMock(state), WS)
-    await click(byTestId(container, 'skills-manage'))
+    await click(byTestId(container, 'skills-add'))
     const scope = dialog(container)
     expect(radioByName(scope, 'skills-scope-workspaces').checked).toBe(true)
     expect(checkboxByTitle(scope, 'Project Two').checked).toBe(true)
-    expect((button(scope, 'Save') as HTMLButtonElement).disabled).toBe(false)
+    expect((button(scope, 'Save scope') as HTMLButtonElement).disabled).toBe(false)
     await unmount()
   })
 
-  it('Remove needs the two-step confirm and then calls remove', async () => {
+  it('Uninstall needs the two-step confirm and then calls uninstallSkill', async () => {
     const rpc = rpcMock()
     const { container, unmount } = await render(rpc, WS)
-    await click(byTestId(container, 'skills-manage'))
+    await click(byTestId(container, 'skills-add'))
     const scope = dialog(container)
-    await click(button(scope, 'Remove'))
+    await click(button(scope, 'Uninstall'))
     // The first click only reveals the confirmation button.
-    expect(rpcCalls(rpc).map(([m]) => m)).not.toContain('remove')
-    await click(byTestId(scope, 'skills-remove-confirm'))
-    const call = rpcCalls(rpc).find(([m]) => m === 'remove')
+    expect(rpcCalls(rpc).map(([m]) => m)).not.toContain('uninstallSkill')
+    await click(byTestId(scope, 'skills-uninstall-confirm'))
+    const call = rpcCalls(rpc).find(([m]) => m === 'uninstallSkill')
     expect(call![1]).toEqual({ name: 'security-review' })
     await unmount()
   })
@@ -281,27 +283,27 @@ describe('scope modal: add + re-scope + remove', () => {
   it('saving the workspaces mode with none checked disables everywhere', async () => {
     const rpc = rpcMock()
     const { container, unmount } = await render(rpc, WS)
-    await click(byTestId(container, 'skills-manage'))
+    await click(byTestId(container, 'skills-add'))
     const scope = dialog(container)
     await click(radioByName(scope, 'skills-scope-workspaces'))
-    await click(button(scope, 'Save'))
-    const call = rpcCalls(rpc).find(([m]) => m === 'setScope')
+    await click(button(scope, 'Save scope'))
+    const call = rpcCalls(rpc).find(([m]) => m === 'setSkillScope')
     expect(call![1]).toEqual({ name: 'security-review', workspaces: [] })
     await unmount()
   })
 
-  it('an unmanaged skill has no remove control but can still be scoped', async () => {
+  it('an unmanaged skill has no uninstall control but can still be scoped', async () => {
     const state: SkillsState = {
       ...STATE,
       installed: [{ ...skill, managed: false, provider: undefined, updateAvailable: undefined }],
     }
     const rpc = rpcMock(state)
     const { container, unmount } = await render(rpc)
-    await click(byTestId(container, 'skills-manage'))
+    await click(byTestId(container, 'skills-add'))
     const scope = dialog(container)
-    expect([...scope.querySelectorAll('button')].some((b) => b.textContent === 'Remove')).toBe(false)
-    await click(button(scope, 'Save'))
-    const call = rpcCalls(rpc).find(([m]) => m === 'setScope')
+    expect([...scope.querySelectorAll('button')].some((b) => b.textContent === 'Uninstall')).toBe(false)
+    await click(button(scope, 'Save scope'))
+    const call = rpcCalls(rpc).find(([m]) => m === 'setSkillScope')
     expect(call).toBeTruthy()
     await unmount()
   })
@@ -311,8 +313,8 @@ describe('detail modal', () => {
   it('loads an installed detail and renders the markdown body', async () => {
     const rpc = rpcMock()
     const { container, unmount } = await render(rpc)
-    await click(byTestId(container, 'skills-detail-open'))
-    const detail = byTestId(container, 'skills-detail')
+    await click(byTestId(container, 'skills-detail'))
+    const detail = byTestId(container, 'skills-skill-detail')
     await act(async () => {})
     expect(rpcCalls(rpc).find(([m]) => m === 'getInstalledSkillDetail')).toBeTruthy()
     const body = byTestId(detail, 'skills-detail-body')
@@ -336,9 +338,9 @@ describe('detail modal', () => {
     })
     await act(async () => {})
     const baseCalls = rpcCalls(rpc).length
-    await click(byTestId(container, 'skills-detail-open'))
+    await click(byTestId(container, 'skills-detail'))
     await act(async () => {})
-    const detail = byTestId(container, 'skills-detail')
+    const detail = byTestId(container, 'skills-skill-detail')
     const body = byTestId(detail, 'skills-detail-body')
     expect(body.querySelector('h1')?.textContent).toBe('Heading')
     // No render loop: the detail RPC fired exactly once for this open.
@@ -354,7 +356,7 @@ describe('detail modal', () => {
     const { container, unmount } = await render(rpc)
     const cards = [...container.querySelectorAll('[data-testid="skills-card"]')]
     const catalogCard = cards.find((c) => c.textContent!.includes('find-skills'))!
-    await click(catalogCard.querySelector('[data-testid="skills-detail-open"]')!)
+    await click(catalogCard.querySelector('[data-testid="skills-detail"]')!)
     await act(async () => {})
     expect(rpcCalls(rpc).find(([m]) => m === 'getCatalogSkillDetail')![1])
       .toEqual({ providerId: 'o-r', skillPath: 'skills/find-skills' })
@@ -376,7 +378,7 @@ describe('providers tab', () => {
     const row = byTestId(container, 'skills-provider')
     expect(row.textContent).toContain('o/r')
     expect(row.textContent).toContain('2 skills')
-    expect(row.textContent).toContain('never synced')
+    expect(row.textContent).toContain('never')
     await click(byTestId(container, 'skills-provider-remove'))
     expect(rpcCalls(rpc).find(([m]) => m === 'removeProvider')![1])
       .toEqual({ providerId: 'o-r' })
@@ -386,7 +388,7 @@ describe('providers tab', () => {
   it('adds a provider from the input (click and Enter) and refreshes all', async () => {
     const rpc = rpcMock()
     const { container, unmount } = await openProviders(rpc)
-    const input = byTestId(container, 'skills-provider-input') as HTMLInputElement
+    const input = byTestId(container, 'skills-add-input') as HTMLInputElement
     setValue(input, 'vercel/agent-skills')
     await click(button(container, 'Add provider'))
     expect(rpcCalls(rpc).find(([m]) => m === 'addProvider')![1])

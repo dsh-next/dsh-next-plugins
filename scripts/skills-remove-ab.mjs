@@ -3,7 +3,7 @@
  * Page A: baseline /-menu -> remove grill-me via Skills UI.
  * Page B (independent browser context, fresh client): /-menu at +2s.
  * Page A again: New Session click (no reload), /-menu.
- * Usage: node scripts/skills-remove-ab.mjs <baseUrl>
+ * Usage: node scripts/skills-uninstall-ab.mjs <baseUrl>
  */
 import { chromium } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
@@ -88,11 +88,11 @@ await pageA.waitForTimeout(900)
 // The scope modal: Manage -> two-step remove (grill-me is boot-seeded as
 // plugin-managed, so the remove flow accepts it).
 const card = pageA.locator('[data-testid="skills-card"]', { hasText: 'grill-me' }).first()
-await card.locator('[data-testid="skills-manage"]').first().click()
-const modal = pageA.getByTestId('skills-scope-modal')
+await card.locator('[data-testid="skills-add"]').first().click()
+const modal = pageA.getByTestId('skills-modal')
 await modal.waitFor({ state: 'visible', timeout: 8000 })
-await modal.locator('[data-testid="skills-remove"]').click()
-await modal.locator('[data-testid="skills-remove-confirm"]').click()
+await modal.locator('[data-testid="skills-uninstall"]').click()
+await modal.locator('[data-testid="skills-uninstall-confirm"]').click()
 await pageA.waitForTimeout(500)
 console.log(at(), 'A removed grill-me, card visible:', await card.isVisible().catch(() => false))
 

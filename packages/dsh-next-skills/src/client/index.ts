@@ -111,7 +111,7 @@ export function apply(ctx: Context): void {
     // The Plugins section registers at order 15; Skills sits right after it.
     // The label binds at call time so a language switch re-resolves it.
     const off = slots.register(
-      { name: 'settings.section', id: 'skills', order: 16, label: () => t('section.title'), locale: NS },
+      { name: 'settings.section', id: 'skills', order: 16, label: () => t('nav'), locale: NS },
       () => React.createElement(SkillsPanel, {
         rpc: (method: string, args?: unknown) => rpc(method, args),
         getWorkspaces,

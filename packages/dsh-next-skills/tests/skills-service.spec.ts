@@ -151,11 +151,11 @@ describe('installSkill (global-only)', () => {
   })
 })
 
-describe('setScope (pure config)', () => {
+describe('setSkillScope (pure config)', () => {
   it('writes a whitelist scope without touching any file', async () => {
     const h = makeHarness({ '/home/u/.agents/skills/s/SKILL.md': SKILL('s') })
     const before = h.fs.snapshot()
-    const result = await h.service.setScope({ name: 's', workspaces: ['/Users/x/Projects/repo'] })
+    const result = await h.service.setSkillScope({ name: 's', workspaces: ['/Users/x/Projects/repo'] })
     expect(result.ok).toBe(true)
     expect(h.fs.snapshot()).toEqual(before)
     expect((h.config.raw().scopes as Record<string, unknown>).s).toEqual(['repo'])
@@ -163,14 +163,14 @@ describe('setScope (pure config)', () => {
 
   it('a global scope clears the entry (absent means everywhere)', async () => {
     const h = makeHarness({}, { scopes: { s: [] } })
-    await h.service.setScope({ name: 's', workspaces: null })
+    await h.service.setSkillScope({ name: 's', workspaces: null })
     expect(h.config.raw().scopes).toEqual({})
   })
 
   it('validates the skill name and workspace paths', async () => {
     const h = makeHarness()
-    expect(await h.service.setScope({ name: 'not a name' })).toMatchObject({ ok: false })
-    await h.service.setScope({ name: 'ok', workspaces: ['/x/repo', 'repo', 'other'] })
+    expect(await h.service.setSkillScope({ name: 'not a name' })).toMatchObject({ ok: false })
+    await h.service.setSkillScope({ name: 'ok', workspaces: ['/x/repo', 'repo', 'other'] })
     expect((h.config.raw().scopes as Record<string, unknown>)['ok']).toEqual(['repo', 'other'])
   })
 })
@@ -209,9 +209,9 @@ describe('remove (managed, global, recoverable)', () => {
     const h = makeHarness()
     await seedCatalog(h)
     await h.service.installSkill({ providerId: 'o-r', skillPath: 'skills/find-skills' })
-    await h.service.setScope({ name: 'find-skills', workspaces: [] })
-    await h.service.setScope({ name: 'find-skills', workspaces: [] })
-    expect((await h.service.remove({ name: 'find-skills' })).ok).toBe(true)
+    await h.service.setSkillScope({ name: 'find-skills', workspaces: [] })
+    await h.service.setSkillScope({ name: 'find-skills', workspaces: [] })
+    expect((await h.service.uninstallSkill({ name: 'find-skills' })).ok).toBe(true)
     expect(h.fs.has('/home/u/.agents/skills/find-skills/SKILL.md')).toBe(false)
     expect(h.fs.has('/home/u/.agents/skills/.trash')).toBe(true)
     expect(h.config.raw().installed).toEqual([])
@@ -223,15 +223,15 @@ describe('remove (managed, global, recoverable)', () => {
     const h = makeHarness({
       '/home/u/.agents/skills/s/SKILL.md': shadow,
     }, { installed: [{ name: 's', providerId: 'p', providerSpec: 'o/r', skillPath: 'skills/s', version: 'v', installedAt: 't' }] })
-    expect((await h.service.remove({ name: 's' })).ok).toBe(true)
+    expect((await h.service.uninstallSkill({ name: 's' })).ok).toBe(true)
     expect(h.fs.has('/home/u/.agents/skills/s')).toBe(false)
   })
 
   it('refuses unmanaged skills (hand-created files are never touched)', async () => {
     const h = makeHarness({ '/home/u/.agents/skills/hand/SKILL.md': SKILL('hand') })
-    expect(await h.service.remove({ name: 'hand' })).toEqual({ ok: false, error: 'skill "hand" was not installed by the plugin' })
+    expect(await h.service.uninstallSkill({ name: 'hand' })).toEqual({ ok: false, error: 'skill "hand" was not installed by the plugin' })
     expect(h.fs.has('/home/u/.agents/skills/hand/SKILL.md')).toBe(true)
-    expect(await h.service.remove({ name: 'ghost' })).toEqual({ ok: false, error: 'skill "ghost" not found' })
+    expect(await h.service.uninstallSkill({ name: 'ghost' })).toEqual({ ok: false, error: 'skill "ghost" not found' })
   })
 })
 

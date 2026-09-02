@@ -60,7 +60,7 @@ await page.screenshot({ path: `${OUT}/02-skills-grid.png` })
 
 // The scope modal (Manage): Everywhere radio, workspaces checklist, and the
 // two-step Remove reveal. Cancel keeps everything untouched.
-const manage = page.locator('[data-testid="skills-manage"]').first()
+const manage = page.locator('[data-testid="skills-add"]').first()
 if (await manage.isVisible().catch(() => false)) {
   await manage.click({ force: true })
   await page.waitForTimeout(500)
@@ -79,7 +79,7 @@ await page.screenshot({ path: `${OUT}/03-section-providers.png` })
 await page.getByTestId('skills-tab-skills').first().click({ force: true })
 await page.waitForTimeout(800)
 // Detail modal of the first card's name button.
-const nameButton = page.locator('[data-testid="skills-detail-open"]').first()
+const nameButton = page.locator('[data-testid="skills-detail"]').first()
 if (await nameButton.isVisible().catch(() => false)) {
   await nameButton.click({ force: true })
   await page.waitForTimeout(900)

@@ -164,7 +164,7 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
   // nav level as General/Models/Plugins) with Skills and Providers tabs over
   // a card grid, backed by the settings.yaml configuration. Opening it must
   // reveal the tab bar and the seeded throwaway skill's card; the card's
-  // scope modal must offer Everywhere vs the workspaces checklist and remove
+  // scope modal must offer Global vs the workspaces checklist and uninstall
   // the skill end-to-end through the two-step confirm (guards a client-side
   // state-refresh regression the "section renders" check cannot see).
   // No network: providers are only added manually.
@@ -173,8 +173,8 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await expect(page.getByText('Providers', { exact: true })).toBeVisible()
     const card = page.locator('[data-testid="skills-card"]', { hasText: 'e2e-test-skill' }).first()
     await expect(card).toBeVisible()
-    await card.locator('[data-testid="skills-manage"]').click()
-    const modal = page.getByTestId('skills-scope-modal')
+    await card.locator('[data-testid="skills-add"]').click()
+    const modal = page.getByTestId('skills-modal')
     await expect(modal).toBeVisible()
     await expect(page.getByTestId('skills-scope-global').locator('input')).toBeChecked()
     // The workspaces radio reveals the checklist, listing the workspaces
@@ -185,15 +185,15 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     const wsList = page.getByTestId('skills-workspaces')
     await expect(wsList).toContainText('workspace-a')
     await expect(wsList).toContainText('workspace-b')
-    // Two-step remove drives the real host service; the card disappears.
-    await modal.locator('[data-testid="skills-remove"]').click()
-    await modal.locator('[data-testid="skills-remove-confirm"]').click()
+    // Two-step uninstall drives the real host service; the card disappears.
+    await modal.locator('[data-testid="skills-uninstall"]').click()
+    await modal.locator('[data-testid="skills-uninstall-confirm"]').click()
     await expect(page.locator('[data-testid="skills-card"]', { hasText: 'e2e-test-skill' })).toHaveCount(0)
     // Providers tab renders with the add-provider control; the host seeds its
     // default providers shortly after boot, so rows may already be present —
     // never assert emptiness here.
     await page.getByTestId('skills-tab-providers').click({ force: true })
-    await expect(page.getByTestId('skills-provider-input').first()).toBeVisible()
+    await expect(page.getByTestId('skills-add-input').first()).toBeVisible()
     await expect(page.getByTestId('skills-provider-refresh-all').first()).toBeVisible()
   },
 

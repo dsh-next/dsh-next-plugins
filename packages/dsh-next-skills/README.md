@@ -19,16 +19,17 @@ tabs:
   each group alphabetical) plus every provider catalog skill. A search box,
   a provider filter, an installed-only toggle, and a Show more button (30
   cards per page) keep large catalogs fast. Each card shows the name, the
-  provider spec chip, the description, a presence badge (`Everywhere`,
-  `N workspaces`, or `Off`), a `project` chip for hand-created project
-  skills, and an orange `custom` chip for skills the plugin did not install.
-  The **Add/Manage** button opens the scope modal: a radio picks where the
-  skill is enabled — Everywhere (the default) or only in a checklist of
-  registered workspaces — and installing or saving applies that scope as
-  pure configuration. A managed card whose provider catalog moved ahead
-  carries an **Update** button; the modal also hosts Update and a two-step
-  Remove (managed skills only). Clicking a name opens the full SKILL.md
-  rendered as markdown.
+  description, a presence badge (`Everywhere`, `N workspaces`, or `Off`), a
+  `project` chip for hand-created project skills, an orange `custom` chip
+  for skills the plugin did not install, an `update available` flag when a
+  newer catalog version exists that only applies to the global install, and
+  the provider spec chip on the bottom row. The **Add/Manage** button opens
+  the scope modal: a radio picks where the skill is enabled — Global (the
+  default, every workspace) or only in a checklist of registered workspaces
+  — and installing or saving applies that scope as pure configuration. A
+  managed card whose provider catalog moved ahead carries an **Update**
+  button; the modal also hosts Update and a two-step Uninstall (managed
+  skills only). Clicking a name opens the full SKILL.md rendered as markdown.
 - **Providers** — manages GitHub skill repositories: add by URL
   (`https://github.com/owner/repo` or `owner/repo`), Refresh all, remove.
   Each row shows the repository description, the number of cached skills,

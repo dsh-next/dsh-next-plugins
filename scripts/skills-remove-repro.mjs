@@ -4,7 +4,7 @@
  * surface): Manage -> workspaces whitelist -> off-everywhere -> back to
  * Everywhere, with the presence badge checked after each step.
  *
- * Usage: node scripts/skills-remove-repro.mjs <baseUrl> [outDir]
+ * Usage: node scripts/skills-uninstall-repro.mjs <baseUrl> [outDir]
  */
 import { chromium } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
@@ -14,7 +14,7 @@ import process from 'node:process'
 const BASE_URL = process.argv[2]
 const OUT = process.argv[3] || 'test-results/skills/repro'
 if (!BASE_URL) {
-  console.error('usage: node scripts/skills-remove-repro.mjs <baseUrl> [outDir]')
+  console.error('usage: node scripts/skills-uninstall-repro.mjs <baseUrl> [outDir]')
   process.exit(2)
 }
 mkdirSync(OUT, { recursive: true })
@@ -76,28 +76,28 @@ await page.screenshot({ path: join(OUT, 'r1-grid.png') })
 // ---- Step 1: Manage on a seeded skill -> scope modal ----------------------
 const target = 'grill-me'
 log('card visible:', await skillCard(target).isVisible().catch(() => false))
-await skillCard(target).locator('[data-testid="skills-manage"]').first().click()
+await skillCard(target).locator('[data-testid="skills-add"]').first().click()
 await page.waitForTimeout(600)
 await page.screenshot({ path: join(OUT, 'r2-scope-modal.png') })
-const modal = page.getByTestId('skills-scope-modal')
+const modal = page.getByTestId('skills-modal')
 log('scope modal visible:', await modal.isVisible().catch(() => false))
 
 // ---- Step 2: off-everywhere (workspaces radio with nothing checked) -------
 await page.getByTestId('skills-scope-workspaces').click()
 await page.waitForTimeout(400)
 await page.screenshot({ path: join(OUT, 'r3-workspaces-mode.png') })
-await modal.getByRole('button', { name: 'Save', exact: true }).click()
+await modal.getByRole('button', { name: 'Save scope', exact: true }).click()
 await page.waitForTimeout(1000)
 await page.screenshot({ path: join(OUT, 'r4-off-everywhere.png') })
 log('modal closed:', !(await modal.isVisible().catch(() => false)))
 log('presence badge now:', await presence(target).textContent().catch(() => '<gone>'))
 
 // ---- Step 3: back to Everywhere -------------------------------------------
-await skillCard(target).locator('[data-testid="skills-manage"]').first().click()
+await skillCard(target).locator('[data-testid="skills-add"]').first().click()
 await page.waitForTimeout(600)
 await page.getByTestId('skills-scope-global').click()
 await page.waitForTimeout(200)
-await modal.getByRole('button', { name: 'Save', exact: true }).click()
+await modal.getByRole('button', { name: 'Save scope', exact: true }).click()
 await page.waitForTimeout(1000)
 await page.screenshot({ path: join(OUT, 'r5-back-to-global.png') })
 log('presence badge restored:', await presence(target).textContent().catch(() => '<gone>'))

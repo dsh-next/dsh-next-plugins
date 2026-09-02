@@ -349,7 +349,7 @@ export class SkillsService {
    * `undefined`/null clears the stored entry (absent = the everywhere
    * default); an empty list disables the skill everywhere.
    */
-  async setScope(args: { name: string; workspaces?: readonly string[] | null }): Promise<MutationResult> {
+  async setSkillScope(args: { name: string; workspaces?: readonly string[] | null }): Promise<MutationResult> {
     if (!isSkillName(args.name)) return { ok: false, error: `invalid skill name "${args.name}"` }
     let scope: SkillScopeSetting | undefined
     if (args.workspaces !== undefined && args.workspaces !== null) {
@@ -580,7 +580,7 @@ export class SkillsService {
    * recorded in settings) can be removed; hand-created skills are never
    * touched. The settings record and scope entry are dropped.
    */
-  async remove(args: { name: string }): Promise<MutationResult> {
+  async uninstallSkill(args: { name: string }): Promise<MutationResult> {
     if (!isSkillName(args.name)) return { ok: false, error: `invalid skill name "${args.name}"` }
     const existing = await this.findSkill(this.rootsFor('global'), args.name)
     if (!existing) return { ok: false, error: `skill "${args.name}" not found` }

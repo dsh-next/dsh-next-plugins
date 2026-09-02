@@ -86,7 +86,7 @@ if (first) {
   console.log('installed row:', JSON.stringify(row))
 
   console.log(`\n--- setScope ${first.name} -> off everywhere ---`)
-  const off = await rpc('setScope', { name: first.name, scope: { kind: 'workspaces', workspacePaths: [] } })
+  const off = await rpc('setSkillScope', { name: first.name, scope: { kind: 'workspaces', workspacePaths: [] } })
   console.log('status:', off.status, 'ok:', off.body?.ok, 'scope:', JSON.stringify(off.body?.state?.config?.scopes?.[first.name]))
 
   console.log(`\n--- updateSkill ${first.name} ---`)

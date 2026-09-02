@@ -1,24 +1,27 @@
 /**
- * The Skills settings panel rendered in the `settings.section` slot — a whole
- * settings page over the Host JSON RPC, styled after the Claude Plugins page:
+ * The Skills settings page rendered in the `settings.section` slot — the
+ * sibling of the Claude Plugins page (CcPanel) and styled by the same shared
+ * chrome: `card.module.css` mirrors cc-plugins' module byte-for-byte on every
+ * shared class, so the two settings pages read as one product.
  *
  *  - Skills: every discovered skill (project, custom, and user roots) plus
  *    every provider catalog skill in one two-column card grid — rows that
  *    exist on disk first, each group alphabetical, with a provider filter, a
  *    search box, and an installed-only toggle. Each card opens the scope
- *    modal: a radio picks where the skill is enabled — Everywhere (the
- *    default) or only in a checklist of workspaces — and installing or
+ *    modal: a radio picks where the skill is enabled — Global (the default,
+ *    everywhere) or only in a checklist of workspaces — and installing or
  *    saving applies that scope as pure configuration (enable/disable never
  *    writes skill files; skills install once, into the global root). A
  *    managed card with a newer catalog version carries an Update button, and
- *    the modal manages scope, updates, and removal (two-step confirm).
+ *    the modal manages scope, updates, and uninstalling it (two-step
+ *    confirm). The name button opens the skill's full SKILL.md rendered as
+ *    markdown.
  *  - Providers: source management (add by owner/repo shorthand or GitHub
  *    URL, refresh all, remove) with per-source sync age and error rows.
  *
  * Providers, installed records, and scopes persist in the plugin's settings
  * namespace (the harness settings.yaml), so the configuration is readable
- * and shareable between developers; the name button opens the skill's full
- * SKILL.md rendered as markdown.
+ * and shareable between developers.
  *
  * Every user-facing string rides the `t` translator (the platform locale
  * service bound to this package's namespace; English without it). The
@@ -59,7 +62,7 @@ type Tab = 'skills' | 'providers'
 const PAGE_SIZE = 30
 
 /** Mutations whose success changes the skill set the chat UI surfaces. */
-const CATALOG_MUTATIONS = new Set(['installSkill', 'setScope', 'updateSkill', 'remove', 'addProvider', 'removeProvider'])
+const CATALOG_MUTATIONS = new Set(['installSkill', 'setSkillScope', 'updateSkill', 'uninstallSkill', 'addProvider', 'removeProvider'])
 
 function isMutationError(result: unknown): result is { ok: false; error: string } {
   return !!result && typeof result === 'object' && (result as { ok?: unknown }).ok === false
@@ -76,17 +79,17 @@ function countOf(t: Translate, n: number, one: MessageKey, many: MessageKey): st
 
 /** Relative age of a provider's last sync, e.g. "3h ago" or "never". */
 export function formatLastSync(iso: string, now: number = Date.now(), t: Translate = englishTranslate): string {
-  if (iso === '') return t('providers.syncNever')
+  if (iso === '') return t('sync.never')
   const at = Date.parse(iso)
-  if (Number.isNaN(at)) return t('providers.syncNever')
+  if (Number.isNaN(at)) return t('sync.unknown')
   const diff = now - at
-  if (diff < 60_000) return t('providers.justNow')
+  if (diff < 60_000) return t('sync.justNow')
   const minutes = Math.floor(diff / 60_000)
-  if (minutes < 60) return t('providers.minutesAgo', { count: minutes })
+  if (minutes < 60) return t('sync.minutesAgo', { count: minutes })
   const hours = Math.floor(minutes / 60)
-  if (hours < 24) return t('providers.hoursAgo', { count: hours })
+  if (hours < 24) return t('sync.hoursAgo', { count: hours })
   const days = Math.floor(hours / 24)
-  if (days < 7) return t('providers.daysAgo', { count: days })
+  if (days < 7) return t('sync.daysAgo', { count: days })
   return iso.slice(0, 10)
 }
 
@@ -179,12 +182,12 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
   const [visible, setVisible] = React.useState(PAGE_SIZE)
   /** The open scope modal's entry. */
   const [modal, setModal] = React.useState<GridEntry | undefined>()
-  /** The modal's radio: everywhere (default) or a workspace whitelist. */
+  /** The modal's radio: global (default) or a workspace whitelist. */
   const [scopeMode, setScopeMode] = React.useState<'global' | 'workspaces'>('global')
-  /** Checked workspace paths while the modal is in workspaces mode. */
+  /** Checked workspace names while the modal is in workspaces mode. */
   const [checked, setChecked] = React.useState<Set<string>>(new Set())
-  /** Two-step remove confirm inside the modal. */
-  const [confirmRemove, setConfirmRemove] = React.useState(false)
+  /** Two-step uninstall confirm inside the modal. */
+  const [confirmUninstall, setConfirmUninstall] = React.useState(false)
   /** The open detail modal's entry plus its loaded content. */
   const [detail, setDetail] = React.useState<GridEntry | undefined>()
   const [detailData, setDetailData] = React.useState<SkillDetail | undefined>()
@@ -252,8 +255,9 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
       } else {
         if (result.state !== undefined) setState(result.state)
         else await refresh()
+        setMessage({ ok: true, text: result.warning ?? t('status.done') })
         if (CATALOG_MUTATIONS.has(method)) deps.notifyInstalledChanged?.()
-        setConfirmRemove(false)
+        setConfirmUninstall(false)
       }
     } catch (error) {
       setMessage({ ok: false, text: errMsg(error) })
@@ -279,7 +283,7 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
     setModal(undefined)
     setScopeMode('global')
     setChecked(new Set())
-    setConfirmRemove(false)
+    setConfirmUninstall(false)
   }
 
   /** Open the scope modal; an installed skill starts on its current scope. */
@@ -293,14 +297,14 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
       setScopeMode('global')
       setChecked(new Set())
     }
-    setConfirmRemove(false)
+    setConfirmUninstall(false)
   }
 
-  const toggleWorkspace = (path: string): void => {
+  const toggleWorkspace = (name: string): void => {
     setChecked((current) => {
       const next = new Set(current)
-      if (next.has(path)) next.delete(path)
-      else next.add(path)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
       return next
     })
   }
@@ -309,26 +313,26 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
    *  A workspaces draft with zero checked boxes means off everywhere. */
   const confirmModal = (): void => {
     if (modal === undefined) return
-    const workspaces = scopeMode === 'global' ? null : [...checked]
-    if (modal.row !== undefined) void mutate('setScope', { name: modal.name, workspaces })
+    const names = scopeMode === 'global' ? null : [...checked]
+    if (modal.row !== undefined) void mutate('setSkillScope', { name: modal.name, workspaces: names })
     else if (modal.catalog !== undefined) {
       void mutate('installSkill', {
         providerId: modal.catalog.providerId,
         skillPath: modal.catalog.skillPath,
-        ...(workspaces !== null ? { workspaces } : {}),
+        ...(names !== null ? { workspaces: names } : {}),
       })
     }
     closeModal()
   }
 
-  /** The scope modal: one radio — Everywhere (default) or a workspace
+  /** The scope modal: one radio — Global (default) or a workspace
    *  whitelist — and a checklist under the workspaces mode. Either/or. */
   const modalDialog = (): React.ReactElement | null => {
     if (modal === undefined) return null
     const row = modal.row
     const removable = row?.managed === true
     const canUpdate = removable === true && row?.updateAvailable === true && row.scope === 'global'
-    // Checklist rows: the registry's workspaces plus any recorded path the
+    // Checklist rows: the registry's workspaces plus any recorded name the
     // registry no longer knows (so it stays visible and can be unchecked).
     const recordedNames = row?.configScope ?? []
     const rows: Array<{ name: string; title: string; missing: boolean }> = [
@@ -340,369 +344,345 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
     // Both handlers set an ABSOLUTE value, so onClick (which label-forwarded
     // clicks deliver reliably) and onChange (which React's change detection
     // delivers) can run in any combination without double effects.
-    const pick = (mode: 'global' | 'workspaces') => () => { setScopeMode(mode); setConfirmRemove(false) }
-    const globalRadio = React.createElement('label', { className: styles.optionRow, 'data-testid': 'skills-scope-global' },
-      React.createElement('input', {
-        type: 'radio',
-        name: 'skills-scope-mode',
-        checked: scopeMode === 'global',
-        disabled: busy,
-        onClick: pick('global'),
-        onChange: pick('global'),
-      }),
-      React.createElement('span', { className: styles.optionLabel }, t('modal.scope.global')),
-    )
-    const workspacesRadio = React.createElement('label', { className: styles.optionRow, 'data-testid': 'skills-scope-workspaces' },
-      React.createElement('input', {
-        type: 'radio',
-        name: 'skills-scope-mode',
-        checked: scopeMode === 'workspaces',
-        disabled: busy,
-        onClick: pick('workspaces'),
-        onChange: pick('workspaces'),
-      }),
-      React.createElement('span', { className: styles.optionLabel }, t('modal.scope.workspaces')),
-    )
-    const checklist = scopeMode !== 'workspaces' ? null : React.createElement('div', { className: styles.optionList, 'data-testid': 'skills-workspaces' },
-      rows.length === 0
-        ? React.createElement('p', { className: styles.modalHint }, t('modal.workspaces.empty'))
-        : rows.map((workspace) => React.createElement('label', { key: workspace.name, className: styles.optionRow, 'data-testid': 'skills-workspace' },
-          React.createElement('input', {
-            type: 'checkbox',
-            checked: checked.has(workspace.name),
-            disabled: busy,
-            onChange: () => toggleWorkspace(workspace.name),
-          }),
-          React.createElement('span', { className: styles.optionLabel }, workspace.title),
-          workspace.missing ? React.createElement('span', { className: styles.addedBadge }, t('modal.workspaceMissing')) : null,
-        )),
-      React.createElement('p', { className: styles.modalHint }, t('modal.workspaces.hint')),
-    )
-    const updateButton = canUpdate
-      ? React.createElement('button', {
-        type: 'button',
-        className: styles.ghost,
-        disabled: busy,
-        onClick: () => { void mutate('updateSkill', { name: modal.name }); closeModal() },
-        'data-testid': 'skills-modal-update',
-      }, t('modal.update'))
-      : null
-    const removeButton = removable === false
-      ? null
-      : confirmRemove
-        ? React.createElement('button', {
-          type: 'button',
-          className: `${styles.danger} ${styles.optionAction}`,
-          disabled: busy,
-          onClick: () => { void mutate('remove', { name: modal.name }); closeModal() },
-          'data-testid': 'skills-remove-confirm',
-        }, t('modal.confirmRemove'))
-        : React.createElement('button', {
-          type: 'button',
-          className: `${styles.ghostDanger} ${styles.optionAction}`,
-          disabled: busy,
-          onClick: () => setConfirmRemove(true),
-          'data-testid': 'skills-remove',
-        }, t('modal.remove'))
-    return React.createElement('div', { className: styles.overlay, role: 'presentation', onClick: closeModal },
-      React.createElement('div', {
-        className: styles.modal,
-        role: 'dialog',
-        'aria-modal': true,
-        'aria-label': t('modal.aria', { name: modal.name }),
-        'data-testid': 'skills-scope-modal',
-        onClick: (e: React.MouseEvent) => e.stopPropagation(),
-      },
-        React.createElement('p', { className: styles.modalTitle }, modal.name),
-        React.createElement('p', { className: styles.modalHint }, t('modal.hint')),
-        React.createElement('div', { className: styles.optionList, 'data-testid': 'skills-scope' },
-          globalRadio,
-          workspacesRadio,
-        ),
-        checklist,
-        React.createElement('div', { className: styles.modalActions },
-          React.createElement('button', {
-            type: 'button', className: styles.ghost, disabled: busy, onClick: closeModal,
-          }, t('modal.cancel')),
-          updateButton,
-          removeButton,
-          React.createElement('button', {
-            type: 'button',
-            className: styles.primary,
-            // An empty whitelist is meaningful: it disables the skill
-            // everywhere (the old master switch), so the confirm stays on.
-            disabled: busy,
-            onClick: confirmModal,
-            'data-testid': 'skills-modal-confirm',
-          }, row !== undefined ? t('modal.save') : t('card.add')),
-        ),
-      ),
+    const pick = (mode: 'global' | 'workspaces') => (): void => { setScopeMode(mode); setConfirmUninstall(false) }
+    return (
+      <div className={styles.overlay} role="presentation" onClick={closeModal}>
+        <div
+          className={styles.modal}
+          role="dialog"
+          aria-modal="true"
+          aria-label={t('modal.aria', { name: modal.name })}
+          data-testid="skills-modal"
+          onClick={(e: React.MouseEvent) => e.stopPropagation()}
+        >
+          <p className={styles.modalTitle}>{modal.name}</p>
+          <p className={styles.modalHint}>{t('modal.hint')}</p>
+          <div className={styles.optionList} data-testid="skills-scope">
+            <label className={styles.optionRow} data-testid="skills-scope-global">
+              <input
+                type="radio"
+                name="skills-scope-mode"
+                checked={scopeMode === 'global'}
+                disabled={busy}
+                onClick={pick('global')}
+                onChange={pick('global')}
+              />
+              <span className={styles.optionLabel}>{t('modal.scope.global')}</span>
+            </label>
+            <label className={styles.optionRow} data-testid="skills-scope-workspaces">
+              <input
+                type="radio"
+                name="skills-scope-mode"
+                checked={scopeMode === 'workspaces'}
+                disabled={busy}
+                onClick={pick('workspaces')}
+                onChange={pick('workspaces')}
+              />
+              <span className={styles.optionLabel}>{t('modal.scope.workspaces')}</span>
+            </label>
+          </div>
+          {scopeMode === 'workspaces' && (
+            <div className={styles.optionList} data-testid="skills-workspaces">
+              {rows.length === 0 ? (
+                <p className={styles.modalHint}>{t('modal.workspaces.empty')}</p>
+              ) : rows.map((workspace) => (
+                <label key={workspace.name} className={styles.optionRow} data-testid="skills-workspace">
+                  <input
+                    type="checkbox"
+                    checked={checked.has(workspace.name)}
+                    disabled={busy}
+                    onChange={() => toggleWorkspace(workspace.name)}
+                  />
+                  <span className={styles.optionLabel}>{workspace.title}</span>
+                  {workspace.missing && <span className={styles.addedBadge}>{t('modal.workspaceMissing')}</span>}
+                </label>
+              ))}
+              <p className={styles.modalHint}>{t('modal.workspaces.hint')}</p>
+            </div>
+          )}
+          <div className={styles.modalActions}>
+            <button
+              type="button"
+              className={styles.ghost}
+              disabled={busy}
+              onClick={closeModal}
+            >{t('modal.cancel')}</button>
+            {canUpdate && (
+              <button
+                type="button"
+                className={styles.ghost}
+                disabled={busy}
+                onClick={() => { void mutate('updateSkill', { name: modal.name }); closeModal() }}
+                data-testid="skills-modal-update"
+              >{t('modal.update')}</button>
+            )}
+            {removable && (
+              confirmUninstall ? (
+                <button
+                  type="button"
+                  className={`${styles.danger} ${styles.optionAction}`}
+                  disabled={busy}
+                  onClick={() => { void mutate('uninstallSkill', { name: modal.name }); closeModal() }}
+                  data-testid="skills-uninstall-confirm"
+                >{t('modal.confirmUninstall')}</button>
+              ) : (
+                <button
+                  type="button"
+                  className={`${styles.ghostDanger} ${styles.optionAction}`}
+                  disabled={busy}
+                  onClick={() => setConfirmUninstall(true)}
+                  data-testid="skills-uninstall"
+                >{t('modal.uninstall')}</button>
+              )
+            )}
+            <button
+              type="button"
+              className={styles.primary}
+              // An empty whitelist is meaningful: it disables the skill
+              // everywhere, so the confirm never disables itself.
+              disabled={busy}
+              onClick={confirmModal}
+              data-testid="skills-modal-confirm"
+            >{row !== undefined ? t('modal.save') : t('card.add')}</button>
+          </div>
+        </div>
+      </div>
     )
   }
 
-  /** The detail modal: metadata plus the SKILL.md body rendered as markdown. */
+  /** The detail modal: invocability metadata plus the SKILL.md body rendered
+   *  as markdown. */
   const detailDialog = (): React.ReactElement | null => {
     if (detail === undefined) return null
     const closeDetail = (): void => { setDetail(undefined); setDetailData(undefined) }
-    const body = detailData === undefined
-      ? React.createElement('p', { className: styles.modalHint }, t('status.working'))
-      : React.createElement('div', { className: styles.modalBody + ' ' + styles.md, 'data-testid': 'skills-detail-body' },
-        renderMarkdown(detailData.body),
-      )
-    return React.createElement('div', { className: styles.overlay, role: 'presentation', onClick: closeDetail },
-      React.createElement('div', {
-        className: styles.modal,
-        role: 'dialog',
-        'aria-modal': true,
-        'aria-label': t('detail.aria', { name: detail.name }),
-        'data-testid': 'skills-detail',
-        onClick: (e: React.MouseEvent) => e.stopPropagation(),
-      },
-        React.createElement('p', { className: styles.modalTitle }, detail.name),
-        React.createElement('p', { className: styles.modalHint }, [
-          detailData?.modelInvocable === false ? t('detail.modelBlocked') : t('detail.modelInvocable'),
-          detailData?.userInvocable === false ? t('detail.userBlocked') : t('detail.userInvocable'),
-          detailData?.whenToUse !== undefined ? t('detail.whenToUse', { text: detailData.whenToUse }) : '',
-        ].filter(Boolean).join(' · ')),
-        body,
-        React.createElement('div', { className: styles.modalActions },
-          React.createElement('button', {
-            type: 'button', className: styles.ghost, onClick: closeDetail,
-            'data-testid': 'skills-detail-close',
-          }, t('detail.close')),
-        ),
-      ),
+    return (
+      <div className={styles.overlay} role="presentation" onClick={closeDetail}>
+        <div
+          className={`${styles.modal} ${styles.modalWide}`}
+          role="dialog"
+          aria-modal="true"
+          aria-label={t('detail.aria', { name: detail.name })}
+          data-testid="skills-skill-detail"
+          onClick={(e: React.MouseEvent) => e.stopPropagation()}
+        >
+          <p className={styles.modalTitle}>{detail.name}</p>
+          <p className={styles.modalHint}>
+            {[
+              detailData?.modelInvocable === false ? t('detail.modelBlocked') : t('detail.modelInvocable'),
+              detailData?.userInvocable === false ? t('detail.userBlocked') : t('detail.userInvocable'),
+              detailData?.whenToUse !== undefined ? t('detail.whenToUse', { text: detailData.whenToUse }) : '',
+            ].filter(Boolean).join(' · ')}
+          </p>
+          {detailData === undefined ? (
+            <p className={styles.modalHint}>{t('status.working')}</p>
+          ) : (
+            <div className={`${styles.modalBody} ${styles.md}`} data-testid="skills-detail-body">
+              {renderMarkdown(detailData.body)}
+            </div>
+          )}
+          <div className={styles.modalActions}>
+            <button type="button" className={styles.ghost} onClick={closeDetail} data-testid="skills-detail-close">{t('detail.close')}</button>
+          </div>
+        </div>
+      </div>
     )
   }
 
-  // Compose the page from pre-built elements: conditional sections become
-  // local consts (never `cond && ( ... )` argument expressions — the TSX
-  // parser mis-handled that shape in this nesting).
-  const tabBar = React.createElement('div', { className: styles.tabs, role: 'tablist' },
-    React.createElement('button', {
-      type: 'button', role: 'tab', 'aria-selected': tab === 'skills',
-      className: tab === 'skills' ? styles.tabActive : styles.tab,
-      onClick: () => setTab('skills'), 'data-testid': 'skills-tab-skills',
-    }, t('tab.skills')),
-    React.createElement('button', {
-      type: 'button', role: 'tab', 'aria-selected': tab === 'providers',
-      className: tab === 'providers' ? styles.tabActive : styles.tab,
-      onClick: () => setTab('providers'), 'data-testid': 'skills-tab-providers',
-    }, t('tab.providers')),
-  )
+  return (
+    <div className={styles.page}>
+      <div className={styles.tabs} role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'skills'}
+          className={tab === 'skills' ? styles.tabActive : styles.tab}
+          onClick={() => setTab('skills')}
+          data-testid="skills-tab-skills"
+        >{t('tab.skills')}</button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'providers'}
+          className={tab === 'providers' ? styles.tabActive : styles.tab}
+          onClick={() => setTab('providers')}
+          data-testid="skills-tab-providers"
+        >{t('tab.providers')}</button>
+      </div>
 
-  const messageBanner = message === undefined
-    ? null
-    : React.createElement('div', { className: message.ok ? styles.noticeOk : styles.noticeErr, 'data-testid': 'skills-message' },
-      message.text,
-    )
+      {message !== undefined && (
+        <div className={message.ok ? styles.noticeOk : styles.noticeErr} data-testid="skills-message">{message.text}</div>
+      )}
 
-  const searchInput = React.createElement('input', {
-    type: 'search',
-    className: styles.input,
-    placeholder: t('search.placeholder'),
-    value: search,
-    onChange: (e) => setSearch((e.target as HTMLInputElement).value),
-    'data-testid': 'skills-search',
-  })
+      {tab === 'skills' && (
+        <div className={styles.filterRow}>
+          <input
+            type="search"
+            className={styles.input}
+            placeholder={t('search.placeholder')}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            data-testid="skills-search"
+          />
+          <select
+            className={styles.select}
+            value={providerFilter}
+            onChange={(e) => setProviderFilter(e.target.value)}
+            aria-label={t('provider.aria')}
+            data-testid="skills-provider-filter"
+          >
+            <option value="">{t('provider.all')}</option>
+            {providers.map((p) => (
+              <option key={p.id} value={p.id}>{p.spec}</option>
+            ))}
+          </select>
+          <label className={styles.toggleWrap}>
+            <input
+              type="checkbox"
+              checked={installedOnly}
+              onChange={(e) => setInstalledOnly(e.target.checked)}
+              data-testid="skills-installed-only"
+            />
+            {t('filter.installedOnly')}
+          </label>
+        </div>
+      )}
 
-  const providerOptions = [
-    React.createElement('option', { key: 'all', value: '' }, t('provider.all')),
-    ...providers.map((p) => React.createElement('option', { key: p.id, value: p.id }, p.spec)),
-  ]
+      {tab === 'skills' && (filtered.length === 0 ? (
+        <div className={styles.empty} data-testid="skills-empty">
+          {providers.length === 0 ? t('empty.noProviders') : t('empty.noMatch')}
+        </div>
+      ) : (
+        <div className={styles.pluginGrid} data-testid="skills-grid">
+          {filtered.slice(0, visible).map((entry) => {
+            const row = entry.row
+            const installedHere = row !== undefined
+            const project = installedHere && row.scope === 'workspace'
+            const unmanagedCustom = installedHere && !project && row.managed === false && row.provider === undefined && entry.catalog === undefined
+            // The Update button only applies to the global install; a
+            // workspace-scoped managed skill flags the newer version instead.
+            const updateFlagged = installedHere && row.updateAvailable === true && row.scope !== 'global'
+            const presenceTitle = installedHere && row.configScope !== undefined ? row.configScope.join('\n') : undefined
+            return (
+              <div key={entry.key} className={styles.pluginCard} data-testid="skills-card">
+                <div className={styles.pluginCardTop}>
+                  <div className={styles.headText}>
+                    <div className={styles.pluginName}>
+                      <button
+                        type="button"
+                        className={styles.nameButton}
+                        title={t('card.detailsTitle', { name: entry.name })}
+                        onClick={() => setDetail(entry)}
+                        data-testid="skills-detail"
+                      >{entry.name}</button>
+                    </div>
+                    <div className={styles.desc}>{entry.description !== '' ? entry.description : t('card.noDescription')}</div>
+                  </div>
+                  {installedHere && (
+                    <div className={styles.badges}>
+                      <span className={styles.presenceBadge} data-testid="skills-presence" title={presenceTitle}>
+                        {presenceLabel(row.configScope, t)}
+                      </span>
+                      {project && <span className={styles.projectChip}>{t('badge.project')}</span>}
+                      {unmanagedCustom && <span className={styles.customBadge}>{t('badge.custom')}</span>}
+                      {updateFlagged && <span className={styles.updateChip}>{t('card.updateAvailable')}</span>}
+                    </div>
+                  )}
+                </div>
+                <div className={styles.pluginCardTop}>
+                  {entry.providerSpec !== undefined && <span className={styles.providerChip}>{entry.providerSpec}</span>}
+                  <div className={styles.rowActions}>
+                    {installedHere && row.updateAvailable === true && row.scope === 'global' && (
+                      <button
+                        type="button"
+                        className={styles.ghost}
+                        disabled={busy}
+                        onClick={() => { void mutate('updateSkill', { name: entry.name }) }}
+                        data-testid="skills-update"
+                      >{t('card.update')}</button>
+                    )}
+                    <button
+                      type="button"
+                      className={installedHere ? styles.ghost : styles.primary}
+                      disabled={busy}
+                      onClick={() => openModal(entry)}
+                      data-testid="skills-add"
+                    >{installedHere ? t('card.manage') : t('card.add')}</button>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      ))}
 
-  const providerSelect = React.createElement('select', {
-    className: styles.select,
-    value: providerFilter,
-    onChange: (e) => setProviderFilter((e.target as HTMLSelectElement).value),
-    'aria-label': t('provider.aria'),
-    'data-testid': 'skills-provider-filter',
-  }, providerOptions)
+      {tab === 'skills' && filtered.length > visible && (
+        <div className={styles.showMoreRow}>
+          <button
+            type="button"
+            className={styles.ghost}
+            disabled={busy}
+            onClick={() => setVisible((n) => n + PAGE_SIZE)}
+            data-testid="skills-show-more"
+          >{t('list.showMore')}</button>
+        </div>
+      )}
 
-  const installedToggle = React.createElement('label', { className: styles.toggleWrap },
-    React.createElement('input', {
-      type: 'checkbox',
-      checked: installedOnly,
-      onChange: (e) => setInstalledOnly((e.target as HTMLInputElement).checked),
-      'data-testid': 'skills-installed-only',
-    }),
-    t('filter.installedOnly'),
-  )
+      {tab === 'providers' && (
+        <div className={styles.addRow}>
+          <input
+            className={styles.input}
+            placeholder={t('providers.placeholder')}
+            value={addSpec}
+            onChange={(e) => setAddSpec(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void addProvider()
+            }}
+            data-testid="skills-add-input"
+          />
+          <button type="button" className={styles.primary} disabled={busy || addSpec.trim() === ''} onClick={() => void addProvider()}>{t('providers.add')}</button>
+          <button
+            type="button"
+            className={styles.ghost}
+            disabled={busy || providers.length === 0}
+            onClick={() => void mutate('refreshProviders')}
+            data-testid="skills-provider-refresh-all"
+          >{t('providers.refreshAll')}</button>
+        </div>
+      )}
 
-  const filterBar = tab !== 'skills'
-    ? null
-    : React.createElement('div', { className: styles.filterRow },
-      searchInput,
-      providerSelect,
-      installedToggle,
-    )
+      {tab === 'providers' && (
+        <div className={styles.hint}>{t('providers.hint')}</div>
+      )}
 
-  const emptyState = React.createElement('div', { className: styles.empty, 'data-testid': 'skills-empty' },
-    providers.length === 0 ? t('empty.noProviders') : t('empty.noMatch'),
-  )
+      {tab === 'providers' && (providers.length === 0 ? (
+        <div className={styles.empty} data-testid="skills-empty">{t('empty.noProviders')}</div>
+      ) : providers.map((p) => (
+        <div key={p.id} className={styles.card} data-testid="skills-provider">
+          <div className={styles.marketHead}>
+            <div className={styles.headText}>
+              <div className={styles.name}>{p.spec}</div>
+              <div className={styles.desc}>
+                {[
+                  p.description ?? '',
+                  countOf(t, p.skillCount, 'providers.skillCount.one', 'providers.skillCount.many'),
+                  t('providers.lastSynced', { age: formatLastSync(p.lastRefresh, Date.now(), t) }),
+                ].filter(Boolean).join(' · ')}
+              </div>
+              {p.error !== undefined && <div className={styles.errText}>{p.error}</div>}
+            </div>
+            <button
+              type="button"
+              className={styles.ghostDanger}
+              disabled={busy}
+              onClick={() => { void mutate('removeProvider', { providerId: p.id }) }}
+              data-testid="skills-provider-remove"
+            >{t('providers.remove')}</button>
+          </div>
+        </div>
+      )))}
 
-  const cardNodes = filtered.slice(0, visible).map((entry) => {
-    const row = entry.row
-    const installedHere = row !== undefined
-    const project = row !== undefined && row.scope === 'workspace'
-    const unmanagedCustom = row !== undefined && !project && row.managed === false && row.provider === undefined && entry.catalog === undefined
-    const presenceTitle = row !== undefined && row.configScope !== undefined
-      ? row.configScope.join('\n')
-      : undefined
-    const titleLine = React.createElement('div', { className: styles.pluginName },
-      React.createElement('button', {
-        type: 'button',
-        className: styles.nameButton,
-        title: t('card.detailsTitle', { name: entry.name }),
-        onClick: () => setDetail(entry),
-        'data-testid': 'skills-detail-open',
-      }, entry.name),
-      entry.providerSpec !== undefined
-        ? React.createElement('span', { className: styles.providerChip }, entry.providerSpec)
-        : null,
-      row?.updateAvailable === true
-        ? React.createElement('span', { className: styles.addedBadge }, t('card.update'))
-        : null,
-    )
-    const descriptionLine = React.createElement('div', { className: styles.desc },
-      entry.description !== '' ? entry.description : t('card.noDescription'),
-    )
-    const badges = installedHere === false
-      ? null
-      : React.createElement('div', { className: styles.badges },
-        React.createElement('span', {
-          className: styles.presenceBadge,
-          'data-testid': 'skills-presence',
-          title: presenceTitle,
-        }, presenceLabel(row.configScope, t)),
-        project ? React.createElement('span', { className: styles.projectChip }, t('badge.project')) : null,
-        unmanagedCustom ? React.createElement('span', { className: styles.installedChip }, t('badge.custom')) : null,
-      )
-    const topHalf = React.createElement('div', { className: styles.pluginCardTop },
-      React.createElement('div', { className: styles.headText },
-        titleLine,
-        descriptionLine,
-      ),
-      badges,
-    )
-    const updateButton = row?.updateAvailable === true && row.scope === 'global'
-      ? React.createElement('button', {
-        type: 'button',
-        className: styles.ghost,
-        disabled: busy,
-        onClick: () => { void mutate('updateSkill', { name: entry.name }) },
-        'data-testid': 'skills-update',
-      }, t('card.update'))
-      : null
-    const actionButton = React.createElement('button', {
-      type: 'button',
-      className: installedHere ? styles.ghost : styles.primary,
-      disabled: busy,
-      onClick: () => openModal(entry),
-      'data-testid': installedHere ? 'skills-manage' : 'skills-add',
-    }, installedHere ? t('card.manage') : t('card.add'))
-    const bottomHalf = React.createElement('div', { className: styles.pluginCardTop },
-      React.createElement('span', { className: styles.providerKind },
-        installedHere ? t('card.installed') : '',
-      ),
-      React.createElement('div', { className: styles.rowActions },
-        updateButton,
-        actionButton,
-      ),
-    )
-    return React.createElement('div', { key: entry.key, className: styles.pluginCard, 'data-testid': 'skills-card' },
-      topHalf,
-      bottomHalf,
-    )
-  })
-
-  const showMoreButton = filtered.length <= visible
-    ? null
-    : React.createElement('div', { className: styles.showMoreRow },
-      React.createElement('button', {
-        type: 'button',
-        className: styles.ghost,
-        disabled: busy,
-        onClick: () => setVisible((n) => n + PAGE_SIZE),
-        'data-testid': 'skills-show-more',
-      }, t('list.showMore')),
-    )
-
-  const skillsBody = tab !== 'skills'
-    ? null
-    : filtered.length === 0
-      ? emptyState
-      : React.createElement('div', { className: styles.pluginGrid, 'data-testid': 'skills-grid' },
-        cardNodes,
-      )
-
-  const providerInput = React.createElement('input', {
-    className: styles.input,
-    placeholder: t('providers.placeholder'),
-    value: addSpec,
-    onChange: (e) => setAddSpec((e.target as HTMLInputElement).value),
-    onKeyDown: (e) => {
-      if (e.key === 'Enter') void addProvider()
-    },
-    'data-testid': 'skills-provider-input',
-  })
-
-  const providerAddRow = tab !== 'providers'
-    ? null
-    : React.createElement('div', { className: styles.addRow },
-      providerInput,
-      React.createElement('button', {
-        type: 'button', className: styles.primary, disabled: busy || addSpec.trim() === '', onClick: () => void addProvider(),
-      }, t('providers.add')),
-      React.createElement('button', {
-        type: 'button', className: styles.ghost, disabled: busy || providers.length === 0, onClick: () => void mutate('refreshProviders'),
-        'data-testid': 'skills-provider-refresh-all',
-      }, t('providers.refreshAll')),
-    )
-
-  const providerHint = tab !== 'providers'
-    ? null
-    : React.createElement('div', { className: styles.hint }, t('providers.hint'))
-
-  const providerNodes = providers.map((p) => React.createElement('div', { key: p.id, className: styles.card, 'data-testid': 'skills-provider' },
-    React.createElement('div', { className: styles.marketHead },
-      React.createElement('div', { className: styles.headText },
-        React.createElement('div', { className: styles.name }, p.spec),
-        React.createElement('div', { className: styles.desc },
-          [
-            p.description !== undefined ? p.description : '',
-            countOf(t, p.skillCount, 'providers.skillCount.one', 'providers.skillCount.many'),
-            formatLastSync(p.lastRefresh, Date.now(), t),
-          ].filter(Boolean).join(' · '),
-        ),
-        p.error !== undefined ? React.createElement('div', { className: styles.errText }, p.error) : null,
-      ),
-      React.createElement('button', {
-        type: 'button',
-        className: styles.ghostDanger,
-        disabled: busy,
-        onClick: () => { void mutate('removeProvider', { providerId: p.id }) },
-        'data-testid': 'skills-provider-remove',
-      }, t('providers.remove')),
-    ),
-  ))
-
-  const providersBody = tab !== 'providers'
-    ? null
-    : providers.length === 0
-      ? emptyState
-      : providerNodes
-
-  return React.createElement('div', { className: styles.page },
-    tabBar,
-    messageBanner,
-    filterBar,
-    skillsBody,
-    showMoreButton,
-    providerAddRow,
-    providerHint,
-    providersBody,
-    modalDialog(),
-    detailDialog(),
+      {modalDialog()}
+      {detailDialog()}
+    </div>
   )
 }

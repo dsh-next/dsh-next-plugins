@@ -56,9 +56,9 @@ export function registerRpc(ctx: Context, service: SkillsService): void {
 
   const handlers: Record<string, Handler> = {
     getState: (args) => service.state(strArray(record(args).workspacePaths)),
-    setScope: (args) => {
+    setSkillScope: (args) => {
       const a = record(args)
-      return service.setScope({ name: str(a.name), workspaces: parseWorkspacesInput(a) })
+      return service.setSkillScope({ name: str(a.name), workspaces: parseWorkspacesInput(a) })
     },
     installSkill: (args) => {
       const a = record(args)
@@ -69,7 +69,7 @@ export function registerRpc(ctx: Context, service: SkillsService): void {
       })
     },
     updateSkill: (args) => service.updateSkill({ name: str(record(args).name) }),
-    remove: (args) => service.remove({ name: str(record(args).name) }),
+    uninstallSkill: (args) => service.uninstallSkill({ name: str(record(args).name) }),
     addProvider: (args) => service.addProvider(str(record(args).spec)),
     removeProvider: (args) => service.removeProvider(str(record(args).providerId)),
     refreshProvider: (args) => service.refreshProvider(str(record(args).providerId)),

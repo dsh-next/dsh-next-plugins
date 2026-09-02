@@ -14,6 +14,12 @@
  * present. When change files exist, each touched package must be named by at
  * least one of them.
  *
+ * Packages listed under `ignore` in `.changeset/config.json` are exempt: they
+ * are not released (changes merge silently, no change file needed) and MUST
+ * NOT appear in a change file — a mixed changeset (ignored + released
+ * package) makes `changeset version`/`publish` fail, breaking the Version
+ * Packages pipeline.
+ *
  * Usage: node scripts/verify-changeset.mjs --base <git ref>
  *
  * Typical wiring: CI on pull requests runs it with `--base origin/main`; the
@@ -38,6 +44,16 @@ if (base === undefined) {
   process.exit(2)
 }
 
+/** Packages listed under `ignore` in .changeset/config.json (never released). */
+function ignoredPackages() {
+  try {
+    const config = JSON.parse(readFileSync('.changeset/config.json', 'utf8'))
+    return new Set(Array.isArray(config.ignore) ? config.ignore : [])
+  } catch {
+    return new Set()
+  }
+}
+
 /** All paths changed between `base` and the working tree (staged or not). */
 function changedPaths() {
   // --diff-filter excludes deletions: a REMOVED package is not being released,
@@ -60,31 +76,60 @@ function isNonSource(path) {
 }
 
 const paths = changedPaths()
+const ignored = ignoredPackages()
 
-/** Publishable package dirs touched (excludes `shared/`). */
-const touchedPublishable = new Set(
-  paths
-    .filter((p) => /^packages\/dsh-next-[^/]+\//.test(p) && !isNonSource(p))
-    .map((p) => p.split('/')[1]),
-)
-
-if (touchedPublishable.size === 0) {
-  console.log('verify-changeset: no publishable package source changed; ok')
-  process.exit(0)
+/** Package dir names touched that are candidates for release (not ignored). */
+const touchedReleasable = new Set()
+for (const p of paths) {
+  const m = /^packages\/(dsh-next-[^/]+)\//.exec(p)
+  if (m === null || isNonSource(p)) continue
+  if (ignored.has(`@dsh-next/${m[1]}`)) continue // not released; no change file needed
+  touchedReleasable.add(m[1])
 }
 
 const changesetFiles = paths.filter((p) => /^\.changeset\/[^/]+\.md$/.test(p))
+
+// The changesets CLI forbids a change file mixing an ignored package with a
+// released one, and one naming an ignored package alone would block version
+// too; better to reject at the gate with a clear message.
+if (changesetFiles.length > 0) {
+  const named = new Set()
+  for (const file of changesetFiles) {
+    if (!existsSync(file)) continue
+    for (const line of readFileSync(file, 'utf8').split('\n')) {
+      const m = /^"(@dsh-next\/[^" ]+)":/.exec(line.trim())
+      if (m !== null) named.add(m[1])
+    }
+  }
+  const bad = [...named].filter((name) => ignored.has(name))
+  if (bad.length > 0) {
+    console.error(
+      `verify-changeset: change file(s) name ignored package(s) ${bad.join(', ')}. ` +
+      'Ignored packages are not released, so they must not appear in a change file ' +
+      '(a mixed changeset breaks changeset version/publish). Remove the package ' +
+      'from the change file; when the package is ready, delete it from the `ignore` ' +
+      'array in .changeset/config.json.',
+    )
+    process.exit(1)
+  }
+}
+
+if (touchedReleasable.size === 0) {
+  console.log('verify-changeset: no releasable package source changed; ok')
+  process.exit(0)
+}
+
 if (changesetFiles.length === 0) {
   console.error(
-    `verify-changeset: source changed in ${[...touchedPublishable].sort().join(', ')} ` +
+    `verify-changeset: source changed in ${[...touchedReleasable].sort().join(', ')} ` +
     'but no .changeset/<id>.md change file is included.\n' +
     'Run `pnpm changeset` in the repo root and commit the generated file.',
   )
   process.exit(1)
 }
 
-// Every touched package must be named by at least one change file. The file
-// format is `---\n"@dsh-next/<dir>": <bump>\n---`.
+// Every touched releasable package must be named by at least one change file.
+// The file format is `---\n"@dsh-next/<dir>": <bump>\n---`.
 const mentioned = new Set()
 for (const file of changesetFiles) {
   if (!existsSync(file)) continue
@@ -93,7 +138,7 @@ for (const file of changesetFiles) {
     if (m !== null) mentioned.add(m[1])
   }
 }
-const missing = [...touchedPublishable].filter((dir) => !mentioned.has(dir))
+const missing = [...touchedReleasable].filter((dir) => !mentioned.has(dir))
 if (missing.length > 0) {
   console.error(
     `verify-changeset: change file(s) exist but do not name ${missing.join(', ')}. ` +
@@ -102,4 +147,4 @@ if (missing.length > 0) {
   process.exit(1)
 }
 
-console.log(`verify-changeset: ${changesetFiles.length} change file(s) cover ${[...touchedPublishable].sort().join(', ')}; ok`)
+console.log(`verify-changeset: ${changesetFiles.length} change file(s) cover ${[...touchedReleasable].sort().join(', ')}; ok`)

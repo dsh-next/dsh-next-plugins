@@ -14,13 +14,21 @@ description: Release and publish the dsh-next monorepo — record change intents
 - Publishing happens only through `.github/workflows/release.yml` using the
   repository secret `NPM_TOKEN`. The root `package.json` and `shared/` are
   private and are not published.
+- Packages listed under `ignore` in `.changeset/config.json` (currently
+  `@dsh-next/dsh-next-cc-plugins`, under active development) are never
+  versioned or published: their changes need no change file, and they must
+  never appear in one (a mixed changeset breaks `changeset version`; the CI
+  gate rejects it). Remove a package from `ignore` when it is ready to
+  release.
 
 ## Flow
 
-1. Make the change and record a change intent for each affected publishable
+1. Make the change and record a change intent for each affected RELEASABLE
    package: run `pnpm changeset` at the repo root, pick the packages and bump
    kinds (patch/minor/major), and commit the generated `.changeset/<id>.md`
-   with the change. A plugin source change without a change file fails CI
+   with the change. Never select an ignored package — the interactive picker
+   lists it, but it must stay out of change files. A releaseable plugin source
+   change without a change file fails CI
    (`node scripts/verify-changeset.mjs --base origin/main`).
 2. Run the pre-release gates locally (`mise run ci`, which runs typecheck +
    test + build + runtime-deps + docs) and `pnpm changeset status` to preview

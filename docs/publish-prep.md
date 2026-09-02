@@ -15,6 +15,20 @@ runs `changeset publish`, which publishes exactly the packages whose version
 is new to the registry and creates per-package GitHub Releases from the
 changelog entries.
 
+## Not-yet-released packages (ignore)
+
+A plugin under active development that must not publish yet is listed in the
+`ignore` array in `.changeset/config.json` (Changesets' mechanism for exactly
+this: changes merge without publishing). An ignored package:
+
+- needs **no** change file for its changes (the CI gate checks this), and
+- is **never** named in a change file — a changeset mixing an ignored with a
+  released package makes `changeset version` fail, so the gate rejects it.
+
+It keeps being built, tested, and mounted by the e2e smoke. When the package
+is ready, remove it from `ignore` and the next change file releases it.
+`shared/` and the root `package.json` are private and never publish.
+
 ## Release order
 
 Packages have no cross-package runtime dependencies, so each publishes

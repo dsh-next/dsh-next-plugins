@@ -118,6 +118,12 @@ only named packages and publishes them when the "Version Packages" PR merges.
 Do not edit package versions by hand — `changeset version` owns bumps. See
 `docs/publish-prep.md`.
 
+A plugin under active development that must not be released yet is listed in
+`ignore` in `.changeset/config.json`: its changes merge without a change file
+and never publish. Never name an ignored package in a change file — a mixed
+changeset breaks `changeset version`; the CI gate (`verify-changeset.mjs`)
+rejects it. Remove the package from `ignore` when it is ready to release.
+
 ## Instruction Layers
 
 - `AGENTS.md` (this file) — repository-wide rules.

@@ -40,3 +40,13 @@ TODO-skeletons with no real behavior, referenced only by README/PR/issue
 templates, review routes, and the lockfile. The family is now three real
 plugins (cc-plugins, notifier, skills) plus `shared/`; the changeset gate
 ignores deleted packages.
+
+cc-plugins is under active development and must not publish yet: it is
+listed in the `ignore` array of `.changeset/config.json` (Changesets'
+mechanism for changes that merge without publishing). Verified empirically
+that a mixed changeset (ignored + released package) makes `changeset
+version` fail, so the gate now rejects change files naming an ignored
+package and does NOT require one for ignored-package source changes
+(tests in `verify-changeset.test.mjs`). A real `changeset version` run
+bumped only skills and left cc-plugins at 0.1.0. Remove it from `ignore`
+when ready.

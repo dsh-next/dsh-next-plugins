@@ -2,7 +2,6 @@
   "name": "@dsh-next/dsh-next-cron",
   "description": "DeepSeek Harness plugin: cron (description pending).",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

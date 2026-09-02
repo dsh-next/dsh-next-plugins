@@ -111,10 +111,12 @@ mise tasks delegate to it, never re-implement commands.
 
 ## Release
 
-Releases are tag-driven by `.github/workflows/release.yml`. Every package
-shares one unified version, verified against the `vX.Y.Z` tag. Pass all gates
-before publishing. Do not bypass the release process by editing package
-versions manually.
+Releases are changeset-driven by `.github/workflows/release.yml`. Each plugin
+versions independently: a PR that changes a publishable plugin's source adds a
+`.changeset/<id>.md` change file (run `pnpm changeset`); the pipeline bumps
+only named packages and publishes them when the "Version Packages" PR merges.
+Do not edit package versions by hand — `changeset version` owns bumps. See
+`docs/publish-prep.md`.
 
 ## Instruction Layers
 

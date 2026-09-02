@@ -1,28 +1,39 @@
 name: Release
 
-# Tag-triggered publish pipeline: pushing a vX.Y.Z tag is the single release
-# switch. The workflow verifies every package version equals the tag version,
-# runs the full gate, and publishes all packages to npm in dependency order.
-# Requires the repository secret NPM_TOKEN (npm automation token for the
-# @dsh-next scope) to publish.
+# Changesets-driven publish pipeline. Every PR that touches a plugin adds a
+# `.changeset/<id>.md` change file naming the affected packages and bump
+# kinds. On push to main, this workflow runs `changeset version`, which bumps
+# ONLY the packages named by pending change files, writes their CHANGELOGs,
+# and opens (or updates) the "Version Packages" PR. Merging that PR is the
+# release: a subsequent main push finds no pending change files and runs
+# `changeset publish`, which publishes exactly the packages whose version is
+# new to the registry and creates per-package GitHub Releases from the
+# CHANGELOG entries.
+#
+# Requires the repository secret `NPM_TOKEN` (npm automation token for the
+# @dsh-next scope) and repo settings "Allow GitHub Actions to create and
+# approve pull requests".
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
 
 permissions:
   contents: write
+  pull-requests: write
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  publish:
-    name: Build, test, publish to npm
+  release:
+    name: Version and publish changed packages
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
+    outputs:
+      changesets_published: ${{ steps.changesets.outputs.published }}
 
     steps:
       - name: Checkout
@@ -47,51 +58,23 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Typecheck
-        run: pnpm typecheck
-
-      - name: Build
-        run: pnpm build
-
-      - name: Tests
-        run: pnpm test
-
-      - name: Runtime dependency guard
-        run: pnpm runtime-deps:check
-
-      - name: Extract tag version
-        id: tag
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-
-      - name: Verify package versions match the tag
-        run: node scripts/verify-version.mjs "${{ steps.tag.outputs.version }}"
-
-      - name: Generate release notes
-        run: |
-          NOTES_FILE="docs/release-notes/${GITHUB_REF_NAME}.md"
-          if [ -f "$NOTES_FILE" ]; then
-            cp "$NOTES_FILE" "$RUNNER_TEMP/release-notes.md"
-          else
-            node scripts/release-notes.mjs "$GITHUB_REF_NAME" > "$RUNNER_TEMP/release-notes.md"
-          fi
-
-      - name: Upload release notes artifact
-        uses: actions/upload-artifact@v4
+      - name: Version packages and create/update the release PR
+        id: changesets
+        uses: changesets/action@v1
         with:
-          name: release-notes
-          path: ${{ runner.temp }}/release-notes.md
-          if-no-files-found: error
-
-      - name: Publish packages to npm
+          title: Version Packages
+          commit: "chore(version): release packages"
+          version: pnpm exec changeset version
+          publish: pnpm exec changeset publish
+          create-github-releases: true
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" > ~/.npmrc
-          pnpm -r publish --no-git-checks --access public --registry=https://registry.npmjs.org/ --tag latest
 
   verify-release:
-    name: Post-publish mount smoke (npm strict) + GitHub Release
-    needs: publish
+    name: Post-publish mount smoke
+    needs: release
+    if: needs.release.outputs.changesets_published == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -99,6 +82,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
@@ -132,17 +117,3 @@ jobs:
 
       - name: Mount + headless-render smoke
         run: bash scripts/e2e-mount.sh
-
-      - name: Download release notes artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: release-notes
-          path: ${{ runner.temp }}
-
-      - name: Create GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --notes-file "$RUNNER_TEMP/release-notes.md" \
-            --title "dsh-next-plugins $GITHUB_REF_NAME"

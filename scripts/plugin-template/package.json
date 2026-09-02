@@ -2,7 +2,6 @@
   "name": "@dsh-next/dsh-next-__NAME__",
   "description": "DeepSeek Harness plugin __NAME__ — scaffolded from scripts/plugin-template; replace this description.",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

@@ -11,6 +11,10 @@
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
+    "changeset": "changeset",
+    "changeset:status": "changeset status",
+    "change": "pnpm change",
+    "release": "changeset publish",
     "docs:check": "node scripts/verify-docs.mjs",
     "docs:list": "node scripts/verify-docs.mjs --list",
     "docs:write-pair": "node scripts/verify-docs.mjs --write",
@@ -21,6 +25,7 @@
     "test:scripts": "node --test scripts/*.test.mjs"
   },
   "devDependencies": {
+    "@changesets/cli": "^3.0.1",
     "@playwright/test": "^1.62.1",
     "lightningcss": "^1.32.0",
     "playwright": "^1.62.1",

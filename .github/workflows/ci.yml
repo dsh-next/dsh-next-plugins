@@ -24,9 +24,22 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          # The changeset gate diffs against origin/main; a shallow clone must
+          # still carry that ref.
+          fetch-depth: 0
 
       - name: Lint GitHub Actions workflows
         uses: docker://rhysd/actionlint:latest
+
+      # Per-package versioning: source changes to a publishable plugin must be
+      # accompanied by a .changeset/<id>.md change file naming that package.
+      # Skipped on pushes to main (the Version Packages merge carries version
+      # bumps, and release.yml owns publishing); enforced on PRs where the
+      # change file belongs.
+      - name: Verify changeset accompanies plugin changes
+        if: github.event_name == 'pull_request'
+        run: node scripts/verify-changeset.mjs --base origin/main
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5

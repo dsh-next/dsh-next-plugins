@@ -2,7 +2,6 @@
   "name": "@dsh-next/dsh-next-cc-plugins",
   "description": "DeepSeek Harness plugin: add Claude Code plugin marketplaces (GitHub or local), browse and install their plugins into DSH — skills land natively, MCP servers and agents become dsh composition rows, and the built-in runtime bridge registers slash commands and runs Claude-compatible hooks.",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

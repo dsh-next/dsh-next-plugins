@@ -19,16 +19,14 @@ tabs:
   for the current workspace and globally) plus every provider catalog skill. A
   search box, a provider filter, an installed-only toggle, and a Show more
   button (30 cards per page) keep large catalogs fast. A skill that exists in
-  several roots shows one card per **name** with a copy row per location —
-  each copy carries an origin chip (`project .agents`, `user .dsh`, …), the
-  absolute path, and per-copy **Delete** (recoverable) and **Update** (when a
-  same-name catalog skill differs) buttons; the name-level **presence badge**
-  (`Everywhere`, `N workspaces`, or `Off`) reflects its scope. An **Update
-  all** button in the filter row shows how many updatable copies there are,
-  sits disabled at zero, and updates them one at a time. The **Add/Manage**
-  button opens the scope modal: a radio picks where the skill is enabled —
-  Global (the default, every workspace) or only in a checklist of registered
-  workspaces — and installing or saving applies that scope as pure
+  several roots shows **one card per copy**, so per-copy actions are
+  unambiguous: each carries an origin chip (`project .agents`, `user .dsh`, …),
+  the provider spec, and per-copy **Delete** (recoverable) and **Update** (when
+  a same-name catalog skill differs) buttons; the **presence badge**
+  (`Everywhere`, `N workspaces`, or `Off`) reflects its scope. The
+  **Add/Manage** button opens the scope modal: a radio picks where the skill is
+  enabled — Global (the default, every workspace) or only in a checklist of
+  registered workspaces — and installing or saving applies that scope as pure
   configuration. Clicking a name opens the full SKILL.md rendered as markdown.
 - **Providers** — manages GitHub skill repositories: add by URL
   (`https://github.com/owner/repo` or `owner/repo`), Refresh all, remove.

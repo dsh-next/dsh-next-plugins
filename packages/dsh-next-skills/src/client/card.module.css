@@ -532,7 +532,7 @@
  * option, so a long provider spec would crowd the flex-1 search box down to
  * a sliver. Cap the select and give the search box a readable floor (the
  * shared block keeps cc-plugins' exact rules; this is skills-specific). The
- * row may wrap so the Update all button never clips on narrow panes. */
+ * row may wrap so the filter tools never clip on narrow panes. */
 .filterRow {
   flex-wrap: wrap;
 }

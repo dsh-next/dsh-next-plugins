@@ -28,7 +28,6 @@
  */
 import * as React from 'react'
 import type {
-  CatalogSkillMatch,
   CatalogSkillView,
   InstalledSkill,
   MutationResult,
@@ -199,8 +198,6 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
   const [checked, setChecked] = React.useState<Set<string>>(new Set())
   /** The provider a sequential Refresh all is currently downloading. */
   const [refreshingId, setRefreshingId] = React.useState<string | undefined>()
-  /** Progress of a sequential Update all: done/total. */
-  const [updating, setUpdating] = React.useState<{ done: number; total: number } | undefined>()
   /** The open detail modal's entry plus its loaded content. */
   const [detail, setDetail] = React.useState<GridEntry | undefined>()
   const [detailData, setDetailData] = React.useState<SkillDetail | undefined>()
@@ -242,13 +239,15 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
   }, [modal, detail, confirmDelete])
 
   // Load the detail body whenever the detail modal opens for a new entry.
+  // Installed rows pass the copy's path: a name may have several copies, and
+  // the modal must show the body of the copy whose name was clicked.
   React.useEffect(() => {
     setDetailData(undefined)
     if (detail === undefined) return
     const catalogOnly = detail.catalog !== undefined && detail.row === undefined
     const args = catalogOnly
       ? { providerId: detail.catalog!.providerId, skillPath: detail.catalog!.skillPath }
-      : { name: detail.name, workspacePaths }
+      : { name: detail.name, path: detail.row!.path, workspacePaths }
     let cancelled = false
     deps.rpc(catalogOnly ? 'getCatalogSkillDetail' : 'getInstalledSkillDetail', args)
       .then((result) => {
@@ -327,56 +326,6 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
     () => filterEntries(entries, search, providerFilter, installedOnly),
     [entries, search, providerFilter, installedOnly],
   )
-
-  /** Copies an Update can apply to: flagged by the last refresh, with a
-   *  candidate provider skill picked (first same-name catalog match). */
-  const updatable = React.useMemo(() => {
-    const out: Array<{ name: string; copy: InstalledSkill; candidate: CatalogSkillMatch }> = []
-    for (const entry of entries) {
-      const copy = entry.row
-      if (copy === undefined) continue
-      if (copy.updateAvailable !== true || copy.updateCandidates === undefined || copy.updateCandidates.length === 0) continue
-      out.push({ name: entry.name, copy, candidate: copy.updateCandidates[0] })
-    }
-    return out
-  }, [entries])
-
-  /** Update every updatable copy, one RPC at a time, reporting progress on
-   *  the button. Failures are summarized; the rest keep updating. */
-  const updateAllSequential = async (): Promise<void> => {
-    const list = updatable
-    if (list.length === 0) return
-    setBusy(true)
-    setMessage(undefined)
-    const failures: string[] = []
-    for (let done = 0; done < list.length; done++) {
-      setUpdating({ done: done + 1, total: list.length })
-      const { name, copy, candidate } = list[done]
-      try {
-        const result = await deps.rpc('updateSkill', {
-          name,
-          directory: copy.directory,
-          providerId: candidate.providerId,
-          skillPath: candidate.skillPath,
-        }) as MutationResult
-        if (isMutationError(result)) {
-          failures.push(`${name}: ${result.error ?? 'update failed'}`)
-        } else if (result.state !== undefined) {
-          setState(result.state)
-        }
-      } catch (error) {
-        failures.push(`${name}: ${errMsg(error)}`)
-      }
-    }
-    setUpdating(undefined)
-    if (failures.length > 0) {
-      setMessage({ ok: false, text: t('card.updateAllFailed', { count: failures.length, items: failures.join('; ') }) })
-    } else {
-      setMessage({ ok: true, text: t('status.done') })
-    }
-    deps.notifyInstalledChanged?.()
-    setBusy(false)
-  }
 
   const closeModal = (): void => {
     setModal(undefined)
@@ -643,16 +592,6 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
             />
             {t('filter.installedOnly')}
           </label>
-          <button
-            type="button"
-            className={styles.ghost}
-            disabled={busy || updatable.length === 0}
-            onClick={() => void updateAllSequential()}
-            title={updatable.length > 0 ? t('card.updateAllTitle', { names: updatable.map((e) => e.name).join(', ') }) : undefined}
-            data-testid="skills-update-all"
-          >{updating !== undefined
-            ? t('card.updatingProgress', { done: updating.done, total: updating.total })
-            : t('card.updateAll', { count: updatable.length })}</button>
         </div>
       )}
 

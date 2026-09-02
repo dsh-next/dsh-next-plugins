@@ -464,6 +464,18 @@
   padding: 4px 0;
 }
 
+/* Filter-row sizing override: a native select widths itself to its widest
+ * option, so a long provider spec would crowd the flex-1 search box down to
+ * a sliver. Cap the select and give the search box a readable floor (the
+ * shared block keeps cc-plugins' exact rules; this is skills-specific). */
+.filterRow .select {
+  max-width: 220px;
+}
+
+.filterRow .input {
+  min-width: 160px;
+}
+
 /* Wide detail modal + its scrollable rendered-markdown body. */
 .modalWide {
   width: min(640px, calc(100vw - 48px));

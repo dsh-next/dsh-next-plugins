@@ -19,7 +19,7 @@ Notes move between directories as their status changes:
 
 - date: YYYY-MM-DD
 - status: proposed | implemented | rejected | archived
-- scope: <package or area, e.g. packages/dsh-next-slack>
+- scope: <package or area, e.g. packages/dsh-next-skills>
 
 <summary of the change or decision, with the facts that matter>
 ```

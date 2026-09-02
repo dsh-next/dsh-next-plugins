@@ -24,14 +24,8 @@ body:
       description: Which plugin or area this bug affects.
       options:
         - dsh-next-notifier
-        - dsh-next-cron
-        - dsh-next-files
-        - dsh-next-git
-        - dsh-next-org
-        - dsh-next-previews
-        - dsh-next-slack
-        - dsh-next-telegram
-        - dsh-next-workflows
+        - dsh-next-skills
+        - dsh-next-cc-plugins
         - shared / scripts
         - other / unknown
     validations:

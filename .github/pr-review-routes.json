@@ -14,58 +14,16 @@
       "assignees": ["sitegroove"]
     },
     {
-      "name": "cron",
-      "label": "packages/dsh-next-cron",
-      "paths": ["packages/dsh-next-cron/**"],
+      "name": "skills",
+      "label": "packages/dsh-next-skills",
+      "paths": ["packages/dsh-next-skills/**"],
       "reviewers": ["sitegroove"],
       "assignees": ["sitegroove"]
     },
     {
-      "name": "files",
-      "label": "packages/dsh-next-files",
-      "paths": ["packages/dsh-next-files/**"],
-      "reviewers": ["sitegroove"],
-      "assignees": ["sitegroove"]
-    },
-    {
-      "name": "git",
-      "label": "packages/dsh-next-git",
-      "paths": ["packages/dsh-next-git/**"],
-      "reviewers": ["sitegroove"],
-      "assignees": ["sitegroove"]
-    },
-    {
-      "name": "org",
-      "label": "packages/dsh-next-org",
-      "paths": ["packages/dsh-next-org/**"],
-      "reviewers": ["sitegroove"],
-      "assignees": ["sitegroove"]
-    },
-    {
-      "name": "previews",
-      "label": "packages/dsh-next-previews",
-      "paths": ["packages/dsh-next-previews/**"],
-      "reviewers": ["sitegroove"],
-      "assignees": ["sitegroove"]
-    },
-    {
-      "name": "slack",
-      "label": "packages/dsh-next-slack",
-      "paths": ["packages/dsh-next-slack/**"],
-      "reviewers": ["sitegroove"],
-      "assignees": ["sitegroove"]
-    },
-    {
-      "name": "telegram",
-      "label": "packages/dsh-next-telegram",
-      "paths": ["packages/dsh-next-telegram/**"],
-      "reviewers": ["sitegroove"],
-      "assignees": ["sitegroove"]
-    },
-    {
-      "name": "workflows",
-      "label": "packages/dsh-next-workflows",
-      "paths": ["packages/dsh-next-workflows/**"],
+      "name": "cc-plugins",
+      "label": "packages/dsh-next-cc-plugins",
+      "paths": ["packages/dsh-next-cc-plugins/**"],
       "reviewers": ["sitegroove"],
       "assignees": ["sitegroove"]
     },

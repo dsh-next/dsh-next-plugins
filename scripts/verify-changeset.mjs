@@ -40,8 +40,10 @@ if (base === undefined) {
 
 /** All paths changed between `base` and the working tree (staged or not). */
 function changedPaths() {
-  const out = execFileSync('git', ['diff', '--name-only', base, '--'], { encoding: 'utf8' })
-  const staged = execFileSync('git', ['diff', '--name-only', '--cached', '--'], { encoding: 'utf8' })
+  // --diff-filter excludes deletions: a REMOVED package is not being released,
+  // so it needs no change file (it will never be published again).
+  const out = execFileSync('git', ['diff', '--name-only', '--diff-filter=ACMR', base, '--'], { encoding: 'utf8' })
+  const staged = execFileSync('git', ['diff', '--name-only', '--cached', '--diff-filter=ACMR', '--'], { encoding: 'utf8' })
   const untracked = execFileSync('git', ['ls-files', '--others', '--exclude-standard'], { encoding: 'utf8' })
   return [...new Set([...out.split('\n'), ...staged.split('\n'), ...untracked.split('\n')])].filter(Boolean)
 }

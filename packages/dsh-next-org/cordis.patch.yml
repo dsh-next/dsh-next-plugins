@@ -1,7 +1,0 @@
-# bundle patch for the org plugin: inserts its plugin row into the profile
-# roster. Applied as a profile bundle layer (the `dsh.bundle.patch` manifest
-# field); install with
-# `dsh plugin --profile <name> add link:<repo>/packages/dsh-next-org`.
-- insert:
-    - id: dsh-next-org
-      name: '@dsh-next/dsh-next-org'

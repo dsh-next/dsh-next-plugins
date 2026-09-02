@@ -74,7 +74,7 @@ describe('verify-changeset gate', () => {
 
   it('fails when the change file names a different package', () => {
     write('packages/dsh-next-skills/src/index.ts', 'export const a = 2\n')
-    write('.changeset/wrong.md', '---\n"@dsh-next/dsh-next-cron": minor\n---\n\ntest\n')
+    write('.changeset/wrong.md', '---\n"@dsh-next/dsh-next-notifier": minor\n---\n\ntest\n')
     const result = runGate()
     assert.equal(result.code, 1)
     assert.match(result.out, /do not name dsh-next-skills/)
@@ -115,5 +115,16 @@ describe('verify-changeset gate', () => {
     write('packages/dsh-next-skills/src/index.ts', 'export const a = 2\n')
     const out = execFileSync('node', [SCRIPT, '--base', base], { cwd: repo, encoding: 'utf8', env: { ...process.env, VERIFY_CHANGESET_SKIP: '1' } })
     assert.match(out, /skipped/)
+  })
+
+  it('passes when a package is deleted (no change file needed for removal)', () => {
+    // Commit a second package, then delete the whole dir in the working tree.
+    mkdirSync(join(repo, 'packages/dsh-next-cron/src'), { recursive: true })
+    write('packages/dsh-next-cron/src/index.ts', 'export const c = 1\n')
+    git('add', '-A')
+    git('commit', '-qm', 'add cron')
+    rmSync(join(repo, 'packages/dsh-next-cron'), { recursive: true, force: true })
+    const result = runGate()
+    assert.equal(result.code, 0, result.out)
   })
 })

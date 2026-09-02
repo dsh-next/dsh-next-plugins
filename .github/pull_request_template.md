@@ -11,14 +11,8 @@
 <!-- Check the packages this PR touches. -->
 
 - [ ] `packages/dsh-next-notifier`
-- [ ] `packages/dsh-next-cron`
-- [ ] `packages/dsh-next-files`
-- [ ] `packages/dsh-next-git`
-- [ ] `packages/dsh-next-org`
-- [ ] `packages/dsh-next-previews`
-- [ ] `packages/dsh-next-slack`
-- [ ] `packages/dsh-next-telegram`
-- [ ] `packages/dsh-next-workflows`
+- [ ] `packages/dsh-next-skills`
+- [ ] `packages/dsh-next-cc-plugins`
 - [ ] Shared / scripts / docs
 
 ## PR Type

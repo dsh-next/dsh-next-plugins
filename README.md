@@ -12,14 +12,7 @@ and DSH profiles, written in TypeScript and built with the shared
 | --- | --- |
 | `@dsh-next/dsh-next-cc-plugins` | Claude Code plugin marketplace bridge: install marketplace plugins as native skills, MCP and agent composition rows, slash commands, and hooks |
 | `@dsh-next/dsh-next-notifier` | Browser and OS notifications (JS prototype, conversion pending) |
-| `@dsh-next/dsh-next-cron` | Scheduled task automation |
-| `@dsh-next/dsh-next-files` | File operations |
-| `@dsh-next/dsh-next-git` | Git integration |
-| `@dsh-next/dsh-next-org` | Organization tooling |
-| `@dsh-next/dsh-next-previews` | Preview generation |
-| `@dsh-next/dsh-next-slack` | Slack integration |
-| `@dsh-next/dsh-next-telegram` | Telegram integration |
-| `@dsh-next/dsh-next-workflows` | Workflow orchestration |
+| `@dsh-next/dsh-next-skills` | Skill marketplace manager: browse provider catalogs, install skills globally, and control per-workspace enablement |
 
 ## Development
 

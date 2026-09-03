@@ -68,12 +68,12 @@ jobs:
 
       - name: Version packages and create/update the release PR
         id: changesets
-        uses: changesets/action@v1
+        uses: changesets/action@v2.1.1
         with:
-          title: Version Packages
-          commit: "chore(version): release packages"
-          version: pnpm exec changeset version
-          publish: pnpm exec changeset publish
+          pr-title: Version Packages
+          commit-message: "chore(version): release packages"
+          version-script: pnpm exec changeset version
+          publish-script: pnpm exec changeset publish
           create-github-releases: true
           # Per-package `name@version` tags power the GitHub Release diff UI;
           # explicitly on (the action forces it true with releases anyway).

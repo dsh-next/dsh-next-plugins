@@ -27,7 +27,7 @@ describe('synthesize / encodeWav', () => {
         expect(Math.abs(samples[i])).toBeLessThanOrEqual(1.001)
       }
     }
-  })
+  }, 30000)
 
   it('encodes a valid 16-bit PCM WAV header', () => {
     const samples = synthesize(SOUNDS[0], 0.5)

@@ -73,8 +73,11 @@ mise tasks delegate to it, never re-implement commands.
 - Use `shared/tsdown.client.ts`; do not copy the build preset into a package.
 - Keep `NPM_TOKEN` in the environment. Store token configuration in the user
   `~/.npmrc`; the project `.npmrc` holds only scope mappings.
-- Do not use emoji in code, comments, documentation, UI text, scripts, or
-  commit messages.
+- Do not use emoji in source code or code comments (including `.ts`/`.tsx`/
+  `.js`/`.mjs` files, embedded UI text in code, and shell scripts), in commit
+  messages, or in CHANGELOG / change-file entries. Documentation prose, Agent
+  Notes (`.agents/notes/`), READMEs, and quoted product-output strings (emoji a
+  plugin itself emits, e.g. "⚠️ Approval needed") are exempt.
 - Keep each fact in its owning document. Update documentation when behavior
   changes; put temporary handoffs or validation snapshots in `docs/archive/`.
 - Package READMEs are bilingual English/Chinese pairs (`README.md` +

@@ -78,10 +78,16 @@ jobs:
       - name: UI translation consistency
         run: pnpm i18n:check
 
-      - name: No emoji rule
+      - name: No emoji rule (source code only)
         run: |
-          python3 - <<'PY'
-          import pathlib, sys
+          # Narrowed scope: enforce no-emoji only in git-tracked SOURCE code
+          # (*.ts/.tsx/.js/.mjs/.cjs and shell scripts), matching AGENTS.md.
+          # Docs prose, Agent Notes, READMEs, vendored skills, and quoted
+          # product-output strings are exempt. Scanning `git ls-files` (not a
+          # filesystem walk) also keeps gitignored and untracked files out of
+          # scope (e.g. .pnpm-store cache, untracked vendored skills).
+          git ls-files -z | python3 -c '
+          import sys, pathlib
           ranges = [
               (0x1F000, 0x1FAFF),
               (0x2600, 0x27BF),
@@ -89,32 +95,29 @@ jobs:
               (0x1F1E6, 0x1F1FF),
           ]
           singles = {0xFE0F, 0x200D}
-          skip_dirs = {'.git', 'node_modules', 'lib', 'dist'}
-          skip_names = {'pnpm-lock.yaml'}
-          skip_suffixes = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.woff', '.woff2', '.ttf', '.otf', '.eot', '.pdf', '.zip', '.gz'}
+          src_suffixes = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts", ".sh"}
           bad = []
-          for p in pathlib.Path('.').rglob('*'):
-              if not p.is_file():
+          for entry in sys.stdin.buffer.read().split(b"\0"):
+              p = entry.decode("utf-8")
+              if not p:
                   continue
-              if any(part in skip_dirs for part in p.parts):
-                  continue
-              if p.name in skip_names or p.suffix.lower() in skip_suffixes:
+              if pathlib.Path(p).suffix.lower() not in src_suffixes:
                   continue
               try:
-                  text = p.read_text(encoding='utf-8')
+                  text = pathlib.Path(p).read_text(encoding="utf-8")
               except Exception:
                   continue
               for i, ch in enumerate(text):
                   o = ord(ch)
                   if o in singles or any(lo <= o <= hi for lo, hi in ranges):
-                      bad.append(f'{p}:{i + 1} U+{o:04X} {ch}')
+                      bad.append(f"{p}:{i + 1} U+{o:04X} {ch}")
           if bad:
-              print('emoji rule violation:')
+              print("emoji rule violation:")
               for line in bad:
-                  print('  ' + line)
+                  print("  " + line)
               sys.exit(1)
-          print('emoji rule passed')
-          PY
+          print("emoji rule passed")
+          '
 
   # Pack the family as npm tarballs, mount them into a REAL DSH instance
   # through the official `dsh plugin --profile <name> add` channel, and render

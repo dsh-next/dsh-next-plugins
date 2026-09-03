@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+#MISE description="Boot one plugin in a dev profile (build + pack + clean install + boot)"
+pnpm dev "$@"

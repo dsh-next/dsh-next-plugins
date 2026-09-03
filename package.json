@@ -23,7 +23,8 @@
     "i18n:list": "node scripts/i18n-check.mjs --list",
     "plugin:new": "node scripts/dsh-plugin-new.mjs",
     "runtime-deps:check": "node scripts/runtime-deps-check.mjs",
-    "test:scripts": "node --test scripts/*.test.mjs"
+    "test:scripts": "node --test scripts/*.test.mjs",
+    "dev": "bash scripts/dev-plugin.sh"
   },
   "devDependencies": {
     "@changesets/cli": "^3.0.1",

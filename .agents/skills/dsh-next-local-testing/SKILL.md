@@ -55,6 +55,12 @@ which on macOS differ from `/tmp/...`).
 
 ## 3. Manual live install (see it in the GUI)
 
+`mise run dev <slug>` (`scripts/dev-plugin.sh`) is the fast loop: build → pack a
+tarball → clean `file:` install into a `dev-<slug>` profile → `--dump-config` →
+boot, printing the token-bearing URL (`--open` opens it; `--scratch` uses a
+fresh home). It installs the **tarball** (what consumers get, and what surfaces
+SDK skew), not `link:`. The steps below are the manual equivalent.
+
 Use **one dev profile per plugin**: `dev-<slug>` (e.g. `dev-git`). A profile is
 a whole directory (its own `package.json`, `cordis.patch.yml`, `node_modules`),
 so a single shared `dev` profile makes parallel sessions collide: every
@@ -105,25 +111,43 @@ path is a prototype-only aid, not the TS-package testing loop.
 ## Verifying without restarting your own process (agentic loop)
 
 An agent running *inside* DSH must never restart its own host process. Instead,
-boot an **isolated second instance** and verify there:
+boot an **isolated second instance** and verify there — the same flow as
+`mise run dev <slug> --scratch`, spelled out:
 
 ```sh
-TMP=$(mktemp -d); export DSH_HOME="$TMP/home"      # isolated home (never ~/.dsh)
-# ...write a scratch profile package.json + cordis.patch.yml...
-dsh plugin --profile smoke add link:$(pwd)/packages/dsh-next-<slug>
-dsh --profile smoke --dump-config                    # composition resolved?
-dsh --profile smoke --no-open --port 0 > log 2>&1 &  # boot, OS-assigned port
-# ...grep the log for the URL + crash markers / plugin "ready" lines...
-# ...Playwright render for DOM assertions...
-kill %1                                             # tear down
+mise run dev <slug> --scratch --port 0   # build + pack tarball + clean install + boot (isolated home)
+# ...read the token URL from the output; Playwright render for DOM assertions...
 ```
 
-Multiple `dsh web` instances coexist when they differ in **port** and
-(preferably) **`DSH_HOME`**. Note `dsh web` is a hardcoded alias for
-`--profile web`; a custom profile must be booted as `dsh --profile <name>`.
-Headless verification means: `--dump-config` for composition, the boot log for
-crash markers and the plugin's own log lines, and Playwright for real DOM
-assertions — an agent cannot literally "see" the GUI.
+The scratch home (`mktemp` under /tmp) keeps it isolated from the real `~/.dsh`
+and from any other profile. Multiple instances coexist when they differ in
+**port** and (preferably) **`DSH_HOME`**. Note `dsh web` is a hardcoded alias
+for `--profile web`; a custom profile boots as `dsh --profile <name>`.
+Headless verification means: `--dump-config` for composition (the dev task runs
+it), the boot log for crash markers, and Playwright for real DOM assertions —
+an agent cannot literally "see" the GUI.
+
+## Gotchas
+
+- **Prefer `file:` tarballs over `link:`.** `link:` resolves `@deepseek-ai/*`
+  SDK deps from this repo's `node_modules`, so a version skew between the repo's
+  devDeps and the installed `dsh` CLI is silently masked — the plugin looks fine
+  and is broken for consumers. A `file:` tarball is what consumers get and
+  surfaces the skew. `mise run dev` and `mise run e2e` both install tarballs.
+- **A `workspace:*` peerDependency breaks `pnpm pack`** with "Cannot resolve
+  workspace protocol". Cross-package peers must use a concrete range (e.g.
+  `^0.1.0`), not `workspace:*`.
+- **Switching `link:` ↔ `file:` needs a clean profile.** pnpm reports "Already
+  up to date" and keeps the stale `link:` symlink in the lockfile, so a `file:`
+  reinstall never actually extracts. Drop the profile's `node_modules`,
+  `pnpm-lock.yaml`, and `.dsh-module-fallback` first (`mise run dev` does this).
+- **The boot URL is token-protected.** `dsh web` / `dsh --profile <name>`
+  prints `http://127.0.0.1:PORT/?token=…`; capture the *full* URL (with token) —
+  a bare `http://127.0.0.1:PORT` 303s and never authenticates.
+- **Verify the client UI renders, not just that the host boots.** A plugin can
+  boot, serve RPC, and show zero crash markers while its client sections
+  silently fail to render (slot registration timing). Assert the actual
+  settings section / card appears (Playwright), or run `mise run e2e`.
 
 ## Rules
 

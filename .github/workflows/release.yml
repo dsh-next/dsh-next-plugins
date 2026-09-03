@@ -66,6 +66,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
+      - name: Configure npm auth for @dsh-next
+        run: |
+          printf '//registry.npmjs.org/:_authToken=%s\n' "${NPM_TOKEN}" > ~/.npmrc
+          printf 'registry=https://registry.npmjs.org/\n' >> ~/.npmrc
+          printf '@dsh-next:registry=https://registry.npmjs.org/\n' >> ~/.npmrc
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
       - name: Version packages and create/update the release PR
         id: changesets
         uses: changesets/action@v2.1.1

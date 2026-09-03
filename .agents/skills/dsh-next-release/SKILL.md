@@ -5,6 +5,10 @@ description: Release and publish the dsh-next monorepo — record change intents
 
 # dsh-next release
 
+See `docs/release-model.md` for the rationale (why changesets + the Version
+Packages PR, the trigger, one-PR-covers-all-packages); this skill is the
+step-by-step procedure.
+
 ## Repository facts
 
 - All packages publish to npm scope `@dsh-next`, registry npmjs.org.

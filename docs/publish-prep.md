@@ -1,6 +1,8 @@
 # Publish preparation
 
 This document records the release order and checks required before publishing.
+For *why* the repository releases this way (changesets vs. the alternatives,
+the trigger, and the Version Packages PR), see `docs/release-model.md`.
 
 ## Per-package versioning
 

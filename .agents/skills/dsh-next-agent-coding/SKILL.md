@@ -45,4 +45,16 @@ Read `AGENTS.md` and `docs/plugins.md` first, then follow these steps.
 8. Run the full gate before merging: `pnpm typecheck && pnpm test && pnpm build`
    then `pnpm i18n:check` and `bash scripts/e2e-mount.sh`. Confirm **every**
    existing test still passes and the mount smoke (with the DOM markers) is green.
-9. Record the change as an Agent Note under `.agents/notes/`.
+9. If the change touches a publishable plugin's source, record a change file:
+   run `pnpm changeset`, pick the packaged packages and bump kinds, and write
+   the entry following the CHANGELOG best practices in the `dsh-next-release`
+   skill and `.changeset/README.md`. A source change without a change file
+   fails CI. Skip this for `"private": true` packages.
+10. Record the change as an Agent Note under `.agents/notes/`.
+11. Commit **logically**, one concern per commit (Conventional Commits, no
+    emoji). Split a change into multiple commits when it crosses distinct
+    concerns — e.g. the feature, its tests, and a docs/process update are three
+    commits — and group files that must land together into one commit. Never
+    bundle unrelated fixes into a "misc" commit, and never leave a commit whose
+    message does not match its contents; each commit must leave the repo
+    buildable and tests green. See `AGENTS.md` → "Branches, Commits, and PRs".

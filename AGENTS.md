@@ -108,6 +108,13 @@ mise tasks delegate to it, never re-implement commands.
   efforts; rebase on `origin/dev` before submitting a PR.
 - Use Conventional Commits: `type(scope): subject` (feat, fix, docs, test,
   refactor, chore). Do not include emoji.
+- Commit **logically**, one concern per commit: split a change into multiple
+  commits when it crosses distinct concerns (e.g. a feature, its tests, and a
+  docs/process update are three commits), and group related files that must
+  land together into the same commit. Never bundle unrelated fixes into one
+  "misc" commit, and never leave a commit whose message does not match its
+  contents. Each commit must stand alone (build and tests keep passing at that
+  point) so `git bisect` and review-by-commit stay meaningful.
 
 ## Release
 
@@ -125,6 +132,19 @@ skips it — the manifest is the single source of truth). Never name a private
 package in a change file — a mixed changeset breaks `changeset version`; the
 CI gate (`verify-changeset.mjs`) rejects it. Remove the `"private": true`
 flag when the package is ready to release.
+
+Change entries become the package `CHANGELOG.md` (generated, never
+hand-edited) and the GitHub Release notes, so write them for end users — a
+user-visible summary, `**Breaking**` for breaking changes, no PR numbers or
+plumbing noise, no emoji. See `.changeset/README.md` and the
+`dsh-next-release` skill for the authoring rules.
+
+Releases push a per-package git tag (`<npm-name>@<version>`, e.g.
+`@dsh-next/dsh-next-notifier@0.1.0`) automatically; these are additive metadata
+for the GitHub Release diff UI, not the release source of truth (that is the
+npm registry version). Never run `git tag`, `changeset tag`, or a bare
+`changeset publish` by hand — tags come only from the pipeline. Snapshot
+prereleases (`pnpm release:canary`) push no tags.
 
 ## Instruction Layers
 

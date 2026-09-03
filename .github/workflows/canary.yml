@@ -1,0 +1,79 @@
+name: Canary
+
+# On-demand prerelease publishing. Runs `changeset version --snapshot canary`
+# to derive a temporary `0.0.0-canary-<timestamp>` version for every package
+# named by a pending change file (without consuming the change files), then
+# `changeset publish --tag canary` to publish them under the npm `canary`
+# dist-tag. A plain `npm install @dsh-next/dsh-next-<slug>` still resolves the
+# stable `latest` tag; beta testers opt in with `@canary`.
+#
+# Unlike the stable `release.yml` lane, this does NOT bump manifest versions,
+# write CHANGELOGs, open the "Version Packages" PR, or create GitHub Releases —
+# it only makes the current pending work installable for early testing. Run it
+# manually from the Actions tab when you want to hand a build to a beta tester.
+#
+# Requires the repository secret `NPM_TOKEN` (npm automation token for the
+# @dsh-next scope).
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'npm dist-tag for the prerelease (e.g. canary, beta, rc)'
+        required: false
+        default: 'canary'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: canary-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    name: Publish canary prerelease
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Lint GitHub Actions workflows
+        uses: docker://rhysd/actionlint:latest
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+        with:
+          version: 11
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build packages
+        run: pnpm build
+
+      - name: Configure npm auth
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" >> ~/.npmrc
+          echo "registry=https://registry.npmjs.org/" >> ~/.npmrc
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish canary snapshot
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          # Derive a snapshot version for each pending package without
+          # consuming the change files, then publish under the chosen dist-tag.
+          pnpm exec changeset version --snapshot "${{ github.event.inputs.tag }}"
+          pnpm exec changeset publish --tag "${{ github.event.inputs.tag }}" --no-git-tag

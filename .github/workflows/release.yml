@@ -10,6 +10,14 @@ name: Release
 # new to the registry and creates per-package GitHub Releases from the
 # CHANGELOG entries.
 #
+# Git tags: `changesets/action` pushes a per-package tag (`name@version`, e.g.
+# `@dsh-next/dsh-next-notifier@0.1.0`) whenever `create-github-releases` is
+# true (its `push-git-tags` input is forced true in that case). This is
+# intentional and additive: the tags power the GitHub Release compare/diff UI
+# and are unambiguous (one tag per package version), unlike the old repo-wide
+# `vX.Y.Z`. The release source of truth remains the npm registry version; tags
+# are metadata, never edited, deleted, or used for versioning.
+#
 # Requires the repository secret `NPM_TOKEN` (npm automation token for the
 # @dsh-next scope) and repo settings "Allow GitHub Actions to create and
 # approve pull requests".
@@ -67,6 +75,9 @@ jobs:
           version: pnpm exec changeset version
           publish: pnpm exec changeset publish
           create-github-releases: true
+          # Per-package `name@version` tags power the GitHub Release diff UI;
+          # explicitly on (the action forces it true with releases anyway).
+          push-git-tags: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

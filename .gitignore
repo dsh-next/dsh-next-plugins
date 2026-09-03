@@ -33,3 +33,6 @@ packages/*/lib/
 # .agents/skills/ next to this repo's own dsh-next-* skills)
 /.agents/skills/*
 !/.agents/skills/dsh-next-*/
+
+# Env files
+.env

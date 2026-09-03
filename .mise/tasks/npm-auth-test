@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+#MISE description="Test npm publish auth using NPM_TOKEN from .env (identity + package dry-run)"
+# Loads NPM_TOKEN from the repo .env (gitignored), confirms the token's npm
+# identity, and runs a publish dry-run for one package to exercise the auth +
+# scope-resolution path without shipping. Never echoes the token value.
+set -euo pipefail
+
+PKG_SLUG="${1:-notifier}"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ENV_FILE="$ROOT/.env"
+
+if [[ ! -f "$ENV_FILE" ]]; then
+  echo "error: $ENV_FILE not found; create it with NPM_TOKEN=<token> (gitignored)." >&2
+  exit 1
+fi
+
+# Extract NPM_TOKEN without printing it.
+NPM_TOKEN="$(grep -E '^NPM_TOKEN=' "$ENV_FILE" | head -1 | cut -d= -f2- | tr -d '"' | tr -d '\r\n')"
+
+if [[ -z "$NPM_TOKEN" ]]; then
+  echo "error: NPM_TOKEN is empty or missing in $ENV_FILE." >&2
+  exit 1
+fi
+
+NPMRC="$(mktemp)"
+printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN" > "$NPMRC"
+trap 'rm -f "$NPMRC"' EXIT
+
+echo "=== npm identity of NPM_TOKEN ==="
+NPM_CONFIG_USERCONFIG="$NPMRC" npm whoami
+
+echo
+echo "=== org membership (dsh-next) ==="
+NPM_CONFIG_USERCONFIG="$NPMRC" npm org ls dsh-next || true
+
+echo
+echo "=== publish dry-run for packages/dsh-next-$PKG_SLUG ==="
+(
+  cd "$ROOT/packages/dsh-next-$PKG_SLUG"
+  NPM_CONFIG_USERCONFIG="$NPMRC" npm publish --dry-run --access public
+)

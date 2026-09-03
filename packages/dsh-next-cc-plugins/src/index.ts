@@ -18,8 +18,9 @@ import Schema from '@deepseek-ai/schemastery'
 // live model discovery.
 import type {} from '@deepseek-ai/dsh-llm'
 // Loads the `settings` service declaration on Context (the shareable
-// user-settings document) plus the namespace brand helper.
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
+// user-settings document). The namespace brand helper was removed in
+// dsh-settings 0.1.2-rc.1: register() now takes the raw namespace string.
+import type {} from '@deepseek-ai/dsh-settings'
 // Type-only: declares the `workspaceRegistry` service on Context for the
 // portable mirror-target resolver.
 import type {} from '@deepseek-ai/dsh-workspace'
@@ -28,7 +29,7 @@ import { nodeFs } from './host/fs-adapter.ts'
 import { nodeHookRunner } from './host/hook-runner.ts'
 import { registerRpc } from './host/rpc.ts'
 import { CcRuntime } from './host/runtime.ts'
-import { CcMarketplaceService } from './host/service.ts'
+import { CcMarketplaceService, EXTERNAL_SKILLS_KEY, type ExternalSkillsHandoff } from './host/service.ts'
 import { Store } from './host/store.ts'
 import { dirnamePath, joinPath } from './core/path.ts'
 
@@ -144,6 +145,7 @@ export function apply(ctx: Context, config: PluginConfig = {}): void {
     },
     env: process.env,
     onInstalledChanged: () => void runtime.refresh(),
+    resolveSkillsManager: () => ctx.get(EXTERNAL_SKILLS_KEY) as ExternalSkillsHandoff | undefined,
   })
 
   registerRpc(ctx, service)
@@ -161,7 +163,7 @@ export function apply(ctx: Context, config: PluginConfig = {}): void {
   ctx.inject(['settings'], (sctx) => {
     const provider = sctx.settings
     if (typeof provider.register !== 'function') return
-    const scope = provider.register(settingsNamespace('cc-plugins'), MirrorSettingsSchema)
+    const scope = provider.register('cc-plugins', MirrorSettingsSchema)
     const mirror: SettingsMirror = {
       read: () => scope.get(),
       write: async (section) => { await scope.replace(section as unknown as Record<string, unknown>) },

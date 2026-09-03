@@ -37,6 +37,11 @@ export const en = {
   'card.delete': 'Delete',
   'card.manage': 'Manage',
   'card.add': 'Add',
+  'card.replace': 'Replace',
+  'card.replaceTitle': 'Replace the installed copy with the {provider} version',
+  'card.currentSource': 'Current source',
+  'card.sources.one': '{count} source',
+  'card.sources.many': '{count} sources',
 
   'presence.everywhere': 'Everywhere',
   'presence.workspaces.one': '{count} workspace',

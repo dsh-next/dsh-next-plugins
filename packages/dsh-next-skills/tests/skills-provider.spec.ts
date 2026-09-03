@@ -47,16 +47,18 @@ describe('createManagedSkillProvider', () => {
     expect(byName.get('d')!.path).toBe('/home/u/.dsh/skills/d.md')
   })
 
-  it('lists project skills only when the lookup carries a cwd, ranked below the project roots', async () => {
+  it('never lists project/workspace skills, whatever the lookup cwd', async () => {
     const { provider } = makeProvider({
       '/repo/.agents/skills/p/SKILL.md': SKILL('p'),
+      '/repo/.dsh/skills/q/SKILL.md': SKILL('q'),
       '/home/u/.agents/skills/g/SKILL.md': SKILL('g'),
     })
+    // The lookup cwd is irrelevant now: project roots stay with the native
+    // filesystem provider; only global-root skills are re-published.
     expect(await listNames(provider)).toEqual(['g'])
-    const candidates = await provider.list(lookup('/repo')) as readonly SkillCandidate[]
-    const p = candidates.find((c) => c.name === 'p')!
-    expect(p.rank).toBe(199)
-    expect(p.source).toBe('project-agents')
+    const withCwd = await provider.list(lookup('/repo')) as readonly SkillCandidate[]
+    expect(withCwd.map((c) => c.name)).toEqual(['g'])
+    expect(withCwd[0]!.source).toBe('user-agents')
   })
 
   it('disabled scopes blank both invocation flags; enabled scopes pass the file flags through', async () => {
@@ -112,14 +114,15 @@ describe('createManagedSkillProvider', () => {
     expect(await provider.get(candidate, lookup())).toBeUndefined()
   })
 
-  it('preserves precedence between duplicate names across roots', async () => {
+  it('preserves precedence between duplicate names across the global roots', async () => {
     const { provider } = makeProvider({
       '/home/u/.agents/skills/shared/SKILL.md': SKILL('shared'),
-      '/repo/.agents/skills/shared/SKILL.md': SKILL('shared'),
+      '/home/u/.dsh/skills/shared/SKILL.md': SKILL('shared'),
     })
     const candidates = await provider.list(lookup('/repo')) as readonly SkillCandidate[]
     const shared = candidates.filter((c) => c.name === 'shared').sort((a, b) => a.rank - b.rank)
-    expect(shared[0].source).toBe('project-agents')
-    expect(shared[0].path).toBe('/repo/.agents/skills/shared/SKILL.md')
+    // user-dsh outranks user-agents; the rank-1 shift keeps the ordering.
+    expect(shared[0].source).toBe('user-dsh')
+    expect(shared[0].path).toBe('/home/u/.dsh/skills/shared/SKILL.md')
   })
 })

@@ -41,10 +41,18 @@ function makeFixture(over: { locale?: LocaleDouble; withLocale?: boolean } = {})
     },
     get: (name: string) => {
       if (name === 'slots') {
+        const register = (options: RegisteredSection) => {
+          sections.push(options)
+          return () => { const i = sections.indexOf(options); if (i >= 0) sections.splice(i, 1) }
+        }
         return {
-          register: (options: RegisteredSection) => {
-            sections.push(options)
-            return () => { const i = sections.indexOf(options); if (i >= 0) sections.splice(i, 1) }
+          register,
+          // The 0.1.2 slot registry declares slots lazily; entries register
+          // through inject(key, cb), which runs cb once the declaration lands.
+          // The double models the already-declared case: run cb synchronously.
+          inject: (_key: string, callback: () => (() => void) | void) => {
+            const off = callback()
+            return () => { if (typeof off === 'function') off() }
           },
         }
       }

@@ -50,6 +50,11 @@ function rpc(method: string, args?: unknown): Promise<unknown> {
   })
 }
 
+// Required services (fiber inject waiting — the renderer owns the slot
+// registry since 0.1.2, and the session controller applies later, so both
+// must be up before the card registers and reports presence).
+export const inject = ['slots', 'locale', 'sessions'] as const
+
 export function apply(ctx: Context): void {
   const slots = ctx.get('slots')
   const sessions = ctx.get('sessions') as ISessions | undefined
@@ -89,8 +94,10 @@ export function apply(ctx: Context): void {
     window.addEventListener('focus', offPerm)
   }
 
-  if (slots && typeof slots.register === 'function') {
-    const off = slots.register(
+  if (slots && typeof slots.inject === 'function') {
+    // settings.plugin.item is declared by the configurable-plugins tab at boot,
+    // so the registration waits on that declaration through slots.inject.
+    slots.inject('settings.plugin.item', () => slots.register(
       { name: 'settings.plugin.item', key: 'dsh-next-notifier', registrant: 'dsh-next-notifier' },
       () => React.createElement(NotifierCard, {
         rpc: send,
@@ -99,8 +106,7 @@ export function apply(ctx: Context): void {
         t,
         showWebNotification: (e) => showWebNotification(e, sessions),
       }),
-    )
-    ctx.effect(() => off)
+    ))
   }
 
   ctx.effect(() => () => {

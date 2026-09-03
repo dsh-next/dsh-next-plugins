@@ -64,6 +64,11 @@ function rpc(method: string, args?: unknown): Promise<unknown> {
   })
 }
 
+// Required services (fiber inject waiting — the renderer owns the slot
+// registry since 0.1.2, and the workspace controller applies later, so both
+// must be up before the section registers and reads the workspace list).
+export const inject = ['slots', 'locale', 'workspaces'] as const
+
 export function apply(ctx: Context): void {
   const slots = ctx.get('slots')
   const workspaces = ctx.get('workspaces') as IWorkspaces | undefined
@@ -104,10 +109,12 @@ export function apply(ctx: Context): void {
     }
   }
 
-  if (slots && typeof slots.register === 'function') {
+  if (slots && typeof slots.inject === 'function') {
     // Skills sits at order 16; the Claude bridge right after it. The label
-    // binds at call time so a language switch re-resolves it.
-    const off = slots.register(
+    // binds at call time so a language switch re-resolves it. The
+    // settings.section slot is declared by the settings shell at boot, so the
+    // registration waits on that declaration through slots.inject.
+    slots.inject('settings.section', () => slots.register(
       {
         name: 'settings.section',
         id: 'cc-plugins',
@@ -121,7 +128,6 @@ export function apply(ctx: Context): void {
         notifyInstalledChanged,
         t,
       }),
-    )
-    ctx.effect(() => off)
+    ))
   }
 }

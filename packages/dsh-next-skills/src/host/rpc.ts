@@ -55,7 +55,7 @@ export function registerRpc(ctx: Context, service: SkillsService): void {
   if (!webServer || typeof webServer.register !== 'function') return
 
   const handlers: Record<string, Handler> = {
-    getState: (args) => service.state(strArray(record(args).workspacePaths)),
+    getState: () => service.state(),
     setSkillScope: (args) => {
       const a = record(args)
       return service.setSkillScope({ name: str(a.name), workspaces: parseWorkspacesInput(a) })
@@ -96,7 +96,7 @@ export function registerRpc(ctx: Context, service: SkillsService): void {
     },
     getInstalledSkillDetail: (args) => {
       const a = record(args)
-      return service.getInstalledSkillDetail({ name: str(a.name), path: optStr(a.path), workspacePaths: strArray(a.workspacePaths) })
+      return service.getInstalledSkillDetail({ name: str(a.name), path: optStr(a.path) })
     },
   }
 

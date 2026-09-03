@@ -128,6 +128,7 @@ interface Fixture {
   gh: ReturnType<typeof createGhDouble>
   service: CcMarketplaceService
   mirror: MirrorDouble
+  skills: string[]
 }
 
 function makeFixture(
@@ -137,6 +138,7 @@ function makeFixture(
   const fs = createMemFs(seed)
   const gh = createGhDouble({ 'o/r': TEAM_TOOLS })
   const mirror = makeMirror()
+  const skills: string[] = []
   const service = new CcMarketplaceService({
     fs,
     fetch: gh.fetch as FetchLike,
@@ -146,8 +148,13 @@ function makeFixture(
     cordisPatchPath: '/home/u/.dsh/cordis.patch.yml',
     settings: mirror.mirror,
     resolveWorkspace: over.resolveWorkspace,
+    resolveSkillsManager: () => ({
+      installExternalSkills: async (args) => { skills.push(...args.skills.map((s: { name: string }) => s.name)); return { ok: true } },
+      setExternalSkillScope: async () => ({ ok: true }),
+      removeExternalSkills: async () => ({ ok: true }),
+    }),
   })
-  return { fs, gh, service, mirror }
+  return { fs, gh, service, mirror, skills }
 }
 
 describe('CcMarketplaceService settings mirror write-through', () => {
@@ -210,8 +217,7 @@ describe('CcMarketplaceService reconcileFromMirror', () => {
     const state = await f.service.state()
     const record = state.installed[0]
     expect(record.scope).toEqual({ kind: 'workspaces', workspacePaths: ['/w1'] })
-    expect(f.fs.has('/w1/.agents/skills/deploy/SKILL.md')).toBe(true)
-    expect(f.fs.has('/home/u/.agents/skills/deploy/SKILL.md')).toBe(false)
+    expect(f.skills).toContain('deploy')
     // Model mappings were adopted, inherit word decoded back to null.
     expect(state.agentModelMap).toEqual({ haiku: 'dsh-fast' })
     expect(state.agentModelOverrides).toEqual({ haiku: 'dsh-fast', sonnet: null })
@@ -227,7 +233,7 @@ describe('CcMarketplaceService reconcileFromMirror', () => {
     const report = await f.service.reconcileFromMirror()
     expect(report.installed).toEqual(['github:o/r/team-tools'])
     expect((await f.service.state()).installed[0].scope).toEqual({ kind: 'global' })
-    expect(f.fs.has('/home/u/.agents/skills/deploy/SKILL.md')).toBe(true)
+    expect(f.skills).toContain('deploy')
   })
 
   it('resolves portable folder names through the workspace registry and skips unknown ones', async () => {

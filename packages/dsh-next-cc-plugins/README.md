@@ -32,16 +32,16 @@ with a built-in runtime for the components DSH activates in-process.
   version and, whenever the marketplace carries a newer one, an Update
   button (update also re-syncs that marketplace first, so it always pulls
   the true latest). Each card's Add (or Manage) button opens the **scope
-  modal**: a radio picks where the plugin works — **Global** (the default;
-  skills land in the shared skills root this DSH home scans everywhere) or
-  **Selected workspaces** (a checklist of the registered workspaces
-  appears; skills land in each checked workspace's own
-  `<workspace>/.agents/skills` root). The two modes are exclusive — one
-  install, one scope. For an installed plugin the same modal manages it:
-  Save scope re-scopes the install (skill copies move between roots,
-  recoverably), Update refreshes it, and Uninstall removes it after a
-  two-step confirm. Skills land per scope; MCP servers, agent rows,
-  commands, and hooks are plugin-level and activate once regardless of
+  modal**: a radio picks where the plugin's skills are enabled — **Global**
+  (the default; skills land in the shared skills root this DSH home scans
+  everywhere) or **Selected workspaces** (a checklist of the registered
+  workspaces appears; skills still install into the shared root, and the
+  scope enables them only in the checked workspaces). The two modes are
+  exclusive — one install, one scope. For an installed plugin the same modal
+  manages it: Save scope re-scopes the enablement, Update refreshes it, and
+  Uninstall removes it after a two-step confirm. Skills install globally; the
+  scope is enablement. MCP servers, agent rows, commands, and hooks are
+  plugin-level and activate once regardless of
   scope (the modal says so). Clicking a plugin's name opens a
   **detail modal**: metadata, the full component listing (including the
   families this bridge does not install), declared dependencies, and the

@@ -41,6 +41,36 @@ const workspaceCopy: InstalledSkill = {
   directory: '/w1/.agents/skills/security-review',
 }
 
+/** An externally-owned copy (cc-plugins) — provider updates are not ours. */
+const ownedCopy: InstalledSkill = {
+  ...skill, provider: undefined,
+  ownership: { owner: 'cc-plugins', pluginKey: 'github:o/r/team-tools', marketplaceId: 'github:o/r', skillName: 'security-review' },
+}
+
+/** One installed copy (from o/r) whose name is offered by three providers. */
+const MULTI: SkillsState = {
+  installed: [{ ...skill, updateAvailable: undefined, updateCandidates: undefined }],
+  providers: [
+    { id: 'o-r', spec: 'o/r', skillCount: 1, lastRefresh: '' },
+    { id: 'p-q', spec: 'p/q', skillCount: 1, lastRefresh: '' },
+    { id: 'z-9', spec: 'z/9', skillCount: 1, lastRefresh: '' },
+  ],
+  catalog: [
+    { name: 'security-review', description: 'd', providerId: 'o-r', providerSpec: 'o/r', skillPath: 'a', version: 'v1' },
+    { name: 'security-review', description: 'd', providerId: 'p-q', providerSpec: 'p/q', skillPath: 'b', version: 'v2' },
+    { name: 'security-review', description: 'd', providerId: 'z-9', providerSpec: 'z/9', skillPath: 'c', version: 'v3' },
+    { name: 'unrelated-skill', description: 'd', providerId: 'o-r', providerSpec: 'o/r', skillPath: 'u', version: 'v1' },
+  ],
+}
+
+/** A second copy of `security-review` in the other GLOBAL root (user .dsh). */
+const secondGlobalCopy: InstalledSkill = {
+  ...skill, scope: 'global', source: 'user-dsh', provider: undefined,
+  updateAvailable: undefined, updateCandidates: undefined,
+  path: '/home/u/.dsh/skills/security-review/SKILL.md',
+  directory: '/home/u/.dsh/skills/security-review',
+}
+
 const WS: WorkspaceRow[] = [
   { id: 'w1', title: 'Project One', path: '/w1' },
   { id: 'w2', title: 'Project Two', path: '/w2' },
@@ -147,35 +177,37 @@ function rpcCalls(rpc: RpcFn & ReturnType<typeof vi.fn>): Array<[string, unknown
 afterEach(() => { document.body.innerHTML = '' })
 
 describe('grid composition (buildGridEntries + filterEntries)', () => {
-  it('rows come first, then catalog-only entries, each group alphabetical', () => {
+  it('installed groups sort first, then names to add, each alphabetical', () => {
     const entries = buildGridEntries(STATE)
     expect(entries.map((e) => e.name)).toEqual(['security-review', 'deploy-helper', 'find-skills'])
   })
-  it('a discovered row adopts its provider spec, and catalog entries carry the filter id', () => {
+  it('a discovered row resolves its provider id from the spec and carries the spec label', () => {
     const entries = buildGridEntries(STATE)
-    // The installed copy has no same-name catalog entry in STATE, so there is
-    // no provider id, but the row's own provider spec feeds the label.
-    expect(entries[0].providerId).toBeUndefined()
-    expect(entries[0].providerSpec).toBe('o/r')
-    expect(entries[1].providerId).toBe('o-r')
+    const row = entries.find((e) => e.row !== undefined)!
+    // The recorded provider spec resolves through the provider rows, so the
+    // provider filter also matches installed copies.
+    expect(row.providerId).toBe('o-r')
+    expect(row.providerSpec).toBe('o/r')
+    const cat = entries.find((e) => e.name === 'find-skills')!
+    expect(cat.providerId).toBe('o-r')
   })
   it('duplicate copies of one name stay split: one entry per copy with its own key', () => {
-    const entries = buildGridEntries({ ...STATE, installed: [skill, workspaceCopy] })
+    const entries = buildGridEntries({ ...STATE, installed: [skill, secondGlobalCopy] })
     const security = entries.filter((e) => e.name === 'security-review')
     // Two copies -> two entries, not one grouped card.
     expect(security).toHaveLength(2)
     // Each entry points at its single copy via `row` and a source:path key.
-    // (Sort is name then providerSpec, so the provider-less workspace copy
-    // comes before the provider-installed global copy.)
+    // (Sort is name then providerSpec, so the provider-less user-dsh copy
+    // comes before the provider-installed user-agents copy.)
     expect(security.map((e) => e.key)).toEqual([
-      'row:project-agents:/w1/.agents/skills/security-review/SKILL.md',
+      'row:user-dsh:/home/u/.dsh/skills/security-review/SKILL.md',
       'row:user-agents:/a/SKILL.md',
     ])
-    const globalEntry = security.find((e) => e.row === skill)!
-    const workspaceEntry = security.find((e) => e.row === workspaceCopy)!
-    expect(globalEntry.key).toBe('row:user-agents:/a/SKILL.md')
-    expect(workspaceEntry.key).toBe('row:project-agents:/w1/.agents/skills/security-review/SKILL.md')
-    // The ordered rows come before the two catalog-only entries.
+    const agentsEntry = security.find((e) => e.row === skill)!
+    const dshEntry = security.find((e) => e.row === secondGlobalCopy)!
+    expect(agentsEntry.key).toBe('row:user-agents:/a/SKILL.md')
+    expect(dshEntry.key).toBe('row:user-dsh:/home/u/.dsh/skills/security-review/SKILL.md')
+    // The installed group sorts first; the copies precede their offerings.
     expect(entries.map((e) => e.name))
       .toEqual(['security-review', 'security-review', 'deploy-helper', 'find-skills'])
   })
@@ -187,6 +219,54 @@ describe('grid composition (buildGridEntries + filterEntries)', () => {
     expect(filterEntries(entries, '', '', true).map((e) => e.name)).toEqual(['security-review'])
     // Catalog-only entries (no row) are excluded by the installed-only toggle.
     expect(filterEntries(entries, '', '', true).every((e) => e.row !== undefined)).toBe(true)
+  })
+  it('same-name offerings become sibling cards: one active source, the rest replaceable', () => {
+    const entries = buildGridEntries(MULTI)
+    const cards = entries.filter((e) => e.name === 'security-review')
+    // The installed copy plus one card per provider offering.
+    expect(cards).toHaveLength(4)
+    const row = cards.find((e) => e.row !== undefined)!
+    expect(row.sourceCount).toBe(3)
+    const siblings = cards.filter((e) => e.catalog !== undefined)
+    // The offering matching the copy's recorded provider is the active source.
+    expect(siblings.find((e) => e.providerSpec === 'o/r')!.installed).toEqual({ directory: '/a', active: true })
+    expect(siblings.find((e) => e.providerSpec === 'p/q')!.installed).toEqual({ directory: '/a', active: false })
+    expect(siblings.find((e) => e.providerSpec === 'z/9')!.installed).toEqual({ directory: '/a', active: false })
+    // A name with no installed copy keeps the plain Add shape.
+    expect(entries.find((e) => e.name === 'unrelated-skill')!.installed).toBeUndefined()
+  })
+  it('the installed group sorts first and its managed copy precedes the offerings', () => {
+    const entries = buildGridEntries(MULTI)
+    expect(entries.map((e) => `${e.name}:${e.row !== undefined ? 'copy' : 'offering'}`)).toEqual([
+      'security-review:copy',
+      'security-review:offering',
+      'security-review:offering',
+      'security-review:offering',
+      'unrelated-skill:offering',
+    ])
+    // Within the group: the copy, then the offerings by provider spec.
+    expect(entries.slice(1, 4).map((e) => e.providerSpec)).toEqual(['o/r', 'p/q', 'z/9'])
+  })
+  it('a provider filter narrows the group to that provider\'s cards only', () => {
+    const entries = buildGridEntries(MULTI)
+    // Filtering by p/q: the installed copy (recorded on o/r) and the other
+    // providers' offerings drop out — the group does not keep them visible.
+    const kept = filterEntries(entries, '', 'p-q', false)
+    expect(kept.map((e) => e.providerSpec ?? e.row?.provider)).toEqual(['p/q'])
+    // Installed-only drops every offering card, keeping the copy.
+    const installedOnly = filterEntries(entries, '', '', true)
+    expect(installedOnly).toHaveLength(1)
+    expect(installedOnly[0]!.row).toBeDefined()
+  })
+  it('externally-owned copies hide their name offerings and the sources chip', () => {
+    const state: SkillsState = { ...MULTI, installed: [ownedCopy] }
+    const entries = buildGridEntries(state)
+    // No sibling cards for the owned name; no replace metadata anywhere.
+    expect(entries.filter((e) => e.name === 'security-review')).toHaveLength(1)
+    expect(entries.every((e) => e.installed === undefined)).toBe(true)
+    expect(entries.find((e) => e.row !== undefined)!.sourceCount).toBeUndefined()
+    // Unrelated names are unaffected.
+    expect(entries.find((e) => e.name === 'unrelated-skill')).toBeTruthy()
   })
 })
 
@@ -226,29 +306,29 @@ describe('SkillsPanel rendering', () => {
     await unmount()
   })
 
-  it('getState receives the registered workspace paths', async () => {
+  it('getState carries no workspace scoping — the listing is global-only', async () => {
     const rpc = rpcMock()
     await render(rpc, WS)
     const call = rpcCalls(rpc).find(([m]) => m === 'getState')
-    expect(call![1]).toEqual({ workspacePaths: ['/w1', '/w2'] })
+    expect(call![1]).toBeUndefined()
   })
 
   it('renders one card per discovered copy, each with its own source chip and controls', async () => {
-    const { container, unmount } = await render(rpcMock({ ...STATE, installed: [skill, workspaceCopy] }), WS)
+    const { container, unmount } = await render(rpcMock({ ...STATE, installed: [skill, secondGlobalCopy] }), WS)
     // Two copies of the same name -> two cards (plus two catalog-only skills).
     const cards = allByTestId(container, 'skills-card')
     expect(cards).toHaveLength(4)
     // Find each copy's card by its origin source chip, regardless of sort order.
-    const userCard = cards.find((c) => c.textContent!.includes('user .agents'))!
-    const projectCard = cards.find((c) => c.textContent!.includes('project .agents'))!
-    expect(userCard).toBeTruthy()
-    expect(projectCard).toBeTruthy()
-    expect(userCard).not.toBe(projectCard)
+    const agentsCard = cards.find((c) => c.textContent!.includes('user .agents'))!
+    const dshCard = cards.find((c) => c.textContent!.includes('user .dsh'))!
+    expect(agentsCard).toBeTruthy()
+    expect(dshCard).toBeTruthy()
+    expect(agentsCard).not.toBe(dshCard)
     // Only the copy with an update candidate gets the Update control.
-    expect(userCard.querySelector('[data-testid="skills-update"]')).toBeTruthy()
-    expect(projectCard.querySelector('[data-testid="skills-update"]')).toBeNull()
+    expect(agentsCard.querySelector('[data-testid="skills-update"]')).toBeTruthy()
+    expect(dshCard.querySelector('[data-testid="skills-update"]')).toBeNull()
     // Every installed copy has its own Manage and Delete, side by side.
-    for (const card of [userCard, projectCard]) {
+    for (const card of [agentsCard, dshCard]) {
       expect(card.querySelector('[data-testid="skills-manage"]')).toBeTruthy()
       expect(card.querySelector('[data-testid="skills-delete"]')).toBeTruthy()
     }
@@ -256,13 +336,13 @@ describe('SkillsPanel rendering', () => {
   })
 
   it('the provider chip renders only for a copy whose provider is set', async () => {
-    const { container, unmount } = await render(rpcMock({ ...STATE, installed: [skill, workspaceCopy] }), WS)
+    const { container, unmount } = await render(rpcMock({ ...STATE, installed: [skill, secondGlobalCopy] }), WS)
     const cards = allByTestId(container, 'skills-card')
-    const userCard = cards.find((c) => c.textContent!.includes('user .agents'))!
-    const projectCard = cards.find((c) => c.textContent!.includes('project .agents'))!
-    // The global copy is provider-installed (o/r); the workspace copy is not.
-    expect(userCard.textContent).toContain('o/r')
-    expect(projectCard.textContent).not.toContain('o/r')
+    const agentsCard = cards.find((c) => c.textContent!.includes('user .agents'))!
+    const dshCard = cards.find((c) => c.textContent!.includes('user .dsh'))!
+    // The user-agents copy is provider-installed (o/r); the user-dsh copy is not.
+    expect(agentsCard.textContent).toContain('o/r')
+    expect(dshCard.textContent).not.toContain('o/r')
     await unmount()
   })
 
@@ -281,27 +361,25 @@ describe('SkillsPanel rendering', () => {
   it('the per-copy Delete button opens the confirm modal without deleting yet', async () => {
     const rpc = rpcMock({ ...STATE, installed: [skill, workspaceCopy] })
     const { container, unmount } = await render(rpc, WS)
+    // The workspace copy in the envelope is filtered out: exactly one Delete.
     const deletes = allByTestId(container, 'skills-delete')
-    expect(deletes).toHaveLength(2)
-    // Target the workspace copy's card (identified by its source chip).
-    const projectCard = [...container.querySelectorAll('[data-testid="skills-card"]')]
-      .find((c) => c.textContent!.includes('project .agents'))!
-    await click(projectCard.querySelector('[data-testid="skills-delete"]')!)
+    expect(deletes).toHaveLength(1)
+    await click(deletes[0])
     await act(async () => {})
     // The confirm modal is present and no deleteSkill RPC has fired.
     const confirm = byTestId(container, 'skills-delete-confirm')
     expect(confirm.textContent).toContain('Delete security-review?')
     expect(confirm.textContent).toContain('trash')
     expect(byTestId(confirm, 'skills-delete-path').textContent)
-      .toBe('/w1/.agents/skills/security-review/SKILL.md')
+      .toBe('/a/SKILL.md')
     expect(rpcCalls(rpc).filter(([m]) => m === 'deleteSkill')).toHaveLength(0)
     await unmount()
   })
 
   it('cancelling the delete confirm leaves the card and issues no deleteSkill', async () => {
-    const rpc = rpcMock({ ...STATE, installed: [skill, workspaceCopy] })
+    const rpc = rpcMock({ ...STATE, installed: [skill] })
     const { container, unmount } = await render(rpc, WS)
-    await click(allByTestId(container, 'skills-delete')[1])
+    await click(byTestId(container, 'skills-delete'))
     await act(async () => {})
     expect(byTestId(container, 'skills-delete-confirm')).toBeTruthy()
     await click(byTestId(container, 'skills-delete-cancel'))
@@ -309,38 +387,48 @@ describe('SkillsPanel rendering', () => {
     // The modal closes and no RPC ran; the copy's cards remain.
     expect(container.querySelector('[data-testid="skills-delete-confirm"]')).toBeNull()
     expect(rpcCalls(rpc).filter(([m]) => m === 'deleteSkill')).toHaveLength(0)
-    expect(container.querySelectorAll('[data-testid="skills-card"]')).toHaveLength(4)
+    expect(container.querySelectorAll('[data-testid="skills-card"]')).toHaveLength(3)
     await unmount()
   })
 
   it('confirming the delete calls deleteSkill with the copy directory/kind/path, then closes', async () => {
-    const rpc = rpcMock({ ...STATE, installed: [skill, workspaceCopy] })
+    const rpc = rpcMock({ ...STATE, installed: [skill] })
     const { container, unmount } = await render(rpc, WS)
-    const projectCard = [...container.querySelectorAll('[data-testid="skills-card"]')]
-      .find((c) => c.textContent!.includes('project .agents'))!
-    await click(projectCard.querySelector('[data-testid="skills-delete"]')!)
+    await click(byTestId(container, 'skills-delete'))
     await act(async () => {})
     await click(byTestId(container, 'skills-delete-confirm-btn'))
     await act(async () => {})
     const call = rpcCalls(rpc).find(([m]) => m === 'deleteSkill')
     expect(call![1]).toEqual({
       name: 'security-review',
-      directory: '/w1/.agents/skills/security-review',
+      directory: '/a',
       kind: 'bundle',
-      path: '/w1/.agents/skills/security-review/SKILL.md',
+      path: '/a/SKILL.md',
     })
     expect(container.querySelector('[data-testid="skills-delete-confirm"]')).toBeNull()
     await unmount()
   })
 
-  it('the project chip renders for workspace rows', async () => {
-    const state: SkillsState = {
-      ...STATE,
-      installed: [{ ...skill, name: 'proj', provider: undefined, updateAvailable: undefined, updateCandidates: undefined, scope: 'workspace', source: 'project-agents', directory: '/w1/.agents/skills/proj', path: '/w1/.agents/skills/proj/SKILL.md' }],
-      catalog: [],
-    }
-    const { container, unmount } = await render(rpcMock(state), WS)
-    expect(container.querySelector('[data-testid="skills-card"]')!.textContent).toContain('project')
+  it('externally-owned copies render no Update button, even with stale candidates', async () => {
+    // Defense in depth: the host never emits candidates for owned rows, but a
+    // stale envelope must not resurrect the provider-update affordance.
+    const rpc = rpcMock({ ...STATE, installed: [ownedCopy] })
+    const { container, unmount } = await render(rpc, WS)
+    expect(container.querySelector('[data-testid="skills-update"]')).toBeNull()
+    expect(container.querySelector('[data-testid="skills-delete"]')).toBeTruthy()
+    await unmount()
+  })
+
+  it('workspace copies never render — even a stale envelope carrying them is filtered out', async () => {    // Simulate a version-skewed host still returning a workspace row: the
+    // panel must not render it (project skills are hand-managed, not listed).
+    const rpc = rpcMock({ ...STATE, installed: [skill, workspaceCopy] })
+    const { container, unmount } = await render(rpc, WS)
+    const cards = allByTestId(container, 'skills-card')
+    expect(cards.some((c) => c.textContent!.includes('project .agents'))).toBe(false)
+    // The global copy renders with its controls enabled as usual.
+    const userCard = cards.find((c) => c.textContent!.includes('user .agents'))!
+    expect((userCard.querySelector('[data-testid="skills-delete"]') as HTMLButtonElement).disabled).toBe(false)
+    expect(userCard.querySelector('[data-testid="skills-manage"]')).toBeTruthy()
     await unmount()
   })
 
@@ -348,6 +436,83 @@ describe('SkillsPanel rendering', () => {
     const state: SkillsState = { ...STATE, installed: [], catalog: [] }
     const { container, unmount } = await render(rpcMock(state))
     expect(byTestId(container, 'skills-empty').textContent).toContain('No skills match')
+    await unmount()
+  })
+
+  it('multi-provider names: sources chip, current source, and Replace re-pins provenance', async () => {
+    const rpc = rpcMock(MULTI)
+    const { container, unmount } = await render(rpc, WS)
+    const cards = [...container.querySelectorAll('[data-testid="skills-card"]')]
+
+    // The installed card carries the sources chip.
+    const rowCard = cards.find((c) => c.querySelector('[data-testid="skills-presence"]'))!
+    expect(rowCard.querySelector('[data-testid="skills-sources"]')!.textContent).toBe('3 sources')
+
+    // The active source's sibling shows "current", no Replace and no Add.
+    const activeCard = cards.find((c) => c.querySelector('[data-testid="skills-source-current"]'))!
+    expect(activeCard.textContent).toContain('o/r')
+    expect(activeCard.querySelector('[data-testid="skills-replace"]')).toBeNull()
+    expect(activeCard.querySelector('[data-testid="skills-add"]')).toBeNull()
+
+    // Another provider's sibling offers Replace; clicking re-pins via updateSkill.
+    const replaceCard = cards.find((c) => c.querySelector('[data-testid="skills-replace"]') && c.textContent!.includes('p/q'))!
+    const replace = replaceCard.querySelector('[data-testid="skills-replace"]') as HTMLButtonElement
+    expect(replace.disabled).toBe(false)
+    expect(replace.title).toContain('p/q')
+    await click(replace)
+    await act(async () => {})
+    const call = rpcCalls(rpc).find(([m]) => m === 'updateSkill')
+    expect(call![1]).toEqual({ name: 'security-review', directory: '/a', providerId: 'p-q', skillPath: 'b' })
+
+    // A name with no installed copy still shows Add (not Replace).
+    const addCard = cards.find((c) => c.textContent!.includes('unrelated-skill'))!
+    expect(addCard.querySelector('[data-testid="skills-add"]')).toBeTruthy()
+    expect(addCard.querySelector('[data-testid="skills-replace"]')).toBeNull()
+    await unmount()
+  })
+
+  it('same-name cards share one bordered group box; single-card names stay unwrapped', async () => {
+    const rpc = rpcMock(MULTI)
+    const { container, unmount } = await render(rpc, WS)
+    // One group box around the four security-review cards, copy first.
+    const groups = allByTestId(container, 'skills-group')
+    expect(groups).toHaveLength(1)
+    const grouped = groups[0]!.querySelectorAll('[data-testid="skills-card"]')
+    expect(grouped).toHaveLength(4)
+    expect(grouped[0]!.querySelector('[data-testid="skills-presence"]')).toBeTruthy() // copy first
+    // The add-only name renders as a plain card outside any group.
+    const addCard = [...container.querySelectorAll('[data-testid="skills-card"]')]
+      .find((c) => c.textContent!.includes('unrelated-skill'))!
+    expect(addCard.closest('[data-testid="skills-group"]')).toBeNull()
+    await unmount()
+  })
+
+  it('a provider filter collapses the group to the matching card (no wrapper)', async () => {
+    // p/q's filter drops the installed copy and the other offerings: one
+    // card survives, so it renders as a plain card, not a group box.
+    const rpc = rpcMock(MULTI)
+    const { container, unmount } = await render(rpc, WS)
+    await act(async () => {
+      const select = byTestId(container, 'skills-provider-filter') as unknown as HTMLSelectElement
+      select.value = 'p-q'
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    await act(async () => {})
+    expect(container.querySelectorAll('[data-testid="skills-group"]')).toHaveLength(0)
+    const cards = allByTestId(container, 'skills-card')
+    expect(cards).toHaveLength(1)
+    expect(cards[0]!.textContent).toContain('p/q')
+    await unmount()
+  })
+
+  it('externally-owned names render no offerings, no sources chip, no Replace', async () => {
+    const rpc = rpcMock({ ...MULTI, installed: [ownedCopy] })
+    const { container, unmount } = await render(rpc, WS)
+    expect(container.querySelector('[data-testid="skills-replace"]')).toBeNull()
+    expect(container.querySelector('[data-testid="skills-sources"]')).toBeNull()
+    expect(container.querySelector('[data-testid="skills-source-current"]')).toBeNull()
+    // The owned copy itself still renders with its presence badge.
+    expect(container.querySelector('[data-testid="skills-presence"]')).toBeTruthy()
     await unmount()
   })
 })
@@ -464,7 +629,11 @@ describe('detail modal', () => {
   it('loads an installed detail and renders the markdown body', async () => {
     const rpc = rpcMock()
     const { container, unmount } = await render(rpc)
-    await click(byTestId(container, 'skills-detail'))
+    // Target the INSTALLED copy's detail button (the grid sorts
+    // alphabetically, so it is no longer the first card).
+    const rowCard = [...container.querySelectorAll('[data-testid="skills-card"]')]
+      .find((c) => c.textContent!.includes('user .agents'))!
+    await click(rowCard.querySelector('[data-testid="skills-detail"]')!)
     const detail = byTestId(container, 'skills-skill-detail')
     await act(async () => {})
     const call = rpcCalls(rpc).find(([m]) => m === 'getInstalledSkillDetail')
@@ -492,7 +661,9 @@ describe('detail modal', () => {
       }))
     })
     await act(async () => {})
-    await click(byTestId(container, 'skills-detail'))
+    const rowCard = [...container.querySelectorAll('[data-testid="skills-card"]')]
+      .find((c) => c.textContent!.includes('user .agents'))!
+    await click(rowCard.querySelector('[data-testid="skills-detail"]')!)
     await act(async () => {})
     const detail = byTestId(container, 'skills-skill-detail')
     const body = byTestId(detail, 'skills-detail-body')

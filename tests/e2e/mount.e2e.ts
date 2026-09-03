@@ -317,8 +317,8 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     // The Workspaces radio path, against the workspaces e2e-mount.sh
     // preseeded into the scratch home's registry (canonical paths arrive
     // via env — never machine-specific literals). Install demo-tools into
-    // workspace-a only, verify the copy landed in the workspace's own
-    // skills root, then re-scope to global and watch the copy move.
+    // workspace-a only: skills are global-only, so the copy lands in the
+    // global skill root and the workspace scope is enablement, not placement.
     const workspaceA = process.env.DSH_E2E_WORKSPACE_A
     if (!workspaceA) throw new Error('DSH_E2E_WORKSPACE_A is not set — run through scripts/e2e-mount.sh, which preseeds the workspaces')
     const workspaceB = process.env.DSH_E2E_WORKSPACE_B ?? ''
@@ -334,25 +334,18 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await page.getByTestId('cc-modal-confirm').click()
     await expect(demoCard).toContainText('Manage')
     await expect(demoCard).toContainText('in workspace-a')
-    // The skill copy landed in the workspace's own root, not the global one.
-    await expect.poll(() => {
-      try {
-        readFileSync(join(workspaceA, '.agents', 'skills', 'demo-skill', 'SKILL.md'), 'utf8')
-        return true
-      } catch {
-        return false
-      }
-    }).toBe(true)
-    expect(readFileSync(join(workspaceA, '.agents', 'skills', 'demo-skill', 'SKILL.md'), 'utf8')).toContain('demo')
-    await expect.poll(() => !existsSync(join(agentsHome, 'skills', 'demo-skill'))).toBe(true)
-    // Manage re-opens on the workspace scope; Save scope moves the copy to
-    // the global root and clears the workspace one (recoverably).
+    // The skill copy landed in the GLOBAL root — skills never install into
+    // projects; the workspace scope is enablement, not physical placement.
+    await expect.poll(() => existsSync(join(agentsHome, 'skills', 'demo-skill', 'SKILL.md'))).toBe(true)
+    expect(readFileSync(join(agentsHome, 'skills', 'demo-skill', 'SKILL.md'), 'utf8')).toContain('demo')
+    expect(existsSync(join(workspaceA, '.agents', 'skills', 'demo-skill'))).toBe(false)
+    // Manage re-opens on the workspace scope; Save scope to global clears the
+    // enablement restriction (the global copy stays put).
     await demoCard.locator('[data-testid="cc-add"]').click()
     await expect(page.getByTestId('cc-scope-workspaces').locator('input')).toBeChecked()
     await page.getByTestId('cc-scope-global').locator('input').click()
     await page.getByTestId('cc-modal-confirm').click()
     await expect.poll(() => existsSync(join(agentsHome, 'skills', 'demo-skill', 'SKILL.md'))).toBe(true)
-    await expect.poll(() => !existsSync(join(workspaceA, '.agents', 'skills', 'demo-skill'))).toBe(true)
     await expect(demoCard).toContainText('in global')
     // Full uninstall from the global scope; the marketplace can go after.
     await demoCard.locator('[data-testid="cc-add"]').click()
@@ -394,13 +387,17 @@ test('plugin family mounts the dsh-next plugins without crash markers', async ({
   // The shell rendered: wait for the DSH app root to exist in the DOM.
   await page.waitForSelector('#root, [data-dsh-app], body', { state: 'attached', timeout: 30_000 })
 
-  // Every plugin's client bundle is served at /plugins/<package-name>/client.js.
-  // A 404 here means the profile patch failed to register the row (the exact
-  // class of bug only a real-mount smoke can catch).
+  // Every plugin's client bundle is composed into the boot graph. A missing
+  // entry means the profile patch failed to register the row (the exact class
+  // of bug only a real-mount smoke can catch). 0.1.2 serves bundles through
+  // the rev-hashed combo route, not a stable singular URL, so the composed
+  // graph is the authoritative signal.
+  const entryIds = await page.evaluate(() => {
+    const boot = (globalThis as { __DSH_BOOT__?: { entries?: Array<{ id?: string }> } }).__DSH_BOOT__
+    return (boot?.entries ?? []).map((entry) => entry.id).filter((id): id is string => id !== undefined)
+  })
   for (const pkg of pluginIds) {
-    const url = `${BASE_URL.replace(/\/$/, '')}/plugins/${pkg}/client.js`
-    const res = await page.request.get(url)
-    expect(res.status(), `${pkg} client bundle should be served`).toBe(200)
+    expect(entryIds, `${pkg} client bundle should be in the boot graph`).toContain(pkg)
   }
 
   // No plugin crash strips or page errors anywhere.

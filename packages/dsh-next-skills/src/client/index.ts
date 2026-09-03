@@ -64,6 +64,11 @@ function rpc(method: string, args: unknown | undefined, t: (key: MessageKey, par
   })
 }
 
+// Required services (fiber inject waiting — the renderer owns the slot
+// registry since 0.1.2, and the workspace controller applies later, so both
+// must be up before the section registers and reads the workspace list).
+export const inject = ['slots', 'locale', 'workspaces'] as const
+
 export function apply(ctx: Context): void {
   const slots = ctx.get('slots')
   const workspaces = ctx.get('workspaces') as IWorkspaces | undefined
@@ -107,10 +112,13 @@ export function apply(ctx: Context): void {
     }
   }
 
-  if (slots && typeof slots.register === 'function') {
+  if (slots && typeof slots.inject === 'function') {
     // The Plugins section registers at order 15; Skills sits right after it.
-    // The label binds at call time so a language switch re-resolves it.
-    const off = slots.register(
+    // The label binds at call time so a language switch re-resolves it. The
+    // settings.section slot is declared by the settings shell at boot, so the
+    // registration waits on that declaration through slots.inject (the shell's
+    // own settings pages use the same pattern).
+    slots.inject('settings.section', () => slots.register(
       { name: 'settings.section', id: 'skills', order: 16, label: () => t('nav'), locale: NS },
       () => React.createElement(SkillsPanel, {
         rpc: (method: string, args?: unknown) => rpc(method, args, t),
@@ -118,7 +126,6 @@ export function apply(ctx: Context): void {
         notifyInstalledChanged,
         t,
       }),
-    )
-    ctx.effect(() => off)
+    ))
   }
 }

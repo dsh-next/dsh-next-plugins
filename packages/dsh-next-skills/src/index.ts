@@ -22,15 +22,31 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SkillRegistry } from '@deepseek-ai/dsh-skill'
-import { settingsNamespace, type SettingsScope } from '@deepseek-ai/dsh-settings'
+import type { SettingsScope } from '@deepseek-ai/dsh-settings'
 import { nodeFs } from './host/fs-adapter.ts'
 import { registerRpc } from './host/rpc.ts'
 import { SkillsService, type ConfigScopeFace } from './host/skills-service.ts'
 import { createManagedSkillProvider, MANAGED_PROVIDER_NAME } from './host/skills-provider.ts'
 import { SKILLS_NAMESPACE, skillsConfigSchema } from './core/schema.ts'
 import { DEFAULT_PROVIDER_SPECS } from './core/defaults.ts'
+import type { ExternalMutationResult, InstallExternalSkillsArgs, RemoveExternalSkillsArgs, SetExternalSkillScopeArgs } from './core/types.ts'
 
 export const inject = ['webServer', 'settings'] as const
+
+/** Cordis service key the cc-plugins bridge resolves to drive external skills. */
+export const EXTERNAL_SKILLS_SERVICE = 'cc-external-skills'
+
+/**
+ * The narrow cross-plugin service surface the cc-plugins bridge consumes.
+ * Kept deliberately tiny and decoupled from claude-plugin internals: the
+ * owning plugin rewrites references and hands off finished files; this
+ * service only places, scopes, and removes them.
+ */
+export interface ExternalSkillsService {
+  installExternalSkills(args: InstallExternalSkillsArgs): Promise<ExternalMutationResult>
+  setExternalSkillScope(args: SetExternalSkillScopeArgs): Promise<ExternalMutationResult>
+  removeExternalSkills(args: RemoveExternalSkillsArgs): Promise<ExternalMutationResult>
+}
 
 /** Delay of the boot sequence after mount (lets the host settle). */
 const BOOT_DELAY_MS = 3 * 1000
@@ -44,7 +60,7 @@ export function apply(ctx: Context): void {
   // declared dependency; a host without it cannot run the settings model.
   const settings = ctx.get('settings') as { register?: (ns: unknown, schema: unknown, opts?: unknown) => SettingsScope<never> } | undefined
   const settingsScope = settings && typeof settings.register === 'function'
-    ? settings.register(settingsNamespace(SKILLS_NAMESPACE), skillsConfigSchema, { applies: 'live' })
+    ? settings.register(SKILLS_NAMESPACE, skillsConfigSchema, { applies: 'live' })
     : undefined
   if (settingsScope === undefined) {
     ctx.logger.warn('dsh-next-skills: settings service unavailable; configuration cannot persist')
@@ -60,6 +76,15 @@ export function apply(ctx: Context): void {
     logWarn: (message) => ctx.logger.warn(message),
     config: configFace,
   })
+
+  // Provide the cross-plugin external-skills surface (the cc-plugins bridge
+  // resolves this via ctx.get). A composition without this plugin simply has
+  // no service; the cc plugin degrades with a visible note.
+  ctx.provide(EXTERNAL_SKILLS_SERVICE, {
+    installExternalSkills: (args) => service.installExternalSkills(args),
+    setExternalSkillScope: (args) => service.setExternalSkillScope(args),
+    removeExternalSkills: (args) => service.removeExternalSkills(args),
+  } satisfies ExternalSkillsService)
 
   // Register the ctx.skills provider override. Scope edits invalidate the
   // provider's catalog so a disable takes effect on the next lookup. The

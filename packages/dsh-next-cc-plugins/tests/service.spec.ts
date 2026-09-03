@@ -5,7 +5,7 @@
  */
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { FetchLike } from '../src/core/types.ts'
-import { CcMarketplaceService, SOURCE_MARKER, TRASH_DIR } from '../src/host/service.ts'
+import { CcMarketplaceService, type ExternalSkillsHandoff } from '../src/host/service.ts'
 import { Store } from '../src/host/store.ts'
 import { createGhDouble } from './helpers/gh.ts'
 import { createMemFs, type MemFs } from './helpers/memfs.ts'
@@ -55,14 +55,57 @@ interface Fixture {
   fs: MemFs
   gh: ReturnType<typeof createGhDouble>
   service: CcMarketplaceService
+  skills: ExternalSkillsHandoff & {
+    installed: Array<{ name: string; files: Record<string, string>; pluginKey: string; workspaces?: readonly string[] }>
+    scopes: Map<string, readonly string[] | null>
+    removed: string[]
+  }
+}
+
+/** A recording skills-manager double exercising the handoff contract. */
+function makeSkillsDouble(): Fixture['skills'] {
+  const installed: Fixture['skills']['installed'] = []
+  const scopes = new Map<string, readonly string[] | null>()
+  const removed: string[] = []
+  return {
+    installed,
+    scopes,
+    removed,
+    async installExternalSkills(args) {
+      for (const s of args.skills) {
+        const prev = installed.find((i) => i.name === s.name)
+        if (prev !== undefined && prev.pluginKey !== args.pluginKey) return { ok: false, error: `skill "${s.name}" already exists` }
+        if (prev !== undefined) {
+          // In-place update: replace the recorded files for the same owner.
+          prev.files = s.files
+        } else {
+          installed.push({ name: s.name, files: s.files, pluginKey: args.pluginKey, workspaces: args.workspaces })
+        }
+      }
+      if (args.workspaces !== undefined) for (const s of args.skills) scopes.set(s.name, args.workspaces)
+      return { ok: true }
+    },
+    async setExternalSkillScope(args) {
+      scopes.set(args.name, args.workspaces ?? null)
+      return { ok: true }
+    },
+    async removeExternalSkills(args) {
+      for (let i = installed.length - 1; i >= 0; i--) {
+        const shouldRemove = args.skillNames === undefined || (args.skillNames as readonly string[]).includes(installed[i].name)
+        if (installed[i].pluginKey === args.pluginKey && shouldRemove) { removed.push(installed[i].name); installed.splice(i, 1) }
+      }
+      return { ok: true }
+    },
+  }
 }
 
 function makeFixture(
   seed: Record<string, string> = {},
-  over: { agentsEnabled?: boolean; agentModelMap?: Record<string, string>; listRuntimeModels?: () => Promise<Array<{ provider: string; id: string; name: string }>>; env?: Record<string, string | undefined> } = {},
+  over: { agentsEnabled?: boolean; agentModelMap?: Record<string, string>; listRuntimeModels?: () => Promise<Array<{ provider: string; id: string; name: string }>>; env?: Record<string, string | undefined>; skillsManager?: Fixture['skills'] } = {},
 ): Fixture {
   const fs = createMemFs(seed)
   const gh = createGhDouble({ 'o/r': TEAM_TOOLS_V1, 'x/external': EXTERNAL_FILES })
+  const skills = over.skillsManager ?? makeSkillsDouble()
   const service = new CcMarketplaceService({
     fs,
     fetch: gh.fetch as FetchLike,
@@ -74,8 +117,9 @@ function makeFixture(
     agentModelMap: over.agentModelMap,
     listRuntimeModels: over.listRuntimeModels,
     env: over.env,
+    resolveSkillsManager: () => skills,
   })
-  return { fs, gh, service }
+  return { fs, gh, service, skills }
 }
 
 describe('CcMarketplaceService marketplaces', () => {
@@ -348,9 +392,8 @@ describe('CcMarketplaceService marketplaces', () => {
     const result = await f.service.installPlugin({ marketplaceId: 'github:owner/monorepo', plugin: 'slicer', scope: { kind: 'global' } })
     expect(result.ok).toBe(true)
     // Only the subdirectory's files installed; the pin rode the tarball URL.
-    const snap = f.fs.snapshot()
-    expect(snap['/home/u/.agents/skills/cut/SKILL.md']).toBeDefined()
-    expect(snap['/home/u/.agents/skills/nope/SKILL.md']).toBeUndefined()
+    expect(f.skills.installed.map((s) => s.name)).toEqual(['cut'])
+    expect(f.skills.installed.some((s) => s.name === 'nope')).toBe(false)
     expect(f.gh.calls.some((u) => u.includes('abc123'))).toBe(true)
   })
 
@@ -526,7 +569,7 @@ describe('CcMarketplaceService install', () => {
         plugins: [{ name: 'rich', source: './plugins/rich' }],
       }),
       'plugins/rich/.lsp.json': JSON.stringify({ go: { command: 'gopls' } }),
-      'plugins/rich/skills/deploy/SKILL.md': SKILL('deploy', 'Deploys'),
+      'plugins/rich/skills/rich-deploy/SKILL.md': SKILL('rich-deploy', 'Deploys'),
     })
     await f.service.addMarketplace('o/r')
     await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'rich', scope: { kind: 'global' } })
@@ -572,7 +615,7 @@ describe('CcMarketplaceService install', () => {
     expect(state.installed.map((p) => p.pluginName).sort()).toEqual(['secrets-vault', 'vault-user'])
     const dep = state.installed.find((p) => p.pluginName === 'secrets-vault')
     expect(dep?.scope).toEqual({ kind: 'workspaces', workspacePaths: ['/w1'] })
-    expect(f.fs.has('/w1/.agents/skills/keep/SKILL.md')).toBe(true)
+    expect(f.skills.installed.map((s) => s.name).sort()).toEqual(['deploy', 'keep'])
     // The declaration persists on the parent's record for later review.
     expect(state.installed.find((p) => p.pluginName === 'vault-user')?.notes).toContain('requires plugin(s) secrets-vault@^2.0.0')
     // Re-installing a plugin whose dependency is already present: the
@@ -725,10 +768,12 @@ describe('CcMarketplaceService install', () => {
     expect(result.message).toContain('1 agent tool')
     expect(result.message).toContain('runtime.hooks')
 
-    // Skill files land in the native user skills root, with the source marker.
-    expect(f.fs.snapshot()['/home/u/.agents/skills/deploy/SKILL.md']).toContain('name: deploy')
-    expect(f.fs.snapshot()['/home/u/.agents/skills/deploy/run.sh']).toBe('echo deploy')
-    expect(f.fs.snapshot()['/home/u/.agents/skills/deploy/' + SOURCE_MARKER]).toContain('github:o/r/team-tools')
+    // Skills are handed to the skills-manager service (no file copies here).
+    expect(f.skills.installed).toHaveLength(1)
+    expect(f.skills.installed[0].name).toBe('deploy')
+    expect(f.skills.installed[0].pluginKey).toBe('github:o/r/team-tools')
+    expect(f.skills.installed[0].files['SKILL.md']).toContain('name: deploy')
+    expect(f.skills.installed[0].files['run.sh']).toBe('echo deploy')
 
     // The patch file carries the managed dsh-mcp-client and dsh-tool-subagent rows.
     const patch = f.fs.snapshot()[PATCH] ?? ''
@@ -772,7 +817,7 @@ describe('CcMarketplaceService install', () => {
     expect(state.installed[0].agents).toEqual([])
     expect((disabled.fs.snapshot()[PATCH] ?? '')).not.toContain('dsh-tool-subagent')
     // Skills and MCP rows are unaffected by the agent gate.
-    expect(disabled.fs.has('/home/u/.agents/skills/deploy/SKILL.md')).toBe(true)
+    expect(disabled.skills.installed.map((s) => s.name)).toEqual(['deploy'])
     expect((disabled.fs.snapshot()[PATCH] ?? '')).toContain('dsh-mcp-client')
   })
 
@@ -997,8 +1042,8 @@ describe('CcMarketplaceService install', () => {
     ])
     // The installed skill copy carries the absolute path; the materialized
     // plugin copy stays verbatim.
+    expect(f.skills.installed[0].files['SKILL.md']).toContain('Read /home/u/.dsh/cc-plugins/plugins/github_o_refs-repo_refsy/references/guide.md.')
     const snap = f.fs.snapshot()
-    expect(snap['/home/u/.agents/skills/deep/SKILL.md']).toContain('Read /home/u/.dsh/cc-plugins/plugins/github_o_refs-repo_refsy/references/guide.md.')
     expect(snap['/home/u/.dsh/cc-plugins/plugins/github_o_refs-repo_refsy/skills/deep/SKILL.md']).toContain('Read ../../references/guide.md.')
     // And the referenced file is actually there for the model to read.
     expect(snap['/home/u/.dsh/cc-plugins/plugins/github_o_refs-repo_refsy/references/guide.md']).toBe('content')
@@ -1030,7 +1075,7 @@ describe('CcMarketplaceService install', () => {
     if (!result.ok) return
     expect(result.message).toContain('1 skill(s)')
     expect(result.message).toContain('1 MCP server')
-    expect(f.fs.has('/home/u/.agents/skills/audit/SKILL.md')).toBe(true)
+    expect(f.skills.installed.map((s) => s.name)).toEqual(['audit'])
     const patch = f.fs.snapshot()[PATCH] ?? ''
     expect(patch).toContain("'@deepseek-ai/dsh-mcp-client'")
     expect(patch).toContain("serverName: 'chrome-devtools'")
@@ -1069,7 +1114,7 @@ describe('CcMarketplaceService install', () => {
     if (!dup.ok) expect(dup.error).toContain('duplicate workspace path')
   })
 
-  it('installs into each workspace skills root when scoped, and never the global root', async () => {
+  it('scopes skills by workspace enablement (global install), never copying per workspace', async () => {
     await f.service.addMarketplace('o/r')
     const result = await f.service.installPlugin({
       marketplaceId: 'github:o/r',
@@ -1079,16 +1124,20 @@ describe('CcMarketplaceService install', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.message).toContain('2 workspaces')
-    expect(f.fs.has('/w1/.agents/skills/deploy/SKILL.md')).toBe(true)
-    expect(f.fs.has('/w2/.agents/skills/deploy/SKILL.md')).toBe(true)
+    // One global handoff, no per-workspace file copies.
+    expect(f.skills.installed).toHaveLength(1)
+    expect(f.skills.installed[0].workspaces).toEqual(['w1', 'w2'])
+    expect(f.fs.has('/w1/.agents/skills/deploy/SKILL.md')).toBe(false)
     expect(f.fs.has('/home/u/.agents/skills/deploy/SKILL.md')).toBe(false)
     const record = (await f.service.state()).installed[0]
     expect(record.scope).toEqual({ kind: 'workspaces', workspacePaths: ['/w1', '/w2'] })
-    expect(record.skills.map((s) => s.directory).sort()).toEqual(['/w1/.agents/skills/deploy', '/w2/.agents/skills/deploy'])
+    expect(record.skills.map((s) => s.name)).toEqual(['deploy'])
   })
 
   it('fails without partial state when a skill already exists', async () => {
-    const seeded = makeFixture({ '/home/u/.agents/skills/deploy/SKILL.md': SKILL('deploy', 'existing') })
+    const rejecting = makeSkillsDouble()
+    rejecting.installExternalSkills = async () => ({ ok: false, error: 'skill "deploy" already exists' })
+    const seeded = makeFixture({}, { skillsManager: rejecting })
     await seeded.service.addMarketplace('o/r')
     const result = await seeded.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', scope: { kind: 'global' } })
     expect(result.ok).toBe(false)
@@ -1100,7 +1149,9 @@ describe('CcMarketplaceService install', () => {
   })
 
   it('rolls back earlier skills when a later one collides', async () => {
-    const seeded = makeFixture({ '/home/u/.agents/skills/second/SKILL.md': SKILL('second', 'existing') })
+    const rejecting = makeSkillsDouble()
+    rejecting.installExternalSkills = async () => ({ ok: false, error: 'skill "second" already exists' })
+    const seeded = makeFixture({}, { skillsManager: rejecting })
     seeded.gh.setRepo('o', 'two', {
       '.claude-plugin/marketplace.json': JSON.stringify({
         name: 'two',
@@ -1112,7 +1163,7 @@ describe('CcMarketplaceService install', () => {
     await seeded.service.addMarketplace('o/two')
     const result = await seeded.service.installPlugin({ marketplaceId: 'github:o/two', plugin: 'multi', scope: { kind: 'global' } })
     expect(result.ok).toBe(false)
-    expect(seeded.fs.has('/home/u/.agents/skills/first')).toBe(false) // rolled back
+    expect(seeded.skills.installed).toEqual([]) // nothing handed off
     expect((await seeded.service.state()).installed).toEqual([])
   })
 
@@ -1120,7 +1171,7 @@ describe('CcMarketplaceService install', () => {
     await f.service.addMarketplace('o/r')
     const result = await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'external', scope: { kind: 'global' } })
     expect(result.ok).toBe(true)
-    expect(f.fs.has('/home/u/.agents/skills/helper/SKILL.md')).toBe(true)
+    expect(f.skills.installed.map((s) => s.name)).toEqual(['helper'])
   })
 
   it('dedupes a colliding MCP server name across plugins', async () => {
@@ -1156,7 +1207,7 @@ describe('CcMarketplaceService uninstall and update', () => {
     await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', scope: { kind: 'global' } })
   })
 
-  it('uninstalls: skills go to trash, managed rows drop, plugin copy is removed', async () => {
+  it('uninstalls: skills removed via the manager, managed rows drop, plugin copy is removed', async () => {
     const result = await f.service.uninstallPlugin('github:o/r/team-tools')
     expect(result.ok).toBe(true)
     if (!result.ok) return
@@ -1164,10 +1215,9 @@ describe('CcMarketplaceService uninstall and update', () => {
     expect(result.message).toContain('1 MCP row')
     expect(result.message).toContain('1 agent row')
 
+    expect(f.skills.removed).toEqual(['deploy'])
+    expect(f.skills.installed).toEqual([])
     const snap = f.fs.snapshot()
-    expect(snap['/home/u/.agents/skills/deploy/SKILL.md']).toBeUndefined()
-    const trashed = Object.keys(snap).filter((k) => k.startsWith(`/home/u/.agents/skills/${TRASH_DIR}/`) && k.endsWith('SKILL.md'))
-    expect(trashed).toHaveLength(1)
     expect((snap[PATCH] ?? '')).not.toContain('dsh-mcp-client')
     expect((snap[PATCH] ?? '')).not.toContain('dsh-tool-subagent')
     expect(Object.keys(snap).some((k) => k.startsWith('/home/u/.dsh/cc-plugins/plugins/github_o_r_team-tools/'))).toBe(false)
@@ -1196,46 +1246,22 @@ describe('CcMarketplaceService uninstall and update', () => {
     expect(result.ok).toBe(false)
   })
 
-  it('re-scopes a plugin: copies move between roots and stay recoverable', async () => {
-    // Global -> two workspaces: the global copy trashes, both workspace
-    // roots get copies, and the managed rows survive untouched.
+  it('re-scopes a plugin by persisting workspace enablement through the manager', async () => {
     const toWs = await f.service.setPluginScope('github:o/r/team-tools', { kind: 'workspaces', workspacePaths: ['/w1', '/w2'] })
     expect(toWs.ok).toBe(true)
     if (!toWs.ok) return
     expect(toWs.message).toContain('scope of "team-tools" set to 2 workspaces')
-    let snap = f.fs.snapshot()
-    expect(snap['/home/u/.agents/skills/deploy/SKILL.md']).toBeUndefined()
-    expect(snap['/w1/.agents/skills/deploy/SKILL.md']).toContain('name: deploy')
-    expect(snap['/w2/.agents/skills/deploy/SKILL.md']).toContain('name: deploy')
-    expect(snap[PATCH]).toContain("serverName: 'linear'")
-    const trashedGlobal = Object.keys(snap).filter((k) => k.startsWith(`/home/u/.agents/skills/${TRASH_DIR}/`) && k.endsWith('SKILL.md'))
-    expect(trashedGlobal).toHaveLength(1)
+    expect(f.skills.scopes.get('deploy')).toEqual(['w1', 'w2'])
+    expect(f.skills.installed).toHaveLength(1) // still one global copy
     let record = (await f.service.state()).installed[0]
     expect(record.scope).toEqual({ kind: 'workspaces', workspacePaths: ['/w1', '/w2'] })
-    expect(record.skills.map((s) => s.directory).sort()).toEqual(['/w1/.agents/skills/deploy', '/w2/.agents/skills/deploy'])
 
-    // Shrink to one workspace: the dropped root's copy trashes.
-    const shrink = await f.service.setPluginScope('github:o/r/team-tools', { kind: 'workspaces', workspacePaths: ['/w1'] })
-    expect(shrink.ok).toBe(true)
-    snap = f.fs.snapshot()
-    expect(snap['/w1/.agents/skills/deploy/SKILL.md']).toContain('name: deploy')
-    expect(snap['/w2/.agents/skills/deploy/SKILL.md']).toBeUndefined()
-    record = (await f.service.state()).installed[0]
-    expect(record.scope).toEqual({ kind: 'workspaces', workspacePaths: ['/w1'] })
-    expect(record.skills).toHaveLength(1)
-
-    // Back to global: the workspace copy trashes, the global root refills.
+    // Back to global: the scope clears to everywhere.
     const toGlobal = await f.service.setPluginScope('github:o/r/team-tools', { kind: 'global' })
     expect(toGlobal.ok).toBe(true)
-    snap = f.fs.snapshot()
-    expect(snap['/home/u/.agents/skills/deploy/SKILL.md']).toContain('name: deploy')
-    expect(snap['/w1/.agents/skills/deploy/SKILL.md']).toBeUndefined()
+    expect(f.skills.scopes.get('deploy')).toEqual(null) // null = cleared to everywhere
     record = (await f.service.state()).installed[0]
     expect(record.scope).toEqual({ kind: 'global' })
-    expect(record.skills.map((s) => s.directory)).toEqual(['/home/u/.agents/skills/deploy'])
-    // The materialized copy and managed rows never moved.
-    expect(snap[PATCH]).toContain("serverName: 'linear'")
-    expect(snap['/home/u/.dsh/cc-plugins/plugins/github_o_r_team-tools/commands/ship.md']).toBeDefined()
   })
 
   it('re-scope is a no-op for the same scope and fails cleanly otherwise', async () => {
@@ -1252,30 +1278,25 @@ describe('CcMarketplaceService uninstall and update', () => {
     if (!bad.ok) expect(bad.error).toContain('at least one workspace')
   })
 
-  it('re-scope refuses a root where the skill name is taken and rolls back', async () => {
-    const seeded = makeFixture()
+  it('re-scope rejects when the skills manager errors', async () => {
+    const rejecting = makeSkillsDouble()
+    rejecting.setExternalSkillScope = async () => ({ ok: false, error: 'scope rejected' })
+    const seeded = makeFixture({}, { skillsManager: rejecting })
     await seeded.service.addMarketplace('o/r')
     await seeded.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', scope: { kind: 'global' } })
-    await seeded.fs.mkdir('/w1/.agents/skills', { recursive: true })
-    await seeded.fs.writeFile('/w1/.agents/skills/deploy/SKILL.md', SKILL('deploy', 'foreign'))
     const blocked = await seeded.service.setPluginScope('github:o/r/team-tools', { kind: 'workspaces', workspacePaths: ['/w1'] })
     expect(blocked.ok).toBe(false)
-    if (!blocked.ok) expect(blocked.error).toContain('already exists')
-    // The record and the global copy are untouched.
+    if (!blocked.ok) expect(blocked.error).toContain('scope rejected')
     expect((await seeded.service.state()).installed[0].scope).toEqual({ kind: 'global' })
-    expect(seeded.fs.has('/home/u/.agents/skills/deploy/SKILL.md')).toBe(true)
   })
 
-  it('updates skills in every root of the scope', async () => {
+  it('updates skills via the manager for the recorded scope', async () => {
     await f.service.setPluginScope('github:o/r/team-tools', { kind: 'workspaces', workspacePaths: ['/w1'] })
     f.gh.setRepo('o', 'r', TEAM_TOOLS_V2)
     const result = await f.service.updatePlugin('github:o/r/team-tools')
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    const snap = f.fs.snapshot()
-    expect(snap['/w1/.agents/skills/deploy/SKILL.md']).toContain('v2')
-    expect(snap['/w1/.agents/skills/audit/SKILL.md']).toContain('name: audit')
-    expect(snap['/home/u/.agents/skills/deploy/SKILL.md']).toBeUndefined()
+    expect(f.skills.installed.map((s) => s.name).sort()).toEqual(['audit', 'deploy'])
     const record = (await f.service.state()).installed[0]
     expect(record.scope).toEqual({ kind: 'workspaces', workspacePaths: ['/w1'] })
     expect(record.skills.map((s) => s.name).sort()).toEqual(['audit', 'deploy'])
@@ -1320,9 +1341,9 @@ describe('CcMarketplaceService uninstall and update', () => {
     if (!result.ok) return
     expect(result.message).toContain('2.0.0')
 
+    expect(f.skills.installed.map((s) => s.name).sort()).toEqual(['audit', 'deploy'])
+    expect(f.skills.installed.find((s) => s.name === 'deploy')?.files['SKILL.md']).toContain('v2')
     const snap = f.fs.snapshot()
-    expect(snap['/home/u/.agents/skills/deploy/SKILL.md']).toContain('v2')
-    expect(snap['/home/u/.agents/skills/audit/SKILL.md']).toContain('name: audit')
     expect(snap[PATCH]).toContain("args: ['-y', 'linear-mcp@2']")
     expect(snap[PATCH]).toContain("serverName: 'linear'") // stable name
 
@@ -1334,7 +1355,7 @@ describe('CcMarketplaceService uninstall and update', () => {
     expect(record.pending).toEqual({ commands: ['ship'], hookEvents: [] })
   })
 
-  it('trashes skills removed upstream on update', async () => {
+  it('hands off only the skills still shipped upstream on update', async () => {
     f.gh.setRepo('o', 'r', {
       '.claude-plugin/marketplace.json': JSON.stringify({
         name: 'acme-tools',
@@ -1343,10 +1364,7 @@ describe('CcMarketplaceService uninstall and update', () => {
       'plugins/team-tools/skills/audit/SKILL.md': SKILL('audit'),
     })
     await f.service.updatePlugin('github:o/r/team-tools')
-    const snap = f.fs.snapshot()
-    expect(snap['/home/u/.agents/skills/audit/SKILL.md']).toBeDefined()
-    const trashed = Object.keys(snap).filter((k) => k.startsWith(`/home/u/.agents/skills/${TRASH_DIR}/`) && k.endsWith('SKILL.md'))
-    expect(trashed).toHaveLength(1)
+    expect(f.skills.installed.map((s) => s.name)).toEqual(['audit'])
     expect((await f.service.state()).installed[0].skills.map((s) => s.name)).toEqual(['audit'])
   })
 

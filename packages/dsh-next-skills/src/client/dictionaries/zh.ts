@@ -30,6 +30,11 @@ export const zh: Record<MessageKey, string> = {
   'card.delete': '删除',
   'card.manage': '管理',
   'card.add': '添加',
+  'card.replace': '更换',
+  'card.replaceTitle': '将已安装的副本替换为 {provider} 的版本',
+  'card.currentSource': '当前来源',
+  'card.sources.one': '{count} 个来源',
+  'card.sources.many': '{count} 个来源',
 
   'presence.everywhere': '所有位置',
   'presence.workspaces.one': '{count} 个工作区',

@@ -940,6 +940,6 @@ describe('Chinese localization', () => {
     // Switch to workspaces: the checklist chrome localizes too.
     await act(async () => { (modal?.querySelector('[data-testid="cc-scope-workspaces"] input') as HTMLInputElement).click() })
     expect(modal?.textContent).toContain('选定的工作区')
-    expect(modal?.textContent).toContain('插件仅在勾选的工作区中生效')
+    expect(modal?.textContent).toContain('技能仅在勾选的工作区中启用')
   })
 })

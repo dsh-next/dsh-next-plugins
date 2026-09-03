@@ -7,7 +7,7 @@
  * `src/host/` (stateful) and `src/core/` (pure); this entry stays thin.
  */
 import type { Context } from '@deepseek-ai/cordis'
-import { settingsNamespace, type SettingsScope } from '@deepseek-ai/dsh-settings'
+import type { SettingsScope } from '@deepseek-ai/dsh-settings'
 import { notifierSchema, type NotifierConfigShape } from './core/schema.ts'
 import { NOTIFIER_NAMESPACE } from './core/namespace.ts'
 import type { TimerLike } from './core/timer.ts'
@@ -25,7 +25,7 @@ export function apply(ctx: Context): void {
   // service the card still renders but config cannot persist; the notifier
   // keeps notifying with in-memory defaults.
   const scope: SettingsScope<NotifierConfigShape> | null = settings && typeof settings.register === 'function'
-    ? settings.register(settingsNamespace(NOTIFIER_NAMESPACE), notifierSchema, { applies: 'live' })
+    ? settings.register(NOTIFIER_NAMESPACE, notifierSchema, { applies: 'live' })
     : null
 
   const notifier = new Notifier({ ctx, scope, timer: timerRaw ?? undefined, goals })

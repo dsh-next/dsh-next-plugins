@@ -24,10 +24,10 @@
  *    from the composition config show as a preset baseline. Saving
  *    re-resolves installed agent rows without reinstalling.
  *
- * Skills land per scope (the global root or each checked workspace's own
- * root); MCP servers, agent rows, commands, and hooks are plugin-level and
- * activate once regardless of scope — the modal states this so the scope
- * picker never over-promises.
+ * Skills are global-only — the scope is enablement (which workspaces may use
+ * them), never physical placement; MCP servers, agent rows, commands, and
+ * hooks are plugin-level and activate once regardless of scope — the modal
+ * states this so the scope picker never over-promises.
  *
  * Every user-facing string rides the `t` translator (the platform locale
  * service bound to this package's namespace; English without it). The

@@ -84,10 +84,10 @@ export const en = {
 
   'modal.aria': 'Manage plugin "{name}"',
   'modal.available': '{version} available',
-  'modal.hint': 'Choose where this plugin works. Skills install for the selected scope; MCP servers, agents, commands, and hooks are plugin-level and activate once regardless of scope.',
+  'modal.hint': 'Choose where this plugin works. Skills install globally; the scope enables them in the selected workspaces. MCP servers, agents, commands, and hooks are plugin-level and activate once regardless of scope.',
   'modal.scope.global': 'Global (every workspace)',
   'modal.scope.workspaces': 'Selected workspaces',
-  'modal.workspaces.hint': 'The plugin works only in the checked workspaces.',
+  'modal.workspaces.hint': 'Skills are enabled only in the checked workspaces.',
   'modal.workspaces.empty': 'No workspaces registered.',
   'modal.workspaceMissing': 'not registered',
   'modal.save': 'Save scope',

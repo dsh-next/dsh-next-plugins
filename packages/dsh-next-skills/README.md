@@ -14,20 +14,34 @@ as General, Models, and Plugins — registered through the official
 `settings.section` slot), styled after the Claude Plugins page, with two
 tabs:
 
-- **Skills** — one two-column card grid holding every discovered skill across
-  the project and user roots (`.dsh/skills` and `.agents/skills`, each scanned
-  for the current workspace and globally) plus every provider catalog skill. A
-  search box, a provider filter, an installed-only toggle, and a Show more
-  button (30 cards per page) keep large catalogs fast. A skill that exists in
-  several roots shows **one card per copy**, so per-copy actions are
-  unambiguous: each carries an origin chip (`project .agents`, `user .dsh`, …),
-  the provider spec, and per-copy **Delete** (recoverable) and **Update** (when
-  a same-name catalog skill differs) buttons; the **presence badge**
-  (`Everywhere`, `N workspaces`, or `Off`) reflects its scope. The
-  **Add/Manage** button opens the scope modal: a radio picks where the skill is
-  enabled — Global (the default, every workspace) or only in a checklist of
-  registered workspaces — and installing or saving applies that scope as pure
-  configuration. Clicking a name opens the full SKILL.md rendered as markdown.
+- **Skills** — one two-column card grid holding every skill in the global
+  roots (`~/.dsh/skills` and `~/.agents/skills`) plus every provider catalog
+  skill. Project/workspace skills are deliberately absent: they are
+  hand-managed in the project and discovered natively by DSH, so this panel
+  lists nothing it cannot manage. A search box, a provider filter, an
+  installed-only toggle, and a Show more button (30 cards per page) keep large
+  catalogs fast. A skill that exists in several roots shows **one card per
+  copy**, so per-copy actions are unambiguous: each carries an origin chip
+  (`user .dsh`, `user .agents`), the provider spec, and per-copy **Delete**
+  (recoverable) and **Update** (when the skill's recorded provider offers a
+  newer version — same-name skills from other providers never show as
+  updates, so the button cannot cycle between vendors). Every provider
+  offering is visible: a skill installed from one provider shows a small
+  `N sources` chip, and each other provider's same-name offering renders as
+  its own card with **Replace** (one click rewrites the files and re-pins
+  provenance to that provider; the recorded source itself is marked
+  `current source`). Externally-owned skills (installed by the cc-plugins
+  bridge) show no offerings and no sources chip — their source is the owning
+  plugin's business. The **presence badge** (`Everywhere`, `N workspaces`, or
+  `Off`) reflects the skill's scope, and clicking a name opens the full
+  SKILL.md rendered as markdown. Installed skills sort first; a name offered
+  by several providers shares one bordered group box (the installed copy at
+  the top, the other providers' offerings below it), and filtering by a
+  provider narrows that group to the matching cards only. The **Add/Manage**
+  button opens the scope modal: a radio picks where the skill is enabled —
+  Global (the default, every workspace) or only in a checklist of registered
+  workspaces — and installing or saving applies that scope as pure
+  configuration.
 - **Providers** — manages GitHub skill repositories: add by URL
   (`https://github.com/owner/repo` or `owner/repo`), Refresh all, remove.
   Each row shows the repository description, the number of cached skills,
@@ -43,9 +57,10 @@ tabs:
 
 **Global-only installs.** Installing copies a skill's files into the global
 root (`~/.agents/skills/<name>/`) and records the provenance in settings. The
-plugin never writes skill files into a project; a workspace's `.agents/skills/`
-(or `.dsh/skills/`) is scanned read-only so hand-created, version-controlled
-project skills appear in the grid too.
+plugin never writes skill files into a project — and it does not list, scope,
+or manage project skills either: a workspace's `.agents/skills/` (or
+`.dsh/skills/`) belongs to the project alone, hand-created and
+version-controlled there.
 
 **Enablement is configuration.** Per skill name, a scope setting decides
 where the skill is enabled: absent means enabled in every workspace; a list
@@ -54,12 +69,13 @@ matches one of those names; an empty list disables it everywhere. Scopes
 store folder names — not absolute paths — so the settings section keeps
 working when teammates check the repos out somewhere else. (Two registered
 workspaces sharing a folder name share their enablement.) The plugin publishes
-the skill catalog through its own `ctx.skills` provider (each candidate one
-rank above the filesystem provider's equal entry, so project skills still
-outrank same-name global ones) and resolves the invocation flags per lookup
-from the scope — a disabled skill simply carries both invocation flags off,
-so it disappears from every model and command surface. No frontmatter edits,
-no shadow copies, no file writes.
+the global-root skill catalog through its own `ctx.skills` provider (each
+candidate one rank above the filesystem provider's equal entry) and resolves
+the invocation flags per lookup from the scope — a disabled skill simply
+carries both invocation flags off, so it disappears from every model and
+command surface. Project skills stay with the native filesystem provider,
+untouched by this config. No frontmatter edits, no shadow copies, no file
+writes.
 
 **Settings-backed state.** Providers, the install-provenance ledger
 (`installations`), and scopes persist in the plugin's own namespace of the
@@ -78,13 +94,13 @@ apply as-is (they are folder names). Every Refresh all ends with the same
 reconcile, so a provider that failed during a first boot's sync self-corrects
 on the next refresh.
 
-Deletion is recoverable and universal: a copy's Delete button moves that
-copy into the `.trash` directory of its root (skipped by discovery), so an
-accidental removal can be undone by hand. Any `.dsh`/`.agents` copy can be
-removed — not just plugin-installed ones — and when the last copy of a name
-is removed, the provenance record and scope entry are dropped together.
-Scope entries whose name no longer resolves to any copy or catalog skill are
-pruned automatically.
+Deletion is recoverable: a copy's Delete button moves that copy into the
+`.trash` directory of its root (skipped by discovery), so an accidental
+removal can be undone by hand. Any copy in the global roots can be removed —
+not just plugin-installed ones — and when the last copy of a name is removed,
+the provenance record and scope entry are dropped together. Scope entries
+whose name no longer resolves to any copy or catalog skill are pruned
+automatically.
 
 ## Providers and the cache
 

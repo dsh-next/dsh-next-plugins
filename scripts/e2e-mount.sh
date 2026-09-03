@@ -198,7 +198,7 @@ for _ in $(seq 1 150); do
     tail -30 "$WEB_LOG" >&2 || true
     exit 1
   fi
-  if URL="$(grep -oE 'http://127\.0\.0\.1:[0-9]+' "$WEB_LOG" | head -1)" && [ -n "$URL" ]; then
+  if URL="$(grep -oE 'http://127\.0\.0\.1:[0-9]+[^ ]*' "$WEB_LOG" | head -1)" && [ -n "$URL" ]; then
     break
   fi
   sleep 1

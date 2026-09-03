@@ -212,12 +212,13 @@ export interface PendingComponents {
 }
 
 /**
- * Where an installed plugin works: everywhere (the shared global skills
- * root) or in a chosen set of workspaces (each workspace's own
- * `.agents/skills` root). The two modes are exclusive — the panel's radio
- * picker enforces it, and the service validates it. MCP rows, agent rows,
- * commands, and hooks are plugin-level and activate once regardless of
- * scope.
+ * Where an installed plugin's skills are enabled: everywhere (global) or in
+ * a chosen set of workspaces. Skills install into the shared global root
+ * regardless of scope; the scope records enablement (which workspaces may
+ * use them), never physical placement. The two modes are exclusive — the
+ * panel's radio picker enforces it, and the service validates it. MCP rows,
+ * agent rows, commands, and hooks are plugin-level and activate once
+ * regardless of scope.
  */
 export type InstallScope =
   | { kind: 'global' }

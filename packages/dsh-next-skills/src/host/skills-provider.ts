@@ -1,9 +1,13 @@
 /**
  * The plugin's own `ctx.skills` provider: re-publishes every skill the DSH
- * filesystem provider discovers (project roots for the current cwd, custom
- * roots, and the user/global roots) with each candidate's rank lowered by
- * one, so the plugin wins every duplicate name and can resolve the
- * invocation policy per lookup from the settings-backed scopes.
+ * filesystem provider discovers in the USER/GLOBAL roots with each
+ * candidate's rank lowered by one, so the plugin wins every duplicate name
+ * and can resolve the invocation policy per lookup from the settings-backed
+ * scopes.
+ *
+ * Project/workspace-root skills are intentionally NOT re-published: they are
+ * hand-managed in the project, served natively by the filesystem provider,
+ * and outside this plugin's enablement config entirely.
  *
  * This is what makes enable/disable pure config:
  *  - scope disabled for the lookup's cwd -> both invocation flags false, so
@@ -11,9 +15,7 @@
  *  - otherwise the skill's own frontmatter flags apply (author intent).
  *
  * Precedence is preserved exactly: subtracting one from each rank keeps the
- * filesystem provider's ordering (project `.dsh` > project `.agents` >
- * custom > user-dsh > user-agents), so a hand-created project skill still
- * shadows a same-name global one.
+ * global roots' ordering (user-dsh > user-agents) intact.
  */
 import type { SkillCandidate, SkillDefinition, SkillLookupOptions, SkillProvider } from '@deepseek-ai/dsh-skill'
 import { parseSkillFile } from '../core/frontmatter.ts'
@@ -42,8 +44,11 @@ export function createManagedSkillProvider(deps: ManagedProviderDeps): SkillProv
 
     async list(options: SkillLookupOptions): Promise<readonly SkillCandidate[]> {
       const cfg = config()
+      // Global roots only: project/workspace skills are hand-managed in the
+      // project and served natively by the DSH filesystem provider — this
+      // provider shadows nothing it does not own, so per-name enablement
+      // config applies exclusively to globally installed skills.
       const roots = sortRootsByPrecedence(resolveSkillRoots({
-        projectRoot: options.cwd,
         dshHome: deps.dshHome,
         agentsHome: deps.agentsHome,
       }))

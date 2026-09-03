@@ -78,10 +78,10 @@ export const zh: Record<MessageKey, string> = {
 
   'modal.aria': '管理插件“{name}”',
   'modal.available': '{version} 可更新',
-  'modal.hint': '选择此插件生效的范围。技能按所选范围安装；MCP 服务器、agent、命令和钩子为插件级，无论范围如何都只启用一次。',
+  'modal.hint': '选择此插件生效的范围。技能全局安装，范围决定其在所选工作区中启用；MCP 服务器、agent、命令和钩子为插件级，无论范围如何都只启用一次。',
   'modal.scope.global': '全局（所有工作区）',
   'modal.scope.workspaces': '选定的工作区',
-  'modal.workspaces.hint': '插件仅在勾选的工作区中生效。',
+  'modal.workspaces.hint': '技能仅在勾选的工作区中启用。',
   'modal.workspaces.empty': '尚未注册任何工作区。',
   'modal.workspaceMissing': '未注册',
   'modal.save': '保存范围',

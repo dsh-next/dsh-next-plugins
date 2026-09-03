@@ -4,6 +4,7 @@
  */
 
 import type { SkillScopeSetting } from './settings.ts'
+import type { SkillOwnership } from './ownership.ts'
 /** The discovery bucket a skill came from (mirrors the DSH filesystem provider). */
 export type SkillSourceBucket =
   | 'project-dsh'
@@ -33,6 +34,8 @@ export interface InstalledSkill {
   updateCandidates?: CatalogSkillMatch[]
   /** The config enablement scope for this name (undefined = global default). */
   configScope?: SkillScopeSetting
+  /** External-ownership provenance (undefined for skills- and hand-created skills). */
+  ownership?: SkillOwnership
 }
 
 /** A catalog skill that can replace a local copy (name match + version differs). */
@@ -182,3 +185,50 @@ export interface FetchResponse {
 }
 
 export type FetchLike = (url: string, init?: { signal?: AbortSignal; headers?: Record<string, string> }) => Promise<FetchResponse>
+
+// ---------------------------------------------------------------------------
+// External skill handoff (cc-plugins bridge consumes this service surface)
+// ---------------------------------------------------------------------------
+
+/** One external skill's file set handed from the owning plugin, with paths
+ *  relative to the skill directory (the owning plugin rewrites plugin-level
+ *  references before handing off). */
+export interface ExternalSkillFiles {
+  /** Registry skill name (kebab-case). */
+  name: string
+  /** Skill directory contents, path-relative to the skill dir (SKILL.md present). */
+  files: Record<string, string>
+}
+
+/** Arguments for installing externally-managed skills into the global root. */
+export interface InstallExternalSkillsArgs {
+  owner: string
+  pluginKey: string
+  marketplaceId: string
+  skills: ExternalSkillFiles[]
+  /** Initial per-name enablement (workspace folder names); undefined = everywhere. */
+  workspaces?: readonly string[]
+}
+
+/** Arguments for updating the enablement scope of one external skill name. */
+export interface SetExternalSkillScopeArgs {
+  owner: string
+  name: string
+  /** Workspace folder names; undefined clears (everywhere), [] disables everywhere. */
+  workspaces?: readonly string[] | null
+}
+
+/** Arguments for removing every skill owned by one plugin install. */
+export interface RemoveExternalSkillsArgs {
+  owner: string
+  pluginKey: string
+  /** When set, remove only these skill names (update: skills dropped upstream). */
+  skillNames?: readonly string[]
+}
+
+/** Envelope for external handoff operations (mirrors MutationResult shape). */
+export interface ExternalMutationResult {
+  ok: boolean
+  error?: string
+  warning?: string
+}

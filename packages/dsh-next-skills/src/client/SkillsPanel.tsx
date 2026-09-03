@@ -115,44 +115,78 @@ export interface GridEntry {
   name: string
   description: string
   whenToUse?: string
-  /** The catalog skill backing this entry (Add flow), when offered. */
+  /** The catalog skill backing this entry (Add/Replace flow), when offered. */
   catalog?: CatalogSkillView
-  /** The discovered copy this card manages (undefined for catalog-only rows). */
+  /** The discovered copy this card manages (undefined for offering cards). */
   row?: InstalledSkill
   /** Catalog provider id (the provider filter compares ids). */
   providerId?: string
   /** Provider spec label (`owner/repo`), when provider-installed. */
   providerSpec?: string
+  /** For an offering card whose name is installed: the copy a Replace
+   *  targets, and whether this offering is that copy's active source. */
+  installed?: { directory: string; active: boolean }
+  /** How many providers offer this name (installed cards' sources chip;
+   *  present only when more than one and the copy is not externally owned). */
+  sourceCount?: number
 }
 
 /**
  * One card per discovered copy (a skill present in several roots produces a
- * card per root), joined with the provider catalog; catalog-only skills that
- * have no copy become Add rows.
+ * card per root), joined with EVERY provider offering: a catalog skill whose
+ * name is not installed becomes an Add row; a same-name offering of an
+ * installed (non-owned) copy becomes a Replace row — its active source marked
+ * "current", the rest one click away from switching vendors. Externally-owned
+ * copies (the cc-plugins bridge) render no offerings and no sources chip:
+ * their source is the owning plugin's business.
  */
 export function buildGridEntries(state: SkillsState): GridEntry[] {
-  const installedNames = new Set(state.installed.map((r) => r.name))
-  const byCatalogName = new Map(state.catalog.map((s) => [s.name, s]))
+  const specToId = new Map(state.providers.map((p) => [p.spec, p.id]))
+  const offeringsByName = new Map<string, CatalogSkillView[]>()
+  for (const s of state.catalog) {
+    const list = offeringsByName.get(s.name) ?? []
+    list.push(s)
+    offeringsByName.set(s.name, list)
+  }
   const compare = (a: GridEntry, b: GridEntry): number =>
-    a.name.localeCompare(b.name) || (a.providerSpec ?? '').localeCompare(b.providerSpec ?? '')
+    // Installed names first, then names to add; within a name the managed
+    // copies precede the other providers' offerings.
+    ((groupHasInstall.has(b.name) ? 1 : 0) - (groupHasInstall.has(a.name) ? 1 : 0))
+    || a.name.localeCompare(b.name)
+    || ((a.row !== undefined ? 0 : 1) - (b.row !== undefined ? 0 : 1))
+    || (a.providerSpec ?? '').localeCompare(b.providerSpec ?? '')
+  // The first (highest-precedence) non-owned copy per name is the target a
+  // Replace switches; owned copies keep their name's offerings hidden (their
+  // source is the owning plugin's business, and the offerings would render
+  // unactionable Add cards for an already-installed name).
+  const replaceTarget = new Map<string, InstalledSkill>()
+  const ownedNames = new Set<string>()
+  const groupHasInstall = new Set<string>()
+  for (const row of state.installed) {
+    groupHasInstall.add(row.name)
+    if (row.ownership !== undefined) { ownedNames.add(row.name); continue }
+    if (!replaceTarget.has(row.name)) replaceTarget.set(row.name, row)
+  }
   const rows: GridEntry[] = state.installed.map((row) => {
-    const catalog = byCatalogName.get(row.name)
+    const offerings = offeringsByName.get(row.name) ?? []
     return {
       key: `row:${row.source}:${row.path}`,
       name: row.name,
       description: row.description,
       ...(row.whenToUse !== undefined ? { whenToUse: row.whenToUse } : {}),
       row,
-      ...(catalog !== undefined ? { catalog } : {}),
-      ...(catalog !== undefined ? { providerId: catalog.providerId } : {}),
-      ...(row.provider !== undefined || catalog !== undefined
-        ? { providerSpec: row.provider ?? catalog?.providerSpec }
+      ...(row.provider !== undefined && specToId.get(row.provider) !== undefined
+        ? { providerId: specToId.get(row.provider) }
         : {}),
+      ...(row.provider !== undefined ? { providerSpec: row.provider } : {}),
+      ...(row.ownership === undefined && offerings.length > 1 ? { sourceCount: offerings.length } : {}),
     }
   })
-  const catalogOnly: GridEntry[] = state.catalog
-    .filter((s) => !installedNames.has(s.name))
-    .map((s) => ({
+  const offerings: GridEntry[] = state.catalog
+    .filter((s) => !ownedNames.has(s.name))
+    .map((s) => {
+    const target = replaceTarget.get(s.name)
+    return {
       key: `cat:${s.providerId}/${s.skillPath}`,
       name: s.name,
       description: s.description,
@@ -160,8 +194,10 @@ export function buildGridEntries(state: SkillsState): GridEntry[] {
       catalog: s,
       providerId: s.providerId,
       providerSpec: s.providerSpec,
-    }))
-  return [...rows.sort(compare), ...catalogOnly.sort(compare)]
+      ...(target !== undefined ? { installed: { directory: target.directory, active: target.provider === s.providerSpec } } : {}),
+    }
+  })
+  return [...rows, ...offerings].sort(compare)
 }
 
 /** Case-insensitive search + provider filter + installed-only filter. */
@@ -205,25 +241,21 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
   const [confirmDelete, setConfirmDelete] = React.useState<GridEntry | undefined>()
   const [addSpec, setAddSpec] = React.useState('')
   const workspaces = deps.getWorkspaces()
-  // Key the memo on the joined paths, not the array: the workspace reader
-  // returns a fresh array on every call, so an identity dep would re-run
-  // every callback and effect on every render (an endless refetch loop the
-  // detail modal once died in).
-  const workspacePathsKey = workspaces.map((w) => w.path).join('\n')
-  const workspacePaths = React.useMemo(
-    () => workspaces.map((w) => w.path),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [workspacePathsKey],
-  )
+  // The listing is global-only (project skills are hand-managed and live with
+  // the project), so getState needs no workspace paths; the registered
+  // workspaces still drive the scope modal's enablement checklist below.
 
   const refresh = React.useCallback(async (): Promise<void> => {
     try {
-      const next = await deps.rpc('getState', { workspacePaths }) as SkillsState
-      setState(next)
+      const next = await deps.rpc('getState') as SkillsState
+      // Defensive: the listing is global-only. A stale host envelope still
+      // carrying workspace rows must not render them (they are hand-managed
+      // in the project, not this panel's business).
+      setState({ ...next, installed: next.installed.filter((s) => s.scope === 'global') })
     } catch (error) {
       setMessage({ ok: false, text: errMsg(error) })
     }
-  }, [deps, workspacePaths])
+  }, [deps])
 
   React.useEffect(() => {
     void refresh()
@@ -247,7 +279,7 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
     const catalogOnly = detail.catalog !== undefined && detail.row === undefined
     const args = catalogOnly
       ? { providerId: detail.catalog!.providerId, skillPath: detail.catalog!.skillPath }
-      : { name: detail.name, path: detail.row!.path, workspacePaths }
+      : { name: detail.name, path: detail.row!.path }
     let cancelled = false
     deps.rpc(catalogOnly ? 'getCatalogSkillDetail' : 'getInstalledSkillDetail', args)
       .then((result) => {
@@ -257,7 +289,7 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
         if (!cancelled) setMessage({ ok: false, text: errMsg(error) })
       })
     return () => { cancelled = true }
-  }, [detail, deps, workspacePaths])
+  }, [detail, deps])
 
   const mutate = async (method: string, args?: unknown): Promise<void> => {
     setBusy(true)
@@ -536,6 +568,134 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
     )
   }
 
+  /** One card: a managed copy (installed) or a provider offering
+   *  (Add / Replace / current source). */
+  const renderCard = (entry: GridEntry): React.ReactElement => {
+    const row = entry.row
+    const installedHere = row !== undefined
+    // Externally-owned skills never offer provider updates (their
+    // update path is the owning plugin) — defensive against a stale
+    // host envelope still carrying candidates.
+    const candidate = row !== undefined && row.ownership === undefined && row.updateCandidates !== undefined && row.updateCandidates.length > 0 ? row.updateCandidates[0] : undefined
+    const presenceTitle = row !== undefined && row.configScope !== undefined ? row.configScope.join('\n') : undefined
+    return (
+      <div key={entry.key} className={styles.pluginCard} data-testid="skills-card">
+        <div className={styles.pluginCardTop}>
+          <div className={styles.headText}>
+            <div className={styles.pluginName}>
+              <button
+                type="button"
+                className={styles.nameButton}
+                title={t('card.detailsTitle', { name: entry.name })}
+                onClick={() => setDetail(entry)}
+                data-testid="skills-detail"
+              >{entry.name}</button>
+              {installedHere && <span className={styles.sourceChip}>{t(sourceKey(row.source))}</span>}
+              {installedHere && row.provider !== undefined && <span className={styles.providerChip}>{row.provider}</span>}
+            </div>
+            <div className={styles.desc}>{entry.description !== '' ? entry.description : t('card.noDescription')}</div>
+          </div>
+          {installedHere && (
+            <div className={styles.badges}>
+              <span className={styles.presenceBadge} data-testid="skills-presence" title={presenceTitle}>
+                {presenceLabel(row.configScope, t)}
+              </span>
+              {entry.sourceCount !== undefined && (
+                <span className={styles.providerChip} data-testid="skills-sources">
+                  {countOf(t, entry.sourceCount, 'card.sources.one', 'card.sources.many')}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+        {installedHere && (
+          <div className={styles.cardActions} data-testid="skills-actions">
+            {candidate !== undefined && (
+              <button
+                type="button"
+                className={styles.updateBtn}
+                disabled={busy}
+                onClick={() => { void mutate('updateSkill', { name: entry.name, directory: row.directory, providerId: candidate.providerId, skillPath: candidate.skillPath }) }}
+                data-testid="skills-update"
+              >{t('card.update')}</button>
+            )}
+            <button
+              type="button"
+              className={styles.deleteBtn}
+              disabled={busy}
+              onClick={() => setConfirmDelete(entry)}
+              data-testid="skills-delete"
+            >{t('card.delete')}</button>
+            <button
+              type="button"
+              className={styles.ghost}
+              disabled={busy}
+              onClick={() => openModal(entry)}
+              data-testid="skills-manage"
+            >{t('card.manage')}</button>
+          </div>
+        )}
+        {!installedHere && (
+          <div className={styles.pluginCardTop}>
+            {entry.providerSpec !== undefined && <span className={styles.providerChip}>{entry.providerSpec}</span>}
+            <div className={styles.rowActions}>
+              {entry.installed === undefined && (
+                <button
+                  type="button"
+                  className={styles.primary}
+                  disabled={busy}
+                  onClick={() => openModal(entry)}
+                  data-testid="skills-add"
+                >{t('card.add')}</button>
+              )}
+              {entry.installed !== undefined && entry.installed.active && (
+                <span className={styles.sourceChip} data-testid="skills-source-current">{t('card.currentSource')}</span>
+              )}
+              {entry.installed !== undefined && !entry.installed.active && (
+                <button
+                  type="button"
+                  className={styles.updateBtn}
+                  disabled={busy}
+                  title={t('card.replaceTitle', { provider: entry.providerSpec ?? '' })}
+                  onClick={() => {
+                    void mutate('updateSkill', {
+                      name: entry.name,
+                      directory: entry.installed!.directory,
+                      providerId: entry.catalog!.providerId,
+                      skillPath: entry.catalog!.skillPath,
+                    })
+                  }}
+                  data-testid="skills-replace"
+                >{t('card.replace')}</button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  /** Same-name cards share one bordered group (the installed copies first,
+   *  then the other providers' offerings); a single-card group renders as a
+   *  plain card with no wrapper. */
+  const renderGroups = (): React.ReactElement[] => {
+    const slice = filtered.slice(0, visible)
+    const groups: GridEntry[][] = []
+    for (const entry of slice) {
+      const last = groups[groups.length - 1]
+      if (last !== undefined && last[0]!.name === entry.name) last.push(entry)
+      else groups.push([entry])
+    }
+    return groups.map((group) => {
+      if (group.length === 1) return renderCard(group[0]!)
+      return (
+        <div key={`grp:${group[0]!.name}`} className={styles.skillGroup} data-testid="skills-group">
+          {group.map((entry) => renderCard(entry))}
+        </div>
+      )
+    })
+  }
+
   return (
     <div className={styles.page}>
       <div className={styles.tabs} role="tablist">
@@ -601,80 +761,7 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
         </div>
       ) : (
         <div className={styles.pluginGrid} data-testid="skills-grid">
-          {filtered.slice(0, visible).map((entry) => {
-            const row = entry.row
-            const installedHere = row !== undefined
-            const candidate = row !== undefined && row.updateCandidates !== undefined && row.updateCandidates.length > 0 ? row.updateCandidates[0] : undefined
-            const presenceTitle = row !== undefined && row.configScope !== undefined ? row.configScope.join('\n') : undefined
-            return (
-              <div key={entry.key} className={styles.pluginCard} data-testid="skills-card">
-                <div className={styles.pluginCardTop}>
-                  <div className={styles.headText}>
-                    <div className={styles.pluginName}>
-                      <button
-                        type="button"
-                        className={styles.nameButton}
-                        title={t('card.detailsTitle', { name: entry.name })}
-                        onClick={() => setDetail(entry)}
-                        data-testid="skills-detail"
-                      >{entry.name}</button>
-                      {installedHere && <span className={styles.sourceChip}>{t(sourceKey(row.source))}</span>}
-                      {installedHere && row.provider !== undefined && <span className={styles.providerChip}>{row.provider}</span>}
-                    </div>
-                    <div className={styles.desc}>{entry.description !== '' ? entry.description : t('card.noDescription')}</div>
-                  </div>
-                  {installedHere && (
-                    <div className={styles.badges}>
-                      <span className={styles.presenceBadge} data-testid="skills-presence" title={presenceTitle}>
-                        {presenceLabel(row.configScope, t)}
-                      </span>
-                    </div>
-                  )}
-                </div>
-                {installedHere && (
-                  <div className={styles.cardActions} data-testid="skills-actions">
-                    {candidate !== undefined && (
-                      <button
-                        type="button"
-                        className={styles.updateBtn}
-                        disabled={busy}
-                        onClick={() => { void mutate('updateSkill', { name: entry.name, directory: row.directory, providerId: candidate.providerId, skillPath: candidate.skillPath }) }}
-                        data-testid="skills-update"
-                      >{t('card.update')}</button>
-                    )}
-                    <button
-                      type="button"
-                      className={styles.deleteBtn}
-                      disabled={busy}
-                      onClick={() => setConfirmDelete(entry)}
-                      data-testid="skills-delete"
-                    >{t('card.delete')}</button>
-                    <button
-                      type="button"
-                      className={styles.ghost}
-                      disabled={busy}
-                      onClick={() => openModal(entry)}
-                      data-testid="skills-manage"
-                    >{t('card.manage')}</button>
-                  </div>
-                )}
-                {!installedHere && (
-                  <div className={styles.pluginCardTop}>
-                    {entry.providerSpec !== undefined && <span className={styles.providerChip}>{entry.providerSpec}</span>}
-                    <div className={styles.rowActions}>
-                      <button
-                        type="button"
-                        className={styles.primary}
-                        disabled={busy}
-                        onClick={() => openModal(entry)}
-                        data-testid="skills-add"
-                      >{t('card.add')}</button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )
-          })}
+          {renderGroups()}
         </div>
       ))}
 

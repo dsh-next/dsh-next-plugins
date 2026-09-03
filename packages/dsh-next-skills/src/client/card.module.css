@@ -293,6 +293,19 @@
   gap: 10px;
 }
 
+/* A same-name group: the installed copy plus every other provider's
+   offering, wrapped in one bordered box spanning the full row. */
+.skillGroup {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 14px;
+  padding: 10px;
+  background: var(--dsw-alias-bg-layer-1, transparent);
+}
+
 .pluginCard {
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 10px;

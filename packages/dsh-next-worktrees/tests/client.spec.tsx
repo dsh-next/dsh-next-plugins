@@ -57,13 +57,14 @@ describe('IsolatedToggle', () => {
       sessions: {
         create: vi.fn(async () => 'session-new'),
         open: vi.fn(),
+        list: { getSnapshot: () => ({ byId: { s1: { cwd: '/repo' }, 'session-new': { cwd: '/w' } } }) },
       },
     },
   }
 
   it('renders nothing for a non-blank session', async () => {
     const host = await renderAndWait(
-      <IsolatedToggle {...baseProps} sessionId="s1" useSession={hook({ composerPhase: 'engaged', cwd: '/repo' })} />,
+      <IsolatedToggle {...baseProps} sessionId="s1" useSession={hook({ blank: false })} />,
     )
     expect(host.querySelector('[data-testid="worktrees-toggle"]')).toBeNull()
     expect(baseProps.rpc).not.toHaveBeenCalled()
@@ -72,7 +73,7 @@ describe('IsolatedToggle', () => {
   it('renders nothing when git preflight degrades', async () => {
     const rpc = vi.fn(async () => ({ ok: false, degraded: true, reasons: ['not-a-repository'], showIgnoreHint: false }))
     const host = await renderAndWait(
-      <IsolatedToggle {...baseProps} rpc={rpc} sessionId="s1" useSession={hook({ composerPhase: 'blank', cwd: '/plain' })} />,
+      <IsolatedToggle {...baseProps} rpc={rpc} sessionId="s1" useSession={hook({ blank: true })} />,
     )
     expect(host.querySelector('[data-testid="worktrees-toggle"]')).toBeNull()
   })
@@ -95,7 +96,7 @@ describe('IsolatedToggle', () => {
       <IsolatedToggle
         {...baseProps} rpc={rpc} services={services}
         sessionId="s1"
-        useSession={hook({ composerPhase: 'blank', cwd: '/repo' })}
+        useSession={hook({ blank: true })}
         useInput={hook({ draft: 'fix the login bug' })}
       />,
     )
@@ -127,7 +128,7 @@ describe('IsolatedToggle', () => {
       <IsolatedToggle
         {...baseProps} rpc={rpc} services={services}
         sessionId="s1"
-        useSession={hook({ composerPhase: 'blank', cwd: '/repo' })}
+        useSession={hook({ blank: true })}
       />,
     )
     await React.act(async () => { click(host.querySelector('[data-testid="worktrees-toggle-button"]')) })
@@ -144,7 +145,7 @@ describe('IsolatedToggle', () => {
     window.localStorage.clear()
     const rpc = vi.fn(async () => ({ ok: true, degraded: false, reasons: [], showIgnoreHint: true }))
     const host = await renderAndWait(
-      <IsolatedToggle {...baseProps} rpc={rpc} sessionId="s1" useSession={hook({ composerPhase: 'blank', cwd: '/repo' })} />,
+      <IsolatedToggle {...baseProps} rpc={rpc} sessionId="s1" useSession={hook({ blank: true })} />,
     )
     expect(host.querySelector('[data-testid="worktrees-ignore-hint"]')).not.toBeNull()
     await React.act(async () => { click(host.querySelector('[data-testid="worktrees-ignore-hint"] button')) })
@@ -176,11 +177,15 @@ describe('WorktreeChip', () => {
       rpc: vi.fn(async () => status),
       t,
       services: {
-        sessions: { create: vi.fn(async () => 's9'), open: vi.fn() },
+        sessions: {
+          create: vi.fn(async () => 's9'),
+          open: vi.fn(),
+          list: { getSnapshot: () => ({ byId: { s1: { cwd: '/repo/.dsh/worktrees/amber-42' }, s2: { cwd: '/x' } } }) },
+        },
         workspaces: { create: vi.fn(async () => ({ workspaceId: 'ws-9', path: '/w' })) },
       },
       sessionId: 's1',
-      useSession: hook({ cwd: '/repo/.dsh/worktrees/amber-42', running }),
+      useSession: hook({ running }),
     }
   }
 

@@ -13,6 +13,14 @@ export type Rpc = (method: string, args?: unknown) => Promise<unknown>
 export interface SessionsLike {
   create(input: { workspaceId: string }): Promise<string>
   open(sessionId: string): void
+  /**
+   * Session list projection: the session-cwd facts. The lifecycle snapshot
+   * (SessionSnapshot) carries no cwd — this projection is the proven source
+   * (the incumbent's create flow validates cwd through it).
+   */
+  list?: {
+    getSnapshot(): { byId: Record<string, { cwd?: string } | undefined> }
+  } | undefined
 }
 
 /** The client workspaces surface the flows need. */
@@ -94,4 +102,19 @@ export function rpcErrorMessage(response: unknown): string | null {
   return typeof error.message === 'string' && error.message.length > 0
     ? error.message
     : typeof error.code === 'string' ? error.code : null
+}
+
+/**
+ * Resolve a session's cwd through the sessions list projection (the
+ * lifecycle snapshot has none). The projection may lag session creation by
+ * a tick, so callers poll while undefined.
+ */
+export function projectedCwd(
+  services: WorktreeClientServices,
+  sessionId: string | undefined,
+): string | undefined {
+  if (sessionId === undefined) return undefined
+  const snapshot = services.sessions?.list?.getSnapshot()
+  const cwd = snapshot?.byId?.[sessionId]?.cwd
+  return typeof cwd === 'string' && cwd.length > 0 ? cwd : undefined
 }

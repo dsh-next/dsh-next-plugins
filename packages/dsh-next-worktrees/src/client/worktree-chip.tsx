@@ -9,13 +9,14 @@
  * confirm; the branch and its commits always survive).
  */
 import * as React from 'react'
-import type {
-  EntryRuntimeProps,
-  Rpc,
-  RpcErrorPayload,
-  StatusRpcOutcome,
-  Translate,
-  WorktreeClientServices,
+import {
+  projectedCwd,
+  type EntryRuntimeProps,
+  type Rpc,
+  type RpcErrorPayload,
+  type StatusRpcOutcome,
+  type Translate,
+  type WorktreeClientServices,
 } from './types.ts'
 import styles from './worktrees.module.css'
 
@@ -34,7 +35,9 @@ export function WorktreeChip(props: WorktreeChipProps): React.ReactElement | nul
   const sessionId = props.sessionId
   const useSession = props.useSession
 
-  const cwd = useSession?.((s) => (s as { cwd?: string } | undefined)?.cwd)
+  // The lifecycle snapshot has no cwd; the sessions list projection does.
+  const cwd = projectedCwd(services, sessionId)
+    ?? useSession?.((s) => (s as { cwd?: string } | undefined)?.cwd)
   const running = useSession?.((s) => (s as { running?: boolean } | undefined)?.running) === true
 
   const [status, setStatus] = React.useState<StatusRpcOutcome | null>(null)

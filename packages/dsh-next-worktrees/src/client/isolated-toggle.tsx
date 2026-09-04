@@ -9,14 +9,15 @@
  */
 import * as React from 'react'
 import { deriveTitle } from '../core/slug.ts'
-import type {
-  CreateRpcOutcome,
-  EntryRuntimeProps,
-  PreflightRpcOutcome,
-  Rpc,
-  RpcErrorPayload,
-  Translate,
-  WorktreeClientServices,
+import {
+  projectedCwd,
+  type CreateRpcOutcome,
+  type EntryRuntimeProps,
+  type PreflightRpcOutcome,
+  type Rpc,
+  type RpcErrorPayload,
+  type Translate,
+  type WorktreeClientServices,
 } from './types.ts'
 import styles from './worktrees.module.css'
 
@@ -37,18 +38,27 @@ export function IsolatedToggle(props: IsolatedToggleProps): React.ReactElement |
   const useSession = props.useSession
   const useInput = props.useInput
 
-  const composerPhase = useSession?.((s) => (s as { composerPhase?: string } | undefined)?.composerPhase)
-  const cwd = useSession?.((s) => (s as { cwd?: string } | undefined)?.cwd)
+  // The lifecycle snapshot exposes `blank` (not composerPhase) and no cwd;
+  // the cwd arrives through the sessions list projection, which can lag
+  // session creation by a tick.
+  const blank = useSession?.((s) => (s as { blank?: boolean } | undefined)?.blank) === true
+  const projected = projectedCwd(services, props.sessionId)
+  const cwd = projected ?? useSession?.((s) => (s as { cwd?: string } | undefined)?.cwd)
   const draft = useInput?.((s) => (s as { draft?: string } | undefined)?.draft ?? '') ?? ''
 
-  const blank = composerPhase === 'blank'
   const [phase, setPhase] = React.useState<Phase>(blank ? 'checking' : 'offered')
   const [preflight, setPreflight] = React.useState<PreflightRpcOutcome | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [hintDismissed, setHintDismissed] = React.useState(false)
+  const [cwdTick, setCwdTick] = React.useState(0)
 
   React.useEffect(() => {
-    if (!blank || cwd === undefined) return
+    if (!blank) return
+    // The projection may not carry the fresh session's cwd yet; poll for it.
+    if (cwd === undefined) {
+      const handle = window.setTimeout(() => setCwdTick((n) => n + 1), 500)
+      return () => { window.clearTimeout(handle) }
+    }
     let active = true
     setPhase('checking')
     setError(null)
@@ -69,7 +79,7 @@ export function IsolatedToggle(props: IsolatedToggleProps): React.ReactElement |
       setError('rpc unreachable')
     })
     return () => { active = false }
-  }, [rpc, blank, cwd])
+  }, [rpc, blank, cwd, cwdTick])
 
   if (!blank) return null
   if (phase === 'checking') return null

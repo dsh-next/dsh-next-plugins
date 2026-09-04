@@ -21,6 +21,8 @@ export interface PendingNotification {
   body: string
   sessionId: string | null
   at: number
+  /** Delivery channel chosen at event time: in-page toast or web notification. */
+  channel: 'toast' | 'web'
 }
 
 export interface DecisionInput {
@@ -42,6 +44,12 @@ export interface DecisionInput {
 export interface Decision {
   notify: boolean
   soundName: string | null
+  /**
+   * Delivery channel: an in-page toast while the user is looking at the page
+   * (focused + visible), a web notification while the page is backgrounded or
+   * minimized, and null when nothing may be delivered.
+   */
+  channel: 'toast' | 'web' | null
   reason: 'disabled' | 'group-disabled' | 'subagent-opt-out' | 'suppressed' | 'page-dead' | 'permission-missing' | 'ok'
 }
 
@@ -66,11 +74,11 @@ export function isViewingSession(presence: Presence | null, ageMs: number, maxAg
  */
 export function decide(input: DecisionInput, maxAgeMs: number, webPermission: 'granted' | 'denied' | 'default' | 'unsupported' | null): Decision {
   const { config } = input
-  if (!config.enabled) return { notify: false, soundName: null, reason: 'disabled' }
+  if (!config.enabled) return { notify: false, channel: null, soundName: null, reason: 'disabled' }
 
   const group = config[input.group]
-  if (!group || !group.enabled) return { notify: false, soundName: null, reason: 'group-disabled' }
-  if (input.eventKind === 'subagent' && !input.subagentEnabled) return { notify: false, soundName: null, reason: 'subagent-opt-out' }
+  if (!group || !group.enabled) return { notify: false, channel: null, soundName: null, reason: 'group-disabled' }
+  if (input.eventKind === 'subagent' && !input.subagentEnabled) return { notify: false, channel: null, soundName: null, reason: 'subagent-opt-out' }
 
   const soundName = group.sound ? group.soundName : null
 
@@ -79,11 +87,20 @@ export function decide(input: DecisionInput, maxAgeMs: number, webPermission: 'g
     const suppress = input.eventKind === 'finished'
       ? input.viewingAtEvent === true && viewingNow
       : viewingNow
-    if (suppress) return { notify: false, soundName, reason: 'suppressed' }
+    if (suppress) return { notify: false, channel: null, soundName, reason: 'suppressed' }
   }
 
-  if (webPermission !== 'granted') return { notify: false, soundName, reason: 'permission-missing' }
-  if (!isPageAlive(input.presence, input.presenceAgeMs, maxAgeMs)) return { notify: false, soundName, reason: 'page-dead' }
+  if (!isPageAlive(input.presence, input.presenceAgeMs, maxAgeMs)) return { notify: false, channel: null, soundName, reason: 'page-dead' }
 
-  return { notify: true, soundName, reason: 'ok' }
+  // The user is looking at the page (focused + visible): surface the event as
+  // an in-page toast. Toasts need no browser notification permission — they
+  // are plain page UI.
+  if (input.presence && input.presence.focused === true && input.presence.visible === true) {
+    return { notify: true, channel: 'toast', soundName, reason: 'ok' }
+  }
+
+  // Backgrounded or minimized: deliver through the web Notification API,
+  // which only the OS can show while the window is out of sight.
+  if (webPermission !== 'granted') return { notify: false, channel: null, soundName, reason: 'permission-missing' }
+  return { notify: true, channel: 'web', soundName, reason: 'ok' }
 }

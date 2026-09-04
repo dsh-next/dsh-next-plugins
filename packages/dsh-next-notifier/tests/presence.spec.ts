@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ISessions } from '@deepseek-ai/dsh-client-runtime/client'
 import type { TimerLike } from '../src/core/timer.ts'
-import { createPresenceReporter, currentSessionId } from '../src/client/presence.ts'
+import { createPresenceReporter, currentSessionId, isLookingNow } from '../src/client/presence.ts'
 
 /**
  * Client presence reporting: the reporter is what makes "mute while viewing
@@ -17,26 +17,80 @@ describe('currentSessionId', () => {
     expect(currentSessionId(undefined)).toBeNull()
   })
 
-  it('returns null when currentProvideInfo is absent', () => {
+  it('returns null when both channels are absent', () => {
     expect(currentSessionId({} as ISessions)).toBeNull()
   })
 
-  it('returns null when getSnapshot is not a function', () => {
-    expect(currentSessionId({ currentProvideInfo: {} } as unknown as ISessions)).toBeNull()
-  })
-
-  it('returns the snapshot sessionId when present', () => {
+  it('returns the list snapshot current id (the 0.1.2 shell channel)', () => {
     const sessions = {
-      currentProvideInfo: { getSnapshot: () => ({ sessionId: 's42' }) },
+      list: { getSnapshot: () => ({ current: 's-list' }) },
     } as unknown as ISessions
-    expect(currentSessionId(sessions)).toBe('s42')
+    expect(currentSessionId(sessions)).toBe('s-list')
   })
 
-  it('returns null on a throwing getSnapshot', () => {
+  it('prefers the list snapshot over the legacy channel', () => {
     const sessions = {
+      list: { getSnapshot: () => ({ current: 's-list' }) },
+      currentProvideInfo: { getSnapshot: () => ({ sessionId: 's-legacy' }) },
+    } as unknown as ISessions
+    expect(currentSessionId(sessions)).toBe('s-list')
+  })
+
+  it('falls back to the legacy channel when the list has no current', () => {
+    const sessions = {
+      list: { getSnapshot: () => ({}) },
+      currentProvideInfo: { getSnapshot: () => ({ sessionId: 's-legacy' }) },
+    } as unknown as ISessions
+    expect(currentSessionId(sessions)).toBe('s-legacy')
+  })
+
+  it('returns null when list.current is absent and no legacy channel exists', () => {
+    const sessions = {
+      list: { getSnapshot: () => ({ current: undefined }) },
+    } as unknown as ISessions
+    expect(currentSessionId(sessions)).toBeNull()
+  })
+
+  it('falls back to the legacy channel when the list snapshot throws', () => {
+    const sessions = {
+      list: { getSnapshot: () => { throw new Error('boom') } },
+      currentProvideInfo: { getSnapshot: () => ({ sessionId: 's-legacy' }) },
+    } as unknown as ISessions
+    expect(currentSessionId(sessions)).toBe('s-legacy')
+  })
+
+  it('returns null on a throwing legacy getSnapshot with no list current', () => {
+    const sessions = {
+      list: { getSnapshot: () => ({}) },
       currentProvideInfo: { getSnapshot: () => { throw new Error('boom') } },
     } as unknown as ISessions
     expect(currentSessionId(sessions)).toBeNull()
+  })
+})
+
+describe('isLookingNow', () => {
+  it('requires both focus and visibility', () => {
+    Object.defineProperty(document, 'hasFocus', { value: () => true, configurable: true })
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+    expect(isLookingNow()).toBe(true)
+
+    Object.defineProperty(document, 'hasFocus', { value: () => false, configurable: true })
+    expect(isLookingNow()).toBe(false)
+
+    Object.defineProperty(document, 'hasFocus', { value: () => true, configurable: true })
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+    expect(isLookingNow()).toBe(false)
+
+    // jsdom's visibilityState may be read-only in some setups; restore the
+    // visible default for the remaining reporter tests.
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+    Object.defineProperty(document, 'hasFocus', { value: () => false, configurable: true })
+  })
+
+  it('falls back to not-looking when the APIs are unavailable', () => {
+    Object.defineProperty(document, 'hasFocus', { value: undefined, configurable: true })
+    expect(isLookingNow()).toBe(false)
+    Object.defineProperty(document, 'hasFocus', { value: () => false, configurable: true })
   })
 })
 
@@ -99,6 +153,32 @@ describe('createPresenceReporter', () => {
     expect(subscribe).toHaveBeenCalledTimes(1)
     reporter.dispose()
     expect(unsub).toHaveBeenCalledTimes(1)
+  })
+
+  it('prefers the list subscription over the legacy channel', () => {
+    const unsubList = vi.fn()
+    const unsubLegacy = vi.fn()
+    const sessions = {
+      list: { getSnapshot: () => ({ current: 's1' }), subscribe: vi.fn(() => unsubList) },
+      currentProvideInfo: { getSnapshot: () => ({ sessionId: 's1' }), subscribe: vi.fn(() => unsubLegacy) },
+    } as unknown as ISessions
+    const send = vi.fn().mockResolvedValue({})
+    const reporter = createPresenceReporter(sessions, undefined, send)
+    expect((sessions.list.subscribe as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(1)
+    expect((sessions.currentProvideInfo.subscribe as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled()
+    reporter.dispose()
+    expect(unsubList).toHaveBeenCalledTimes(1)
+    expect(unsubLegacy).not.toHaveBeenCalled()
+  })
+
+  it('reports a fresh sessionId from the list snapshot on every report()', () => {
+    const send = vi.fn().mockResolvedValue({})
+    const sessions = {
+      list: { getSnapshot: () => ({ current: 's-current' }), subscribe: vi.fn(() => vi.fn()) },
+    } as unknown as ISessions
+    const reporter = createPresenceReporter(sessions, undefined, send)
+    expect((send.mock.calls[0][1] as { sessionId: string | null }).sessionId).toBe('s-current')
+    reporter.dispose()
   })
 
   it('report() can be re-invoked to push a fresh payload', () => {

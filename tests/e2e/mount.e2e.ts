@@ -94,7 +94,7 @@ async function openPluginCard(page: Page, title: string): Promise<void> {
 }
 
 async function openNotifierCard(page: Page): Promise<void> {
-  await openPluginCard(page, 'DSH Next Notifier')
+  await openPluginCard(page, 'Notifier')
 }
 
 // Navigate to the skills manager's own settings section (Settings -> Skills),
@@ -158,6 +158,18 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await openNotifierCard(page)
     await expect(page.getByText('Enable notifications')).toBeVisible()
     await expect(page.getByText('Test browser notification')).toBeVisible()
+    // The in-page toast channel: the Show button enqueues a synthetic toast
+    // into the shell overlay; the capsule renders the test title and the
+    // close button dismisses it (guards the overlay-slot registration — a
+    // silent SlotMap mismatch would leave the layer unrendered). The frame
+    // overlay sits under modal masks, so the toast only becomes clickable
+    // after the Settings dialog closes; the sequence must beat the 12s TTL.
+    await page.getByRole('button', { name: 'Show', exact: true }).click()
+    await expect(page.getByTestId('dsh-next-notifier-toast').first()).toBeVisible()
+    await expect(page.getByTestId('dsh-next-notifier-toast').first()).toContainText('Test toast')
+    await page.getByRole('dialog', { name: 'Settings' }).getByRole('button', { name: 'Close' }).click({ force: true })
+    await page.getByTestId('dsh-next-notifier-toast-close').first().click()
+    await expect(page.getByTestId('dsh-next-notifier-toast')).toHaveCount(0)
   },
 
   // The skills manager registers its own Settings -> Skills section (the same

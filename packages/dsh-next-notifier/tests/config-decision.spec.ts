@@ -79,21 +79,48 @@ describe('decide', () => {
     const d = decide({ ...base, config: cfg(), eventKind: 'finished' }, MAX_AGE, 'granted')
     expect(d.notify).toBe(true)
     expect(d.soundName).toBe('chime')
+    expect(d.channel).toBe('toast')
   })
 
   it('short-circuits on master disabled', () => {
     const d = decide({ ...base, config: cfg({ enabled: false }), eventKind: 'finished' }, MAX_AGE, 'granted')
     expect(d.notify).toBe(false)
+    expect(d.channel).toBeNull()
     expect(d.reason).toBe('disabled')
   })
 
-  it('drops when permission is not granted', () => {
-    const d = decide({ ...base, config: cfg(), eventKind: 'finished' }, MAX_AGE, 'denied')
+  it('routes to a toast while the page is focused and visible, permission irrelevant', () => {
+    for (const permission of ['granted', 'denied', 'default', null] as const) {
+      const d = decide({ ...base, config: cfg({ suppressFocused: false }), eventKind: 'approval' }, MAX_AGE, permission)
+      expect(d.notify).toBe(true)
+      expect(d.channel).toBe('toast')
+    }
+  })
+
+  it('routes to a web notification while the page is backgrounded or unfocused', () => {
+    for (const presence of [
+      { focused: false, visible: true, open: true, sessionId: 's1' },
+      { focused: true, visible: false, open: true, sessionId: 's1' },
+      { focused: false, visible: false, open: true, sessionId: 's1' },
+    ] as Presence[]) {
+      const d = decide({ ...base, presence, config: cfg({ suppressFocused: false }), eventKind: 'approval' }, MAX_AGE, 'granted')
+      expect(d.notify).toBe(true)
+      expect(d.channel).toBe('web')
+    }
+  })
+
+  it('drops when permission is not granted and the page is out of sight', () => {
+    const away = { focused: false, visible: false, open: true, sessionId: 's1' }
+    const d = decide({ ...base, presence: away, config: cfg(), eventKind: 'finished' }, MAX_AGE, 'denied')
+    expect(d.notify).toBe(false)
+    expect(d.channel).toBeNull()
     expect(d.reason).toBe('permission-missing')
   })
 
   it('suppresses when viewing the session and suppressFocused is on', () => {
     const d = decide({ ...base, config: cfg({ suppressFocused: true }), eventKind: 'approval' }, MAX_AGE, 'granted')
+    expect(d.notify).toBe(false)
+    expect(d.channel).toBeNull()
     expect(d.reason).toBe('suppressed')
   })
 
@@ -131,6 +158,7 @@ describe('decide', () => {
       MAX_AGE, 'granted',
     )
     expect(d.notify).toBe(false)
+    expect(d.channel).toBeNull()
     expect(d.reason).toBe('page-dead')
   })
 

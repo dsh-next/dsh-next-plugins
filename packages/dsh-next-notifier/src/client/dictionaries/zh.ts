@@ -11,7 +11,7 @@ import type { MessageKey } from './en.ts'
 
 /** The zh mirror: same keys, Simplified Chinese copy. */
 export const zh: Record<MessageKey, string> = {
-  'card.title': 'DSH Next Notifier',
+  'card.title': 'Notifier',
   'card.tagline': 'Agent 完成任务或需要你时发出提醒',
 
   'toggle.enable': '启用通知',
@@ -34,6 +34,14 @@ export const zh: Record<MessageKey, string> = {
   'web.status.unsupported': '不支持',
   'web.testTitle': '测试通知',
   'web.testBody': '浏览器通知已生效——点击这里打开本会话。',
+
+  'toast.test': '测试页面内弹窗',
+  'toast.test.hint': '在你正查看页面时，在页面内显示一条弹窗提醒',
+  'toast.button.test': '显示',
+  'toast.testTitle': '测试弹窗',
+  'toast.testBody': '页面内弹窗已生效——点击这里打开本会话。',
+  'toast.close': '关闭',
+  'toast.layerLabel': '会话弹窗',
 
   'group.finished.title': 'Agent 完成',
   'group.finished.hint': '当 Agent 完成回合时',

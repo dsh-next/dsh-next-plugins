@@ -16,7 +16,7 @@
 export const NS = 'notifier'
 
 export const en = {
-  'card.title': 'DSH Next Notifier',
+  'card.title': 'Notifier',
   'card.tagline': 'Alerts when the agent finishes or needs you',
 
   'toggle.enable': 'Enable notifications',
@@ -39,6 +39,14 @@ export const en = {
   'web.status.unsupported': 'Unsupported',
   'web.testTitle': 'Test notification',
   'web.testBody': 'Web notifications work — click me to open this session.',
+
+  'toast.test': 'Test in-page toast',
+  'toast.test.hint': 'Shows a toast inside the page while you are looking at it',
+  'toast.button.test': 'Show',
+  'toast.testTitle': 'Test toast',
+  'toast.testBody': 'In-page toasts work — click me to open this session.',
+  'toast.close': 'Dismiss',
+  'toast.layerLabel': 'Session toasts',
 
   'group.finished.title': 'Agent finished',
   'group.finished.hint': 'When the agent finishes its turn',

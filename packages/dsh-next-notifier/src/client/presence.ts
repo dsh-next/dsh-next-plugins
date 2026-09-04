@@ -14,7 +14,21 @@ export interface PresenceReport {
 }
 
 export function currentSessionId(sessions: ISessions | undefined): string | null {
-  const info = sessions && sessions.currentProvideInfo
+  if (!sessions) return null
+  // Primary channel: the current selection rides the session-list snapshot in
+  // every runtime generation this plugin supports (0.1.1-rc.2 and the 0.1.2
+  // shell — `SessionListState.current`). The 0.1.2 shell dropped the legacy
+  // currentProvideInfo channel below, so reading it first made presence
+  // report sessionId:null forever and "mute while viewing" never matched.
+  try {
+    const snap = sessions.list?.getSnapshot?.()
+    if (snap && typeof snap.current === 'string' && snap.current.length > 0) return snap.current
+  } catch {
+    // fall through to the legacy channel
+  }
+  // Legacy channel: the 0.1.1-rc.2 runtime also exposed the current selection
+  // as a HostObservable; keep it as a fallback for older shells.
+  const info = sessions.currentProvideInfo
   if (!info || typeof info.getSnapshot !== 'function') return null
   try {
     const snap = info.getSnapshot()
@@ -22,6 +36,18 @@ export function currentSessionId(sessions: ISessions | undefined): string | null
   } catch {
     return null
   }
+}
+
+/**
+ * Whether the user is looking at the page right now: the window holds focus
+ * and the document is visible (not minimized, not backgrounded). The toast
+ * drainer uses this to fall back to a web notification when a toast-channel
+ * event arrives after the user stopped looking.
+ */
+export function isLookingNow(): boolean {
+  const focused = typeof document !== 'undefined' && typeof document.hasFocus === 'function' ? document.hasFocus() : false
+  const visible = typeof document === 'undefined' || document.visibilityState === undefined ? true : document.visibilityState === 'visible'
+  return focused && visible
 }
 
 export interface PresenceReporter {
@@ -70,7 +96,12 @@ export function createPresenceReporter(
     })
   }
 
-  if (sessions?.currentProvideInfo && typeof sessions.currentProvideInfo.subscribe === 'function') {
+  // The current selection rides the list snapshot in both supported runtime
+  // generations; subscribe there so switching sessions re-reports presence
+  // immediately (the legacy currentProvideInfo channel is the fallback).
+  if (sessions?.list && typeof sessions.list.subscribe === 'function') {
+    offs.push(sessions.list.subscribe(() => report()))
+  } else if (sessions?.currentProvideInfo && typeof sessions.currentProvideInfo.subscribe === 'function') {
     offs.push(sessions.currentProvideInfo.subscribe(() => report()))
   }
 

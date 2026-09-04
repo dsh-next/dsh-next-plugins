@@ -117,4 +117,17 @@ describe('registerRpc settings round-trip', () => {
     expect(result.json).toHaveProperty('sounds')
     expect(result.json.sounds.length).toBe(17)
   })
+
+  it('getPendingNotifications accepts a channel arg and returns an empty list', async () => {
+    const { scope } = fakeScope(null)
+    const { post } = registerAndCapture(scope)
+    for (const channel of ['toast', 'web']) {
+      const result = (await post('getPendingNotifications', { channel })) as { json: unknown[] }
+      expect(Array.isArray(result.json)).toBe(true)
+      expect(result.json).toEqual([])
+    }
+    // An unscoped call stays supported (legacy: drains everything).
+    const legacy = (await post('getPendingNotifications', null)) as { json: unknown[] }
+    expect(legacy.json).toEqual([])
+  })
 })

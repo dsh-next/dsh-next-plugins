@@ -22,7 +22,11 @@ export function registerRpc(ctx: Context, notifier: Notifier, scope: SettingsSco
   const handlers: Record<string, Handler> = {
     getState: () => notifier.state(),
     getPresence: () => notifier.getPresence(),
-    getPendingNotifications: () => notifier.drainPending(),
+    getPendingNotifications: (args) => {
+      const a = (args && typeof args === 'object') ? args as { channel?: string } : {}
+      const channel = a.channel === 'toast' || a.channel === 'web' ? a.channel : undefined
+      return notifier.drainPending(channel)
+    },
     reportPresence: (args) => {
       notifier.reportPresence((args && typeof args === 'object') ? args as Record<string, unknown> : {})
       return { ok: true }

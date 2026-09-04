@@ -170,6 +170,24 @@ describe('createDrainer', () => {
     drainer.dispose()
   })
 
+  it('skips toast-channel events (the toast layer owns them)', async () => {
+    installNotification('granted')
+    const timer: TimerLike = {
+      timeout: vi.fn(),
+      interval: (cb) => { cb(); return vi.fn() as unknown as () => void },
+    }
+    const queue = [
+      { id: 1, at: Date.now() - 1000, title: 'toast-bound', channel: 'toast' },
+      { id: 2, at: Date.now() - 1000, title: 'web-bound', channel: 'web' },
+      { id: 3, at: Date.now() - 1000, title: 'legacy' },
+    ]
+    const fetchPending = vi.fn().mockResolvedValue(queue).mockResolvedValueOnce(queue).mockResolvedValue([])
+    const drainer = createDrainer(undefined, timer, fetchPending)
+    await new Promise((r) => setTimeout(r, 20))
+    expect(fakeCtors.map((n) => n.title)).toEqual(['\ud83d\udd14 web-bound', '\ud83d\udd14 legacy'])
+    drainer.dispose()
+  })
+
   it('opens the clicked session', () => {
     installNotification('granted')
     const open = vi.fn()

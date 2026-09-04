@@ -36,6 +36,7 @@ export interface Pending {
   body: string
   sessionId: string | null
   at: number
+  channel: 'toast' | 'web'
 }
 
 /** Minimal structural timer surface (matches the merged Context timer). */
@@ -142,11 +143,23 @@ export class Notifier {
     }
   }
 
-  drainPending(): Pending[] {
+  /**
+   * Drain queued events for one channel (or all, when omitted). Channel-scoped
+   * drains keep the two client pollers from stealing each other's events: the
+   * toast layer and the web drainer both poll, and an unscoped drain by either
+   * would consume (and drop) the other channel's queue.
+   */
+  drainPending(channel?: 'toast' | 'web'): Pending[] {
     const now = Date.now()
-    const fresh = this.pending.filter((p) => now - p.at <= PENDING_MAX_AGE_MS)
-    this.pending = []
-    return fresh
+    const taken: Pending[] = []
+    const kept: Pending[] = []
+    for (const p of this.pending) {
+      if (now - p.at > PENDING_MAX_AGE_MS) continue
+      if (channel === undefined || p.channel === channel) taken.push(p)
+      else kept.push(p)
+    }
+    this.pending = kept
+    return taken
   }
 
   // ---- notification pipeline ----
@@ -170,7 +183,7 @@ export class Notifier {
       this.webPermission,
     )
     if (!decision.notify) return false
-    this.pending.push({ id: ++this.pendingSeq, kind, title, body, sessionId, at: Date.now() })
+    this.pending.push({ id: ++this.pendingSeq, kind, title, body, sessionId, at: Date.now(), channel: decision.channel ?? 'web' })
     if (this.pending.length > PENDING_MAX) this.pending.shift()
     if (decision.soundName) this.driver.play(decision.soundName, this.backends)
     return true

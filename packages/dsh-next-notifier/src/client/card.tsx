@@ -1,5 +1,5 @@
 /**
- * The "DSH Next Notifier" settings card rendered in the `settings.plugin.item`
+ * The "Notifier" settings card rendered in the `settings.plugin.item`
  * slot. Reads config over the Host RPC, persists edits, previews sounds, and
  * shows a live focus-tracking line. Every user-facing string goes through the
  * package's locale dictionaries via the injected `t` translator (English
@@ -43,6 +43,14 @@ export interface CardDeps {
     body?: string
     sessionId?: string | null
   }) => void
+  /** Enqueue a synthetic in-page toast (the Test in-page toast button). */
+  enqueueTestToast?: (event: {
+    id?: number
+    kind?: string
+    title?: string
+    body?: string
+    sessionId?: string | null
+  }) => void
 }
 
 const GROUPS: { key: 'finished' | 'approval' | 'question'; title: MessageKey; hint: MessageKey; extras: { field: 'subagent' | 'goalOnly'; label: MessageKey; hint: MessageKey }[] }[] = [
@@ -64,7 +72,7 @@ function platformName(value: string | null | undefined, t: Translate = englishTr
   return t('platform.none')
 }
 
-export function NotifierCard({ rpc, sessions, timer, t = englishTranslate, showWebNotification }: CardDeps): React.ReactElement {
+export function NotifierCard({ rpc, sessions, timer, t = englishTranslate, showWebNotification, enqueueTestToast }: CardDeps): React.ReactElement {
   const [open, setOpen] = React.useState(false)
   const [snap, setSnap] = React.useState<StateSnapshot | null>(null)
   const [error, setError] = React.useState<string | null>(null)
@@ -139,6 +147,15 @@ export function NotifierCard({ rpc, sessions, timer, t = englishTranslate, showW
       id: Date.now(),
       title: t('web.testTitle'),
       body: t('web.testBody'),
+      sessionId: currentSessionId(sessions),
+    })
+  }
+
+  function testToast(): void {
+    enqueueTestToast?.({
+      id: Date.now(),
+      title: t('toast.testTitle'),
+      body: t('toast.testBody'),
       sessionId: currentSessionId(sessions),
     })
   }
@@ -258,6 +275,11 @@ export function NotifierCard({ rpc, sessions, timer, t = englishTranslate, showW
           : (webStatus === 'denied' || webStatus === 'unsupported')
             ? React.createElement('span', { className: styles.hint }, webStatus === 'denied' ? t('web.status.blocked') : t('web.status.unsupported'))
             : React.createElement('button', { type: 'button', className: styles.test, onClick: enableWeb }, t('web.button.enable'))),
+      React.createElement('div', { className: styles.row },
+        React.createElement('span', { className: styles.text },
+          React.createElement('span', { className: styles.label }, t('toast.test')),
+          React.createElement('span', { className: styles.hint }, t('toast.test.hint'))),
+        React.createElement('button', { type: 'button', className: styles.test, onClick: testToast }, t('toast.button.test'))),
       GROUPS.map((g) => renderGroup(g)),
       React.createElement('div', { className: styles.footer },
         error ? React.createElement('p', { className: styles.status + ' ' + styles.statusErr }, String(error)) : null,

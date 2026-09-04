@@ -13,6 +13,7 @@ interface PendingEvent {
   body?: string
   sessionId?: string | null
   at?: number
+  channel?: 'toast' | 'web'
 }
 
 /**
@@ -33,9 +34,10 @@ const DEFAULT_EMOJI = '\ud83d\udd14'
 /**
  * The notification headline: an emoji icon for the kind plus the type (the
  * Host-supplied `title`, e.g. "Approval needed"). The session title moves to
- * the body.
+ * the body. Shared by the web-notification drainer and the in-page toast
+ * layer, so both channels speak the same glance language.
  */
-function notificationTitle(event: PendingEvent): string {
+export function eventTitle(event: PendingEvent): string {
   const base = typeof event.title === 'string' && event.title.length > 0 ? event.title : 'DeepSeek Harness'
   const emoji = (typeof event.kind === 'string' && KIND_EMOJI[event.kind]) || DEFAULT_EMOJI
   return emoji + ' ' + base
@@ -45,14 +47,14 @@ function notificationTitle(event: PendingEvent): string {
  * The notification body: the session's display title so a glance says which
  * session, falling back to the Host-supplied detail when the session is unknown.
  */
-function notificationBody(event: PendingEvent, sessions: ISessions | undefined): string {
+export function eventBody(event: PendingEvent, sessions: ISessions | undefined): string {
   const sessionTitle = sessionTitleOf(sessions, event.sessionId)
   if (sessionTitle) return sessionTitle
   return typeof event.body === 'string' ? event.body : ''
 }
 
 /** Resolve a session's display title from the session list, safely. */
-function sessionTitleOf(sessions: ISessions | undefined, sessionId: string | null | undefined): string {
+export function sessionTitleOf(sessions: ISessions | undefined, sessionId: string | null | undefined): string {
   if (!sessions || typeof sessionId !== 'string' || sessionId.length === 0) return ''
   try {
     const snap = sessions.list?.getSnapshot?.()
@@ -71,8 +73,8 @@ export function webPermission(): 'granted' | 'denied' | 'default' | 'unsupported
 export function showWebNotification(event: PendingEvent, sessions: ISessions | undefined): void {
   try {
     if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
-    const notification = new Notification(notificationTitle(event), {
-      body: notificationBody(event, sessions),
+    const notification = new Notification(eventTitle(event), {
+      body: eventBody(event, sessions),
       icon: DEEPSEEK_ICON,
       tag: 'dsh-next-notifier-' + (typeof event.id === 'number' ? event.id : 'unknown'),
     })
@@ -106,6 +108,10 @@ export function createDrainer(
       for (const item of list as PendingEvent[]) {
         if (!item || typeof item !== 'object') continue
         if (typeof item.at === 'number' && now - item.at > 30000) continue
+        // Toast-channel events belong to the in-page toast layer; the web
+        // drainer only renders what the host routed to the OS notification
+        // path (events without a channel predate the split — treat as web).
+        if (item.channel === 'toast') continue
         showWebNotification(item, sessions)
       }
     }).catch(() => {})

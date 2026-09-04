@@ -1,7 +1,7 @@
 /**
  * Browser-half entry for the notifier plugin — runs inside the dsh web GUI.
  *
- * Registers the "DSH Next Notifier" card in the `settings.plugin.item` slot
+ * Registers the "Notifier" card in the `settings.plugin.item` slot
  * (keyed by the settings namespace), wires presence reporting and the web
  * notification drainer, and reports the browser permission to the Host.
  *
@@ -25,6 +25,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import { NotifierCard, type Translate } from './card.tsx'
 import { createDrainer, showWebNotification, webPermission } from './drainer.ts'
 import { createPresenceReporter } from './presence.ts'
+import { ToastLayer, enqueueTestToast } from './toasts.tsx'
 import { en, englishTranslate, NS, zh, type MessageKey } from './dictionaries.ts'
 import type { TimerLike } from '../core/timer.ts'
 
@@ -34,6 +35,18 @@ import type { TimerLike } from '../core/timer.ts'
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
     'notifier': MessageKey
+  }
+  // The frame-wide floating layer above every column, outside their scroll
+  // containers. Declared at runtime by the shell's layout package
+  // (@deepseek-ai/dsh-client-ui-layout, verified against the installed shell
+  // 0.1.2-rc.1); merged here so `slots.register` type-checks without pulling
+  // the layout package into this plugin's dependency graph. The layer itself
+  // is click-through — entries opt back into pointer events.
+  interface SlotMap {
+    'shell.overlay': {
+      kind: 'list'
+      scope: 'root'
+    }
   }
 }
 
@@ -84,7 +97,10 @@ export function apply(ctx: Context): void {
     })
 
   const presence = createPresenceReporter(sessions, timer, (m, a) => rpc(m, a))
-  const drainer = createDrainer(sessions, timer, () => rpc('getPendingNotifications'))
+  // Channel-scoped drains: the web drainer and the toast layer poll the same
+  // Host queue, and an unscoped read would consume (and drop) the other
+  // channel's events.
+  const drainer = createDrainer(sessions, timer, () => rpc('getPendingNotifications', { channel: 'web' }))
 
   // Report the web-notification permission up front and on change.
   const perm = webPermission()
@@ -105,7 +121,16 @@ export function apply(ctx: Context): void {
         timer,
         t,
         showWebNotification: (e) => showWebNotification(e, sessions),
+        enqueueTestToast: (e) => enqueueTestToast(e),
       }),
+    ))
+
+    // The in-page toast layer lives in the shell's floating overlay (declared
+    // by the shell's layout package at boot; the local SlotMap merge above
+    // covers the typing). Alert-only capsules: click opens the session.
+    slots.inject('shell.overlay', () => slots.register(
+      { name: 'shell.overlay', id: 'dsh-next-notifier-toasts', order: 10, label: () => t('toast.layerLabel') },
+      () => React.createElement(ToastLayer, { rpc, sessions, timer, t }),
     ))
   }
 

@@ -13,6 +13,7 @@ let repo: string
 let sub: string
 let service: WorktreesService
 let knobWrites: Array<{ sessionId: string; mode: string }>
+let firstSlug: string
 const sessionCwds = new Map<string, string>()
 
 function git(args: string[], cwd: string): void {
@@ -67,6 +68,7 @@ describe('WorktreesService flows over a real repository', () => {
     expect(outcome.sessionCwd).toBe(join(repo, '.dsh/worktrees', outcome.slug, 'packages', 'foo'))
     expect(existsSync(outcome.sessionCwd)).toBe(true)
     expect(readFileSync(join(outcome.path, '.env'), 'utf8')).toBe('SECRET=1\n')
+    firstSlug = outcome.slug
     sessionCwds.set('session-a', outcome.sessionCwd)
   })
 
@@ -82,7 +84,20 @@ describe('WorktreesService flows over a real repository', () => {
     expect(status.binding?.title).toBe('fix login')
     expect(status.chipStatus).toBe('clean')
     expect(status.ahead).toBe(0)
-    expect(status.siblings.length).toBe(1)
+    // Siblings exclude the session's own worktree: with a single worktree the
+    // dropdown lands on its "no other worktrees" empty state.
+    expect(status.siblings).toEqual([])
+  })
+
+  it('lists other worktrees as siblings, still without self', async () => {
+    const other = await service.create({ cwd: repo, title: 'other' })
+    sessionCwds.set('session-other', other.sessionCwd)
+    await service.bind('session-other')
+    const status = await service.status('session-other')
+    expect(status.siblings.map((s) => s.slug)).toEqual([firstSlug])
+    expect(status.siblings[0]).toMatchObject({ title: 'fix login', sessionId: 'session-a' })
+    const own = await service.status('session-a')
+    expect(own.siblings.map((s) => s.slug)).toEqual([other.slug])
   })
 
   it('reports dirty worktrees in status', async () => {
@@ -102,7 +117,7 @@ describe('WorktreesService flows over a real repository', () => {
   it('refuses to bind a session outside a plugin worktree', async () => {
     sessionCwds.set('session-outside', repo)
     await expect(service.bind('session-outside')).rejects.toMatchObject({ code: 'not-a-worktree-session' })
-    expect(knobWrites).toHaveLength(1)
+    expect(knobWrites.some((w) => w.sessionId === 'session-outside')).toBe(false)
   })
 
   it('refuses to bind an unknown session without touching the knob', async () => {

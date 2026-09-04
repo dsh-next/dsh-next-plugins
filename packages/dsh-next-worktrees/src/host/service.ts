@@ -266,15 +266,19 @@ export class WorktreesService {
       this.ports.git.aheadCount(primary, binding.baseRef, binding.branch),
       this.ports.git.dirty(binding.path),
     ])
-    const siblings: SiblingFact[] = bindings.map((b) => ({
-      slug: b.slug,
-      title: b.title,
-      branch: b.branch,
-      sessionId: b.sessionId,
-      running: b.sessionId !== null && this.ports.getSessionRunState
-        ? (this.ports.getSessionRunState(b.sessionId)?.running ?? null)
-        : null,
-    }))
+    // Siblings exclude the session's own worktree: the chip already names it,
+    // and a self row would make the empty state unreachable.
+    const siblings: SiblingFact[] = bindings
+      .filter((b) => b.slug !== binding.slug)
+      .map((b) => ({
+        slug: b.slug,
+        title: b.title,
+        branch: b.branch,
+        sessionId: b.sessionId,
+        running: b.sessionId !== null && this.ports.getSessionRunState
+          ? (this.ports.getSessionRunState(b.sessionId)?.running ?? null)
+          : null,
+      }))
     return {
       bound: true,
       binding,

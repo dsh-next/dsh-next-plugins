@@ -13,6 +13,15 @@
 # Environment:
 #   DSH_DEV_HOME  override the persistent home (default /tmp/dsh-next-dev/home)
 #   PORT          default port when --port is not given (default 3927)
+#
+# Fresh homes are seeded automatically so plugin sessions start clean: the
+# first-run "Internal Testing Notice" and "Add an API key" dialogs are
+# suppressed (welcome-notice acknowledged in settings.yaml; a placeholder
+# DEEPSEEK_API_KEY, exported only when the environment has none, makes the
+# official route credentialed — which also keeps the composer editable and
+# prevents the late API-key nudge after failed sends). Opt out with
+# DSH_DEV_KEEP_ONBOARDING=1. Register workspace directories through
+# scripts/e2e-seed-workspaces.sh.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -59,6 +68,25 @@ else
   DSH_HOME="${DSH_DEV_HOME:-/tmp/dsh-next-dev/home}"
 fi
 export DSH_HOME
+
+# First-run dialog suppression for fresh homes (see the environment notes
+# above). The welcome-notice acknowledgement is compared for exact equality,
+# so any stored version string counts as seen until DSH bumps the notice.
+if [ "${DSH_DEV_KEEP_ONBOARDING:-}" != "1" ] && [ ! -f "$DSH_HOME/settings.yaml" ]; then
+  mkdir -p "$DSH_HOME"
+  cat > "$DSH_HOME/settings.yaml" <<'EOF'
+ui-onboarding:
+  welcomeNoticeVersion: 2099-01-01.1
+EOF
+  say "seeded $DSH_HOME/settings.yaml (first-run dialogs suppressed)"
+fi
+# The official DeepSeek route reads DEEPSEEK_API_KEY; a placeholder keeps the
+# route credentialed (no API-key modal or late nudge, composer stays
+# editable) without touching a real key already in the environment.
+if [ "${DSH_DEV_KEEP_ONBOARDING:-}" != "1" ] && [ -z "${DEEPSEEK_API_KEY:-}" ]; then
+  export DEEPSEEK_API_KEY="dev-placeholder-key"
+  say "exported placeholder DEEPSEEK_API_KEY (sends fail at API auth; set a real key for live model calls)"
+fi
 
 PROFILE="${PROFILE:-dev-$slug}"
 PROFILE_DIR="$DSH_HOME/profiles/$PROFILE"

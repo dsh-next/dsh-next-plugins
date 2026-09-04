@@ -41,8 +41,9 @@ a UI plugin registers a marker that drives into its UI and asserts real
 behavior. This is what catches a plugin that mounts without crashing yet
 renders nothing (e.g. a silent Host-RPC payload-shape mismatch), which the
 crash-marker check cannot see. When adding UI to a plugin, add (or verify) its
-marker and confirm the lane stays green. A fresh scratch home shows onboarding
-dialogs, so markers use `dismissOnboarding()` first.
+marker and confirm the lane stays green. The smoke home seeds away the
+first-run dialogs (see below); `dismissOnboarding()` in a marker is
+belt-and-braces only.
 
 The scratch home comes with **two preseeded workspaces** so every marker can
 drive workspace-scoped flows: `scripts/e2e-mount.sh` registers them through
@@ -52,6 +53,20 @@ dev-profile homes too) and exports the canonical paths as
 `DSH_E2E_WORKSPACE_A` / `DSH_E2E_WORKSPACE_B`. Markers must read those env
 vars — never hardcode machine paths (the workspace plugin stores realpaths,
 which on macOS differ from `/tmp/...`).
+
+**First-run dialog suppression.** Both boot popups are settings/route-gated
+in DSH (no DSH env var exists), and the lanes seed them away: the smoke home
+acknowledges the welcome notice (`ui-onboarding.welcomeNoticeVersion` in
+`settings.yaml`) and defaults the official DeepSeek route
+(`agent-default-model: deepseek-official/deepseek-v4-flash`) with a
+placeholder `DEEPSEEK_API_KEY`, so no modal blocks the lane and the composer
+stays editable (an uncredited or unreachable default model swaps the editor
+for a disabled placeholder). `scripts/dev-plugin.sh` does the same for fresh
+dev homes and exports a placeholder `DEEPSEEK_API_KEY` when the environment
+has none; sends then fail cleanly at API auth instead of popping the late
+API-key nudge. Opt out with `DSH_DEV_KEEP_ONBOARDING=1`; set a real
+`DEEPSEEK_API_KEY` for live model calls. When scripting the GUI (Playwright),
+still tolerate dialogs defensively — a settings failure can re-show them.
 
 ## 3. Manual live install (see it in the GUI)
 

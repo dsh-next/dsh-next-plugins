@@ -32,6 +32,10 @@ GitHub Release note, so write it for the end user. Authoring rules:
   spans several kinds.
 - **No PR numbers, commit hashes, or plumbing noise.** The changelog is for
   users reading what changed, not a commit log.
+- **Never hand-write author attribution.** The formatter appends a linked
+  `[@user](profile)` for the author of the pull request that introduced the
+  change file; a change file pushed directly to `main` (no PR) lands
+  unattributed. See the CHANGELOG formatter section below.
 - **No emoji**, per the repository rule.
 - One entry can summarize several related changes; use a blank line and a
   `-` list only when the diff has genuinely separate user-facing effects.
@@ -61,12 +65,25 @@ package is ready to release.
 ## CHANGELOG formatter
 
 `.changeset/changelog.mjs` is the custom changelog formatter wired by
-`.changeset/config.json` (`"changelog": ["./.changeset/changelog.mjs", null]`).
-It replaces the changesets default, which prefixes every entry with a truncated
-git hash. The formatter emits clean, human-first bullets — the summary the
-author wrote, with no plumbing noise. Only the per-entry bullets pass through
-it; the `## x.y.z` version headers are emitted by changesets itself. Do not
-re-add commit hashes there.
+`.changeset/config.json` (`"changelog": ["./changelog.mjs", { "repo":
+"dsh-next/dsh-next-plugins" }]`). It replaces the changesets default, which
+prefixes every entry with a truncated git hash. The formatter emits clean,
+human-first bullets — the summary the author wrote, with no plumbing noise —
+followed by a linked author attribution: for each entry it looks up the pull
+request associated with the commit that added the change file and appends the
+PR author as `([@user](https://github.com/user))`.
+
+Attribution is best-effort and never blocks versioning: an entry lands
+without it when there is no associated PR (a change file pushed directly to
+`main`, or one authored on the Version Packages PR itself), when
+`GITHUB_TOKEN` is absent (local `changeset version` runs), or when the GitHub
+API call fails (rate limit, network). The release workflow provides the
+token to the `changeset version` step.
+
+Only the per-entry bullets pass through the formatter; the `## x.y.z` version
+headers are emitted by changesets itself. Do not re-add commit hashes there,
+and never hand-write attribution into change files. Branch coverage lives in
+`scripts/changelog-formatter.test.mjs` (run with `pnpm test:scripts`).
 
 ## Canary (snapshot) prereleases
 

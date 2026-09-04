@@ -28,9 +28,13 @@ step-by-step procedure.
   CI runners and co-located contributors can read it; `chmod 644
   .changeset/config.json` if it ever regresses to `600`.
 - `.changeset/changelog.mjs` is the custom changelog formatter (wired via
-  `"changelog": ["./.changeset/changelog.mjs", null]`); it emits clean
-  human-first bullets with no git hashes. The `## x.y.z` headers carry no
-  compare link (per-package versioning, no repo-wide tag).
+  `"changelog": ["./changelog.mjs", { "repo": "dsh-next/dsh-next-plugins" }]`);
+  it emits clean human-first bullets with no git hashes and appends a linked
+  author attribution for the author of the PR that introduced each change file.
+  Attribution is best-effort: direct-to-main pushes (no PR) and local runs
+  without `GITHUB_TOKEN` land unattributed, and API failures never block
+  versioning. The `## x.y.z` headers carry no compare link (per-package
+  versioning, no repo-wide tag).
 - Each release pushes a per-package git tag (`name@version`, e.g.
   `@dsh-next/dsh-next-notifier@0.1.0`) because `changesets/action` forces
   `push-git-tags` on when `create-github-releases` is true. These tags are
@@ -95,6 +99,9 @@ the author:
 - Do not include PR numbers, commit hashes, or "chore" plumbing noise — the
   changelog is for users reading what changed. Keep it concise and in English,
   with no emoji (repository rule).
+- Do not hand-write attribution ("by @user") — the formatter appends the
+  linked author of the PR that introduced the change file automatically;
+  entries without a PR land unattributed.
 - Follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) grouping and
   wording conventions: the changelog is generated (never hand-edited), entries
   are newest-first, and each version is a plain `## x.y.z` heading (the

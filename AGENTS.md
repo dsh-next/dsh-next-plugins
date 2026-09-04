@@ -139,7 +139,9 @@ flag when the package is ready to release.
 Change entries become the package `CHANGELOG.md` (generated, never
 hand-edited) and the GitHub Release notes, so write them for end users — a
 user-visible summary, `**Breaking**` for breaking changes, no PR numbers or
-plumbing noise, no emoji. See `.changeset/README.md` and the
+plumbing noise, no emoji. The formatter appends a linked author attribution
+(`[@user](profile)`) from the PR that introduced the change file
+automatically — never hand-write it. See `.changeset/README.md` and the
 `dsh-next-release` skill for the authoring rules.
 
 Releases push a per-package git tag (`<npm-name>@<version>`, e.g.

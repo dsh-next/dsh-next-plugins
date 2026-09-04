@@ -55,9 +55,13 @@ so write them for the end user following [Keep a Changelog](https://keepachangel
 - One change file per package unless a single PR genuinely touches several.
 
 The `.changeset/changelog.mjs` formatter replaces the changesets default (which
-prefixed entries with git hashes) with clean, human-first bullets; only the
-per-entry bullets pass through it — the `## x.y.z` headers carry no compare link
-(the family versions independently, not under one repo-wide tag).
+prefixed entries with git hashes) with clean, human-first bullets, then appends
+a linked author attribution — `[@user](profile)` — resolved from the pull
+request that introduced the change file. Attribution is best-effort: entries
+without a PR (direct pushes to `main`) simply land unattributed; the rules live
+in `.changeset/README.md`. Only the per-entry bullets pass through the
+formatter — the `## x.y.z` headers carry no compare link (the family versions
+independently, not under one repo-wide tag).
 
 The full authoring rules and examples live in `.changeset/README.md` and the
 `dsh-next-release` skill. When entries read wrong in the Version Packages PR,

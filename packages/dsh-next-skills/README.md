@@ -18,9 +18,11 @@ tabs:
   (`~/.dsh/skills` and `~/.agents/skills`) plus every provider catalog skill
   that is not already installed. Project/workspace skills are deliberately
   absent: they are hand-managed in the project and discovered natively by DSH,
-  so this panel lists nothing it cannot manage. A search box, a provider
+  so this panel lists nothing it cannot manage. A relevance-ranked search box
+  (name matches above description-only matches, so typing a skill's name
+  surfaces it instead of alphabetically-earlier description hits), a provider
   filter, an installed-only toggle, and a Show more button (30 cards per page)
-  keep large catalogs fast. A skill that exists in several roots shows **one
+  keep large catalogs fast; changing the search returns to page one. A skill that exists in several roots shows **one
   card per copy**, so per-copy actions are unambiguous: each carries an origin
   chip (`user .dsh`, `user .agents`), the recorded provider spec, and per-copy
   **Delete** (recoverable), **Scopes**, **Providers**, and **Update**. Update

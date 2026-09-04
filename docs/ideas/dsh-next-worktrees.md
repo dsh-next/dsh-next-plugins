@@ -8,6 +8,10 @@
   plugin)
 - product: one-sentence pitch — "Run parallel DSH agents on one repo without
   collisions; shuttle the winner's branch into your checkout in one click."
+- ux pivot (2026-09-05): the composer toggle and header chip are replaced by
+  a sidebar-first surface; see
+  [dsh-next-worktrees-sidebar-ux.md](dsh-next-worktrees-sidebar-ux.md) —
+  the design spec that owns the current UI plan.
 
 ## Problem Statement
 
@@ -70,17 +74,23 @@ Locked decisions:
   `0.1.2-rc.1`: a profile patch cannot restate an existing row by id
   (`duplicate loader entry id` is a hard boot error), and the stock
   `danger-full-access` row bundles approval `never` — never select it.
-- Merge-back recipe lives in the README and as a chip "copy merge command"
-  action.
+- Merge-back: the guarded one-click Merge action in the worktree menu
+  (user decision 2026-09-05; contract in the UX spec). The README keeps
+  the manual `git merge` recipe as the fallback path.
 - Sidecar registry is derived from `git worktree list` plus plugin marks;
   git is the source of truth; reconcile on startup.
 
 Invariants:
 
-1. No commits, no patch apply — the plugin never creates commits and never
-   applies deltas on the user's branch. Creating `dsh-worktrees/<slug>` refs
-   and worktrees is in-scope. The only write it makes to the user's checkout
-   is the guarded `git switch` of the shuttle.
+1. No patch apply, no rebase, no conflict resolution — the plugin never
+   applies deltas and never resolves conflicts. Creating
+   `dsh-worktrees/<slug>` refs and worktrees is in-scope. Writes to the
+   user's checkout are exactly two, both guarded and preflighted: the
+   `git switch` of the shuttle, and (pivot 2026-09-05, UX spec) the
+   one-click Merge — a `git merge --no-edit` of a worktree branch into
+   the primary checkout's current branch, conflict-dry-run via
+   `git merge-tree`, aborting to the manual command on any blocker. The
+   plugin never authors commit content of its own.
 2. One active session per worktree — parallel work means parallel trees;
    "new session here" is takeover-when-idle, not concurrency.
 3. Foreground detaches the worktree (the worktree session keeps its cwd);
@@ -193,30 +203,41 @@ Cross-cutting:
   cost.
 - Concurrent sessions per worktree — read-only inspector is the sanctioned
   post-v1 loosening.
-- One-click merge/PR after foreground — the loop ends at checkout; landing
-  stays manual git. (Push/PR as a registry action is a separate fast-follow.)
+- One-click push/PR — the loop ends at the guarded Merge (one-click
+  landing added by user decision 2026-09-05, see the UX spec); pushing
+  and PR creation remain manual git / fast-follow.
 - Extra writable sandbox roots, or any DSH source change — the public
   permission-preset seam is the confinement story; we will not invent roots.
 - Cross-project/global manager, non-git VCS hooks, subagent-level isolation
   config, LFS special-casing — out of v1 reach and demand.
 
 Fast-follow backlog (all additive by design, see insurance notes): base-ref
-picker in the toggle popover; diff action on the chip (verify whether a
-details-column seat or a plugin-owned modal renders it, before building);
-Ghost Checkout (branch/PR-based isolation); committed project presets with
-setup commands (Cursor `worktrees.json` pattern, including file shape and
-precedence); fleet launcher (tiled status grid with per-worktree cost
-visibility from day one); one-click push/PR; read-only inspector attach;
-sidebar glyph if ui-workspace opens a per-row `projectionValues` channel.
+picker in the create popover; agent-resolved merge conflicts via the
+direction flip ("update the worktree from main" inside the worktree
+session, after which the primary merge is a fast-forward — contract in
+the UX spec's conflict ladder); diff action on the worktree row menu
+(verify whether a details-column seat or a plugin-owned modal renders it,
+before building); Ghost Checkout (branch/PR-based isolation); committed
+project presets with setup commands (Cursor `worktrees.json` pattern,
+including file shape and precedence); fleet launcher (tiled status grid
+with per-worktree cost visibility from day one); one-click push/PR;
+read-only inspector attach. Sidebar integration ceiling, verified against
+the installed 0.1.2-rc.1 client on 2026-09-05 (evidence and full
+inventory in the UX spec): the workspace browser tree is flat with
+hardcoded row controls and no per-row action slot, so per-row glyphs,
+row-menu items, and true nesting all require an upstream per-row channel
+in ui-workspace; until then the sidebar-foot `sidebar.footer.action` slot
+plus `rename`/`insertBefore` pinning is the entire sanctioned surface.
 
 ## Open Questions
 
 - Whether client session creation can bind a cwd below the registered
   workspace root (the relative-path-preservation rule), or whether the
   workspace must be registered at the sub-path itself.
-- Form of the main session's passive "on foregrounded branch" affordance:
-  chip, one-line banner, or toast-only. Return must be reachable from main
-  either way; this is only the chrome.
+- Form of the main session's passive "on foregrounded branch" affordance
+  once the chip is gone (UX pivot, 2026-09-05): a popover-row state, a
+  one-line banner, or toast-only. Return must be reachable from main either
+  way; this is only the chrome, and the UX spec owns the decision.
 
 ## Research Provenance
 

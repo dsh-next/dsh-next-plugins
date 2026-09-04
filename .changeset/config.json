@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/@changesets/config@3.0.0/schema.json",
-  "changelog": ["./changelog.mjs", null],
+  "changelog": ["./changelog.mjs", { "repo": "dsh-next/dsh-next-plugins" }],
   "commit": false,
   "fixed": [],
   "linked": [],

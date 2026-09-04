@@ -1,5 +1,5 @@
 ---
-'@dsh-next/dsh-next-notifier': minor
+"@dsh-next/dsh-next-notifier": minor
 ---
 
 The notifier settings card uses the shell's disclosure chevron icon instead of

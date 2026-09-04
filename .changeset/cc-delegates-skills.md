@@ -8,6 +8,4 @@ Project/workspace skills are now completely outside the plugin: they are neither
 
 Update candidates are pinned to the recorded provider: same-name skills offered by other providers never show as updates (the Update button can no longer cycle between vendors), and externally-owned (cc-plugins) skills carry no provider-update affordance at all.
 
-Every provider offering is now visible in the Skills grid: an installed skill shows an "N sources" chip, each other provider's same-name offering renders as its own card with a Replace action (one click rewrites the files and re-pins provenance to that provider), and the recorded source is marked "current source".
-
-Installed skills sort first in the Skills grid, and same-name cards (the installed copy plus each provider offering) share one bordered group box; a provider filter narrows the group to the matching cards.
+Installed skills sort first in the Skills grid, ahead of catalog names to add, and a provider filter narrows the grid to one provider's skills.

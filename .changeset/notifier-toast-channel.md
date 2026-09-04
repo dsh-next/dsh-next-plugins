@@ -1,5 +1,5 @@
 ---
-'@dsh-next/dsh-next-notifier': minor
+"@dsh-next/dsh-next-notifier": minor
 ---
 
 Alerts now arrive through the channel that fits where you are: an in-page

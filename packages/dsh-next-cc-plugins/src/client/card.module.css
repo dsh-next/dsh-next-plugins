@@ -1,30 +1,89 @@
+/**
+ * Claude Plugins settings page styling.
+ *
+ * The shared-chrome block is kept byte-identical to the Skills page
+ * (packages/dsh-next-skills/src/client/card.module.css) — header, tabs,
+ * filter row, inputs, buttons, cards, notices, and the scope modal all read
+ * as one product. The block copies the harness shell's own Plugins settings
+ * page (title, intro, underline tab strip) and consumes only `--dsw-*` theme
+ * tokens: no literal colors, no fallbacks masking token typos, no theme
+ * selectors (dark mode lives in the token layer). Claude-Plugins-specific
+ * extensions live in the marked sections below; shared-block rules must be
+ * changed in both files together.
+ */
+
+/* --- Shared chrome (mirror of dsh-next-skills) --------------------------- */
+
+/* Page scaffold from the shell's Plugins settings section: a title, a
+ * one-line intro, then the tab strip, inside a 760px reading column. */
 .page {
+  max-width: 760px;
   flex-direction: column;
   gap: 12px;
   display: flex;
+  color: var(--dsw-alias-label-primary);
 }
 
+.heading {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 24px;
+}
+
+.intro {
+  color: var(--dsw-alias-label-tertiary);
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+/* Underline tab strip, the shell's tablist pattern: 13px labels sitting on
+ * a 0.5px rule, the active tab underlined by a 2px ::after and promoted to
+ * the primary label; focus draws the shell's business-color ring. */
 .tabs {
-  gap: 8px;
+  align-items: flex-end;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+  gap: 22px;
+  margin-top: 2px;
   display: flex;
 }
 
-.tab,
-.tabActive {
+.tab {
   appearance: none;
   font: inherit;
+  font-size: 13px;
+  line-height: 20px;
   cursor: pointer;
-  border-radius: 8px;
-  padding: 8px 14px;
-  border: 1px solid var(--dsw-alias-border-l2);
+  position: relative;
+  padding: 7px 1px 9px;
+  border: 0;
   background: transparent;
-  color: var(--dsw-alias-label-secondary);
+  color: var(--dsw-alias-label-tertiary);
 }
 
-.tabActive {
-  border-color: var(--dsw-alias-brand-primary);
+.tab:hover,
+.tab[data-active='true'] {
   color: var(--dsw-alias-label-primary);
-  font-weight: 600;
+}
+
+.tab[data-active='true']::after,
+.tab:focus-visible::after {
+  background: var(--dsw-alias-label-primary);
+  content: '';
+  border-radius: 2px 2px 0 0;
+  height: 2px;
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+}
+
+.tab:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 2px;
+  border-radius: 2px;
+  color: var(--dsw-alias-label-primary);
 }
 
 .addRow {
@@ -34,40 +93,42 @@
   flex-wrap: wrap;
 }
 
+/* Inputs and selects follow the shell's field recipe: hairline l4 border on
+ * layer 3, 8px radius, brand-primary focus border. */
 .input {
   flex: 1;
   min-width: 240px;
   font: inherit;
-  color: inherit;
-  border-radius: 8px;
-  padding: 8px 12px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  background: var(--dsw-alias-bg-layer-2);
-}
-
-.scopeRow {
-  gap: 8px;
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-}
-
-.scopeLabel {
-  color: var(--dsw-alias-label-tertiary);
   font-size: 13px;
+  line-height: 20px;
+  color: inherit;
+  height: 34px;
+  border-radius: 8px;
+  padding: 0 12px;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  background: var(--dsw-alias-bg-layer-3);
+}
+
+.input:focus-visible,
+.select:focus-visible {
+  border-color: var(--dsw-alias-brand-primary);
+  outline: none;
 }
 
 .select {
   font: inherit;
+  font-size: 13px;
+  line-height: 20px;
   color: inherit;
+  height: 34px;
   border-radius: 8px;
-  padding: 6px 10px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  background: var(--dsw-alias-bg-layer-2);
+  padding: 0 8px;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  background: var(--dsw-alias-bg-layer-3);
 }
 
 .card {
-  border: 1px solid var(--dsw-alias-border-l2);
+  border: 0.5px solid var(--dsw-alias-border-l4);
   background: var(--dsw-alias-bg-layer-3);
   border-radius: 12px;
   padding: 14px 16px;
@@ -91,34 +152,12 @@
   display: flex;
 }
 
-.name {
+.name,
+.pluginName {
   color: var(--dsw-alias-label-primary);
   font-size: 15px;
   font-weight: 600;
   line-height: 1.4;
-}
-
-.pluginName {
-  color: var(--dsw-alias-label-primary);
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.4;
-}
-
-.version {
-  color: var(--dsw-alias-label-tertiary);
-  font-weight: 400;
-  font-size: 12px;
-}
-
-.chip {
-  color: var(--dsw-alias-label-tertiary);
-  font-weight: 400;
-  font-size: 12px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 999px;
-  padding: 1px 8px;
-  margin-left: 6px;
 }
 
 .desc {
@@ -128,28 +167,9 @@
 }
 
 .errText {
-  color: var(--dsw-alias-label-primary);
+  color: var(--dsw-alias-label-error);
   font-size: 13px;
   line-height: 1.5;
-}
-
-.pluginList {
-  border-top: 1px solid var(--dsw-alias-border-l2);
-  flex-direction: column;
-  display: flex;
-}
-
-.pluginRow {
-  gap: 12px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--dsw-alias-border-l2);
-  align-items: center;
-  justify-content: space-between;
-  display: flex;
-}
-
-.pluginRow:last-child {
-  border-bottom: 0;
 }
 
 .rowActions {
@@ -159,49 +179,83 @@
   align-items: center;
 }
 
+/* Button families, one geometry (8px radius, 5px 14px, 13px/20px): the
+ * monochrome primary (the shell's card-button recipe), the quiet ghost,
+ * the outline danger pair for destructive actions, and the warn-tinted
+ * update action. Every color is a semantic alias. */
 .primary,
 .ghost,
 .ghostDanger,
-.danger {
+.danger,
+.updateBtn,
+.deleteBtn {
   appearance: none;
   font: inherit;
+  font-size: 13px;
+  line-height: 20px;
   cursor: pointer;
   border-radius: 8px;
-  padding: 7px 12px;
-  border: 1px solid transparent;
+  padding: 5px 14px;
+  border: 0.5px solid transparent;
   white-space: nowrap;
 }
 
 .primary {
-  background: var(--dsw-alias-brand-primary);
-  color: var(--dsw-alias-bg-layer-1);
+  background: var(--dsw-alias-button-primary-fill);
+  color: var(--dsw-alias-label-primary-foreground);
   font-weight: 600;
 }
 
-.ghost {
-  background: transparent;
-  color: var(--dsw-alias-label-secondary);
-  border-color: var(--dsw-alias-border-l2);
+.primary:hover:not(:disabled) {
+  background: var(--dsw-alias-button-primary-hover);
 }
 
+.ghost,
 .ghostDanger {
   background: transparent;
   color: var(--dsw-alias-label-secondary);
   border-color: var(--dsw-alias-border-l2);
 }
 
-.danger {
-  background: var(--dsw-alias-bg-layer-2);
+.ghost:hover:not(:disabled),
+.ghostDanger:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-primary);
-  border-color: var(--dsw-alias-label-primary);
+}
+
+/* The second step of a destructive pair (after the ghost confirm step):
+ * the error label carries the emphasis, the danger hover fills it. */
+.danger,
+.deleteBtn {
+  background: transparent;
+  color: var(--dsw-alias-label-error);
+  border-color: var(--dsw-alias-label-error);
   font-weight: 600;
+}
+
+.danger:hover:not(:disabled),
+.deleteBtn:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+}
+
+/* Update / Replace: a quiet action tinted by the theme's warn label. */
+.updateBtn {
+  background: transparent;
+  color: var(--dsw-alias-state-warn-label);
+  border-color: var(--dsw-alias-border-l2);
+}
+
+.updateBtn:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .primary:disabled,
 .ghost:disabled,
 .ghostDanger:disabled,
-.danger:disabled {
-  opacity: 0.5;
+.danger:disabled,
+.updateBtn:disabled,
+.deleteBtn:disabled {
+  opacity: 0.4;
   cursor: default;
 }
 
@@ -214,45 +268,48 @@
 }
 
 .noticeOk {
-  border: 1px solid var(--dsw-alias-border-l2);
+  border: 0.5px solid var(--dsw-alias-border-l2);
   color: var(--dsw-alias-label-secondary);
   background: var(--dsw-alias-bg-layer-2);
 }
 
+/* State-colored borders keep the 1px weight (the shell's rule); the error
+ * label colors both stroke and text. */
 .noticeErr {
-  border: 1px solid var(--dsw-alias-label-primary);
-  color: var(--dsw-alias-label-primary);
+  border: 1px solid var(--dsw-alias-label-error);
+  color: var(--dsw-alias-label-error);
   background: var(--dsw-alias-bg-layer-2);
 }
 
 .empty {
   color: var(--dsw-alias-label-tertiary);
   font-size: 13px;
-  line-height: 1.6;
-  border: 1px dashed var(--dsw-alias-border-l2);
-  border-radius: 12px;
-  padding: 18px 16px;
+  line-height: 20px;
+  padding: 4px 0;
 }
-
-/* --- Plugins tab: filter row, two-column card grid, presence badge ------- */
 
 .filterRow {
   gap: 8px;
   display: flex;
   align-items: center;
-  /* One line always: the search box shrinks (min-width: 0) instead of the
-   * installed-only toggle wrapping below the filters. */
-  flex-wrap: nowrap;
+  /* The row may wrap: a long marketplace spec caps the select (native
+   * selects width themselves to their widest option) instead of squeezing
+   * the search box below a readable floor. */
+  flex-wrap: wrap;
 }
 
 .filterRow .input {
   flex: 1;
-  min-width: 0;
+  min-width: 160px;
 }
 
 .filterRow .select,
 .filterRow .toggleWrap {
   flex: none;
+}
+
+.filterRow .select {
+  max-width: 220px;
 }
 
 .toggleWrap {
@@ -267,8 +324,8 @@
 
 .toggleWrap input[type='checkbox'] {
   accent-color: var(--dsw-alias-brand-primary);
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
   margin: 0;
 }
 
@@ -280,12 +337,12 @@
 }
 
 .pluginCard {
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 10px;
-  background: var(--dsw-alias-bg-layer-2);
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-3);
   padding: 12px;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   display: flex;
 }
 
@@ -296,11 +353,15 @@
   display: flex;
 }
 
+/* Badges and chips share the shell's pill recipe: module-platform fill, no
+ * border, 11px/17px medium label. */
 .presenceBadge {
-  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 999px;
-  color: var(--dsw-alias-label-tertiary);
+  background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-label-secondary);
   font-size: 11px;
+  font-weight: 500;
+  line-height: 17px;
   padding: 1px 8px;
   flex: none;
   white-space: nowrap;
@@ -315,97 +376,33 @@
   flex-direction: column;
 }
 
-/* The installed-version pill: green success background, white text (the
- * same tokens as the modal's "added" badge). */
-.installedChip {
-  border: 0;
-  border-radius: 999px;
-  background: var(--dsw-alias-state-success-primary);
-  color: var(--dsw-static-neutral-bluish-00, #fff);
-  font-size: 11px;
-  padding: 1px 8px;
-  white-space: nowrap;
-}
-
-/* Neutral pill flagging persisted install/update notes (hover for the list,
-   full text in the plugin detail view). */
-.notesChip {
-  border: 0;
-  border-radius: 999px;
-  background: var(--dsw-alias-state-warning-primary, #b45309);
-  color: var(--dsw-static-neutral-bluish-00, #fff);
-  font-size: 11px;
-  padding: 1px 8px;
-  white-space: nowrap;
-  cursor: help;
-}
-
-/* The Models tab's config-baseline chip stays neutral informational. */
-.configChip {
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 999px;
-  background: var(--dsw-alias-bg-layer-3);
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 11px;
-  padding: 1px 8px;
-  white-space: nowrap;
-}
-
 .hint {
   color: var(--dsw-alias-label-tertiary);
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 18px;
 }
 
-/* --- Models tab: alias rows with a model picker -------------------------- */
-
-.modelList {
-  flex-direction: column;
-  gap: 8px;
-  display: flex;
-}
-
-.modelList .optionRow {
-  cursor: default;
-}
-
-.modelList .optionRow:hover {
-  border-color: var(--dsw-alias-border-l2);
-}
-
-.modelList .select {
-  min-width: 280px;
-}
-
-.marketplaceChip {
-  border: 0;
-  border-radius: 999px;
-  background: var(--dsw-alias-bg-layer-3);
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 11px;
-  padding: 1px 8px;
-  flex: none;
-}
-
-/* --- Add/Manage modal (the skills panel's proven pattern) ---------------- */
+/* --- Add/Manage modal (shared with dsh-next-skills) ---------------------- */
 
 .overlay {
   position: fixed;
   inset: 0;
   z-index: 1000;
-  /* Explicit scrim: the theme's bg-overlay alias is far too light. */
-  background: rgba(0, 0, 0, 0.5);
+  /* The theme's modal scrim (24% black on light, 50% on dark). */
+  background: var(--dsw-alias-bg-mask-1);
   align-items: center;
   justify-content: center;
   display: flex;
 }
 
+/* Elevated surface: no border — the elevation shadow carries the 0.5px
+ * hairline stroke, per the shell's elevation model. */
 .modal {
   width: min(440px, calc(100vw - 48px));
-  border: 1px solid var(--dsw-alias-border-l2);
+  border: 0;
   border-radius: 12px;
   background: var(--dsw-alias-bg-layer-3);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--dsw-elevation-prominent);
   padding: 20px;
   flex-direction: column;
   gap: 10px;
@@ -415,9 +412,9 @@
 .modalTitle {
   color: var(--dsw-alias-label-primary);
   margin: 0;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
-  line-height: 1.5;
+  line-height: 1.4;
 }
 
 .modalHint {
@@ -443,7 +440,7 @@
 .optionRow {
   align-items: center;
   gap: 10px;
-  border: 1px solid var(--dsw-alias-border-l2);
+  border: 0.5px solid var(--dsw-alias-border-l2);
   border-radius: 8px;
   padding: 7px 10px;
   cursor: pointer;
@@ -456,8 +453,8 @@
 
 .optionRow input[type='checkbox'] {
   accent-color: var(--dsw-alias-brand-primary);
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
   flex: none;
   margin: 0;
 }
@@ -469,22 +466,15 @@
   min-width: 0;
 }
 
-/* Locked rows (plugin already installed there): readable, not inviting. */
-.optionLocked {
-  cursor: default;
-  opacity: 0.7;
-}
-
-.optionLocked:hover {
-  border-color: var(--dsw-alias-border-l2);
-}
-
 .addedBadge {
   border: 0;
   border-radius: 999px;
   background: var(--dsw-alias-state-success-primary);
-  color: var(--dsw-static-neutral-bluish-00, #fff);
+  /* Constant near-black label: readable on the success fill in both themes. */
+  color: var(--dsw-static-neutral-bluish-1000);
   font-size: 11px;
+  font-weight: 500;
+  line-height: 17px;
   padding: 1px 8px;
   flex: none;
 }
@@ -509,13 +499,96 @@
   text-decoration: underline;
 }
 
-/* Dense two-column-free list used by the detail modal's meta and
-   component sections. */
+/* --- Claude Plugins-specific extensions ---------------------------------- */
+
+/* Catalog version, trailing the plugin name. */
+.version {
+  color: var(--dsw-alias-label-tertiary);
+  font-weight: 400;
+  font-size: 12px;
+  line-height: 17px;
+}
+
+/* The installed-version pill: success fill with a constant near-black
+ * label, readable on green in both themes (the modal's "added" badge). */
+.installedChip {
+  border: 0;
+  border-radius: 999px;
+  background: var(--dsw-alias-state-success-primary);
+  color: var(--dsw-static-neutral-bluish-1000);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 17px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+
+/* Neutral warn pill flagging persisted install/update notes (hover for the
+   list, full text in the plugin detail view). */
+.notesChip {
+  border: 0;
+  border-radius: 999px;
+  background: var(--dsw-alias-state-warn-primary);
+  color: var(--dsw-static-neutral-bluish-1000);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 17px;
+  padding: 1px 8px;
+  white-space: nowrap;
+  cursor: help;
+}
+
+/* The Models tab's config-baseline chip stays neutral informational. */
+.configChip {
+  border: 0;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 17px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+
+.marketplaceChip {
+  border: 0;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 17px;
+  padding: 1px 8px;
+  flex: none;
+}
+
+/* --- Models tab: alias rows with a model picker -------------------------- */
+
+.modelList {
+  flex-direction: column;
+  gap: 8px;
+  display: flex;
+}
+
+.modelList .optionRow {
+  cursor: default;
+}
+
+.modelList .optionRow:hover {
+  border-color: var(--dsw-alias-border-l2);
+}
+
+.modelList .select {
+  min-width: 280px;
+}
+
+/* Dense list used by the detail modal's meta and component sections. */
 .detailList {
   margin: 4px 0;
   padding-left: 18px;
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 18px;
 }
 
 .detailList li {
@@ -538,7 +611,7 @@
   width: 12px;
   height: 12px;
   border: 2px solid var(--dsw-alias-border-l2);
-  border-top-color: var(--dsw-alias-brand-primary);
+  border-top-color: var(--dsw-alias-state-business-primary);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
   flex: none;

@@ -2,41 +2,88 @@
  * Skills settings page styling.
  *
  * The shared-chrome block is kept byte-identical to the Claude Plugins page
- * (packages/dsh-next-cc-plugins/src/client/card.module.css) — tabs, filter
- * row, inputs, buttons, cards, notices, and the scope modal all read as one
- * product. Skills-specific extensions live in the marked section at the end;
- * everything else must be changed in both files together.
+ * (packages/dsh-next-cc-plugins/src/client/card.module.css) — header, tabs,
+ * filter row, inputs, buttons, cards, notices, and the scope modal all read
+ * as one product. The block copies the harness shell's own Plugins settings
+ * page (title, intro, underline tab strip) and consumes only `--dsw-*` theme
+ * tokens: no literal colors, no fallbacks masking token typos, no theme
+ * selectors (dark mode lives in the token layer). Skills-specific extensions
+ * live in the marked section at the end; everything else must be changed in
+ * both files together.
  */
 
 /* --- Shared chrome (mirror of dsh-next-cc-plugins) ----------------------- */
 
+/* Page scaffold from the shell's Plugins settings section: a title, a
+ * one-line intro, then the tab strip, inside a 760px reading column. */
 .page {
+  max-width: 760px;
   flex-direction: column;
   gap: 12px;
   display: flex;
+  color: var(--dsw-alias-label-primary);
 }
 
+.heading {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 24px;
+}
+
+.intro {
+  color: var(--dsw-alias-label-tertiary);
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+/* Underline tab strip, the shell's tablist pattern: 13px labels sitting on
+ * a 0.5px rule, the active tab underlined by a 2px ::after and promoted to
+ * the primary label; focus draws the shell's business-color ring. */
 .tabs {
-  gap: 8px;
+  align-items: flex-end;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+  gap: 22px;
+  margin-top: 2px;
   display: flex;
 }
 
-.tab,
-.tabActive {
+.tab {
   appearance: none;
   font: inherit;
+  font-size: 13px;
+  line-height: 20px;
   cursor: pointer;
-  border-radius: 8px;
-  padding: 8px 14px;
-  border: 1px solid var(--dsw-alias-border-l2);
+  position: relative;
+  padding: 7px 1px 9px;
+  border: 0;
   background: transparent;
-  color: var(--dsw-alias-label-secondary);
+  color: var(--dsw-alias-label-tertiary);
 }
 
-.tabActive {
-  border-color: var(--dsw-alias-brand-primary);
+.tab:hover,
+.tab[data-active='true'] {
   color: var(--dsw-alias-label-primary);
-  font-weight: 600;
+}
+
+.tab[data-active='true']::after,
+.tab:focus-visible::after {
+  background: var(--dsw-alias-label-primary);
+  content: '';
+  border-radius: 2px 2px 0 0;
+  height: 2px;
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+}
+
+.tab:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 2px;
+  border-radius: 2px;
+  color: var(--dsw-alias-label-primary);
 }
 
 .addRow {
@@ -46,28 +93,42 @@
   flex-wrap: wrap;
 }
 
+/* Inputs and selects follow the shell's field recipe: hairline l4 border on
+ * layer 3, 8px radius, brand-primary focus border. */
 .input {
   flex: 1;
   min-width: 240px;
   font: inherit;
+  font-size: 13px;
+  line-height: 20px;
   color: inherit;
+  height: 34px;
   border-radius: 8px;
-  padding: 8px 12px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  background: var(--dsw-alias-bg-layer-2);
+  padding: 0 12px;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  background: var(--dsw-alias-bg-layer-3);
+}
+
+.input:focus-visible,
+.select:focus-visible {
+  border-color: var(--dsw-alias-brand-primary);
+  outline: none;
 }
 
 .select {
   font: inherit;
+  font-size: 13px;
+  line-height: 20px;
   color: inherit;
+  height: 34px;
   border-radius: 8px;
-  padding: 6px 10px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  background: var(--dsw-alias-bg-layer-2);
+  padding: 0 8px;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  background: var(--dsw-alias-bg-layer-3);
 }
 
 .card {
-  border: 1px solid var(--dsw-alias-border-l2);
+  border: 0.5px solid var(--dsw-alias-border-l4);
   background: var(--dsw-alias-bg-layer-3);
   border-radius: 12px;
   padding: 14px 16px;
@@ -91,16 +152,10 @@
   display: flex;
 }
 
-.name {
-  color: var(--dsw-alias-label-primary);
-  font-size: 15px;
-  font-weight: 600;
-  line-height: 1.4;
-}
-
+.name,
 .pluginName {
   color: var(--dsw-alias-label-primary);
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
   line-height: 1.4;
 }
@@ -112,7 +167,7 @@
 }
 
 .errText {
-  color: var(--dsw-alias-label-primary);
+  color: var(--dsw-alias-label-error);
   font-size: 13px;
   line-height: 1.5;
 }
@@ -124,49 +179,83 @@
   align-items: center;
 }
 
+/* Button families, one geometry (8px radius, 5px 14px, 13px/20px): the
+ * monochrome primary (the shell's card-button recipe), the quiet ghost,
+ * the outline danger pair for destructive actions, and the warn-tinted
+ * update action. Every color is a semantic alias. */
 .primary,
 .ghost,
 .ghostDanger,
-.danger {
+.danger,
+.updateBtn,
+.deleteBtn {
   appearance: none;
   font: inherit;
+  font-size: 13px;
+  line-height: 20px;
   cursor: pointer;
   border-radius: 8px;
-  padding: 7px 12px;
-  border: 1px solid transparent;
+  padding: 5px 14px;
+  border: 0.5px solid transparent;
   white-space: nowrap;
 }
 
 .primary {
-  background: var(--dsw-alias-brand-primary);
-  color: var(--dsw-alias-bg-layer-1);
+  background: var(--dsw-alias-button-primary-fill);
+  color: var(--dsw-alias-label-primary-foreground);
   font-weight: 600;
 }
 
-.ghost {
-  background: transparent;
-  color: var(--dsw-alias-label-secondary);
-  border-color: var(--dsw-alias-border-l2);
+.primary:hover:not(:disabled) {
+  background: var(--dsw-alias-button-primary-hover);
 }
 
+.ghost,
 .ghostDanger {
   background: transparent;
   color: var(--dsw-alias-label-secondary);
   border-color: var(--dsw-alias-border-l2);
 }
 
-.danger {
-  background: var(--dsw-alias-bg-layer-2);
+.ghost:hover:not(:disabled),
+.ghostDanger:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-primary);
-  border-color: var(--dsw-alias-label-primary);
+}
+
+/* The second step of a destructive pair (after the ghost confirm step):
+ * the error label carries the emphasis, the danger hover fills it. */
+.danger,
+.deleteBtn {
+  background: transparent;
+  color: var(--dsw-alias-label-error);
+  border-color: var(--dsw-alias-label-error);
   font-weight: 600;
+}
+
+.danger:hover:not(:disabled),
+.deleteBtn:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+}
+
+/* Update / Replace: a quiet action tinted by the theme's warn label. */
+.updateBtn {
+  background: transparent;
+  color: var(--dsw-alias-state-warn-label);
+  border-color: var(--dsw-alias-border-l2);
+}
+
+.updateBtn:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .primary:disabled,
 .ghost:disabled,
 .ghostDanger:disabled,
-.danger:disabled {
-  opacity: 0.5;
+.danger:disabled,
+.updateBtn:disabled,
+.deleteBtn:disabled {
+  opacity: 0.4;
   cursor: default;
 }
 
@@ -183,44 +272,6 @@
   width: 100%;
 }
 
-/* Solid orange "Update" action. */
-.updateBtn {
-  appearance: none;
-  font: inherit;
-  cursor: pointer;
-  border-radius: 8px;
-  padding: 7px 12px;
-  border: 1px solid transparent;
-  white-space: nowrap;
-  background: #f97316;
-  color: #ffffff;
-  font-weight: 600;
-}
-
-.updateBtn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-/* Solid red "Delete" action. */
-.deleteBtn {
-  appearance: none;
-  font: inherit;
-  cursor: pointer;
-  border-radius: 8px;
-  padding: 7px 12px;
-  border: 1px solid transparent;
-  white-space: nowrap;
-  background: #dc2626;
-  color: #ffffff;
-  font-weight: 600;
-}
-
-.deleteBtn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
 .noticeOk,
 .noticeErr {
   border-radius: 8px;
@@ -230,43 +281,48 @@
 }
 
 .noticeOk {
-  border: 1px solid var(--dsw-alias-border-l2);
+  border: 0.5px solid var(--dsw-alias-border-l2);
   color: var(--dsw-alias-label-secondary);
   background: var(--dsw-alias-bg-layer-2);
 }
 
+/* State-colored borders keep the 1px weight (the shell's rule); the error
+ * label colors both stroke and text. */
 .noticeErr {
-  border: 1px solid var(--dsw-alias-label-primary);
-  color: var(--dsw-alias-label-primary);
+  border: 1px solid var(--dsw-alias-label-error);
+  color: var(--dsw-alias-label-error);
   background: var(--dsw-alias-bg-layer-2);
 }
 
 .empty {
   color: var(--dsw-alias-label-tertiary);
   font-size: 13px;
-  line-height: 1.6;
-  border: 1px dashed var(--dsw-alias-border-l2);
-  border-radius: 12px;
-  padding: 18px 16px;
+  line-height: 20px;
+  padding: 4px 0;
 }
 
 .filterRow {
   gap: 8px;
   display: flex;
   align-items: center;
-  /* One line always: the search box shrinks (min-width: 0) instead of the
-   * installed-only toggle wrapping below the filters. */
-  flex-wrap: nowrap;
+  /* The row may wrap: a long provider spec caps the select (native selects
+   * width themselves to their widest option) instead of squeezing the
+   * search box below a readable floor. */
+  flex-wrap: wrap;
 }
 
 .filterRow .input {
   flex: 1;
-  min-width: 0;
+  min-width: 160px;
 }
 
 .filterRow .select,
 .filterRow .toggleWrap {
   flex: none;
+}
+
+.filterRow .select {
+  max-width: 220px;
 }
 
 .toggleWrap {
@@ -281,8 +337,8 @@
 
 .toggleWrap input[type='checkbox'] {
   accent-color: var(--dsw-alias-brand-primary);
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
   margin: 0;
 }
 
@@ -300,19 +356,19 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 14px;
-  padding: 10px;
-  background: var(--dsw-alias-bg-layer-1, transparent);
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--dsw-alias-bg-layer-1);
 }
 
 .pluginCard {
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 10px;
-  background: var(--dsw-alias-bg-layer-2);
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-3);
   padding: 12px;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   display: flex;
 }
 
@@ -323,11 +379,15 @@
   display: flex;
 }
 
+/* Badges and chips share the shell's pill recipe: module-platform fill, no
+ * border, 11px/17px medium label. */
 .presenceBadge {
-  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 999px;
-  color: var(--dsw-alias-label-tertiary);
+  background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-label-secondary);
   font-size: 11px;
+  font-weight: 500;
+  line-height: 17px;
   padding: 1px 8px;
   flex: none;
   white-space: nowrap;
@@ -345,7 +405,7 @@
 .hint {
   color: var(--dsw-alias-label-tertiary);
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 18px;
 }
 
 /* --- Add/Manage modal (shared with dsh-next-cc-plugins) ------------------ */
@@ -354,19 +414,21 @@
   position: fixed;
   inset: 0;
   z-index: 1000;
-  /* Explicit scrim: the theme's bg-overlay alias is far too light. */
-  background: rgba(0, 0, 0, 0.5);
+  /* The theme's modal scrim (24% black on light, 50% on dark). */
+  background: var(--dsw-alias-bg-mask-1);
   align-items: center;
   justify-content: center;
   display: flex;
 }
 
+/* Elevated surface: no border — the elevation shadow carries the 0.5px
+ * hairline stroke, per the shell's elevation model. */
 .modal {
   width: min(440px, calc(100vw - 48px));
-  border: 1px solid var(--dsw-alias-border-l2);
+  border: 0;
   border-radius: 12px;
   background: var(--dsw-alias-bg-layer-3);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--dsw-elevation-prominent);
   padding: 20px;
   flex-direction: column;
   gap: 10px;
@@ -376,9 +438,9 @@
 .modalTitle {
   color: var(--dsw-alias-label-primary);
   margin: 0;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
-  line-height: 1.5;
+  line-height: 1.4;
 }
 
 .modalHint {
@@ -404,7 +466,7 @@
 .optionRow {
   align-items: center;
   gap: 10px;
-  border: 1px solid var(--dsw-alias-border-l2);
+  border: 0.5px solid var(--dsw-alias-border-l2);
   border-radius: 8px;
   padding: 7px 10px;
   cursor: pointer;
@@ -417,8 +479,8 @@
 
 .optionRow input[type='checkbox'] {
   accent-color: var(--dsw-alias-brand-primary);
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
   flex: none;
   margin: 0;
 }
@@ -434,8 +496,11 @@
   border: 0;
   border-radius: 999px;
   background: var(--dsw-alias-state-success-primary);
-  color: var(--dsw-static-neutral-bluish-00, #fff);
+  /* Constant near-black label: readable on the success fill in both themes. */
+  color: var(--dsw-static-neutral-bluish-1000);
   font-size: 11px;
+  font-weight: 500;
+  line-height: 17px;
   padding: 1px 8px;
   flex: none;
 }
@@ -466,9 +531,11 @@
 .providerChip {
   border: 0;
   border-radius: 999px;
-  background: var(--dsw-alias-bg-layer-3);
+  background: var(--dsw-alias-bg-module-platform);
   color: var(--dsw-alias-label-tertiary);
   font-size: 11px;
+  font-weight: 500;
+  line-height: 17px;
   padding: 1px 8px;
   flex: none;
   white-space: nowrap;
@@ -478,9 +545,11 @@
 .sourceChip {
   border: 0;
   border-radius: 999px;
-  background: var(--dsw-alias-bg-layer-3);
+  background: var(--dsw-alias-bg-module-platform);
   color: var(--dsw-alias-label-secondary);
   font-size: 11px;
+  font-weight: 500;
+  line-height: 17px;
   padding: 1px 8px;
   flex: none;
   white-space: nowrap;
@@ -501,21 +570,25 @@
 .projectChip {
   border: 0;
   border-radius: 999px;
-  background: var(--dsw-alias-bg-layer-3);
+  background: var(--dsw-alias-bg-module-platform);
   color: var(--dsw-alias-label-secondary);
   font-size: 11px;
+  font-weight: 500;
+  line-height: 17px;
   padding: 1px 8px;
   white-space: nowrap;
 }
 
-/* Custom (hand-written, unmanaged) skill marker: orange background, white
- * text — the theme ships no orange token. */
+/* Custom (hand-written, unmanaged) skill marker: warn fill with a constant
+ * near-black label, readable on amber in both themes. */
 .customBadge {
   border: 0;
   border-radius: 999px;
-  background: #f97316;
-  color: var(--dsw-static-neutral-bluish-00, #fff);
+  background: var(--dsw-alias-state-warn-primary);
+  color: var(--dsw-static-neutral-bluish-1000);
   font-size: 11px;
+  font-weight: 500;
+  line-height: 17px;
   padding: 1px 8px;
   white-space: nowrap;
 }
@@ -526,11 +599,13 @@
 .updateChip {
   border: 0;
   border-radius: 999px;
-  background: var(--dsw-alias-state-warn-primary, #b45309);
-  color: var(--dsw-static-neutral-bluish-00, #fff);
+  background: var(--dsw-alias-state-warn-primary);
+  color: var(--dsw-static-neutral-bluish-1000);
   font-size: 11px;
+  font-weight: 500;
+  line-height: 17px;
   padding: 1px 8px;
-  margin-left: 6px;
+  margin-left: 8px;
   white-space: nowrap;
 }
 
@@ -539,23 +614,6 @@
   justify-content: center;
   display: flex;
   padding: 4px 0;
-}
-
-/* Filter-row sizing override: a native select widths itself to its widest
- * option, so a long provider spec would crowd the flex-1 search box down to
- * a sliver. Cap the select and give the search box a readable floor (the
- * shared block keeps cc-plugins' exact rules; this is skills-specific). The
- * row may wrap so the filter tools never clip on narrow panes. */
-.filterRow {
-  flex-wrap: wrap;
-}
-
-.filterRow .select {
-  max-width: 220px;
-}
-
-.filterRow .input {
-  min-width: 160px;
 }
 
 /* Refresh-in-progress: replaces the refreshing row's Remove button. */
@@ -573,7 +631,7 @@
   width: 12px;
   height: 12px;
   border: 2px solid var(--dsw-alias-border-l2);
-  border-top-color: var(--dsw-alias-brand-primary);
+  border-top-color: var(--dsw-alias-state-business-primary);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
   flex: none;
@@ -592,7 +650,7 @@
 
 .modalBody {
   margin: 0;
-  border: 1px solid var(--dsw-alias-border-l2);
+  border: 0.5px solid var(--dsw-alias-border-l2);
   border-radius: 8px;
   background: var(--dsw-alias-bg-layer-2);
   color: var(--dsw-alias-label-secondary);
@@ -643,14 +701,14 @@
 .md code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
-  border: 1px solid var(--dsw-alias-border-l2);
+  border: 0.5px solid var(--dsw-alias-border-l2);
   border-radius: 4px;
   background: var(--dsw-alias-bg-layer-3);
   padding: 0 4px;
 }
 .md pre {
   margin: 8px 0;
-  border: 1px solid var(--dsw-alias-border-l2);
+  border: 0.5px solid var(--dsw-alias-border-l2);
   border-radius: 8px;
   background: var(--dsw-alias-bg-layer-3);
   padding: 10px;
@@ -674,7 +732,7 @@
   margin: 12px 0;
 }
 .md a {
-  color: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-state-business-primary);
 }
 .md table {
   border-collapse: collapse;
@@ -682,7 +740,7 @@
   width: 100%;
 }
 .md th, .md td {
-  border: 1px solid var(--dsw-alias-border-l2);
+  border: 0.5px solid var(--dsw-alias-border-l2);
   padding: 4px 8px;
   text-align: left;
 }

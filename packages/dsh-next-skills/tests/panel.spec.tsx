@@ -306,6 +306,53 @@ describe('SkillsPanel rendering', () => {
     await unmount()
   })
 
+  it('renders the harness scaffold: title, intro, and the labeled tablist', async () => {
+    const { container, unmount } = await render(rpcMock(), WS)
+    expect(container.querySelector('h2')?.textContent).toBe('Skills')
+    const intro = [...container.querySelectorAll('p')]
+      .find((p) => p.textContent === 'Install skills from providers and control where each one is enabled.')
+    expect(intro, 'the intro line should render under the title').toBeTruthy()
+    expect(container.querySelector('[role="tablist"]')?.getAttribute('aria-label')).toBe('Skill views')
+    await unmount()
+  })
+
+  it('the tab strip roves: ArrowRight steps forward and Home jumps back', async () => {
+    const { container, unmount } = await render(rpcMock(), WS)
+    const tablist = container.querySelector('[role="tablist"]') as HTMLElement
+    const skills = byTestId(container, 'skills-tab-skills') as HTMLButtonElement
+    const providers = byTestId(container, 'skills-tab-providers') as HTMLButtonElement
+    // Initial state: the selection and the roving tab stop sit on Skills.
+    expect(skills.getAttribute('aria-selected')).toBe('true')
+    expect(skills.getAttribute('data-active')).toBe('true')
+    expect(skills.tabIndex).toBe(0)
+    expect(providers.getAttribute('aria-selected')).toBe('false')
+    expect(providers.getAttribute('data-active')).toBeNull()
+    expect(providers.tabIndex).toBe(-1)
+    await act(async () => { tablist.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })) })
+    expect(providers.getAttribute('aria-selected')).toBe('true')
+    expect(providers.getAttribute('data-active')).toBe('true')
+    expect(providers.tabIndex).toBe(0)
+    expect(skills.getAttribute('aria-selected')).toBe('false')
+    expect(document.activeElement).toBe(providers)
+    await act(async () => { tablist.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true })) })
+    expect(skills.getAttribute('aria-selected')).toBe('true')
+    expect(document.activeElement).toBe(skills)
+    await unmount()
+  })
+
+  it('a provider refresh result without an error text falls back to the localized Refresh failed', async () => {
+    const rpc = vi.fn<RpcFn>(async (method: string) => {
+      if (method === 'getState') return STATE
+      if (method === 'refreshProvider') return { ok: false }
+      return { ok: true, state: STATE }
+    }) as RpcFn & ReturnType<typeof vi.fn>
+    const { container, unmount } = await render(rpc, WS)
+    await click(byTestId(container, 'skills-tab-providers'))
+    await click(button(container, 'Refresh all'))
+    expect(byTestId(container, 'skills-message').textContent).toContain('Refresh failed')
+    await unmount()
+  })
+
   it('getState carries no workspace scoping — the listing is global-only', async () => {
     const rpc = rpcMock()
     await render(rpc, WS)

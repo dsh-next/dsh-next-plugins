@@ -71,6 +71,8 @@ export const en = {
   'presence.noSession': 'no session open',
   'presence.ageMs': '{count}ms old',
   'presence.stale': 'stale',
+
+  'rpc.failed': 'Notifier request "{method}" failed (HTTP {status})',
 }
 
 /** Every dictionary key. */

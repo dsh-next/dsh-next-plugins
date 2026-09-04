@@ -1,6 +1,7 @@
 /**
  * The Claude Plugins settings panel rendered in the `settings.section` slot:
- * a whole settings page with two tabs over the Host JSON RPC.
+ * a whole settings page with three tabs over the Host JSON RPC, on the same
+ * harness scaffold as the Skills page (title, intro, underline tab strip).
  *
  *  - Plugins: every plugin across all marketplaces in a two-column card grid
  *    (installed plugins first, each group alphabetical by name) with a
@@ -60,6 +61,9 @@ export interface CcPanelDeps {
 }
 
 type Tab = 'plugins' | 'marketplaces' | 'models'
+
+/** Tab strip order — the roving-tabindex keyboard model walks this. */
+const TAB_ORDER: readonly Tab[] = ['plugins', 'marketplaces', 'models']
 
 /** Mutations whose success changes the installed skill set the chat UI surfaces. */
 const CATALOG_MUTATIONS = new Set(['installPlugin', 'setPluginScope', 'uninstallPlugin', 'updatePlugin'])
@@ -195,11 +199,11 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
     try {
       const result = await deps.rpc(method, args) as MutationResult
       if (isMutationError(result)) {
-        setMessage({ ok: false, text: result.error ?? 'request failed' })
+        setMessage({ ok: false, text: result.error ?? t('status.requestFailed') })
       } else {
         if (result.state !== undefined) setState(result.state)
         else await refresh()
-        setMessage({ ok: true, text: result.message ?? 'done' })
+        setMessage({ ok: true, text: result.message ?? t('status.done') })
         if (CATALOG_MUTATIONS.has(method)) deps.notifyInstalledChanged?.()
         setConfirmUninstall(false)
       }
@@ -220,6 +224,39 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
   const installed: InstalledPlugin[] = state?.installed ?? []
   const models = state?.models ?? []
   const byKey = React.useMemo(() => new Map(installed.map((r) => [r.key, r])), [installed])
+
+  /** Tab buttons by tab id, for the Arrow/Home/End focus moves below. */
+  const tabRefs = React.useRef(new Map<Tab, HTMLButtonElement>())
+
+  /** The harness shell tablist's keyboard model: ArrowLeft/Right move the
+   *  selection, Home/End jump, and selection follows focus. */
+  const onTabKeyDown = (event: React.KeyboardEvent): void => {
+    const index = TAB_ORDER.indexOf(tab)
+    const next = event.key === 'ArrowLeft' ? (index + TAB_ORDER.length - 1) % TAB_ORDER.length
+      : event.key === 'ArrowRight' ? (index + 1) % TAB_ORDER.length
+      : event.key === 'Home' ? 0
+      : event.key === 'End' ? TAB_ORDER.length - 1
+      : undefined
+    if (next === undefined) return
+    event.preventDefault()
+    setTab(TAB_ORDER[next]!)
+    tabRefs.current.get(TAB_ORDER[next]!)?.focus()
+  }
+
+  /** One underline tab in the shell's style: `data-active` drives the
+   *  indicator and tabIndex roves. */
+  const renderTab = (id: Tab, label: string): React.ReactElement => (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={tab === id}
+      data-active={tab === id ? 'true' : undefined}
+      tabIndex={tab === id ? 0 : -1}
+      className={styles.tab}
+      onClick={() => setTab(id)}
+      ref={(el) => { if (el !== null) tabRefs.current.set(id, el) }}
+    >{label}</button>
+  )
 
   const closeModal = (): void => {
     setModal(undefined)
@@ -308,7 +345,7 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
         // on failure) before the next marketplace starts.
         const nextState = result.state
         if (isMutationError(result)) {
-          failures.push(`${m.name}: ${result.error ?? 'refresh failed'}`)
+          failures.push(`${m.name}: ${result.error ?? t('status.refreshFailed')}`)
         }
         if (nextState !== undefined) setState(nextState)
       } catch (error) {
@@ -553,28 +590,12 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
 
   return (
     <div className={styles.page}>
-      <div className={styles.tabs} role="tablist">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'plugins'}
-          className={tab === 'plugins' ? styles.tabActive : styles.tab}
-          onClick={() => setTab('plugins')}
-        >{t('tab.plugins')}</button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'marketplaces'}
-          className={tab === 'marketplaces' ? styles.tabActive : styles.tab}
-          onClick={() => setTab('marketplaces')}
-        >{t('tab.marketplaces')}</button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'models'}
-          className={tab === 'models' ? styles.tabActive : styles.tab}
-          onClick={() => setTab('models')}
-        >{t('tab.models')}</button>
+      <h2 className={styles.heading}>{t('title')}</h2>
+      <p className={styles.intro}>{t('intro')}</p>
+      <div className={styles.tabs} role="tablist" aria-label={t('tabs')} onKeyDown={onTabKeyDown}>
+        {renderTab('plugins', t('tab.plugins'))}
+        {renderTab('marketplaces', t('tab.marketplaces'))}
+        {renderTab('models', t('tab.models'))}
       </div>
 
       {message !== undefined && (

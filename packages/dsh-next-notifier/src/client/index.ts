@@ -39,17 +39,6 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 const RPC_PATH = '/dsh-next-notifier/rpc'
 
-function rpc(method: string, args?: unknown): Promise<unknown> {
-  return fetch(RPC_PATH, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ method, args: args === undefined ? null : args }),
-  }).then((res) => {
-    if (!res.ok) throw new Error('dsh-next-notifier rpc ' + method + ' failed: HTTP ' + res.status)
-    return res.json()
-  })
-}
-
 // Required services (fiber inject waiting — the renderer owns the slot
 // registry since 0.1.2, and the session controller applies later, so both
 // must be up before the card registers and reports presence).
@@ -81,7 +70,18 @@ export function apply(ctx: Context): void {
   // without the service, English keeps the card fully functional.
   const t: Translate = locale !== undefined ? locale.bind(NS) : englishTranslate
 
-  const send = (method: string, args?: unknown): Promise<unknown> => rpc(method, args)
+  // The RPC wrapper closes over the translator: transport failures surface
+  // in the card's error line, so the message rides the locale like every
+  // other string (the skills page's `rpc.failed` pattern).
+  const rpc = (method: string, args?: unknown): Promise<unknown> =>
+    fetch(RPC_PATH, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ method, args: args === undefined ? null : args }),
+    }).then((res) => {
+      if (!res.ok) throw new Error(t('rpc.failed', { method, status: res.status }))
+      return res.json()
+    })
 
   const presence = createPresenceReporter(sessions, timer, (m, a) => rpc(m, a))
   const drainer = createDrainer(sessions, timer, () => rpc('getPendingNotifications'))
@@ -100,7 +100,7 @@ export function apply(ctx: Context): void {
     slots.inject('settings.plugin.item', () => slots.register(
       { name: 'settings.plugin.item', key: 'dsh-next-notifier', registrant: 'dsh-next-notifier' },
       () => React.createElement(NotifierCard, {
-        rpc: send,
+        rpc,
         sessions,
         timer,
         t,

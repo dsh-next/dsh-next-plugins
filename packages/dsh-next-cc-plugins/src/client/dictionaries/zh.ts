@@ -11,6 +11,11 @@ import type { MessageKey } from './en.ts'
 /** The zh mirror: same keys, Simplified Chinese copy. */
 export const zh: Record<MessageKey, string> = {
   'nav': 'Claude 插件',
+
+  'title': 'Claude 插件',
+  'intro': '从 Claude Code 市场安装插件，并控制每个插件的生效位置。',
+  'tabs': '插件视图',
+
   'tab.plugins': '插件',
   'tab.marketplaces': '市场',
   'tab.models': '模型',
@@ -121,6 +126,10 @@ export const zh: Record<MessageKey, string> = {
   'marketplaces.lastSynced': '上次同步：{age}',
   'marketplaces.by': '作者：{owner}',
   'marketplaces.remove': '移除',
+
+  'status.requestFailed': '请求失败',
+  'status.done': '完成',
+  'status.refreshFailed': '刷新失败',
 
   'models.hint': '将 agent 使用的 Claude 模型名映射到当前运行时实际提供的模型。未映射的名称会继承委派会话的模型（与 Claude 的 `model: inherit` 默认行为一致）；显式选择继承可覆盖配置基线中的映射。保存后会重新解析已安装的 agent 行，无需重新安装；重载配置后生效。',
   'models.config': '配置',

@@ -1,10 +1,10 @@
 /**
- * jsdom render test for the Claude Plugins settings panel: proves the two
+ * jsdom render test for the Claude Plugins settings panel: proves the three
  * tabs (Plugins grid with search/provider/installed filters, Marketplaces
- * sources) and the scope modal's radio flows (Global default / Workspaces
- * checklist; install, re-scope, update, two-step uninstall) dispatch the
- * right RPC calls. This complements the Host RPC contract test (shape) and
- * the real-mount e2e marker (whole shell).
+ * sources, Models aliases) and the scope modal's radio flows (Global default /
+ * Workspaces checklist; install, re-scope, update, two-step uninstall)
+ * dispatch the right RPC calls. This complements the Host RPC contract test
+ * (shape) and the real-mount e2e marker (whole shell).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as React from 'react'
@@ -291,6 +291,46 @@ describe('CcPanel', () => {
     await act(async () => { setValue(input, 'anthropics/claude-code') })
     await act(async () => { button('Add marketplace').click() })
     expect(rpc).toHaveBeenCalledWith('addMarketplace', { spec: 'anthropics/claude-code' })
+  })
+
+  it('renders the harness scaffold: title, intro, and the labeled tablist', async () => {
+    await renderAsync()
+    expect(container.querySelector('h2')?.textContent).toBe('Claude Plugins')
+    const intro = [...container.querySelectorAll('p')]
+      .find((p) => p.textContent === 'Install plugins from Claude Code marketplaces and control where each one works.')
+    expect(intro, 'the intro line should render under the title').toBeTruthy()
+    expect(container.querySelector('[role="tablist"]')?.getAttribute('aria-label')).toBe('Plugin views')
+  })
+
+  it('the tab strip roves: End jumps to the last tab and ArrowLeft steps back', async () => {
+    await renderAsync()
+    const tablist = container.querySelector('[role="tablist"]') as HTMLElement
+    const tabs = [...tablist.querySelectorAll('[role="tab"]')] as HTMLButtonElement[]
+    expect(tabs.map((tab) => tab.textContent)).toEqual(['Plugins', 'Marketplaces', 'Models'])
+    expect(tabs[0]!.tabIndex).toBe(0)
+    expect(tabs[1]!.tabIndex).toBe(-1)
+    expect(tabs[2]!.tabIndex).toBe(-1)
+    await act(async () => { tablist.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })) })
+    expect(tabs[2]!.getAttribute('aria-selected')).toBe('true')
+    expect(tabs[2]!.tabIndex).toBe(0)
+    expect(tabs[0]!.getAttribute('aria-selected')).toBe('false')
+    expect(document.activeElement).toBe(tabs[2])
+    await act(async () => { tablist.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })) })
+    expect(tabs[1]!.getAttribute('aria-selected')).toBe('true')
+    expect(document.activeElement).toBe(tabs[1])
+  })
+
+  it('a mutation result with no error text falls back to the localized Request failed', async () => {
+    const rpc = vi.fn<RpcFn>(async (method: string) => {
+      if (method === 'getState') return STATE
+      return { ok: false }
+    }) as RpcFn & ReturnType<typeof vi.fn>
+    await renderAsync({ rpc })
+    await act(async () => { button('Marketplaces').click() })
+    const input = document.querySelector('[data-testid="cc-add-input"]') as HTMLInputElement
+    await act(async () => { setValue(input, 'anthropics/claude-code') })
+    await act(async () => { button('Add marketplace').click() })
+    expect(document.querySelector('[data-testid="cc-message"]')?.textContent).toBe('Request failed')
   })
 
   it('shows the installed version and a card Update button when the catalog is newer', async () => {

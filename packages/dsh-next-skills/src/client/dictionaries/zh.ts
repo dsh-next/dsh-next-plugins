@@ -13,6 +13,10 @@ import type { MessageKey } from './en.ts'
 export const zh: Record<MessageKey, string> = {
   'nav': '技能',
 
+  'title': '技能',
+  'intro': '从提供方安装技能，并控制每个技能的启用位置。',
+  'tabs': '技能视图',
+
   'tab.skills': '技能',
   'tab.providers': '提供方',
 
@@ -95,5 +99,6 @@ export const zh: Record<MessageKey, string> = {
   'status.working': '处理中…',
   'status.done': '完成',
   'status.requestFailed': '请求失败',
+  'status.refreshFailed': '刷新失败',
   'rpc.failed': '技能请求“{method}”失败（HTTP {status}）',
 }

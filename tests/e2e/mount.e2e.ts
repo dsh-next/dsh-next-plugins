@@ -170,6 +170,9 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
   // check cannot see). No network: providers are only added manually.
   'dsh-next-skills': async (page) => {
     await openSkillsSection(page)
+    // The harness page scaffold: the section draws its own title heading
+    // above the tab strip (the shell's settings-section pattern).
+    await expect(page.getByRole('heading', { name: 'Skills', exact: true })).toBeVisible()
     await expect(page.getByText('Providers', { exact: true })).toBeVisible()
     const card = page.locator('[data-testid="skills-card"]', { hasText: 'e2e-test-skill' }).first()
     await expect(card).toBeVisible()
@@ -218,6 +221,9 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     // The section label is a locale-service function label; under the
     // default (en) locale it must still read exactly "Claude Plugins".
     await expect(page.getByRole('button', { name: 'Claude Plugins', exact: true }).first()).toBeVisible()
+    // The harness page scaffold: the section draws its own title heading
+    // above the tab strip (the shell's settings-section pattern).
+    await expect(page.getByRole('heading', { name: 'Claude Plugins', exact: true })).toBeVisible()
     // Tab clicks stay scoped to the Settings dialog: the app's own sidebar
     // also has "Plugins" and "Models" pages an unscoped text locator hits.
     const settings = page.getByRole('dialog', { name: 'Settings' })

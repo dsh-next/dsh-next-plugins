@@ -66,4 +66,6 @@ export const zh: Record<MessageKey, string> = {
   'presence.noSession': '未打开会话',
   'presence.ageMs': '{count}ms 前',
   'presence.stale': '已过期',
+
+  'rpc.failed': '通知请求“{method}”失败（HTTP {status}）',
 }

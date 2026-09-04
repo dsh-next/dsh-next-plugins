@@ -1,5 +1,5 @@
 .card {
-  border: 1px solid var(--dsw-alias-border-l2);
+  border: 0.5px solid var(--dsw-alias-border-l4);
   background: var(--dsw-alias-bg-layer-3);
   border-radius: 12px;
   list-style: none;
@@ -28,7 +28,7 @@
   display: flex;
 }
 .header:focus-visible {
-  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline: 2px solid var(--dsw-alias-state-business-primary);
   outline-offset: -2px;
 }
 .headText {
@@ -52,13 +52,14 @@
 .chevron {
   color: var(--dsw-alias-label-tertiary);
   flex: none;
+  display: block;
   transition: transform 0.16s;
 }
 .chevOpen {
   transform: rotate(180deg);
 }
 .body {
-  border-top: 1px solid var(--dsw-alias-border-l2);
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
   margin: 0 16px;
   padding: 4px 0 12px;
 }
@@ -69,7 +70,7 @@
   display: flex;
 }
 .row + .row {
-  border-top: 1px solid var(--dsw-alias-border-l2);
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
 }
 .text {
   flex-direction: column;
@@ -98,10 +99,10 @@
 }
 .check:disabled {
   cursor: default;
-  opacity: 0.45;
+  opacity: 0.4;
 }
 .group {
-  border-top: 1px solid var(--dsw-alias-border-l2);
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
   padding: 2px 0;
 }
 .sub {
@@ -115,14 +116,15 @@
 }
 .select {
   min-width: 150px;
-  border: 1px solid var(--dsw-alias-border-l2);
+  border: 0.5px solid var(--dsw-alias-border-l4);
   background: var(--dsw-alias-bg-layer-3);
-  height: 32px;
+  height: 34px;
   font: inherit;
   color: var(--dsw-alias-label-primary);
   border-radius: 8px;
   padding: 0 8px;
   font-size: 13px;
+  line-height: 20px;
 }
 .select:focus-visible {
   border-color: var(--dsw-alias-brand-primary);
@@ -140,7 +142,7 @@
 }
 .range:disabled {
   cursor: default;
-  opacity: 0.45;
+  opacity: 0.4;
 }
 .footer {
   flex-direction: column;
@@ -152,18 +154,18 @@
   appearance: none;
   font: inherit;
   cursor: pointer;
-  border: 1px solid var(--dsw-alias-border-l2);
+  border: 0.5px solid var(--dsw-alias-border-l2);
   color: var(--dsw-alias-label-secondary);
   background: transparent;
   border-radius: 8px;
   padding: 5px 14px;
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 20px;
   align-self: flex-start;
 }
 .test:hover:not(:disabled) {
   color: var(--dsw-alias-label-primary);
-  border-color: var(--dsw-alias-label-dimmed);
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 .test:disabled {
   opacity: 0.4;
@@ -173,7 +175,7 @@
   color: var(--dsw-alias-label-tertiary);
   margin: 0;
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 18px;
 }
 .statusErr {
   color: var(--dsw-alias-label-error);

@@ -9,9 +9,10 @@
  *    one card per copy, with a provider filter, a search box, and an
  *    installed-only toggle. Each card shows the name, an origin chip, the
  *    provider spec, and a presence badge, then an equal-width action row
- *    below the description: Update (orange, only when a newer catalog
- *    version exists), Delete (red, two-step confirm), and Manage (opens the
- *    scope modal — Global by default or a checklist of workspaces).
+ *    below the description: Update (warn-tinted outline, only when a newer
+ *    catalog version exists), Delete (error outline, two-step confirm), and
+ *    Manage (opens the scope modal — Global by default or a checklist of
+ *    workspaces).
  *    Catalog skills with no installed copy render an Add button. The name
  *    button opens the skill's full SKILL.md rendered as markdown.
  *  - Providers: source management (add by owner/repo shorthand or GitHub
@@ -55,6 +56,9 @@ export interface SkillsPanelDeps {
 }
 
 type Tab = 'skills' | 'providers'
+
+/** Tab strip order — the roving-tabindex keyboard model walks this. */
+const TAB_ORDER: readonly Tab[] = ['skills', 'providers']
 
 /** Cards rendered before the "Show more" button appends the next page. */
 const PAGE_SIZE = 30
@@ -329,7 +333,7 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
       try {
         const result = await deps.rpc('refreshProvider', { providerId: provider.id }) as MutationResult
         if (isMutationError(result)) {
-          failures.push(`${provider.spec}: ${result.error ?? 'refresh failed'}`)
+          failures.push(`${provider.spec}: ${result.error ?? t('status.refreshFailed')}`)
           await refresh()
         } else {
           // The host already reconciles inside refreshProvider and reports
@@ -353,6 +357,41 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
   }
 
   const providers: ProviderView[] = state?.providers ?? []
+
+  /** Tab buttons by tab id, for the Arrow/Home/End focus moves below. */
+  const tabRefs = React.useRef(new Map<Tab, HTMLButtonElement>())
+
+  /** The harness shell tablist's keyboard model: ArrowLeft/Right move the
+   *  selection, Home/End jump, and selection follows focus. */
+  const onTabKeyDown = (event: React.KeyboardEvent): void => {
+    const index = TAB_ORDER.indexOf(tab)
+    const next = event.key === 'ArrowLeft' ? (index + TAB_ORDER.length - 1) % TAB_ORDER.length
+      : event.key === 'ArrowRight' ? (index + 1) % TAB_ORDER.length
+      : event.key === 'Home' ? 0
+      : event.key === 'End' ? TAB_ORDER.length - 1
+      : undefined
+    if (next === undefined) return
+    event.preventDefault()
+    setTab(TAB_ORDER[next]!)
+    tabRefs.current.get(TAB_ORDER[next]!)?.focus()
+  }
+
+  /** One underline tab in the shell's style: `data-active` drives the
+   *  indicator, tabIndex roves, the testid stays `skills-tab-<id>`. */
+  const renderTab = (id: Tab, label: string): React.ReactElement => (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={tab === id}
+      data-active={tab === id ? 'true' : undefined}
+      tabIndex={tab === id ? 0 : -1}
+      className={styles.tab}
+      onClick={() => setTab(id)}
+      ref={(el) => { if (el !== null) tabRefs.current.set(id, el) }}
+      data-testid={`skills-tab-${id}`}
+    >{label}</button>
+  )
+
   const entries = React.useMemo(() => (state !== undefined ? buildGridEntries(state) : []), [state])
   const filtered = React.useMemo(
     () => filterEntries(entries, search, providerFilter, installedOnly),
@@ -698,23 +737,11 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
 
   return (
     <div className={styles.page}>
-      <div className={styles.tabs} role="tablist">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'skills'}
-          className={tab === 'skills' ? styles.tabActive : styles.tab}
-          onClick={() => setTab('skills')}
-          data-testid="skills-tab-skills"
-        >{t('tab.skills')}</button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'providers'}
-          className={tab === 'providers' ? styles.tabActive : styles.tab}
-          onClick={() => setTab('providers')}
-          data-testid="skills-tab-providers"
-        >{t('tab.providers')}</button>
+      <h2 className={styles.heading}>{t('title')}</h2>
+      <p className={styles.intro}>{t('intro')}</p>
+      <div className={styles.tabs} role="tablist" aria-label={t('tabs')} onKeyDown={onTabKeyDown}>
+        {renderTab('skills', t('tab.skills'))}
+        {renderTab('providers', t('tab.providers'))}
       </div>
 
       {message !== undefined && (

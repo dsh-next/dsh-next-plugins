@@ -20,6 +20,12 @@ export const NS = 'skills'
 export const en = {
   'nav': 'Skills',
 
+  // Page scaffold (the shell's settings-section pattern: title, intro, tab
+  // strip aria-label), mirroring the cc-plugins page's key set.
+  'title': 'Skills',
+  'intro': 'Install skills from providers and control where each one is enabled.',
+  'tabs': 'Skill views',
+
   'tab.skills': 'Skills',
   'tab.providers': 'Providers',
 
@@ -104,6 +110,7 @@ export const en = {
   'status.working': 'Working…',
   'status.done': 'Done',
   'status.requestFailed': 'Request failed',
+  'status.refreshFailed': 'Refresh failed',
   'rpc.failed': 'Skills request "{method}" failed (HTTP {status})',
 }
 

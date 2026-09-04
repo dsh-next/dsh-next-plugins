@@ -17,6 +17,13 @@ export const NS = 'cc-plugins'
 
 export const en = {
   'nav': 'Claude Plugins',
+
+  // Page scaffold (the shell's settings-section pattern: title, intro, tab
+  // strip aria-label), mirroring the skills page's key set.
+  'title': 'Claude Plugins',
+  'intro': 'Install plugins from Claude Code marketplaces and control where each one works.',
+  'tabs': 'Plugin views',
+
   'tab.plugins': 'Plugins',
   'tab.marketplaces': 'Marketplaces',
   'tab.models': 'Models',
@@ -127,6 +134,10 @@ export const en = {
   'marketplaces.lastSynced': 'last synced {age}',
   'marketplaces.by': 'by {owner}',
   'marketplaces.remove': 'Remove',
+
+  'status.requestFailed': 'Request failed',
+  'status.done': 'Done',
+  'status.refreshFailed': 'Refresh failed',
 
   'models.hint': "Map the Claude model names your agents use onto models this runtime offers. Unmapped names inherit the delegating session's model — the same default as Claude's `model: inherit` — and choosing inherit explicitly overrides a config-baseline mapping. Saving re-resolves installed agent rows without reinstalling; reload the profile to apply them.",
   'models.config': 'config',

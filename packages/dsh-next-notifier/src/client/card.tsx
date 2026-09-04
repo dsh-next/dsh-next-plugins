@@ -6,6 +6,7 @@
  * unchanged without the platform locale service).
  */
 import * as React from 'react'
+import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ISessions } from '@deepseek-ai/dsh-client-runtime/client'
 import type { NotifierConfig, NotifyGroup } from '../core/types.ts'
 import type { TimerLike } from '../core/timer.ts'
@@ -208,6 +209,8 @@ export function NotifierCard({ rpc, sessions, timer, t = englishTranslate, showW
           renderSelect(def.key))))
   }
 
+  // The chevron is the shell's own disclosure icon (the same primitive the
+  // harness PluginCard uses); the open state rotates it 180 degrees.
   const header = React.createElement('button', {
     type: 'button', className: styles.header, 'aria-expanded': open ? 'true' : 'false',
     onClick: () => setOpen((v) => !v),
@@ -215,7 +218,7 @@ export function NotifierCard({ rpc, sessions, timer, t = englishTranslate, showW
     React.createElement('span', { className: styles.headText },
       React.createElement('span', { className: styles.name }, t('card.title')),
       React.createElement('span', { className: styles.desc }, t('card.tagline'))),
-    React.createElement('span', { className: styles.chevron + (open ? ' ' + styles.chevOpen : '') }, '\u25BE'))
+    React.createElement(IconChevronDownOutline14, { className: styles.chevron + (open ? ' ' + styles.chevOpen : '') }))
 
   let body: React.ReactNode = null
   if (open && config) {

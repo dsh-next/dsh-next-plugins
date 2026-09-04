@@ -9,7 +9,7 @@ import type { WorktreeTopology } from '../src/client/rpc.ts'
 const REPO = '/repos/wt-repo'
 
 function topology(repos: WorktreeTopology['repos']): WorktreeTopology {
-  return { repos }
+  return { repos, workspaces: [] }
 }
 
 function wt(overrides: Partial<WorktreeTopology['repos'][number]['worktrees'][number]> = {}) {

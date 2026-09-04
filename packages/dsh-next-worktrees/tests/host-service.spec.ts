@@ -421,6 +421,10 @@ describe('topology', () => {
     })
     const result = await h.service.topology([PRIMARY, '/repos/wt-plain'])
     expect(result.repos).toHaveLength(1)
+    expect(result.workspaces).toEqual([
+      { cwd: PRIMARY, primary: PRIMARY, canCreate: true },
+      { cwd: '/repos/wt-plain', primary: '', canCreate: false, reason: 'not-a-repository' },
+    ])
     const repo = result.repos[0]!
     expect(repo.primary).toBe(PRIMARY)
     expect(repo.worktrees.map((w) => w.slug)).toEqual(['swift-01', 'amber-02'])

@@ -7,22 +7,42 @@
  * SHA-256-gated — see scripts/derive-workspace-browser.mjs) and applies it
  * under a context proxy that intercepts the `sidebar.workspaces`
  * registration. The official Browser component is wrapped by
- * {@link WorktreeBrowser}, which will carry the nesting projection; every
- * other declaration (locale, stores, picker, directory-flow holes)
- * registers from the official source unchanged.
+ * {@link WorktreeBrowser}, which owns the nesting projection; every other
+ * declaration (locale, stores, picker, directory-flow holes) registers
+ * from the official source unchanged.
+ *
+ * The entry also owns the plugin's own surfaces: the locale dictionaries,
+ * the derived-browser bridge (repo-row create button), and the body-level
+ * modal root (create modal; merge and delete join later).
  *
  * The `require` identifier is the loader-provided module resolver in
  * scope inside this bundle's factory closure (see loader-require.d.ts).
  */
 import * as React from 'react'
+import { createRoot, type Root } from 'react-dom/client'
 import type { Context } from '@deepseek-ai/cordis'
 import { runOfficialWorkspaceClient } from '../generated/workspace-browser.generated.mjs'
 import { WorktreeBrowser } from './browser-wrapper.tsx'
+import { installBridge } from './bridge.ts'
+import { openCreate } from './create-store.ts'
+import { ModalHost } from './modal-host.tsx'
+import { rpc } from './rpc.ts'
 import { WORKTREE_STYLES } from './styles.ts'
+import { en, englishTranslate, NS, zh, type MessageKey } from './dictionaries.ts'
+import type {
+  SessionsServiceLike,
+  Translate,
+  WorkspacesServiceLike,
+} from './types.ts'
 
 interface SlotsLike {
   inject(name: string, callback: () => unknown): void
   register(descriptor: Record<string, unknown>, component: unknown): unknown
+}
+
+interface LocaleLike {
+  register(ns: string, dictionaries: { en: unknown; zh: unknown }): unknown
+  bind(ns: string): unknown
 }
 
 interface ContextLike {
@@ -36,15 +56,21 @@ interface ContextLike {
 const official = runOfficialWorkspaceClient(require)
 
 /**
- * The official client's own inject list, re-declared as this plugin's:
- * its apply reads services (remote, sessions, workspaces, ...) through
- * ctx.get, and Cordis refuses an undeclared get. Everything the browser
- * region needs is therefore everything this plugin declares.
+ * The official client's own inject list (its apply reads remote, sessions,
+ * workspaces, ... through ctx.get, and Cordis refuses an undeclared get),
+ * unioned with the services this plugin's own surfaces read.
  */
-export const inject = official.inject
+export const inject: readonly string[] = Array.from(new Set([
+  ...official.inject,
+  'slots',
+  'locale',
+  'sessions',
+  'workspaces',
+]))
 
 /**
- * Apply the browser half: official client under the register proxy.
+ * Apply the browser half: official client under the register proxy, plus
+ * the plugin's own surfaces.
  *
  * @param ctx - client root context (loose face; the strict Cordis types
  * couple to internals this wrapper deliberately avoids).
@@ -52,7 +78,7 @@ export const inject = official.inject
 export function apply(ctx: Context): void {
   const loose = ctx as unknown as ContextLike
 
-  // Plugin-owned styles for the derived rows (tokens only; see styles.ts).
+  // Plugin-owned styles for the derived rows and modals (tokens only).
   ctx.effect(() => {
     const style = document.createElement('style')
     style.dataset.dshNextWorktrees = 'true'
@@ -60,6 +86,52 @@ export function apply(ctx: Context): void {
     document.head.append(style)
     return () => { style.remove() }
   }, 'dsh-next-worktrees: styles')
+
+  const locale = loose.get('locale') as LocaleLike | undefined
+  const t: Translate = (() => {
+    if (locale !== undefined && typeof locale.bind === 'function') {
+      const bound = locale.bind(NS) as Translate
+      if (typeof bound === 'function') return bound
+    }
+    return englishTranslate as unknown as Translate
+  })()
+  ctx.effect(() => {
+    if (locale === undefined || typeof locale.register !== 'function') return () => {}
+    try {
+      return locale.register(NS, { en, zh }) as () => void
+    } catch {
+      return () => {}
+    }
+  }, 'dsh-next-worktrees: dictionaries')
+
+  const workspaces = loose.get('workspaces') as WorkspacesServiceLike | undefined
+  const sessions = loose.get('sessions') as SessionsServiceLike | undefined
+
+  // The derived-browser bridge: repo-row button gating + modal opening.
+  ctx.effect(() => installBridge({
+    createLabel: (repoLabel) => t('create.title' satisfies MessageKey, { repo: repoLabel }),
+    requestCreate: (cwd, repoLabel) => {
+      void rpc<string>('suggestName').then(
+        (suggestion) => { openCreate(cwd, repoLabel, suggestion) },
+        () => { openCreate(cwd, repoLabel, '') },
+      )
+    },
+  }), 'dsh-next-worktrees: bridge')
+
+  // The modal root: our overlays live in their own React tree at the body
+  // level; the conversation and sidebar stay pure harness.
+  ctx.effect(() => {
+    if (workspaces === undefined || sessions === undefined) return () => {}
+    const container = document.createElement('div')
+    container.dataset.dshNextWorktreesModals = 'true'
+    document.body.append(container)
+    const root: Root = createRoot(container)
+    root.render(React.createElement(ModalHost, { t, workspaces, sessions }))
+    return () => {
+      root.unmount()
+      container.remove()
+    }
+  }, 'dsh-next-worktrees: modal root')
 
   const proxiedCtx = new Proxy(loose, {
     get(target, key, receiver) {
@@ -99,3 +171,4 @@ export function apply(ctx: Context): void {
 
   official.apply(proxiedCtx as unknown as Parameters<typeof official.apply>[0])
 }
+

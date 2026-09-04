@@ -69,7 +69,24 @@ export class RegistryStore implements RegistryStorePorts {
       if (parsed.version !== 1 || !Array.isArray(parsed.bindings)) {
         return EMPTY_REGISTRY
       }
-      return { version: 1, bindings: parsed.bindings }
+      // Tolerate foreign or legacy rows: every field the projection reads
+      // gets a type-checked default, so a malformed entry degrades to a
+      // slug-titled row instead of poisoning the render.
+      const bindings = parsed.bindings
+        .filter((b): b is WorktreeBinding => b !== null && typeof b === 'object')
+        .map((b) => ({
+          ...b,
+          sessionId: typeof b.sessionId === 'string' ? b.sessionId : '',
+          slug: typeof b.slug === 'string' ? b.slug : '',
+          name: typeof b.name === 'string' ? b.name : '',
+          path: typeof b.path === 'string' ? b.path : '',
+          branch: typeof b.branch === 'string' ? b.branch : '',
+          baseRef: typeof b.baseRef === 'string' ? b.baseRef : 'HEAD',
+          relPath: typeof b.relPath === 'string' ? b.relPath : '',
+          role: 'owner' as const,
+          createdAt: typeof b.createdAt === 'number' ? b.createdAt : 0,
+        }))
+      return { version: 1, bindings }
     } catch {
       return EMPTY_REGISTRY
     }

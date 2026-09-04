@@ -136,7 +136,7 @@ export const SEAMS = [
   {
     label: 'session row class and data',
     needle: '\t\t\t\t\tclassName: clsx(Rows_module_css_default.sessionRow, selected && Rows_module_css_default.selected, menuOpen && Rows_module_css_default.menuOpen, flat && !showStatus && Rows_module_css_default.flatSessionRowWithoutStatus, drag?.marker === "before" && Rows_module_css_default.dropBefore, drag?.marker === "after" && Rows_module_css_default.dropAfter),\n\t\t\t\t\trole: "treeitem",',
-    replacement: '\t\t\t\t\tclassName: clsx(Rows_module_css_default.sessionRow, worktreeDecoration !== void 0 && "dshx-sessionRow--worktree", selected && Rows_module_css_default.selected, menuOpen && Rows_module_css_default.menuOpen, flat && !showStatus && Rows_module_css_default.flatSessionRowWithoutStatus, drag?.marker === "before" && Rows_module_css_default.dropBefore, drag?.marker === "after" && Rows_module_css_default.dropAfter),\n\t\t\t\t\trole: "treeitem",\n\t\t\t\t\t...worktreeDecoration === void 0 ? {} : { "data-dshx-worktree": worktreeDecoration.slug },',
+    replacement: '\t\t\t\t\tclassName: clsx(Rows_module_css_default.sessionRow, worktreeDecoration !== void 0 && "dshx-sessionRow--worktree", selected && Rows_module_css_default.selected, menuOpen && Rows_module_css_default.menuOpen, flat && !showStatus && Rows_module_css_default.flatSessionRowWithoutStatus, drag?.marker === "before" && Rows_module_css_default.dropBefore, drag?.marker === "after" && Rows_module_css_default.dropAfter),\n\t\t\t\t\trole: "treeitem",',
   },
   {
     label: 'session row drag suppression',
@@ -157,6 +157,11 @@ export const SEAMS = [
     label: 'session fork filter use',
     needle: '\t\t\t\t\t\t\t\titems: sessionMenuItems,',
     replacement: '\t\t\t\t\t\t\t\titems: visibleSessionMenuItems,',
+  },
+  {
+    label: 'repo row worktree button',
+    needle: '\t\t\t\t\t\t\t"aria-label": t("actions.newSession.aria", { name: label }),\n\t\t\t\t\t\t\tonClick: (e) => {\n\t\t\t\t\t\t\t\te.stopPropagation();\n\t\t\t\t\t\t\t\tonCreate();\n\t\t\t\t\t\t\t},\n\t\t\t\t\t\t\tchildren: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconPlusOutline16, {})\n\t\t\t\t\t\t})]',
+    replacement: '\t\t\t\t\t\t\t"aria-label": t("actions.newSession.aria", { name: label }),\n\t\t\t\t\t\t\tonClick: (e) => {\n\t\t\t\t\t\t\t\te.stopPropagation();\n\t\t\t\t\t\t\t\tonCreate();\n\t\t\t\t\t\t\t},\n\t\t\t\t\t\t\tchildren: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconPlusOutline16, {})\n\t\t\t\t\t\t}), (window.__dshNextWorktreesBridge === void 0 ? false : window.__dshNextWorktreesBridge.canCreate(row.cwd)) && (0, react_jsx_runtime.jsx)("button", {\n\t\t\t\t\t\t\ttype: "button",\n\t\t\t\t\t\t\tclassName: Rows_module_css_default.iconButton,\n\t\t\t\t\t\t\t"aria-label": window.__dshNextWorktreesBridge === void 0 ? "New worktree" : window.__dshNextWorktreesBridge.createLabel(label),\n\t\t\t\t\t\t\t"data-dshx-create": row.cwd,\n\t\t\t\t\t\t\ttitle: row.cwd,\n\t\t\t\t\t\t\tonClick: (e) => {\n\t\t\t\t\t\t\t\te.stopPropagation();\n\t\t\t\t\t\t\t\tif (window.__dshNextWorktreesBridge !== void 0) window.__dshNextWorktreesBridge.requestCreate(row.cwd, label);\n\t\t\t\t\t\t\t},\n\t\t\t\t\t\t\tchildren: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconBranchOutline16, {})\n\t\t\t\t\t\t})]',
   },
 ]
 

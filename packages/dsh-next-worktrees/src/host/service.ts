@@ -102,8 +102,20 @@ export interface TopologyRepo {
   readonly worktrees: readonly TopologyWorktree[]
 }
 
+/** Per-workspace creation facts for the repo-row button gating. */
+export interface WorkspaceFacts {
+  readonly cwd: string
+  /** The repo primary this cwd belongs to ('' when not a repository). */
+  readonly primary: string
+  /** Whether the worktree button may open the create modal here. */
+  readonly canCreate: boolean
+  /** Machine reason when canCreate is false. */
+  readonly reason?: 'not-a-repository' | 'bare-or-unknown-layout' | 'already-in-worktree' | 'git-unavailable' | 'no-commits'
+}
+
 export interface TopologyResult {
   readonly repos: readonly TopologyRepo[]
+  readonly workspaces: readonly WorkspaceFacts[]
 }
 
 /** Merge preflight answer for the modal. */
@@ -321,12 +333,12 @@ export class WorktreesService {
   /** Repo-wide topology for the sidebar projection and menus. */
   async topology(cwds: readonly string[]): Promise<TopologyResult> {
     const primaries = new Map<string, string>()
+    const workspaces: WorkspaceFacts[] = []
     for (const cwd of cwds) {
-      try {
-        const placement = await this.ports.git.placement(cwd)
-        primaries.set(placement.primary, placement.relPath)
-      } catch {
-        // Non-git workspaces simply do not appear in the topology.
+      const facts = await this.workspaceFacts(cwd)
+      workspaces.push(facts)
+      if (facts.canCreate || facts.primary !== '') {
+        primaries.set(facts.primary, facts.cwd)
       }
     }
     const repos: TopologyRepo[] = []
@@ -353,7 +365,27 @@ export class WorktreesService {
         repos.push({ primary, ok: false, worktrees: [] })
       }
     }
-    return { repos }
+    return { repos, workspaces }
+  }
+
+  /** Per-workspace creation facts (the repo-row button gating). */
+  private async workspaceFacts(cwd: string): Promise<WorkspaceFacts> {
+    try {
+      const placement = await this.ports.git.placement(cwd)
+      if (placement.insideWorktreesRoot) {
+        return { cwd, primary: placement.primary, canCreate: false, reason: 'already-in-worktree' }
+      }
+      const hasCommits = await this.ports.git.refExists(cwd, 'HEAD')
+      if (!hasCommits) {
+        return { cwd, primary: placement.primary, canCreate: false, reason: 'no-commits' }
+      }
+      return { cwd, primary: placement.primary, canCreate: true }
+    } catch (error) {
+      if (error instanceof GitError) {
+        return { cwd, primary: '', canCreate: false, reason: error.code as WorkspaceFacts['reason'] }
+      }
+      return { cwd, primary: '', canCreate: false, reason: 'git-unavailable' }
+    }
   }
 
   /** Merge preflight: facts and blockers for the confirmation modal. */

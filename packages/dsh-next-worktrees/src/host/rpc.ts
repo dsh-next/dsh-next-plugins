@@ -9,6 +9,7 @@
  * renders one stable error shape.
  */
 import type { Context } from '@deepseek-ai/cordis'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { WorktreeFlowError, WorktreesService } from './service.ts'
 import { nameSuggestion } from './service.ts'
 
@@ -102,70 +103,73 @@ export function createHandlers(service: WorktreesService): Record<string, Handle
 }
 
 interface WebServerLike {
-  get(path: string, handler: (req: unknown, res: unknown) => void): unknown
-  post(path: string, handler: (req: unknown, res: unknown) => void): unknown
+  register(route: {
+    kind: 'exact'
+    path: string
+    handler: (req: IncomingMessage, res: ServerResponse) => void
+  }): unknown
 }
 
-interface ReqLike {
-  on(event: 'data', listener: (chunk: Buffer) => void): unknown
-  on(event: 'end', listener: () => void): unknown
-}
-
-interface ResLike {
-  setHeader(name: string, value: string): unknown
-  end(body?: string): unknown
-}
-
-/** Mount the RPC route on the app webServer. */
+/**
+ * Mount the RPC route on the app webServer.
+ *
+ * Transport shape: the service's `register({ kind: 'exact', path,
+ * handler })` face (the notifier- and M1-proven transport; a `.post()`
+ * convenience does not exist on this service).
+ */
 export function registerRpc(ctx: Context, service: WorktreesService): void {
   const server = ctx.get('webServer') as WebServerLike | undefined
-  if (server === undefined || typeof server.post !== 'function') return
+  if (server === undefined || typeof server.register !== 'function') return
   const handlers = createHandlers(service)
-  server.post(RPC_PATH, (req: unknown, res: unknown) => {
-    const request = req as ReqLike
-    const response = res as ResLike
-    const chunks: Buffer[] = []
-    request.on('data', (chunk) => chunks.push(chunk))
-    request.on('end', () => {
-      let method = ''
-      let args: unknown = null
-      try {
-        const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
-          method?: unknown
-          args?: unknown
-        }
-        if (typeof body.method === 'string') method = body.method
-        args = body.args ?? null
-      } catch {
-        // Fall through to the bad-request answer below.
-      }
-      const answer = (payload: string): void => {
-        response.setHeader('content-type', 'application/json')
-        response.end(payload)
-      }
-      if (method === '' || handlers[method] === undefined) {
-        answer(JSON.stringify({
-          error: { code: 'bad-request', message: `unknown method ${method}` },
-        }))
+  server.register({
+    kind: 'exact',
+    path: RPC_PATH,
+    handler: (req, res) => {
+      if (req.method !== 'POST') {
+        res.writeHead(405, { 'Content-Type': 'text/plain; charset=utf-8' })
+        res.end('method not allowed')
         return
       }
-      Promise.resolve()
-        .then(() => handlers[method]!(args))
-        .then((value) => answer(JSON.stringify(value ?? {})))
-        .catch((error: unknown) => {
-          if (error instanceof WorktreeFlowError) {
-            answer(JSON.stringify({
-              error: { code: error.code, message: error.message, hint: error.hint },
-            }))
-            return
-          }
-          answer(JSON.stringify({
-            error: {
-              code: 'internal',
-              message: error instanceof Error ? error.message : String(error),
-            },
-          }))
-        })
-    })
+      let raw = ''
+      req.on('data', (chunk: Buffer | string) => {
+        raw += chunk
+        if (raw.length > 65_536) {
+          res.writeHead(413)
+          res.end()
+          req.destroy()
+        }
+      })
+      req.on('end', () => {
+        if (res.writableEnded) return
+        let body: { method?: unknown; args?: unknown }
+        try {
+          body = JSON.parse(raw === '' ? '{}' : raw) as { method?: unknown; args?: unknown }
+        } catch {
+          res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' })
+          res.end('invalid json')
+          return
+        }
+        const method = typeof body.method === 'string' ? body.method : ''
+        const handler = handlers[method]
+        if (handler === undefined) {
+          res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
+          res.end(`no such method: ${method}`)
+          return
+        }
+        Promise.resolve()
+          .then(() => handler(body.args))
+          .then((result) => {
+            res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
+            res.end(JSON.stringify(result === undefined ? null : result))
+          })
+          .catch((error: unknown) => {
+            const payload = error instanceof WorktreeFlowError
+              ? { code: error.code, message: error.message, hint: error.hint }
+              : { code: 'internal', message: error instanceof Error ? error.message : String(error) }
+            res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
+            res.end(JSON.stringify({ error: payload }))
+          })
+      })
+    },
   })
 }

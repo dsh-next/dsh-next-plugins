@@ -46,6 +46,12 @@ export interface WorktreeTopologyRepo {
 
 export interface WorktreeTopology {
   readonly repos: readonly WorktreeTopologyRepo[]
+  readonly workspaces: readonly {
+    readonly cwd: string
+    readonly primary: string
+    readonly canCreate: boolean
+    readonly reason?: string
+  }[]
 }
 
 /** Call one RPC method. */

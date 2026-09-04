@@ -17,6 +17,7 @@ import {
   projectWorkspaceSidebar,
   type WorkspaceItemLike,
 } from './projection.ts'
+import { updateBridgeFacts } from './bridge.ts'
 import { rpc, REFRESH_EVENT, type WorktreeTopology } from './rpc.ts'
 
 /** Minimal component shape the wrapper needs from the official Browser. */
@@ -27,7 +28,7 @@ export interface WorktreeBrowserExtraProps {
   readonly OfficialBrowser: OfficialBrowserComponent
 }
 
-const EMPTY_TOPOLOGY: WorktreeTopology = { repos: [] }
+const EMPTY_TOPOLOGY: WorktreeTopology = { repos: [], workspaces: [] }
 
 /** Selector-hook face the official Browser consumes for store reads. */
 type UseState<T> = (selector: (state: T) => unknown) => unknown
@@ -85,7 +86,11 @@ export function WorktreeBrowser(
     const refresh = (): void => {
       rpc<WorktreeTopology>('topology', { cwds: paths })
         .then(
-          (value) => { if (active) setTopology(value) },
+          (value) => {
+            if (!active) return
+            setTopology(value)
+            updateBridgeFacts(value.workspaces)
+          },
           () => { if (active) setTopology(EMPTY_TOPOLOGY) },
         )
     }

@@ -21,6 +21,7 @@
  *      they gain UI.
  */
 import { join } from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { test, expect, type Page } from '@playwright/test'
 
@@ -170,6 +171,98 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await page.getByRole('dialog', { name: 'Settings' }).getByRole('button', { name: 'Close' }).click({ force: true })
     await page.getByTestId('dsh-next-notifier-toast-close').first().click()
     await expect(page.getByTestId('dsh-next-notifier-toast')).toHaveCount(0)
+  },
+
+  // The worktrees plugin owns the workspace browser (strategy B: the stock
+  // ui-workspace row is disabled and a derived, hash-gated copy of the
+  // official client renders the sidebar). The marker drives the full
+  // create loop through the real GUI: the repo-row branch button appears
+  // only on git-passing workspaces, the create modal prefills a generated
+  // Name suggestion, confirming creates the worktree plus its workspace,
+  // session, bind, and focus, and the sidebar re-renders the worktree
+  // session NESTED under its repo group (branch identity row) instead of
+  // a separate workspace row. Host-side truth is asserted from disk: the
+  // worktree directory, the branch, and the sidecar registry's claimed
+  // session binding.
+  'dsh-next-worktrees': async (page) => {
+    const workspaceA = process.env.DSH_E2E_WORKSPACE_A
+    const workspaceB = process.env.DSH_E2E_WORKSPACE_B
+    if (!workspaceA || !workspaceB) {
+      throw new Error('DSH_E2E_WORKSPACE_A/_B are not set — run through scripts/e2e-mount.sh, which preseeds the workspaces')
+    }
+    const git = (args: string[], cwd: string = workspaceA): string =>
+      execFileSync('git', args, { cwd, encoding: 'utf8' })
+    git(['init', '-q', '-b', 'main'])
+    git(['config', 'user.email', 'e2e@example.com'])
+    git(['config', 'user.name', 'e2e'])
+    writeFileSync(join(workspaceA, 'seed.txt'), 'seed\n')
+    git(['add', 'seed.txt'])
+    git(['commit', '-q', '-m', 'seed'])
+
+    await dismissOnboarding(page)
+
+    // Earlier markers (skills, notifier) leave the Settings dialog open;
+    // its mask intercepts sidebar pointers. Close any open dialog first.
+    for (let round = 0; round < 3; round++) {
+      const dialog = page.locator('[role="dialog"]')
+      if (await dialog.count() === 0) break
+      const close = dialog.getByRole('button', { name: 'Close' }).first()
+      if (await close.isVisible().catch(() => false)) {
+        await close.click({ force: true })
+      } else {
+        await page.keyboard.press('Escape')
+      }
+      await page.waitForTimeout(400)
+    }
+
+    // The branch button renders on the git workspace's row only after the
+    // topology RPC answers (canCreate gating through the bridge). The git
+    // repo was initialized AFTER mount, so the initial pull answered
+    // false: dispatch the refresh event (the same one the menu Refresh
+    // action rides) to force a re-pull before asserting.
+    await page.evaluate(() => { window.dispatchEvent(new Event('dsh-next-worktrees:refresh')) })
+    const createButton = page.locator('[data-dshx-create$="workspace-a"]')
+    const repoRow = page.locator('[role="treeitem"]').filter({ has: createButton })
+    await expect(repoRow).toHaveCount(1, { timeout: 15_000 })
+    await repoRow.hover()
+    await expect(createButton).toBeVisible({ timeout: 5_000 })
+    // The non-git workspace never gets the button.
+    await expect(page.locator('[data-dshx-create$="workspace-b"]')).toHaveCount(0)
+
+    // Open the create modal: prefilled suggestion, unique name typed over it.
+    await createButton.click({ force: true })
+    const modal = page.locator('[data-dshx-modal="create"]')
+    await expect(modal).toBeVisible({ timeout: 10_000 })
+    const nameInput = page.locator('[data-dshx-input="name"]')
+    await expect(nameInput).not.toHaveValue('')
+    const runTag = Date.now().toString(36)
+    await nameInput.fill(`e2e nested ${runTag}`)
+    await page.locator('[data-dshx-button="confirm"]').click()
+    await expect(modal).toBeHidden({ timeout: 20_000 })
+
+    // The nested row: a worktree session re-parented under the repo group,
+    // rendered with the branch identity (not its own workspace row).
+    const nested = page.locator('[data-dshx-worktree]')
+    await expect(nested.first()).toBeVisible({ timeout: 20_000 })
+    await expect(nested.first()).toContainText(`e2e nested ${runTag}`)
+
+    // Host truth from disk: worktree directory, branch, and the claimed
+    // session binding in the sidecar registry.
+    const registryFile = join(workspaceA, '.dsh', 'worktrees', 'registry.json')
+    await expect.poll(() => existsSync(registryFile)).toBe(true)
+    const registry = JSON.parse(readFileSync(registryFile, 'utf8')) as {
+      bindings: { sessionId: string; slug: string; name: string }[]
+    }
+    expect(registry.bindings).toHaveLength(1)
+    expect(registry.bindings[0]!.sessionId).not.toBe('')
+    expect(registry.bindings[0]!.name).toBe(`e2e nested ${runTag}`)
+    const slug = registry.bindings[0]!.slug
+    expect(existsSync(join(workspaceA, '.dsh', 'worktrees', slug))).toBe(true)
+    expect(git(['rev-parse', '--verify', `dsh-worktrees/${slug}`])).not.toBe('')
+
+    // Visual evidence for the owned-browser redesign (light + dark ride the
+    // same tokens; this shot pins the nested-identity chrome).
+    await page.screenshot({ path: join('docs', 'screenshots', 'worktrees-nested-sidebar.png') })
   },
 
   // nav level as General/Models/Plugins) with Skills and Providers tabs over

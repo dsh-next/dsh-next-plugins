@@ -168,6 +168,15 @@ is imported. A few non-obvious rules every package follows:
   bundled into `lib/index.js`. The scaffold ships this as the default; narrow
   the regex only when a package legitimately bundles a peer.
 
+## Client UI conventions
+
+Browser UI follows the harness design system. The `dsh-next-design` skill
+(`.agents/skills/dsh-next-design/SKILL.md`) is the repo's working rulebook —
+the page scaffold, tab strip, button grammar, and token rules copied from the
+shell's own settings pages, with copy-paste scaffolds in its `snippets.md`.
+Upstream references: DSH's `docs/web-styling.md` and the `ui-theme` /
+`ui-primitives` package docs.
+
 ## Scope and access
 
 - Plugins publish to the `@dsh-next` scope and use the `@dsh-next/dsh-next-*`

@@ -1,7 +1,19 @@
-# bundle patch for the worktrees plugin: inserts its plugin row into the profile
-# roster. Applied as a profile bundle layer (the `dsh.bundle.patch` manifest
-# field); install with
-# `dsh plugin --profile <name> add link:<repo>/packages/dsh-next-worktrees`.
+# bundle patch for the worktrees plugin.
+#
+# Strategy B (docs/ideas/dsh-next-worktrees-sidebar-ux.md): while this
+# plugin is enabled it OWNS the workspace browsing region. The stock
+# ui-workspace row is disabled; this plugin's client half materializes the
+# official workspace client (derived at build time against the exact
+# version + SHA-256 recorded in scripts/derive-workspace-browser.mjs) and
+# registers it with the Browser wrapped for worktree nesting.
+#
+# Incompatibility contract: any other plugin that also replaces
+# ui-workspace (for example wloops/dsh-git-worktree) cannot be enabled in
+# the same profile — both patch the same loader row.
+- id: ui-workspace
+  name: '@deepseek-ai/dsh-client-ui-workspace'
+  disabled: true
+
 - insert:
     - id: dsh-next-worktrees
       name: '@dsh-next/dsh-next-worktrees'

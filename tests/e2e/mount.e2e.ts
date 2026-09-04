@@ -266,6 +266,13 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     // name: the seeded official marketplace contributes cards of its own
     // whenever its sync reaches GitHub.
     await settings.getByRole('tab', { name: 'Plugins' }).click({ force: true })
+    // Large catalogs (the official marketplace whenever its sync reaches
+    // GitHub) paginate 30 cards per page: exhaust the Show more pager so
+    // the fixture cards are on the page before this marker locates them.
+    for (let i = 0; i < 20 && await page.getByTestId('cc-show-more').isVisible().catch(() => false); i++) {
+      await page.getByTestId('cc-show-more').click({ force: true })
+      await page.waitForTimeout(200)
+    }
     const demoCard = page.locator('[data-testid="cc-plugin"]:has([data-testid="cc-detail"]:text-is("demo-tools"))').first()
     await expect(demoCard).toBeVisible()
     await demoCard.locator('[data-testid="cc-detail"]').click()

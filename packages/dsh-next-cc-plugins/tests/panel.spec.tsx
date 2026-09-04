@@ -459,6 +459,36 @@ describe('CcPanel', () => {
     ])
   })
 
+  it('pages the Plugins grid 30 cards at a time behind a Show more button', async () => {
+    const names = Array.from({ length: 35 }, (_, i) => `plugin-${String(i).padStart(2, '0')}`)
+    const state: CcState = {
+      ...MODEL_STATE,
+      installed: [],
+      marketplaces: [{
+        ...STATE.marketplaces[0],
+        plugins: names.map((name) => ({
+          name,
+          description: '',
+          version: '',
+          category: '',
+          author: '',
+          homepage: '',
+          tags: [],
+          installed: false,
+        })),
+      }],
+    }
+    await renderAsync({ rpc: rpcMock(state) })
+    // Only the first page renders; the pager announces more.
+    expect(pluginCards()).toHaveLength(30)
+    const showMore = document.querySelector('[data-testid="cc-show-more"]') as HTMLButtonElement
+    expect(showMore?.textContent).toBe('Show more plugins')
+    // One click appends the rest and retires the pager.
+    await act(async () => { showMore.click() })
+    expect(pluginCards()).toHaveLength(35)
+    expect(document.querySelector('[data-testid="cc-show-more"]')).toBeNull()
+  })
+
   it('scope modal installs globally by default and into checked workspaces when selected', async () => {
     const rpc = rpcMock()
     const notify = vi.fn()

@@ -28,7 +28,8 @@ with a built-in runtime for the components DSH activates in-process.
 - **Browse and install plugins** — the Plugins tab lists every plugin across
   all marketplaces in a two-column card grid (installed plugins first, each
   group alphabetical by name) with search, a marketplace
-  filter, and an installed-only toggle. Installed cards show their installed
+  filter, and an installed-only toggle; a Show more button (30 cards per
+  page) keeps large catalogs fast. Installed cards show their installed
   version and, whenever the marketplace carries a newer one, an Update
   button (update also re-syncs that marketplace first, so it always pulls
   the true latest). Each card's Install (or Scopes) button opens the **scope

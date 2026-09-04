@@ -142,6 +142,8 @@ export const en = {
   'status.done': 'Done',
   'status.refreshFailed': 'Refresh failed',
 
+  'list.showMore': 'Show more plugins',
+
   'models.hint': "Map the Claude model names your agents use onto models this runtime offers. Unmapped names inherit the delegating session's model — the same default as Claude's `model: inherit` — and choosing inherit explicitly overrides a config-baseline mapping. Saving re-resolves installed agent rows without reinstalling; reload the profile to apply them.",
   'models.config': 'config',
   'models.selectAria': 'Model for {alias}',

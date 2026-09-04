@@ -516,6 +516,14 @@
 
 /* --- Claude Plugins-specific extensions ---------------------------------- */
 
+/* Show more: centers the pager button under the card grid. */
+.showMoreRow {
+  align-items: center;
+  justify-content: center;
+  display: flex;
+  padding: 4px 0;
+}
+
 /* Catalog version, trailing the plugin name. */
 .version {
   color: var(--dsw-alias-label-tertiary);

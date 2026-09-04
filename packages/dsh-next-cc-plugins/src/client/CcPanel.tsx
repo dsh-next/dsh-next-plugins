@@ -65,6 +65,9 @@ type Tab = 'plugins' | 'marketplaces' | 'models'
 /** Tab strip order — the roving-tabindex keyboard model walks this. */
 const TAB_ORDER: readonly Tab[] = ['plugins', 'marketplaces', 'models']
 
+/** Cards rendered before the "Show more" button appends the next page. */
+const PAGE_SIZE = 30
+
 /** Mutations whose success changes the installed skill set the chat UI surfaces. */
 const CATALOG_MUTATIONS = new Set(['installPlugin', 'setPluginScope', 'uninstallPlugin', 'updatePlugin'])
 
@@ -171,6 +174,8 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
   const [modelDraft, setModelDraft] = React.useState<Record<string, string>>({})
   /** The marketplace a sequential Refresh all is currently re-syncing. */
   const [refreshingId, setRefreshingId] = React.useState<string | undefined>()
+  /** Cards rendered so far; the Show more button appends the next page. */
+  const [visible, setVisible] = React.useState(PAGE_SIZE)
   const workspaces = deps.getWorkspaces()
 
   const refresh = React.useCallback(async (): Promise<void> => {
@@ -688,7 +693,7 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
         <div className={styles.empty} data-testid="cc-empty">{t('empty.noMatch')}</div>
       ) : (
         <div className={styles.pluginGrid} data-testid="cc-plugins">
-          {filtered.map(({ marketplace, plugin }) => {
+          {filtered.slice(0, visible).map(({ marketplace, plugin }) => {
             const key = `${marketplace.id}/${plugin.name}`
             const record = byKey.get(key)
             return (
@@ -776,6 +781,18 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
           })}
         </div>
       ))}
+
+      {tab === 'plugins' && filtered.length > visible && (
+        <div className={styles.showMoreRow}>
+          <button
+            type="button"
+            className={styles.ghost}
+            disabled={busy}
+            onClick={() => setVisible((n) => n + PAGE_SIZE)}
+            data-testid="cc-show-more"
+          >{t('list.showMore')}</button>
+        </div>
+      )}
 
       {tab === 'marketplaces' && (
         <div className={styles.addRow}>

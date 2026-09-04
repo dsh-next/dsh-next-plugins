@@ -18,6 +18,7 @@ import * as React from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import { runOfficialWorkspaceClient } from '../generated/workspace-browser.generated.mjs'
 import { WorktreeBrowser } from './browser-wrapper.tsx'
+import { WORKTREE_STYLES } from './styles.ts'
 
 interface SlotsLike {
   inject(name: string, callback: () => unknown): void
@@ -50,6 +51,15 @@ export const inject = official.inject
  */
 export function apply(ctx: Context): void {
   const loose = ctx as unknown as ContextLike
+
+  // Plugin-owned styles for the derived rows (tokens only; see styles.ts).
+  ctx.effect(() => {
+    const style = document.createElement('style')
+    style.dataset.dshNextWorktrees = 'true'
+    style.textContent = WORKTREE_STYLES
+    document.head.append(style)
+    return () => { style.remove() }
+  }, 'dsh-next-worktrees: styles')
 
   const proxiedCtx = new Proxy(loose, {
     get(target, key, receiver) {

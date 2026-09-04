@@ -78,11 +78,87 @@ function replaceExactlyOnce(source, needle, replacement, label) {
 /**
  * The seam set. Each entry is an exact-string replacement that must occur
  * exactly once in the gated source; drift anywhere makes derivation fail
- * closed. The current set is empty: Phase 1 ships the official browser
- * verbatim (ownership proven) and the nesting seams land next, one
- * concern per change, each with its own probe.
+ * closed. Every needle below was verified against the pinned bytes (and
+ * one differs from the wloops incumbent's published form — their
+ * deriveGroups site carried a trailing comma this build does not; the
+ * hash gate is exactly what makes such drift loud instead of silent).
+ *
+ * Phase 2 seams (this set): session-node metadata pass-through (grouped
+ * and search projections), the worktree identity row decoration (branch
+ * icon + title + status), the indent class and row data attributes, and
+ * the unsafe-mutation suppressions (drag-reorder and fork) for
+ * re-parented rows.
  */
-export const SEAMS = []
+export const SEAMS = [
+  {
+    label: 'grouped session node metadata',
+    needle: '\t\t\t\tupdatedAt: s.updatedAt,\n\t\t\t\t...pendingInteraction === void 0 ? {} : { pendingInteraction }\n\t\t\t};',
+    replacement: '\t\t\t\tupdatedAt: s.updatedAt,\n\t\t\t\t...pendingInteraction === void 0 ? {} : { pendingInteraction },\n\t\t\t\t...s.__dshNextWorktrees === void 0 ? {} : { __dshNextWorktrees: s.__dshNextWorktrees }\n\t\t\t};',
+  },
+  {
+    label: 'search session node metadata',
+    needle: '\t\t\t\t\t\trunningSubagentCount: descendants.get(summary.id)?.runningCount ?? 0,\n\t\t\t\t\t\t...pendingInteraction === void 0 ? {} : { pendingInteraction },',
+    replacement: '\t\t\t\t\t\trunningSubagentCount: descendants.get(summary.id)?.runningCount ?? 0,\n\t\t\t\t\t\t...pendingInteraction === void 0 ? {} : { pendingInteraction },\n\t\t\t\t\t\t...summary.__dshNextWorktrees === void 0 ? {} : { __dshNextWorktrees: summary.__dshNextWorktrees },',
+  },
+  {
+    label: 'worktree identity helper',
+    needle: '\t\t/** Hover-card body: full title, relative time, and every relevant live status. */\n\t\tfunction SessionHoverContent',
+    replacement: [
+      '\t\tfunction dshNextWorktreesDecoration(node) {',
+      '\t\t\tconst value = node === void 0 ? void 0 : node.__dshNextWorktrees;',
+      '\t\t\tif (value === void 0 || value === null || value.kind !== "dsh-next-worktrees") return void 0;',
+      '\t\t\treturn value;',
+      '\t\t}',
+      '\t\tfunction DshNextWorktreesIdentity({ decoration }) {',
+      '\t\t\tconst state = decoration.dirty ? "dirty" : decoration.merged ? "merged" : decoration.ahead > 0 ? "ahead" : "clean";',
+      '\t\t\tconst status = decoration.dirty ? "dirty" : decoration.merged ? "merged" : decoration.ahead > 0 ? "+" + decoration.ahead : "clean";',
+      '\t\t\treturn (0, react_jsx_runtime.jsxs)("span", {',
+      '\t\t\t\tclassName: "dshx-worktree-identity",',
+      '\t\t\t\t"data-dshx-worktree": decoration.slug,',
+      '\t\t\t\t"data-dshx-state": state,',
+      '\t\t\t\ttitle: decoration.branch,',
+      '\t\t\t\tchildren: [',
+      '\t\t\t\t\t(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconBranchOutline16, {}),',
+      '\t\t\t\t\t(0, react_jsx_runtime.jsx)("span", { className: "dshx-worktree-title", children: decoration.title }),',
+      '\t\t\t\t\t(0, react_jsx_runtime.jsx)("span", { className: "dshx-worktree-status", children: status })',
+      '\t\t\t\t]',
+      '\t\t\t});',
+      '\t\t}',
+      '\t\t/** Hover-card body: full title, relative time, and every relevant live status. */',
+      '\t\tfunction SessionHoverContent',
+    ].join('\n'),
+  },
+  {
+    label: 'session row decoration hook',
+    needle: '\t\t\tconst showStatus = statuses[0].state !== "done" || row.completed;\n\t\t\tconst [menuOpen, setMenuOpen]',
+    replacement: '\t\t\tconst showStatus = statuses[0].state !== "done" || row.completed;\n\t\t\tconst worktreeDecoration = dshNextWorktreesDecoration(row);\n\t\t\tconst [menuOpen, setMenuOpen]',
+  },
+  {
+    label: 'session row class and data',
+    needle: '\t\t\t\t\tclassName: clsx(Rows_module_css_default.sessionRow, selected && Rows_module_css_default.selected, menuOpen && Rows_module_css_default.menuOpen, flat && !showStatus && Rows_module_css_default.flatSessionRowWithoutStatus, drag?.marker === "before" && Rows_module_css_default.dropBefore, drag?.marker === "after" && Rows_module_css_default.dropAfter),\n\t\t\t\t\trole: "treeitem",',
+    replacement: '\t\t\t\t\tclassName: clsx(Rows_module_css_default.sessionRow, worktreeDecoration !== void 0 && "dshx-sessionRow--worktree", selected && Rows_module_css_default.selected, menuOpen && Rows_module_css_default.menuOpen, flat && !showStatus && Rows_module_css_default.flatSessionRowWithoutStatus, drag?.marker === "before" && Rows_module_css_default.dropBefore, drag?.marker === "after" && Rows_module_css_default.dropAfter),\n\t\t\t\t\trole: "treeitem",\n\t\t\t\t\t...worktreeDecoration === void 0 ? {} : { "data-dshx-worktree": worktreeDecoration.slug },',
+  },
+  {
+    label: 'session row drag suppression',
+    needle: '"aria-selected": selected,\n\t\t\t\t\tonClick: () => {\n\t\t\t\t\t\tonOpen(node.id);\n\t\t\t\t\t},\n\t\t\t\t\tdraggable: drag !== void 0,',
+    replacement: '"aria-selected": selected,\n\t\t\t\t\tonClick: () => {\n\t\t\t\t\t\tonOpen(node.id);\n\t\t\t\t\t},\n\t\t\t\t\tdraggable: worktreeDecoration === void 0 && drag !== void 0,',
+  },
+  {
+    label: 'session row identity slot',
+    needle: '\t\t\t\t\t\t(!flat || showStatus) && (0, react_jsx_runtime.jsx)("span", {\n\t\t\t\t\t\t\tclassName: Rows_module_css_default.slot,\n\t\t\t\t\t\t\tchildren: showStatus && (0, react_jsx_runtime.jsx)(SessionStatusDots, { statuses })\n\t\t\t\t\t\t}),\n\t\t\t\t\t\t(0, react_jsx_runtime.jsx)("span", {',
+    replacement: '\t\t\t\t\t\tworktreeDecoration !== void 0 && (0, react_jsx_runtime.jsx)(DshNextWorktreesIdentity, { decoration: worktreeDecoration }),\n\t\t\t\t\t\t(!flat || showStatus) && (0, react_jsx_runtime.jsx)("span", {\n\t\t\t\t\t\t\tclassName: Rows_module_css_default.slot,\n\t\t\t\t\t\t\tchildren: showStatus && (0, react_jsx_runtime.jsx)(SessionStatusDots, { statuses })\n\t\t\t\t\t\t}),\n\t\t\t\t\t\t(0, react_jsx_runtime.jsx)("span", {',
+  },
+  {
+    label: 'session fork filter define',
+    needle: '\t\t\t];\n\t\t\treturn (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.HoverCard, {',
+    replacement: '\t\t\t];\n\t\t\tconst visibleSessionMenuItems = worktreeDecoration === void 0 ? sessionMenuItems : sessionMenuItems.filter((item) => item.id !== "fork");\n\t\t\treturn (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.HoverCard, {',
+  },
+  {
+    label: 'session fork filter use',
+    needle: '\t\t\t\t\t\t\t\titems: sessionMenuItems,',
+    replacement: '\t\t\t\t\t\t\t\titems: visibleSessionMenuItems,',
+  },
+]
 
 /** Apply the seam set to the gated source. */
 export function decorateOfficialWorkspaceClient(source) {

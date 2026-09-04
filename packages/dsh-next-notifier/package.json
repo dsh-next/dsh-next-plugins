@@ -1,7 +1,7 @@
 {
   "name": "@dsh-next/dsh-next-notifier",
   "description": "DeepSeek Harness plugin: browser notifications and sound alerts when the agent finishes, needs approval, asks a question, or a goal completes.",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

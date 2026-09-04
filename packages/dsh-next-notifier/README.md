@@ -2,9 +2,11 @@
 
 English | [中文](README.zh.md)
 
-A DeepSeek Harness plugin that shows a **browser (web) notification** when the
-agent finishes its turn, needs your approval, or asks you a question, plus a
-configuration card in **Settings → Plugins** with a curated sound library.
+A DeepSeek Harness plugin that alerts you when the agent finishes its turn,
+needs your approval, or asks you a question: an **in-page toast** while you are
+looking at the page and a **browser (web) notification** when the window is
+backgrounded or minimized, plus a configuration card in **Settings → Plugins**
+with a curated sound library.
 
 ## Triggers
 
@@ -32,6 +34,7 @@ The card in Settings → Plugins offers:
   notify when the goal completes** (default on).
 - **Test browser notification** — verifies the web layer and requests permission
   the first time.
+- **Test in-page toast** — shows a sample toast inside the page.
 - **Show details** — the backend sound-player line and a live focus-tracking line.
 
 Changes apply immediately and persist in the settings document under the
@@ -56,16 +59,20 @@ Playback: `afplay` (macOS) / `Media.SoundPlayer` via PowerShell (Windows) /
 
 ## Delivery
 
-Notifications are **browser (web) notifications only**. When the DSH page is
-open (focused, backgrounded, or minimized) and the browser permission is
-granted, the Host queues events and the Client shows them with an in-page
-click-to-open handler. If the page is closed or permission is missing, the alert
-is dropped.
+Alerts arrive through the channel that fits where you are:
 
-Each notification's headline is an **emoji icon + the event type** (e.g.
+- **Looking at the page** (window focused and visible): an **in-page toast**
+  slides in at the top of the window. Clicking the toast opens its session,
+  the close button dismisses it, and toasts auto-dismiss after 12 seconds.
+  Toasts need no browser permission.
+- **Backgrounded or minimized**: a **browser (web) notification** with the
+  DeepSeek icon — the OS shows it while the window is out of sight.
+- **Page closed**: the alert is dropped.
+
+Each alert's headline is an **emoji icon + the event type** (e.g.
 "⚠️ Approval needed", "✅ Agent finished"), and the **body is the session's
 title** (e.g. "Design spec"), so a glance tells you both what happened and in
-which session. Clicking it opens that session.
+which session. Clicking either channel opens that session.
 
 ## Architecture
 
@@ -74,7 +81,8 @@ which session. Clicking it opens that session.
   `approval/request`, `tools/execute`, and `goal/changed`, and serves the RPC
   route at `POST /dsh-next-notifier/rpc`.
 - **Client** (`src/client/`) — the settings card in `settings.plugin.item`,
-  presence reporting, and the web-notification drainer.
+  presence reporting, the web-notification drainer, and the in-page toast
+  layer registered in the shell's `shell.overlay` slot.
 - **Core** (`src/core/`) — pure shared logic: config normalization, WAV
   synthesis, and notification decision, unit-tested without a runtime.
 

@@ -18,15 +18,19 @@ branch/merge actions, new-session-here gated on idle, and remove with
 dirty-refusal danger grammar. Registry sidecar reconciles against
 `git worktree list` (git is truth); mutations serialized per repo.
 
-Design decisions proven on the way: no named preset row (duplicate loader
-entry ids hard-fail the boot), HEAD is contextual in a worktree so
-ahead-count runs from the primary against the branch ref, and the composer
-injects no owner props into input.left entries (standard props carry
-sessionId/useSession/useInput).
+Runtime contract corrections discovered while driving the real GUI: the
+lifecycle SessionSnapshot exposes `blank` (not composerPhase) and carries
+no cwd — the session cwd comes from the sessions list projection
+(`sessions.list.getSnapshot().byId[id].cwd`); HEAD is contextual inside a
+linked worktree, so ahead-count runs from the primary against the branch
+ref; and blank sessions render the hero state, which mounts no session
+header, so the chip appears only after a first message.
 
 Tests: 58 cases — exhaustive core logic, real-git host runner/service
 flows, RPC envelope contract, jsdom client wiring. Gates: root typecheck,
-test, build, docs:check, i18n:check green. Package stays private until v1.
-Remaining before merge: the per-plugin e2e DOM marker (git-init a
-DSH_E2E_WORKSPACE, drive toggle through confirm, assert the chip) and a
-green `mise run e2e`.
+test, build, docs:check, i18n:check, and the real-mount smoke green,
+including the e2e marker that drives the full loop through the GUI
+(workspace picker -> blank session in a git workspace -> toggle -> confirm
+-> worktree workspace row, composer picker flip, Access-mode Custom from
+the knob bind, registry + `git worktree list` on disk). Package stays
+private until v1.

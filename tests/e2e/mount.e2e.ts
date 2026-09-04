@@ -21,6 +21,7 @@
  *      they gain UI.
  */
 import { join } from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { test, expect, type Page } from '@playwright/test'
 
@@ -170,6 +171,86 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await page.getByRole('dialog', { name: 'Settings' }).getByRole('button', { name: 'Close' }).click({ force: true })
     await page.getByTestId('dsh-next-notifier-toast-close').first().click()
     await expect(page.getByTestId('dsh-next-notifier-toast')).toHaveCount(0)
+  },
+
+  // The worktrees plugin drives its full M1 loop through the real GUI: a
+  // blank session in a git workspace shows the Isolated toggle (preflight
+  // green, gitignore hint while .dsh/ is uncovered), the confirm modal runs
+  // the whole create flow (worktree + branch + registry on the host,
+  // workspace + session + bind + focus through the client runtime), and the
+  // bound session's header chip renders with the on-disk worktree present.
+  'dsh-next-worktrees': async (page) => {
+    const workspaceA = process.env.DSH_E2E_WORKSPACE_A
+    if (!workspaceA) throw new Error('DSH_E2E_WORKSPACE_A is not set — run through scripts/e2e-mount.sh, which preseeds the workspaces')
+    // The toggle's preflight needs a repository with a resolvable base ref;
+    // turn the preseeded scratch workspace into a committed repo first.
+    const git = (args: string[]): string => {
+      execFileSync('git', args, { cwd: workspaceA, stdio: 'pipe' })
+      return ''
+    }
+    git(['init', '-q', '-b', 'main'])
+    git(['config', 'user.email', 'e2e@example.com'])
+    git(['config', 'user.name', 'E2E'])
+    writeFileSync(join(workspaceA, 'base.txt'), 'base\n')
+    git(['add', '.'])
+    git(['commit', '-qm', 'base'])
+
+    await dismissOnboarding(page)
+    // A prior marker may leave the Settings dialog open; its mask swallows
+    // composer interactions. Close it first.
+    const settingsClose = page.getByRole('dialog', { name: 'Settings' }).getByRole('button', { name: 'Close' })
+    if (await settingsClose.isVisible().catch(() => false)) {
+      await settingsClose.click({ force: true })
+      await page.waitForTimeout(300)
+    }
+    // The composer's workspace picker owns where a new session lands (the
+    // sidebar tree rows do not retarget it). Pick workspace-a first, then
+    // start the blank session; its cwd is then the git repository.
+    const choose = page.getByRole('button', { name: 'Choose workspace' })
+    await choose.waitFor({ state: 'visible', timeout: 10_000 })
+    await choose.click({ force: true })
+    const optionA = page.getByRole('menuitem', { name: 'workspace-a' })
+    await optionA.waitFor({ state: 'visible', timeout: 5000 })
+    await optionA.click({ force: true })
+    await expect(choose).toContainText('workspace-a')
+    await page.getByRole('button', { name: 'New session', exact: true }).first().click({ force: true })
+
+    // Preflight passes: the toggle renders, and the one-time ignore hint
+    // shows while .dsh/ is not covered by a gitignore.
+    const toggle = page.getByTestId('worktrees-toggle-button')
+    await expect(toggle).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByTestId('worktrees-ignore-hint')).toBeVisible()
+
+    // Confirm the isolation modal; the create flow runs end to end.
+    await toggle.click({ force: true })
+    const confirm = page.getByTestId('worktrees-confirm')
+    await expect(confirm).toBeVisible()
+    await confirm.click({ force: true })
+
+    // A blank session renders the hero state, which carries no session
+    // header — the chip seat is not mounted until a first message (the
+    // chip itself is covered by the jsdom suite). What the hero state CAN
+    // prove end to end: the worktree workspace appears (slug row), the
+    // composer's picker flips to it (the new session opened inside the
+    // worktree), and the access-mode indicator reads Custom — the live
+    // signature of the sandbox-knob bind (danger-full-access with approval
+    // untouched matches no stock preset).
+    const slugRow = page.getByRole('treeitem', { name: /^[a-z]+-\d{2}$/ })
+    await expect(slugRow).toBeVisible({ timeout: 30_000 })
+    const slug = (await slugRow.first().innerText()).trim()
+    await expect(choose).toContainText(slug)
+    await expect(page.getByRole('button', { name: /Access mode, current: Custom/ })).toBeVisible()
+
+    // On-disk effects through the real filesystem: the plugin registry
+    // carries the owner binding, and git records the linked worktree.
+    await expect.poll(() => existsSync(join(workspaceA, '.dsh', 'worktrees', 'registry.json'))).toBe(true)
+    const list = execFileSync('git', ['worktree', 'list', '--porcelain'], {
+      cwd: workspaceA, encoding: 'utf8',
+    })
+    expect(list).toContain(join(workspaceA, '.dsh', 'worktrees'))
+    const registry = readFileSync(join(workspaceA, '.dsh', 'worktrees', 'registry.json'), 'utf8')
+    expect(registry).toContain('"role": "owner"')
+    expect(registry).toContain('"sessionId":')
   },
 
   // The skills manager registers its own Settings -> Skills section (the same

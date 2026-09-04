@@ -40,7 +40,7 @@
   },
   "peerDependencies": {
     "react": "^18.2.0",
-    "@dsh-next/dsh-next-skills": "^0.1.0"
+    "@dsh-next/dsh-next-skills": "^0.2.0"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",

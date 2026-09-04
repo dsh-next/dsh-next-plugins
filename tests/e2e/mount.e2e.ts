@@ -239,6 +239,20 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await expect(sourcesModal).toHaveCount(0)
     // Re-pinned: the Update button returns (the seed version still differs).
     await expect(card.locator('[data-testid="skills-update"]')).toBeVisible()
+    // Search wiring + relevance: the box drives the grid; a name match ranks
+    // above a description-only match even when that match sorts earlier
+    // alphabetically (aaa-offering exists to make that order adversarial);
+    // a no-hit query lands on the empty state; clearing restores the grid.
+    const searchBox = page.getByTestId('skills-search').first()
+    const gridCards = page.locator('[data-testid="skills-card"]')
+    await searchBox.fill('e2e-test')
+    await expect(gridCards).toHaveCount(2)
+    await expect(gridCards.first()).toContainText('e2e-test-skill')
+    await expect(gridCards.nth(1)).toContainText('aaa-offering')
+    await searchBox.fill('zzz-nothing-matches-this')
+    await expect(page.getByTestId('skills-empty')).toBeVisible()
+    await searchBox.fill('')
+    await expect(gridCards).toHaveCount(2)
     // Two-step delete drives the real host service; the confirm modal shows
     // the copy path, and confirming removes the card.
     await card.locator('[data-testid="skills-delete"]').click()

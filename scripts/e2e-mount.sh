@@ -131,11 +131,16 @@ dsh-next-skills:
   scopes: {}
 EOF
 
-# Seed the market cache with a same-name offering from that provider so the
-# skills marker can drive the source switcher (Providers modal). The catalog
-# version constant never equals the local content fingerprint, so the copy
-# also shows the recorded-provider Update button (recorded + differs).
-mkdir -p "$DSH_HOME/skills-market/files/e2e-local/e2e__test"
+# Seed the market cache with same-name offerings from that provider so the
+# skills marker can drive the source switcher (Providers modal) and the
+# search box. The catalog version constant never equals the local content
+# fingerprint, so the copy also shows the recorded-provider Update button
+# (recorded + differs). The second offering's name sorts FIRST
+# alphabetically while its description deliberately mentions the seeded
+# skill's name fragment — the search step asserts relevance ranking beats
+# that alphabetical order.
+mkdir -p "$DSH_HOME/skills-market/files/e2e-local/e2e__test" \
+  "$DSH_HOME/skills-market/files/e2e-local/aaa__offering"
 cat > "$DSH_HOME/skills-market/catalog.json" <<'EOF'
 {
   "providers": [
@@ -151,6 +156,14 @@ cat > "$DSH_HOME/skills-market/catalog.json" <<'EOF'
           "skillPath": "skills/e2e-test-skill",
           "version": "seed-v1",
           "files": [{ "path": "SKILL.md", "sha": "seed" }]
+        },
+        {
+          "name": "aaa-offering",
+          "description": "Mentions e2e-test in its description to exercise search ranking.",
+          "cacheDir": "aaa__offering",
+          "skillPath": "skills/aaa-offering",
+          "version": "seed-v1",
+          "files": [{ "path": "SKILL.md", "sha": "seed" }]
         }
       ]
     }
@@ -159,6 +172,8 @@ cat > "$DSH_HOME/skills-market/catalog.json" <<'EOF'
 EOF
 cp "$DSH_AGENTS_HOME/skills/e2e-test-skill/SKILL.md" \
   "$DSH_HOME/skills-market/files/e2e-local/e2e__test/SKILL.md"
+printf -- '---\nname: aaa-offering\ndescription: Mentions e2e-test in its description to exercise search ranking.\n---\n# Test\n' \
+  > "$DSH_HOME/skills-market/files/e2e-local/aaa__offering/SKILL.md"
 
 # Pre-register two scratch workspaces in the home's storage registry so
 # every plugin's DOM marker can drive workspace-scoped flows (the

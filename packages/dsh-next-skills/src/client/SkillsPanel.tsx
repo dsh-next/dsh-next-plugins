@@ -5,8 +5,9 @@
  * shared class, so the two settings pages read as one product.
  *
  *  - Skills: every discovered global skill copy plus every provider catalog
- *    skill in one card grid — one card per copy, with a provider filter, a
- *    search box, and an installed-only toggle. An installed card shows the
+ *    skill in one card grid — one card per copy, with a relevance-ranked
+ *    search box (name matches above description matches), a provider filter,
+ *    and an installed-only toggle. An installed card shows the
  *    name, an origin chip, the recorded provider chip, and a presence badge,
  *    then an action row below the description: Update (warn-tinted outline,
  *    only when the recorded provider's content differs), Providers (opens the
@@ -178,7 +179,26 @@ export function buildGridEntries(state: SkillsState): GridEntry[] {
     || (a.providerSpec ?? '').localeCompare(b.providerSpec ?? ''))
 }
 
-/** Case-insensitive search + provider filter + installed-only filter. */
+/**
+ * Relevance tier of an entry for a search query: 0 exact name match, 1 name
+ * prefix, 2 name contains, 3 description/provider-spec contains, and
+ * undefined when the entry does not match at all. Lower ranks first, so a
+ * name match surfaces above an incidental description match instead of the
+ * alphabetical order deciding what the user sees.
+ */
+export function searchTier(entry: GridEntry, q: string): number | undefined {
+  if (q === '') return 0
+  const name = entry.name.toLowerCase()
+  if (name === q) return 0
+  if (name.startsWith(q)) return 1
+  if (name.includes(q)) return 2
+  const rest = `${entry.description} ${entry.providerSpec ?? ''}`.toLowerCase()
+  return rest.includes(q) ? 3 : undefined
+}
+
+/** Case-insensitive search (relevance-ranked) + provider filter +
+ *  installed-only filter. With an empty query every entry matches and the
+ *  grid order is preserved. */
 export function filterEntries(
   entries: readonly GridEntry[],
   search: string,
@@ -186,12 +206,14 @@ export function filterEntries(
   installedOnly: boolean,
 ): GridEntry[] {
   const q = search.trim().toLowerCase()
-  return entries.filter((entry) => {
+  const hits = entries.filter((entry) => {
     if (installedOnly && entry.row === undefined) return false
     if (providerFilter !== '' && entry.providerId !== providerFilter) return false
-    if (q !== '' && !`${entry.name} ${entry.description} ${entry.providerSpec ?? ''}`.toLowerCase().includes(q)) return false
-    return true
+    return searchTier(entry, q) !== undefined
   })
+  // Stable tier sort: within one tier the grid's own order (installed names
+  // first, then name/provider) is preserved.
+  return hits.sort((a, b) => (searchTier(a, q) ?? 0) - (searchTier(b, q) ?? 0))
 }
 
 export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
@@ -380,6 +402,11 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
     () => filterEntries(entries, search, providerFilter, installedOnly),
     [entries, search, providerFilter, installedOnly],
   )
+  // A fresh filter starts at page one: paging deep into one result set must
+  // not hide the top of the next.
+  React.useEffect(() => {
+    setVisible(PAGE_SIZE)
+  }, [search, providerFilter, installedOnly])
 
   const closeModal = (): void => {
     setModal(undefined)

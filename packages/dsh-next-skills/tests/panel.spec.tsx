@@ -14,7 +14,8 @@ import * as React from 'react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import type { InstalledSkill, SkillsState, WorkspaceRow } from '../src/core/types.ts'
-import { buildGridEntries, filterEntries, formatLastSync, presenceLabel, SkillsPanel } from '../src/client/SkillsPanel.tsx'
+import type { GridEntry } from '../src/client/SkillsPanel.tsx'
+import { buildGridEntries, filterEntries, formatLastSync, presenceLabel, searchTier, SkillsPanel } from '../src/client/SkillsPanel.tsx'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -230,6 +231,26 @@ describe('grid composition (buildGridEntries + filterEntries)', () => {
     // Catalog-only entries (no row) are excluded by the installed-only toggle.
     expect(filterEntries(entries, '', '', true).every((e) => e.row !== undefined)).toBe(true)
   })
+  it('search ranks name matches above description-only matches', () => {
+    // An alphabetically-first entry whose description merely mentions the
+    // query must not outrank a real name match.
+    const descMatch: GridEntry = { key: 'c:1', name: 'aaa-offering', description: 'Mentions e2e-test in its description.', catalog: {} as never }
+    const nameMatch: GridEntry = { key: 'r:1', name: 'e2e-test-skill', description: 'Throwaway skill.', row: {} as never }
+    const zNameMatch: GridEntry = { key: 'c:2', name: 'zeta-create', description: 'Unrelated description.', catalog: {} as never }
+    const entries = [descMatch, nameMatch, zNameMatch]
+    expect(searchTier(nameMatch, 'e2e-test')).toBe(1) // name starts with the query
+    expect(searchTier(descMatch, 'e2e-test')).toBe(3)
+    expect(searchTier({ ...nameMatch, name: 'skill-e2e-test' }, 'e2e-test')).toBe(2) // contains
+    expect(searchTier({ ...zNameMatch, name: 'create' }, 'create')).toBe(0)
+    expect(searchTier({ ...zNameMatch, name: 'create-x' }, 'create')).toBe(1)
+    expect(searchTier(descMatch, 'nothing-matches-this')).toBeUndefined()
+    const ranked = filterEntries(entries, 'e2e-test', '', false)
+    expect(ranked.map((e) => e.name)).toEqual(['e2e-test-skill', 'aaa-offering'])
+  })
+  it('an empty query keeps every entry in grid order (no ranking shuffle)', () => {
+    const entries = buildGridEntries(STATE)
+    expect(filterEntries(entries, '   ', '', false).map((e) => e.name)).toEqual(entries.map((e) => e.name))
+  })
   it('an installed name renders only its copy: the offerings collapse into the switcher', () => {
     const entries = buildGridEntries(MULTI)
     const cards = entries.filter((e) => e.name === 'security-review')
@@ -317,6 +338,52 @@ describe('SkillsPanel rendering', () => {
       .find((p) => p.textContent === 'Install skills from providers and control where each one is enabled.')
     expect(intro, 'the intro line should render under the title').toBeTruthy()
     expect(container.querySelector('[role="tablist"]')?.getAttribute('aria-label')).toBe('Skill views')
+    await unmount()
+  })
+
+  it('typing in the search box re-ranks the grid: the name match renders first', async () => {
+    // The wiring regression: the search input must drive filterEntries, and
+    // the alphabetical layout must not bury the name match behind an
+    // alphabetically-earlier description-only match.
+    const state: SkillsState = {
+      installed: [],
+      providers: [{ id: 'o-r', spec: 'o/r', skillCount: 2, lastRefresh: '' }],
+      catalog: [
+        { name: 'aaa-offering', description: 'Mentions e2e-test in its description.', providerId: 'o-r', providerSpec: 'o/r', skillPath: 'a', version: 'v1' },
+        { name: 'e2e-test-skill', description: 'Throwaway skill.', providerId: 'o-r', providerSpec: 'o/r', skillPath: 'b', version: 'v1' },
+      ],
+    }
+    const { container, unmount } = await render(rpcMock(state))
+    const cards = () => allByTestId(container, 'skills-card').map((c) => c.querySelector('[data-testid="skills-detail"]')!.textContent)
+    expect(cards()).toEqual(['aaa-offering', 'e2e-test-skill'])
+    await typeValue(byTestId(container, 'skills-search'), 'e2e-test')
+    expect(cards()).toEqual(['e2e-test-skill', 'aaa-offering'])
+    await typeValue(byTestId(container, 'skills-search'), 'zzz-no-match')
+    expect(byTestId(container, 'skills-empty').textContent).toContain('No skills match')
+    await unmount()
+  })
+
+  it('changing the search resets pagination to the first page', async () => {
+    // Page deep into a large result set, then search: the stale page size
+    // must not hide the top of the new result set.
+    const many: SkillsState = {
+      installed: [],
+      providers: [],
+      catalog: Array.from({ length: 40 }, (_, i) => ({
+        name: `bulk-skill-${String(i).padStart(2, '0')}`, description: `Bulk skill ${i}`,
+        providerId: 'o-r', providerSpec: 'o/r', skillPath: `skills/bulk-${i}`, version: 'v1',
+      })),
+    }
+    const { container, unmount } = await render(rpcMock(many))
+    expect(allByTestId(container, 'skills-card')).toHaveLength(30)
+    await click(byTestId(container, 'skills-show-more'))
+    expect(allByTestId(container, 'skills-card')).toHaveLength(40)
+    await typeValue(byTestId(container, 'skills-search'), 'bulk-skill-0')
+    expect(allByTestId(container, 'skills-card')).toHaveLength(10)
+    await typeValue(byTestId(container, 'skills-search'), '')
+    // Reset to page one: 30 cards and the pager returns.
+    expect(allByTestId(container, 'skills-card')).toHaveLength(30)
+    expect(byTestId(container, 'skills-show-more')).toBeTruthy()
     await unmount()
   })
 

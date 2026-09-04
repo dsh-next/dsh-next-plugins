@@ -46,8 +46,8 @@ export const en = {
   'card.detailsTitle': 'details for {key}',
   'card.updateTitle': 'update {key} to {version}',
   'card.update': 'Update',
-  'card.manage': 'Manage',
-  'card.add': 'Add',
+  'card.scopes': 'Scopes',
+  'card.install': 'Install',
 
   'summary.skill.one': '{count} skill',
   'summary.skill.many': '{count} skills',
@@ -98,9 +98,9 @@ export const en = {
   'modal.workspaces.empty': 'No workspaces registered.',
   'modal.workspaceMissing': 'not registered',
   'modal.save': 'Save scope',
-  'modal.update': 'Update',
   'modal.uninstall': 'Uninstall',
-  'modal.confirmUninstall': 'Confirm uninstall',
+  'modal.uninstallTitle': 'Uninstall {name}?',
+  'modal.uninstallHint': 'This removes the plugin and its components from your agent configuration.',
   'modal.cancel': 'Cancel',
 
   'detail.aria': 'Plugin details "{name}"',
@@ -134,6 +134,9 @@ export const en = {
   'marketplaces.lastSynced': 'last synced {age}',
   'marketplaces.by': 'by {owner}',
   'marketplaces.remove': 'Remove',
+  'marketplaces.removeAria': 'Remove marketplace "{name}"',
+  'marketplaces.removeTitle': 'Remove {name}?',
+  'marketplaces.removeHint': 'Installed plugins stay installed. The marketplace and its cached catalog are removed.',
 
   'status.requestFailed': 'Request failed',
   'status.done': 'Done',

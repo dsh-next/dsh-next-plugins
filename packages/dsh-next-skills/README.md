@@ -37,7 +37,7 @@ tabs:
   SKILL.md rendered as markdown. Installed skills sort first; a name offered
   by several providers shares one bordered group box (the installed copy at
   the top, the other providers' offerings below it), and filtering by a
-  provider narrows that group to the matching cards only. The **Add/Manage**
+  provider narrows that group to the matching cards only. The **Use/Scopes**
   button opens the scope modal: a radio picks where the skill is enabled —
   Global (the default, every workspace) or only in a checklist of registered
   workspaces — and installing or saving applies that scope as pure

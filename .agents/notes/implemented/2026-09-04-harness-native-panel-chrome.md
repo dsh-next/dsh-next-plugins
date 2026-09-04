@@ -70,3 +70,38 @@ notifier 73 — 8 new: scaffold, roving tablist, localized fallbacks x2, and
 the notifier card header), `pnpm i18n:check`, `pnpm docs:check`,
 `pnpm runtime-deps:check`, `pnpm build`, and `mise run e2e` (mount smoke with
 new heading assertions) all green.
+
+## Follow-up pass (same day): interaction relabels and confirm modals
+
+User review of the first pass produced a second round of refinements:
+
+- The workspace checklist indents under its radio's label text in both
+  panels' scope modals (`.optionNested`, 36px — radio padding + control +
+  gap).
+- Skills relabels: **Add** became **Use** (`card.use`, testid `skills-use`)
+  and **Manage** became **Scopes** (`card.scopes`, testid `skills-scopes`).
+  The card action row (Update / Delete / Scopes) left the shared block for
+  skills' extensions and is now right-aligned at natural width; Delete uses
+  a constant dark-red label (`--dsw-static-red-600`) on a neutral border,
+  with the strong error-outline `.danger` reserved for modal confirm
+  buttons.
+- Skills provider removal is two-step: a confirm modal (spec line + "kept"
+  hint) now stands between the Remove button and the `removeProvider` RPC.
+- Claude Plugins relabels: **Add** became **Install** (`card.install`,
+  testid `cc-install`) and **Manage** became **Scopes** (`card.scopes`,
+  testid `cc-scopes`). Update and Uninstall moved OUT of the scope modal
+  onto the plugin card (Update warn-tinted, Uninstall dark-red), the scope
+  modal's footer is Cancel + Save scope/Install only, and uninstall is a
+  two-step confirm modal (`cc-uninstall-modal`). Marketplace removal got the
+  same treatment (`cc-marketplace-remove-modal`), with hints stating what is
+  kept (installed plugins stay; only the source and its cache go).
+- The modal-only keys `modal.update` and `modal.confirmUninstall` were
+  dropped; `modal.uninstallTitle`/`modal.uninstallHint` and the removal
+  hints/arias were added in en+zh. README pairs were reworded where they
+  described the old button grammar and re-recorded with `docs:write-pair`.
+
+Testids were renamed with their controls (skills-manage to skills-scopes,
+skills-add to skills-use, cc-add to cc-install or cc-scopes by card state);
+specs and the e2e marker drive the new flows, including cancel paths that
+must not dispatch. `pnpm test` (skills 247, cc 384, notifier 73), typecheck,
+build, i18n, docs, and the e2e mount smoke stay green.

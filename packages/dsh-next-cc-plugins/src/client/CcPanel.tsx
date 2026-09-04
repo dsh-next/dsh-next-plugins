@@ -6,14 +6,14 @@
  *  - Plugins: every plugin across all marketplaces in a two-column card grid
  *    (installed plugins first, each group alphabetical by name) with a
  *    provider (marketplace) filter, a search box, and an
- *    installed-only toggle. Installed cards carry their installed version and
- *    an Update button whenever the (auto-refreshed) marketplace snapshot
- *    offers a newer one. Each card opens the scope modal: a radio picks
- *    where the plugin works — Global (the default, everywhere) or
- *    Workspaces (a checklist of the registered workspaces appears) — and
- *    installing or saving applies that scope. For an installed plugin the
- *    same modal manages the scope (saving re-scopes it), updates it, and
- *    uninstalls it after a two-step confirm.
+ *    installed-only toggle. Each installed card carries its installed
+ *    version, an Update button whenever the (auto-refreshed) marketplace
+ *    snapshot offers a newer one, an Uninstall button (a two-step confirm
+ *    modal before the RPC), and a Scopes button opening the scope modal: a
+ *    radio picks where the plugin works — Global (the default, everywhere)
+ *    or Workspaces (a checklist of the registered workspaces appears) — and
+ *    saving applies that scope. A catalog card offers Install, which opens
+ *    the same modal to pick the scope before the install.
  *  - Marketplaces: source management (add by owner/repo shorthand, GitHub
  *    URL, or local path; refresh, one source at a time so the active row's
  *    Remove swaps for a spinner; remove) with per-source last-synced age.
@@ -159,12 +159,14 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
   const [modal, setModal] = React.useState<{ marketplaceId: string; plugin: MarketplacePluginView } | undefined>()
   /** The open detail modal's plugin (same identity shape). */
   const [detail, setDetail] = React.useState<{ marketplaceId: string; plugin: MarketplacePluginView } | undefined>()
+  /** The plugin awaiting uninstall confirmation (two-step before the RPC). */
+  const [uninstallTarget, setUninstallTarget] = React.useState<{ marketplaceId: string; plugin: MarketplacePluginView } | undefined>()
+  /** The marketplace awaiting removal confirmation (two-step before the RPC). */
+  const [removeMarketplaceTarget, setRemoveMarketplaceTarget] = React.useState<MarketplaceViewRow | undefined>()
   /** The modal's radio: global (default) or workspaces. */
   const [scopeMode, setScopeMode] = React.useState<'global' | 'workspaces'>('global')
   /** Checked workspace paths while the modal is in workspaces mode. */
   const [checked, setChecked] = React.useState<Set<string>>(new Set())
-  /** Two-step uninstall confirm inside the modal. */
-  const [confirmUninstall, setConfirmUninstall] = React.useState(false)
   /** Unsaved Models-tab selections, alias to model id ('' = inherit). */
   const [modelDraft, setModelDraft] = React.useState<Record<string, string>>({})
   /** The marketplace a sequential Refresh all is currently re-syncing. */
@@ -185,13 +187,13 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
   }, [refresh])
 
   React.useEffect(() => {
-    if (modal === undefined && detail === undefined) return
+    if (modal === undefined && detail === undefined && uninstallTarget === undefined && removeMarketplaceTarget === undefined) return
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') { closeModal(); setDetail(undefined) }
+      if (e.key === 'Escape') { closeModal(); setDetail(undefined); setUninstallTarget(undefined); setRemoveMarketplaceTarget(undefined) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [modal, detail])
+  }, [modal, detail, uninstallTarget, removeMarketplaceTarget])
 
   const mutate = async (method: string, args?: unknown): Promise<void> => {
     setBusy(true)
@@ -205,7 +207,6 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
         else await refresh()
         setMessage({ ok: true, text: result.message ?? t('status.done') })
         if (CATALOG_MUTATIONS.has(method)) deps.notifyInstalledChanged?.()
-        setConfirmUninstall(false)
       }
     } catch (error) {
       setMessage({ ok: false, text: errMsg(error) })
@@ -262,7 +263,6 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
     setModal(undefined)
     setScopeMode('global')
     setChecked(new Set())
-    setConfirmUninstall(false)
   }
 
   /** Open the scope modal; an installed plugin starts on its current scope. */
@@ -275,7 +275,6 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
       setScopeMode('global')
       setChecked(new Set())
     }
-    setConfirmUninstall(false)
   }
 
   const toggleWorkspace = (path: string): void => {
@@ -432,7 +431,7 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
                 name="cc-plugin-scope"
                 checked={scopeMode === 'global'}
                 disabled={busy}
-                onChange={() => { setScopeMode('global'); setConfirmUninstall(false) }}
+                onChange={() => { setScopeMode('global') }}
               />
               <span className={styles.optionLabel}>{t('modal.scope.global')}</span>
             </label>
@@ -442,13 +441,13 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
                 name="cc-plugin-scope"
                 checked={scopeMode === 'workspaces'}
                 disabled={busy}
-                onChange={() => { setScopeMode('workspaces'); setConfirmUninstall(false) }}
+                onChange={() => { setScopeMode('workspaces') }}
               />
               <span className={styles.optionLabel}>{t('modal.scope.workspaces')}</span>
             </label>
           </div>
           {scopeMode === 'workspaces' && (
-            <div className={styles.optionList} data-testid="cc-workspaces">
+            <div className={`${styles.optionList} ${styles.optionNested}`} data-testid="cc-workspaces">
               {rows.length === 0 ? (
                 <p className={styles.modalHint}>{t('modal.workspaces.empty')}</p>
               ) : rows.map((row) => (
@@ -473,40 +472,13 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
               disabled={busy}
               onClick={closeModal}
             >{t('modal.cancel')}</button>
-            {installed && (
-              <button
-                type="button"
-                className={styles.ghost}
-                disabled={busy}
-                onClick={() => { void mutate('updatePlugin', { key }); closeModal() }}
-              >{t('modal.update')}</button>
-            )}
-            {installed && (
-              confirmUninstall ? (
-                <button
-                  type="button"
-                  className={`${styles.danger} ${styles.optionAction}`}
-                  disabled={busy}
-                  onClick={() => { void mutate('uninstallPlugin', { key }); closeModal() }}
-                  data-testid="cc-uninstall-confirm"
-                >{t('modal.confirmUninstall')}</button>
-              ) : (
-                <button
-                  type="button"
-                  className={`${styles.ghostDanger} ${styles.optionAction}`}
-                  disabled={busy}
-                  onClick={() => setConfirmUninstall(true)}
-                  data-testid="cc-uninstall"
-                >{t('modal.uninstall')}</button>
-              )
-            )}
             <button
               type="button"
               className={styles.primary}
               disabled={busy || (scopeMode === 'workspaces' && checked.size === 0)}
               onClick={() => confirmModal(key, installed)}
               data-testid="cc-modal-confirm"
-            >{installed ? t('modal.save') : t('card.add')}</button>
+            >{installed ? t('modal.save') : t('card.install')}</button>
           </div>
         </div>
       </div>
@@ -582,6 +554,72 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
           )}
           <div className={styles.modalActions}>
             <button type="button" className={styles.ghost} onClick={() => setDetail(undefined)} data-testid="cc-detail-close">{t('detail.close')}</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  /**
+   * Two-step uninstall confirm: names the plugin and states what is removed
+   * before the RPC runs. The card's Uninstall button opens it.
+   */
+  const uninstallDialog = (): React.ReactElement | null => {
+    if (uninstallTarget === undefined) return null
+    const key = `${uninstallTarget.marketplaceId}/${uninstallTarget.plugin.name}`
+    const close = (): void => setUninstallTarget(undefined)
+    const doUninstall = (): void => {
+      void mutate('uninstallPlugin', { key })
+      close()
+    }
+    return (
+      <div className={styles.overlay} role="presentation" onClick={close}>
+        <div
+          className={styles.modal}
+          role="dialog"
+          aria-modal="true"
+          aria-label={t('modal.uninstallTitle', { name: uninstallTarget.plugin.name })}
+          data-testid="cc-uninstall-modal"
+          onClick={(e: React.MouseEvent) => e.stopPropagation()}
+        >
+          <p className={styles.modalTitle}>{t('modal.uninstallTitle', { name: uninstallTarget.plugin.name })}</p>
+          <p className={styles.modalHint}>{t('modal.uninstallHint')}</p>
+          <div className={styles.modalActions}>
+            <button type="button" className={styles.ghost} disabled={busy} onClick={close} data-testid="cc-uninstall-cancel">{t('modal.cancel')}</button>
+            <button type="button" className={styles.danger} disabled={busy} onClick={doUninstall} data-testid="cc-uninstall-confirm">{t('modal.uninstall')}</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  /**
+   * Two-step marketplace removal confirm: names the marketplace and states
+   * that installed plugins stay before the RPC runs.
+   */
+  const marketplaceRemoveDialog = (): React.ReactElement | null => {
+    if (removeMarketplaceTarget === undefined) return null
+    const close = (): void => setRemoveMarketplaceTarget(undefined)
+    const doRemove = (): void => {
+      void mutate('removeMarketplace', { marketplaceId: removeMarketplaceTarget.id })
+      close()
+    }
+    return (
+      <div className={styles.overlay} role="presentation" onClick={close}>
+        <div
+          className={styles.modal}
+          role="dialog"
+          aria-modal="true"
+          aria-label={t('marketplaces.removeAria', { name: removeMarketplaceTarget.name })}
+          data-testid="cc-marketplace-remove-modal"
+          onClick={(e: React.MouseEvent) => e.stopPropagation()}
+        >
+          <p className={styles.modalTitle}>{t('marketplaces.removeTitle', { name: removeMarketplaceTarget.name })}</p>
+          <p className={styles.modalHint}>{t('marketplaces.removeHint')}</p>
+          <p className={styles.copyPath} data-testid="cc-marketplace-remove-spec">{removeMarketplaceTarget.spec}</p>
+          <div className={styles.modalActions}>
+            <button type="button" className={styles.ghost} disabled={busy} onClick={close} data-testid="cc-marketplace-remove-cancel">{t('modal.cancel')}</button>
+            <button type="button" className={styles.danger} disabled={busy} onClick={doRemove} data-testid="cc-marketplace-remove-confirm">{t('marketplaces.remove')}</button>
           </div>
         </div>
       </div>
@@ -696,21 +734,41 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
                     {plugin.updateAvailable === true && record !== undefined && (
                       <button
                         type="button"
-                        className={styles.ghost}
+                        className={styles.updateBtn}
                         disabled={busy}
                         title={t('card.updateTitle', { key, version: plugin.version !== '' ? plugin.version : 'latest' })}
                         onClick={() => { void mutate('updatePlugin', { key }) }}
                         data-testid="cc-update"
                       >{t('card.update')}</button>
                     )}
-                    <button
-                      type="button"
-                      className={record !== undefined ? styles.ghost : styles.primary}
-                      disabled={busy || plugin.sourceUnsupported !== undefined}
-                      title={key}
-                      onClick={() => openModal(marketplace.id, plugin, record)}
-                      data-testid="cc-add"
-                    >{record !== undefined ? t('card.manage') : t('card.add')}</button>
+                    {record !== undefined ? (
+                      <>
+                        <button
+                          type="button"
+                          className={styles.deleteBtn}
+                          disabled={busy}
+                          onClick={() => setUninstallTarget({ marketplaceId: marketplace.id, plugin })}
+                          data-testid="cc-uninstall"
+                        >{t('modal.uninstall')}</button>
+                        <button
+                          type="button"
+                          className={styles.ghost}
+                          disabled={busy}
+                          title={key}
+                          onClick={() => openModal(marketplace.id, plugin, record)}
+                          data-testid="cc-scopes"
+                        >{t('card.scopes')}</button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        className={styles.primary}
+                        disabled={busy || plugin.sourceUnsupported !== undefined}
+                        title={key}
+                        onClick={() => openModal(marketplace.id, plugin, record)}
+                        data-testid="cc-install"
+                      >{t('card.install')}</button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -777,7 +835,7 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
                 type="button"
                 className={styles.ghostDanger}
                 disabled={busy}
-                onClick={() => void mutate('removeMarketplace', { marketplaceId: m.id })}
+                onClick={() => setRemoveMarketplaceTarget(m)}
                 data-testid="cc-marketplace-remove"
               >{t('marketplaces.remove')}</button>
             )}
@@ -834,6 +892,8 @@ export function CcPanel(deps: CcPanelDeps): React.ReactElement {
 
       {modalDialog()}
       {detailDialog()}
+      {uninstallDialog()}
+      {marketplaceRemoveDialog()}
     </div>
   )
 }

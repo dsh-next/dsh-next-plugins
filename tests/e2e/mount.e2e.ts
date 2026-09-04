@@ -176,7 +176,7 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await expect(page.getByText('Providers', { exact: true })).toBeVisible()
     const card = page.locator('[data-testid="skills-card"]', { hasText: 'e2e-test-skill' }).first()
     await expect(card).toBeVisible()
-    await card.locator('[data-testid="skills-manage"]').click()
+    await card.locator('[data-testid="skills-scopes"]').click()
     const modal = page.getByTestId('skills-modal')
     await expect(modal).toBeVisible()
     await expect(page.getByTestId('skills-scope-global').locator('input')).toBeChecked()
@@ -264,22 +264,25 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await page.getByTestId('cc-detail-close').click()
     await expect(page.getByTestId('cc-plugin-detail')).toHaveCount(0)
     // The scope modal drives a real install: Global is the default radio,
-    // the workspaces checklist stays hidden, and Add installs globally.
-    await demoCard.locator('[data-testid="cc-add"]').click()
+    // the workspaces checklist stays hidden (indented under its radio when
+    // shown), and Install installs globally.
+    await demoCard.locator('[data-testid="cc-install"]').click()
     await expect(page.getByTestId('cc-modal')).toBeVisible()
     await expect(page.getByTestId('cc-scope-global').locator('input')).toBeChecked()
     await expect(page.getByTestId('cc-workspaces')).toHaveCount(0)
     await page.getByTestId('cc-modal-confirm').click()
     await expect(page.getByTestId('cc-modal')).toHaveCount(0)
-    await expect(demoCard).toContainText('Manage', { useInnerText: false })
+    // Installed cards flip to Scopes + Uninstall (plus Update when offered).
+    await expect(demoCard.getByTestId('cc-scopes')).toBeVisible()
+    await expect(demoCard.getByTestId('cc-uninstall')).toBeVisible()
     await expect(demoCard.getByTestId('cc-installed-version')).toBeVisible()
-    // Manage re-opens the modal on the current scope; uninstall is a
-    // two-step confirm and removes the plugin again.
-    await demoCard.locator('[data-testid="cc-add"]').click()
-    await expect(page.getByTestId('cc-scope-global').locator('input')).toBeChecked()
-    await page.getByTestId('cc-uninstall').click()
+    // Uninstall is a two-step confirm modal opened from the card; it
+    // removes the plugin again.
+    await demoCard.getByTestId('cc-uninstall').click()
+    await expect(page.getByTestId('cc-uninstall-modal')).toBeVisible()
     await page.getByTestId('cc-uninstall-confirm').click()
-    await expect(demoCard).not.toContainText('Manage')
+    await expect(demoCard.getByTestId('cc-scopes')).toHaveCount(0)
+    await expect(demoCard.getByTestId('cc-install')).toBeVisible()
     // The parity fixture plugin drives the three newest bridges through
     // the real host service: dependency auto-install, user_config MCP
     // expansion, and plugin-level reference rewriting. Seed the user
@@ -288,14 +291,14 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     mkdirSync(ccRoot, { recursive: true })
     writeFileSync(join(ccRoot, 'user-config.json'), JSON.stringify({ parity_token: 'e2e-parity-token' }))
     const parityCard = page.locator('[data-testid="cc-plugin"]:has([data-testid="cc-detail"]:text-is("parity-tools"))').first()
-    await parityCard.locator('[data-testid="cc-add"]').click()
+    await parityCard.locator('[data-testid="cc-install"]').click()
     await expect(page.getByTestId('cc-modal')).toBeVisible()
     await page.getByTestId('cc-modal-confirm').click()
-    await expect(parityCard).toContainText('Manage')
+    await expect(parityCard.getByTestId('cc-scopes')).toBeVisible()
     // The declared dependency auto-installed alongside, and the outcome
     // surfaced in the mutation message.
     const depCard = page.locator('[data-testid="cc-plugin"]:has([data-testid="cc-detail"]:text-is("dep-provider"))').first()
-    await expect(depCard).toContainText('Manage')
+    await expect(depCard.getByTestId('cc-scopes')).toBeVisible()
     await expect(depCard.getByTestId('cc-installed-version')).toBeVisible()
     await expect(page.getByTestId('cc-message')).toContainText('auto-installed dependency "dep-provider"')
     // On-disk effects through the real filesystem: the installed skill
@@ -312,14 +315,12 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     expect(patchYml).not.toContain('${user_config.parity_token}')
     // Uninstall both: dependencies stay independent of their parent, so
     // each card carries its own two-step uninstall.
-    await parityCard.locator('[data-testid="cc-add"]').click()
-    await page.getByTestId('cc-uninstall').click()
+    await parityCard.getByTestId('cc-uninstall').click()
     await page.getByTestId('cc-uninstall-confirm').click()
-    await expect(parityCard).not.toContainText('Manage')
-    await depCard.locator('[data-testid="cc-add"]').click()
-    await page.getByTestId('cc-uninstall').click()
+    await expect(parityCard.getByTestId('cc-scopes')).toHaveCount(0)
+    await depCard.getByTestId('cc-uninstall').click()
     await page.getByTestId('cc-uninstall-confirm').click()
-    await expect(depCard).not.toContainText('Manage')
+    await expect(depCard.getByTestId('cc-scopes')).toHaveCount(0)
     // The Workspaces radio path, against the workspaces e2e-mount.sh
     // preseeded into the scratch home's registry (canonical paths arrive
     // via env — never machine-specific literals). Install demo-tools into
@@ -328,7 +329,7 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     const workspaceA = process.env.DSH_E2E_WORKSPACE_A
     if (!workspaceA) throw new Error('DSH_E2E_WORKSPACE_A is not set — run through scripts/e2e-mount.sh, which preseeds the workspaces')
     const workspaceB = process.env.DSH_E2E_WORKSPACE_B ?? ''
-    await demoCard.locator('[data-testid="cc-add"]').click()
+    await demoCard.locator('[data-testid="cc-install"]').click()
     await expect(page.getByTestId('cc-modal')).toBeVisible()
     await page.getByTestId('cc-scope-workspaces').locator('input').click()
     const checklist = page.getByTestId('cc-workspaces')
@@ -338,26 +339,26 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     if (workspaceB !== '') await expect(checklist).toContainText('workspace-b')
     await checklist.locator('[data-testid="cc-workspace"]').filter({ hasText: 'workspace-a' }).first().locator('input[type="checkbox"]').click()
     await page.getByTestId('cc-modal-confirm').click()
-    await expect(demoCard).toContainText('Manage')
+    await expect(demoCard.getByTestId('cc-scopes')).toBeVisible()
     await expect(demoCard).toContainText('in workspace-a')
     // The skill copy landed in the GLOBAL root — skills never install into
     // projects; the workspace scope is enablement, not physical placement.
     await expect.poll(() => existsSync(join(agentsHome, 'skills', 'demo-skill', 'SKILL.md'))).toBe(true)
     expect(readFileSync(join(agentsHome, 'skills', 'demo-skill', 'SKILL.md'), 'utf8')).toContain('demo')
     expect(existsSync(join(workspaceA, '.agents', 'skills', 'demo-skill'))).toBe(false)
-    // Manage re-opens on the workspace scope; Save scope to global clears the
+    // Scopes re-opens on the workspace scope; Save scope to global clears the
     // enablement restriction (the global copy stays put).
-    await demoCard.locator('[data-testid="cc-add"]').click()
+    await demoCard.getByTestId('cc-scopes').click()
     await expect(page.getByTestId('cc-scope-workspaces').locator('input')).toBeChecked()
     await page.getByTestId('cc-scope-global').locator('input').click()
     await page.getByTestId('cc-modal-confirm').click()
     await expect.poll(() => existsSync(join(agentsHome, 'skills', 'demo-skill', 'SKILL.md'))).toBe(true)
     await expect(demoCard).toContainText('in global')
     // Full uninstall from the global scope; the marketplace can go after.
-    await demoCard.locator('[data-testid="cc-add"]').click()
-    await page.getByTestId('cc-uninstall').click()
+    await demoCard.getByTestId('cc-uninstall').click()
+    await expect(page.getByTestId('cc-uninstall-modal')).toBeVisible()
     await page.getByTestId('cc-uninstall-confirm').click()
-    await expect(demoCard).not.toContainText('Manage')
+    await expect(demoCard.getByTestId('cc-scopes')).toHaveCount(0)
     // Remove the fixture marketplace; the seeded official one remains
     // (the Remove button inside the tiny-tools row, not a foreign one).
     await settings.getByRole('tab', { name: 'Marketplaces' }).click({ force: true })
@@ -367,6 +368,9 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await expect(page.getByTestId('cc-marketplace-refresh-all')).toContainText('Refresh all')
     await expect(page.getByTestId('cc-message')).toContainText(/Refreshed \d+ marketplace|Refresh failed/)
     await page.locator('[data-testid="cc-marketplace"]:has-text("tiny-tools")').getByRole('button', { name: 'Remove', exact: true }).click()
+    // Removal confirms through a modal before the RPC.
+    await expect(page.getByTestId('cc-marketplace-remove-modal')).toBeVisible()
+    await page.getByTestId('cc-marketplace-remove-confirm').click()
     await expect(page.getByText('tiny-tools', { exact: false })).toHaveCount(0)
     await expect(page.getByText('anthropics/claude-plugins-official', { exact: false }).first()).toBeVisible()
     // The Models tab offers alias pickers over the runtime's live models.

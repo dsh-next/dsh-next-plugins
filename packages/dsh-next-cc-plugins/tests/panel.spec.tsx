@@ -205,10 +205,11 @@ function pluginCards(): Element[] {
   return [...container.querySelectorAll('[data-testid="cc-plugin"]')]
 }
 
-/** The Add/Manage button of one plugin (buttons carry the plugin key). */
-function addButton(key: string): HTMLElement {
-  const el = [...container.querySelectorAll('[data-testid="cc-add"]')].find((b) => b.getAttribute('title') === key)
-  expect(el, `Add button for ${key}`).toBeDefined()
+/** The card's scope-opening button (Install when absent, Scopes when
+ *  installed); buttons carry the plugin key as their title. */
+function scopeButton(key: string): HTMLElement {
+  const el = [...container.querySelectorAll('[data-testid="cc-install"], [data-testid="cc-scopes"]')].find((b) => b.getAttribute('title') === key)
+  expect(el, `scope button for ${key}`).toBeDefined()
   return el as HTMLElement
 }
 
@@ -221,11 +222,11 @@ describe('CcPanel', () => {
     expect(pluginCards()).toHaveLength(3)
     expect(document.body.textContent).toContain('acme-tools')
     expect(document.body.textContent).toContain('other-mkt')
-    // The unsupported source explains itself and renders a disabled Add.
+    // The unsupported source explains itself and renders a disabled Install.
     expect(document.body.textContent).toContain('npm plugin sources are not supported yet')
-    const adds = [...container.querySelectorAll('[data-testid="cc-add"]')].filter((b) => b.textContent === 'Add')
-    expect(adds).toHaveLength(3)
-    const disabled = adds.find((b) => (b as HTMLButtonElement).disabled)
+    const installs = [...container.querySelectorAll('[data-testid="cc-install"]')].filter((b) => b.textContent === 'Install')
+    expect(installs).toHaveLength(3)
+    const disabled = installs.find((b) => (b as HTMLButtonElement).disabled)
     expect(disabled).toBeDefined()
     expect(disabled?.getAttribute('title')).toBe('github:o/r/packed')
   })
@@ -256,9 +257,9 @@ describe('CcPanel', () => {
     await act(async () => { check(toggle, true) })
     expect(pluginCards()).toHaveLength(1)
     expect(pluginCards()[0].textContent).toContain('team-tools')
-    // The installed card carries the presence badge and a Manage button.
+    // The installed card carries the presence badge and a Scopes button.
     expect(pluginCards()[0].textContent).toContain('in global')
-    expect(pluginCards()[0].textContent).toContain('Manage')
+    expect(pluginCards()[0].querySelector('[data-testid="cc-scopes"]')).not.toBeNull()
   })
 
   it('surfaces imports the settings file could not satisfy on this machine', async () => {
@@ -291,6 +292,26 @@ describe('CcPanel', () => {
     await act(async () => { setValue(input, 'anthropics/claude-code') })
     await act(async () => { button('Add marketplace').click() })
     expect(rpc).toHaveBeenCalledWith('addMarketplace', { spec: 'anthropics/claude-code' })
+  })
+
+  it('removing a marketplace confirms through a modal before the RPC', async () => {
+    const rpc = rpcMock()
+    await renderAsync({ rpc })
+    await act(async () => { button('Marketplaces').click() })
+    await act(async () => { button('Remove').click() })
+    const confirmModal = document.querySelector('[data-testid="cc-marketplace-remove-modal"]')!
+    expect(confirmModal.textContent).toContain('Remove acme-tools?')
+    expect(confirmModal.textContent).toContain('Installed plugins stay installed')
+    expect(confirmModal.textContent).toContain('o/r')
+    // Cancel closes without dispatching.
+    await act(async () => { (document.querySelector('[data-testid="cc-marketplace-remove-cancel"]') as HTMLButtonElement).click() })
+    expect(document.querySelector('[data-testid="cc-marketplace-remove-modal"]')).toBeNull()
+    expect(rpc).not.toHaveBeenCalledWith('removeMarketplace', { marketplaceId: 'github:o/r' })
+    // Confirming dispatches with the marketplace id.
+    await act(async () => { button('Remove').click() })
+    await act(async () => { (document.querySelector('[data-testid="cc-marketplace-remove-confirm"]') as HTMLButtonElement).click() })
+    expect(rpc).toHaveBeenCalledWith('removeMarketplace', { marketplaceId: 'github:o/r' })
+    expect(document.querySelector('[data-testid="cc-marketplace-remove-modal"]')).toBeNull()
   })
 
   it('renders the harness scaffold: title, intro, and the labeled tablist', async () => {
@@ -428,8 +449,8 @@ describe('CcPanel', () => {
       }],
     }
     await renderAsync({ rpc: rpcMock(state) })
-    // The Add/Manage button's title is the plugin key: read the grid order.
-    const order = pluginCards().map((c) => c.querySelector('[data-testid="cc-add"]')?.getAttribute('title'))
+    // The scope-opening button's title is the plugin key: read the grid order.
+    const order = pluginCards().map((c) => c.querySelector('[data-testid="cc-install"], [data-testid="cc-scopes"]')?.getAttribute('title'))
     expect(order).toEqual([
       'github:o/r/bbb-live', // installed group sorts by name asc
       'github:o/r/zzz-live',
@@ -442,7 +463,7 @@ describe('CcPanel', () => {
     const rpc = rpcMock()
     const notify = vi.fn()
     await renderAsync({ rpc, notifyInstalledChanged: notify })
-    await act(async () => { addButton('github:o/r/team-tools').click() })
+    await act(async () => { scopeButton('github:o/r/team-tools').click() })
     const modal = document.querySelector('[data-testid="cc-modal"]')
     expect(modal).not.toBeNull()
     expect(modal?.textContent).toContain('activate once regardless of scope')
@@ -461,7 +482,7 @@ describe('CcPanel', () => {
     expect(document.querySelector('[data-testid="cc-modal"]')).toBeNull()
 
     // Workspaces mode: the checklist appears and the selection rides along.
-    await act(async () => { addButton('github:o/r/team-tools').click() })
+    await act(async () => { scopeButton('github:o/r/team-tools').click() })
     await act(async () => { (document.querySelector('[data-testid="cc-scope-workspaces"] input') as HTMLInputElement).click() })
     const boxes = [...container.querySelectorAll('[data-testid="cc-workspace"] input[type="checkbox"]')]
     expect(boxes).toHaveLength(1) // Project One
@@ -476,16 +497,17 @@ describe('CcPanel', () => {
     })
   })
 
-  it('Manage modal reflects the current scope, re-scopes, updates, and uninstalls', async () => {
-    const state: CcState = { ...STATE, installed: [installedRecord()] }
+  it('Scopes modal reflects the current scope; Update and Uninstall live on the card', async () => {
+    const state = stateWithInstall('1.1.0', true)
     const rpc = rpcMock(state)
     await renderAsync({ rpc })
-    await act(async () => { addButton('github:o/r/team-tools').click() })
-    let modal = document.querySelector('[data-testid="cc-modal"]')!
-    // Installed: the footer offers Save scope, Update, and Uninstall.
+    await act(async () => { scopeButton('github:o/r/team-tools').click() })
+    const modal = document.querySelector('[data-testid="cc-modal"]')!
+    // Installed: the footer offers only Save scope — Update and Uninstall
+    // ride the card now, not the modal.
     expect(modal.textContent).toContain('Save scope')
-    expect(button('Update')).toBeDefined()
-    expect(button('Uninstall')).toBeDefined()
+    expect(modal.textContent).not.toContain('Uninstall')
+    expect([...container.querySelectorAll('button')].some((b) => b.textContent === 'Update' && modal.contains(b))).toBe(false)
     // A global record opens on the global radio.
     expect((modal.querySelector('[data-testid="cc-scope-global"] input') as HTMLInputElement).checked).toBe(true)
     // Switch to workspaces and save: re-scope dispatches with the key.
@@ -497,19 +519,25 @@ describe('CcPanel', () => {
       key: 'github:o/r/team-tools',
       scope: { kind: 'workspaces', workspacePaths: ['/w1'] },
     })
-    // Update dispatches with the key and closes the modal.
-    await act(async () => { addButton('github:o/r/team-tools').click() })
-    await act(async () => { button('Update').click() })
+    // Update rides the card and dispatches with the key.
+    await act(async () => { (pluginCards()[0].querySelector('[data-testid="cc-update"]') as HTMLElement).click() })
     expect(rpc).toHaveBeenCalledWith('updatePlugin', { key: 'github:o/r/team-tools' })
-    expect(document.querySelector('[data-testid="cc-modal"]')).toBeNull()
-    // Uninstall is a two-step confirm.
-    await act(async () => { addButton('github:o/r/team-tools').click() })
-    await act(async () => { button('Uninstall').click() })
+    // Uninstall is a two-step confirm modal opened from the card; cancel
+    // closes it without dispatching.
+    await act(async () => { (pluginCards()[0].querySelector('[data-testid="cc-uninstall"]') as HTMLElement).click() })
+    const confirmModal = document.querySelector('[data-testid="cc-uninstall-modal"]')!
+    expect(confirmModal.textContent).toContain('Uninstall team-tools?')
+    await act(async () => { (document.querySelector('[data-testid="cc-uninstall-cancel"]') as HTMLButtonElement).click() })
+    expect(document.querySelector('[data-testid="cc-uninstall-modal"]')).toBeNull()
+    expect(rpc).not.toHaveBeenCalledWith('uninstallPlugin', { key: 'github:o/r/team-tools' })
+    // Confirming dispatches with the key.
+    await act(async () => { (pluginCards()[0].querySelector('[data-testid="cc-uninstall"]') as HTMLElement).click() })
     await act(async () => { (document.querySelector('[data-testid="cc-uninstall-confirm"]') as HTMLButtonElement).click() })
     expect(rpc).toHaveBeenCalledWith('uninstallPlugin', { key: 'github:o/r/team-tools' })
+    expect(document.querySelector('[data-testid="cc-uninstall-modal"]')).toBeNull()
   })
 
-  it('Manage modal opens on the record\'s workspace scope, listing unregistered paths', async () => {
+  it('Scopes modal opens on the record\'s workspace scope, listing unregistered paths', async () => {
     const state: CcState = {
       ...STATE,
       installed: [installedRecord({
@@ -521,7 +549,7 @@ describe('CcPanel', () => {
       })],
     }
     await renderAsync({ rpc: rpcMock(state) })
-    await act(async () => { addButton('github:o/r/team-tools').click() })
+    await act(async () => { scopeButton('github:o/r/team-tools').click() })
     const modal = document.querySelector('[data-testid="cc-modal"]')!
     expect((modal.querySelector('[data-testid="cc-scope-workspaces"] input') as HTMLInputElement).checked).toBe(true)
     const rows = [...container.querySelectorAll('[data-testid="cc-workspace"]')]
@@ -537,6 +565,7 @@ describe('CcPanel', () => {
     await renderAsync()
     await act(async () => { button('Marketplaces').click() })
     await act(async () => { button('Remove').click() })
+    await act(async () => { (document.querySelector('[data-testid="cc-marketplace-remove-confirm"]') as HTMLButtonElement).click() })
     expect(document.querySelector('[data-testid="cc-message"]')?.textContent).toContain('done')
 
     const rpc = vi.fn<RpcFn>(async (method: string) => {
@@ -546,6 +575,7 @@ describe('CcPanel', () => {
     await renderAsync({ rpc })
     await act(async () => { button('Marketplaces').click() })
     await act(async () => { button('Remove').click() })
+    await act(async () => { (document.querySelector('[data-testid="cc-marketplace-remove-confirm"]') as HTMLButtonElement).click() })
     expect(document.querySelector('[data-testid="cc-message"]')?.textContent).toContain('boom')
   })
 
@@ -593,7 +623,7 @@ describe('CcPanel', () => {
 
   it('modal closes via Cancel, Escape, and overlay click, resetting the draft', async () => {
     await renderAsync()
-    await act(async () => { addButton('github:o/r/team-tools').click() })
+    await act(async () => { scopeButton('github:o/r/team-tools').click() })
     const modal = () => document.querySelector('[data-testid="cc-modal"]')
     expect(modal()).not.toBeNull()
 
@@ -606,24 +636,24 @@ describe('CcPanel', () => {
     expect(modal()).toBeNull()
 
     // Escape closes too.
-    await act(async () => { addButton('github:o/r/team-tools').click() })
+    await act(async () => { scopeButton('github:o/r/team-tools').click() })
     await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })) })
     expect(modal()).toBeNull()
 
     // Clicking the scrim (the overlay around the dialog) closes.
-    await act(async () => { addButton('github:o/r/team-tools').click() })
+    await act(async () => { scopeButton('github:o/r/team-tools').click() })
     await act(async () => { (modal()!.parentElement as HTMLElement).click() })
     expect(modal()).toBeNull()
 
     // The draft did not leak: global is the default again, nothing checked.
-    await act(async () => { addButton('github:o/r/team-tools').click() })
+    await act(async () => { scopeButton('github:o/r/team-tools').click() })
     expect((modal()!.querySelector('[data-testid="cc-scope-global"] input') as HTMLInputElement).checked).toBe(true)
     expect(document.querySelector('[data-testid="cc-workspaces"]')).toBeNull()
   })
 
   it('confirm stays disabled until a workspaces selection exists', async () => {
     await renderAsync()
-    await act(async () => { addButton('github:o/r/team-tools').click() })
+    await act(async () => { scopeButton('github:o/r/team-tools').click() })
     const confirm = () => document.querySelector('[data-testid="cc-modal-confirm"]') as HTMLButtonElement
     // Global default: enabled.
     expect(confirm().disabled).toBe(false)
@@ -638,7 +668,7 @@ describe('CcPanel', () => {
 
   it('modal title shows the installed and available versions on an update', async () => {
     await renderAsync({ rpc: rpcMock(stateWithInstall('1.1.0', true)) })
-    await act(async () => { addButton('github:o/r/team-tools').click() })
+    await act(async () => { scopeButton('github:o/r/team-tools').click() })
     const title = document.querySelector('[data-testid="cc-modal"]')?.querySelector('p')?.textContent ?? ''
     expect(title).toContain('team-tools')
     expect(title).toContain('(installed 1.0.0)')
@@ -657,6 +687,7 @@ describe('CcPanel', () => {
     expect(rpc).toHaveBeenCalledWith('addMarketplace', { spec: 'anthropics/claude-code' })
 
     await act(async () => { button('Remove').click() })
+    await act(async () => { (document.querySelector('[data-testid="cc-marketplace-remove-confirm"]') as HTMLButtonElement).click() })
     expect(rpc).toHaveBeenCalledWith('removeMarketplace', { marketplaceId: 'github:o/r' })
 
     // No sources configured: Refresh all is disabled and the empty state shows.
@@ -728,7 +759,7 @@ describe('CcPanel', () => {
     await act(async () => { (card.querySelector('[data-testid="cc-update"]') as HTMLElement).click() })
     // While the update hangs: every card button is disabled.
     await act(async () => {})
-    const disabledAdds = [...container.querySelectorAll('[data-testid="cc-add"]')].every((b) => (b as HTMLButtonElement).disabled)
+    const disabledAdds = [...container.querySelectorAll('[data-testid="cc-install"], [data-testid="cc-scopes"]')].every((b) => (b as HTMLButtonElement).disabled)
     const disabledUpdates = [...container.querySelectorAll('[data-testid="cc-update"]')].every((b) => (b as HTMLButtonElement).disabled)
     expect(disabledAdds).toBe(true)
     expect(disabledUpdates).toBe(true)
@@ -736,7 +767,7 @@ describe('CcPanel', () => {
     await act(async () => { resolveUpdate({ ok: true, message: 'updated to 1.1.0', state }) })
     await act(async () => {})
     expect(document.querySelector('[data-testid="cc-message"]')?.textContent).toContain('updated to 1.1.0')
-    expect([...container.querySelectorAll('[data-testid="cc-add"]')].every((b) => (b as HTMLButtonElement).disabled)).toBe(false)
+    expect([...container.querySelectorAll('[data-testid="cc-install"], [data-testid="cc-scopes"]')].every((b) => (b as HTMLButtonElement).disabled)).toBe(false)
   })
 
   it('notifies the browser catalog after uninstall and update mutations', async () => {
@@ -748,7 +779,7 @@ describe('CcPanel', () => {
     await act(async () => { (card.querySelector('[data-testid="cc-update"]') as HTMLElement).click() })
     expect(notify).toHaveBeenCalledTimes(1)
 
-    await act(async () => { addButton('github:o/r/team-tools').click() })
+    await act(async () => { scopeButton('github:o/r/team-tools').click() })
     await act(async () => { button('Uninstall').click() })
     await act(async () => { (document.querySelector('[data-testid="cc-uninstall-confirm"]') as HTMLButtonElement).click() })
     expect(notify).toHaveBeenCalledTimes(2)
@@ -968,10 +999,10 @@ describe('Chinese localization', () => {
     await act(async () => { setValue(container.querySelector('[data-testid="cc-search"]')!, 'zzz-no-match') })
     expect(container.querySelector('[data-testid="cc-empty"]')?.textContent).toBe('没有符合当前筛选条件的插件。')
     await act(async () => { setValue(container.querySelector('[data-testid="cc-search"]')!, '') })
-    // team-tools' Add (the first alphabetical card, packed, is disabled).
+    // team-tools' Install (the first alphabetical card, packed, is disabled).
     const card = [...container.querySelectorAll('[data-testid="cc-plugin"]')]
       .find((c) => c.querySelector('[data-testid="cc-detail"]')?.textContent === 'team-tools')
-    await act(async () => { (card?.querySelector('[data-testid="cc-add"]') as HTMLButtonElement).click() })
+    await act(async () => { (card?.querySelector('[data-testid="cc-install"], [data-testid="cc-scopes"]') as HTMLButtonElement).click() })
     const modal = container.querySelector('[data-testid="cc-modal"]')
     expect(modal?.textContent).toContain('选择此插件生效的范围')
     expect(modal?.textContent).toContain('全局（所有工作区）')

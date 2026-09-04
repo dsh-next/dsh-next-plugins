@@ -223,17 +223,27 @@
   color: var(--dsw-alias-label-primary);
 }
 
-/* The second step of a destructive pair (after the ghost confirm step):
+/* The second step of a destructive pair (the modal's confirm button):
  * the error label carries the emphasis, the danger hover fills it. */
-.danger,
-.deleteBtn {
+.danger {
   background: transparent;
   color: var(--dsw-alias-label-error);
   border-color: var(--dsw-alias-label-error);
   font-weight: 600;
 }
 
-.danger:hover:not(:disabled),
+.danger:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+}
+
+/* The card's quiet destructive action: a constant dark-red label on a
+ * neutral border; hover fills with the danger tint. */
+.deleteBtn {
+  background: transparent;
+  color: var(--dsw-static-red-600);
+  border-color: var(--dsw-alias-border-l2);
+}
+
 .deleteBtn:hover:not(:disabled) {
   background: var(--dsw-alias-interactive-bg-hover-danger);
 }
@@ -257,19 +267,6 @@
 .deleteBtn:disabled {
   opacity: 0.4;
   cursor: default;
-}
-
-/* Equal-width action row (Update / Delete / Manage) under a skill card. */
-.cardActions {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 10px;
-  width: 100%;
-}
-
-.cardActions > * {
-  width: 100%;
 }
 
 .noticeOk,
@@ -347,19 +344,6 @@
   /* Two comfortable columns on wide panes; collapses to one when narrow. */
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 10px;
-}
-
-/* A same-name group: the installed copy plus every other provider's
-   offering, wrapped in one bordered box spanning the full row. */
-.skillGroup {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  border: 0.5px solid var(--dsw-alias-border-l2);
-  border-radius: 12px;
-  padding: 12px;
-  background: var(--dsw-alias-bg-layer-1);
 }
 
 .pluginCard {
@@ -492,6 +476,11 @@
   min-width: 0;
 }
 
+/* The workspace checklist indents under its radio's label text. */
+.optionNested {
+  margin-left: 36px;
+}
+
 .addedBadge {
   border: 0;
   border-radius: 999px;
@@ -526,6 +515,29 @@
 }
 
 /* --- Skills-specific extensions ------------------------------------------ */
+
+/* Card action row (Update / Delete / Scopes): natural-width buttons pinned
+ * to the card's right edge, matching the offering row's alignment. */
+.cardActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+  width: 100%;
+}
+
+/* A same-name group: the installed copy plus every other provider's
+   offering, wrapped in one bordered box spanning the full row. */
+.skillGroup {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--dsw-alias-bg-layer-1);
+}
 
 /* Provider spec pill on the card's bottom row (the marketplace chip's twin). */
 .providerChip {

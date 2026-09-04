@@ -10,8 +10,8 @@
  *    installed-only toggle. Each card shows the name, an origin chip, the
  *    provider spec, and a presence badge, then an equal-width action row
  *    below the description: Update (warn-tinted outline, only when a newer
- *    catalog version exists), Delete (error outline, two-step confirm), and
- *    Manage (opens the scope modal — Global by default or a checklist of
+ *    catalog version exists), Delete (dark-red text, two-step confirm), and
+ *    Scopes (opens the scope modal — Global by default or a checklist of
  *    workspaces).
  *    Catalog skills with no installed copy render an Add button. The name
  *    button opens the skill's full SKILL.md rendered as markdown.
@@ -243,6 +243,8 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
   const [detailData, setDetailData] = React.useState<SkillDetail | undefined>()
   /** The copy awaiting delete confirmation (two-step before the RPC). */
   const [confirmDelete, setConfirmDelete] = React.useState<GridEntry | undefined>()
+  /** The provider awaiting removal confirmation (two-step before the RPC). */
+  const [confirmRemoveProvider, setConfirmRemoveProvider] = React.useState<ProviderView | undefined>()
   const [addSpec, setAddSpec] = React.useState('')
   const workspaces = deps.getWorkspaces()
   // The listing is global-only (project skills are hand-managed and live with
@@ -266,13 +268,13 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
   }, [refresh])
 
   React.useEffect(() => {
-    if (modal === undefined && detail === undefined && confirmDelete === undefined) return
+    if (modal === undefined && detail === undefined && confirmDelete === undefined && confirmRemoveProvider === undefined) return
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') { closeModal(); setDetail(undefined); setDetailData(undefined); setConfirmDelete(undefined) }
+      if (e.key === 'Escape') { closeModal(); setDetail(undefined); setDetailData(undefined); setConfirmDelete(undefined); setConfirmRemoveProvider(undefined) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [modal, detail, confirmDelete])
+  }, [modal, detail, confirmDelete, confirmRemoveProvider])
 
   // Load the detail body whenever the detail modal opens for a new entry.
   // Installed rows pass the copy's path: a name may have several copies, and
@@ -497,7 +499,7 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
             </label>
           </div>
           {scopeMode === 'workspaces' && (
-            <div className={styles.optionList} data-testid="skills-workspaces">
+            <div className={`${styles.optionList} ${styles.optionNested}`} data-testid="skills-workspaces">
               {rows.length === 0 ? (
                 <p className={styles.modalHint}>{t('modal.workspaces.empty')}</p>
               ) : rows.map((workspace) => (
@@ -531,7 +533,7 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
               disabled={busy}
               onClick={confirmModal}
               data-testid="skills-modal-confirm"
-            >{row !== undefined ? t('modal.save') : t('card.add')}</button>
+            >{row !== undefined ? t('modal.save') : t('card.use')}</button>
           </div>
         </div>
       </div>
@@ -600,7 +602,39 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
           <p className={styles.copyPath} data-testid="skills-delete-path">{copy.path}</p>
           <div className={styles.modalActions}>
             <button type="button" className={styles.ghost} disabled={busy} onClick={close} data-testid="skills-delete-cancel">{t('modal.cancel')}</button>
-            <button type="button" className={styles.deleteBtn} disabled={busy} onClick={doDelete} data-testid="skills-delete-confirm-btn">{t('modal.confirmDelete')}</button>
+            <button type="button" className={styles.danger} disabled={busy} onClick={doDelete} data-testid="skills-delete-confirm-btn">{t('modal.confirmDelete')}</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  /** Two-step provider removal: shows the provider spec before the RPC.
+   *  Installed skill copies stay; only the source and its cache go. */
+  const confirmRemoveProviderDialog = (): React.ReactElement | null => {
+    if (confirmRemoveProvider === undefined) return null
+    const provider = confirmRemoveProvider
+    const close = (): void => setConfirmRemoveProvider(undefined)
+    const doRemove = (): void => {
+      void mutate('removeProvider', { providerId: provider.id })
+      close()
+    }
+    return (
+      <div className={styles.overlay} role="presentation" onClick={close}>
+        <div
+          className={styles.modal}
+          role="dialog"
+          aria-modal="true"
+          aria-label={t('providers.removeAria', { name: provider.spec })}
+          data-testid="skills-provider-remove-modal"
+          onClick={(e: React.MouseEvent) => e.stopPropagation()}
+        >
+          <p className={styles.modalTitle}>{t('providers.removeTitle', { name: provider.spec })}</p>
+          <p className={styles.modalHint}>{t('providers.removeHint')}</p>
+          <p className={styles.copyPath} data-testid="skills-provider-remove-spec">{provider.spec}</p>
+          <div className={styles.modalActions}>
+            <button type="button" className={styles.ghost} disabled={busy} onClick={close} data-testid="skills-provider-remove-cancel">{t('modal.cancel')}</button>
+            <button type="button" className={styles.danger} disabled={busy} onClick={doRemove} data-testid="skills-provider-remove-confirm-btn">{t('providers.remove')}</button>
           </div>
         </div>
       </div>
@@ -670,8 +704,8 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
               className={styles.ghost}
               disabled={busy}
               onClick={() => openModal(entry)}
-              data-testid="skills-manage"
-            >{t('card.manage')}</button>
+              data-testid="skills-scopes"
+            >{t('card.scopes')}</button>
           </div>
         )}
         {!installedHere && (
@@ -684,8 +718,8 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
                   className={styles.primary}
                   disabled={busy}
                   onClick={() => openModal(entry)}
-                  data-testid="skills-add"
-                >{t('card.add')}</button>
+                  data-testid="skills-use"
+                >{t('card.use')}</button>
               )}
               {entry.installed !== undefined && entry.installed.active && (
                 <span className={styles.sourceChip} data-testid="skills-source-current">{t('card.currentSource')}</span>
@@ -862,7 +896,7 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
                 type="button"
                 className={styles.ghostDanger}
                 disabled={busy}
-                onClick={() => { void mutate('removeProvider', { providerId: p.id }) }}
+                onClick={() => setConfirmRemoveProvider(p)}
                 data-testid="skills-provider-remove"
               >{t('providers.remove')}</button>
             )}
@@ -873,6 +907,7 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
       {modalDialog()}
       {detailDialog()}
       {confirmDeleteDialog()}
+      {confirmRemoveProviderDialog()}
     </div>
   )
 }

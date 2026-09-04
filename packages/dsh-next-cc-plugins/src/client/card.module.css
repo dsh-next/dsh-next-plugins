@@ -223,17 +223,27 @@
   color: var(--dsw-alias-label-primary);
 }
 
-/* The second step of a destructive pair (after the ghost confirm step):
+/* The second step of a destructive pair (the modal's confirm button):
  * the error label carries the emphasis, the danger hover fills it. */
-.danger,
-.deleteBtn {
+.danger {
   background: transparent;
   color: var(--dsw-alias-label-error);
   border-color: var(--dsw-alias-label-error);
   font-weight: 600;
 }
 
-.danger:hover:not(:disabled),
+.danger:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+}
+
+/* The card's quiet destructive action: a constant dark-red label on a
+ * neutral border; hover fills with the danger tint. */
+.deleteBtn {
+  background: transparent;
+  color: var(--dsw-static-red-600);
+  border-color: var(--dsw-alias-border-l2);
+}
+
 .deleteBtn:hover:not(:disabled) {
   background: var(--dsw-alias-interactive-bg-hover-danger);
 }
@@ -464,6 +474,11 @@
   font-size: 13px;
   flex: 1;
   min-width: 0;
+}
+
+/* The workspace checklist indents under its radio's label text. */
+.optionNested {
+  margin-left: 36px;
 }
 
 .addedBadge {

@@ -299,7 +299,7 @@ describe('SkillsPanel rendering', () => {
     expect(cards).toHaveLength(3)
     // The installed card shows the presence badge and Manage/Delete actions.
     expect(byTestId(container, 'skills-presence').textContent).toBe('Everywhere')
-    expect(byTestId(container, 'skills-manage')).toBeTruthy()
+    expect(byTestId(container, 'skills-scopes')).toBeTruthy()
     expect(byTestId(container, 'skills-delete')).toBeTruthy()
     // The installed copy with an update candidate carries the Update button.
     expect(byTestId(container, 'skills-update')).toBeTruthy()
@@ -353,6 +353,27 @@ describe('SkillsPanel rendering', () => {
     await unmount()
   })
 
+  it('removing a provider confirms through a modal before the RPC', async () => {
+    const rpc = rpcMock()
+    const { container, unmount } = await render(rpc, WS)
+    await click(byTestId(container, 'skills-tab-providers'))
+    await click(byTestId(container, 'skills-provider-remove'))
+    const confirmModal = byTestId(container, 'skills-provider-remove-modal')
+    expect(confirmModal.textContent).toContain('Remove o/r?')
+    expect(confirmModal.textContent).toContain('Installed skills are kept')
+    expect(byTestId(container, 'skills-provider-remove-spec').textContent).toBe('o/r')
+    // Cancel closes without dispatching.
+    await click(byTestId(container, 'skills-provider-remove-cancel'))
+    expect(container.querySelector('[data-testid="skills-provider-remove-modal"]')).toBeNull()
+    expect(rpcCalls(rpc).some(([m]) => m === 'removeProvider')).toBe(false)
+    // Confirming dispatches with the provider id.
+    await click(byTestId(container, 'skills-provider-remove'))
+    await click(byTestId(container, 'skills-provider-remove-confirm-btn'))
+    expect(rpcCalls(rpc).some(([m, args]) => m === 'removeProvider' && (args as { providerId?: string }).providerId === 'o-r')).toBe(true)
+    expect(container.querySelector('[data-testid="skills-provider-remove-modal"]')).toBeNull()
+    await unmount()
+  })
+
   it('getState carries no workspace scoping — the listing is global-only', async () => {
     const rpc = rpcMock()
     await render(rpc, WS)
@@ -376,7 +397,7 @@ describe('SkillsPanel rendering', () => {
     expect(dshCard.querySelector('[data-testid="skills-update"]')).toBeNull()
     // Every installed copy has its own Manage and Delete, side by side.
     for (const card of [agentsCard, dshCard]) {
-      expect(card.querySelector('[data-testid="skills-manage"]')).toBeTruthy()
+      expect(card.querySelector('[data-testid="skills-scopes"]')).toBeTruthy()
       expect(card.querySelector('[data-testid="skills-delete"]')).toBeTruthy()
     }
     await unmount()
@@ -475,7 +496,7 @@ describe('SkillsPanel rendering', () => {
     // The global copy renders with its controls enabled as usual.
     const userCard = cards.find((c) => c.textContent!.includes('user .agents'))!
     expect((userCard.querySelector('[data-testid="skills-delete"]') as HTMLButtonElement).disabled).toBe(false)
-    expect(userCard.querySelector('[data-testid="skills-manage"]')).toBeTruthy()
+    expect(userCard.querySelector('[data-testid="skills-scopes"]')).toBeTruthy()
     await unmount()
   })
 
@@ -499,7 +520,7 @@ describe('SkillsPanel rendering', () => {
     const activeCard = cards.find((c) => c.querySelector('[data-testid="skills-source-current"]'))!
     expect(activeCard.textContent).toContain('o/r')
     expect(activeCard.querySelector('[data-testid="skills-replace"]')).toBeNull()
-    expect(activeCard.querySelector('[data-testid="skills-add"]')).toBeNull()
+    expect(activeCard.querySelector('[data-testid="skills-use"]')).toBeNull()
 
     // Another provider's sibling offers Replace; clicking re-pins via updateSkill.
     const replaceCard = cards.find((c) => c.querySelector('[data-testid="skills-replace"]') && c.textContent!.includes('p/q'))!
@@ -513,7 +534,7 @@ describe('SkillsPanel rendering', () => {
 
     // A name with no installed copy still shows Add (not Replace).
     const addCard = cards.find((c) => c.textContent!.includes('unrelated-skill'))!
-    expect(addCard.querySelector('[data-testid="skills-add"]')).toBeTruthy()
+    expect(addCard.querySelector('[data-testid="skills-use"]')).toBeTruthy()
     expect(addCard.querySelector('[data-testid="skills-replace"]')).toBeNull()
     await unmount()
   })
@@ -569,14 +590,14 @@ describe('scope modal: add + manage', () => {
     const rpc = rpcMock()
     const notify = vi.fn()
     const { container, unmount } = await render(rpc, WS, notify)
-    // skills-add renders only on catalog-only cards; target the deploy-helper card.
+    // skills-use renders only on catalog-only cards; target the deploy-helper card.
     const addCard = [...container.querySelectorAll('[data-testid="skills-card"]')]
       .find((c) => c.textContent!.includes('deploy-helper'))!
-    await click(addCard.querySelector('[data-testid="skills-add"]')!)
+    await click(addCard.querySelector('[data-testid="skills-use"]')!)
     const scope = dialog(container)
     expect(radioByName(scope, 'skills-scope-global').checked).toBe(true)
     expect(scope.textContent).toContain('deploy-helper')
-    await click(button(scope, 'Add'))
+    await click(button(scope, 'Use'))
     const call = rpcCalls(rpc).find(([m]) => m === 'installSkill')
     expect(call![1]).toEqual({ providerId: 'o-r', skillPath: 'skills/deploy-helper' })
     expect(notify).toHaveBeenCalled()
@@ -586,18 +607,18 @@ describe('scope modal: add + manage', () => {
   it('Manage (installed copy) opens the scope modal instead of an Add button', async () => {
     const { container, unmount } = await render(rpcMock(), WS)
     // Installed copies expose Manage, not Add.
-    expect(container.querySelector('[data-testid="skills-manage"]')).toBeTruthy()
-    await click(byTestId(container, 'skills-manage'))
+    expect(container.querySelector('[data-testid="skills-scopes"]')).toBeTruthy()
+    await click(byTestId(container, 'skills-scopes'))
     const scope = dialog(container)
     expect(scope.textContent).toContain('security-review')
-    expect(scope.querySelector('[data-testid="skills-add"]')).toBeNull()
+    expect(scope.querySelector('[data-testid="skills-use"]')).toBeNull()
     await unmount()
   })
 
   it('the workspaces radio reveals the checklist and Save scopes to the checked workspaces', async () => {
     const rpc = rpcMock()
     const { container, unmount } = await render(rpc, WS)
-    await click(byTestId(container, 'skills-manage'))
+    await click(byTestId(container, 'skills-scopes'))
     const scope = dialog(container)
     expect(radioByName(scope, 'skills-scope-global').checked).toBe(true)
     await click(radioByName(scope, 'skills-scope-workspaces'))
@@ -625,7 +646,7 @@ describe('scope modal: add + manage', () => {
       installed: [{ ...skill, configScope: ['w2'] }],
     }
     const { container, unmount } = await render(rpcMock(state), WS)
-    await click(byTestId(container, 'skills-manage'))
+    await click(byTestId(container, 'skills-scopes'))
     const scope = dialog(container)
     expect(radioByName(scope, 'skills-scope-workspaces').checked).toBe(true)
     expect(checkboxByTitle(scope, 'Project Two').checked).toBe(true)
@@ -636,7 +657,7 @@ describe('scope modal: add + manage', () => {
   it('saving the workspaces mode with none checked disables everywhere', async () => {
     const rpc = rpcMock()
     const { container, unmount } = await render(rpc, WS)
-    await click(byTestId(container, 'skills-manage'))
+    await click(byTestId(container, 'skills-scopes'))
     const scope = dialog(container)
     await click(radioByName(scope, 'skills-scope-workspaces'))
     await click(button(scope, 'Save scope'))
@@ -647,7 +668,7 @@ describe('scope modal: add + manage', () => {
 
   it('the scope modal is scope-only: no per-copy Update or Delete inside', async () => {
     const { container, unmount } = await render(rpcMock(), WS)
-    await click(byTestId(container, 'skills-manage'))
+    await click(byTestId(container, 'skills-scopes'))
     const scope = dialog(container)
     expect(scope.querySelector('[data-testid="skills-update"]')).toBeNull()
     expect(scope.querySelector('[data-testid="skills-delete"]')).toBeNull()
@@ -663,7 +684,7 @@ describe('scope modal: add + manage', () => {
     const { container, unmount } = await render(rpc)
     expect(container.querySelector('[data-testid="skills-update"]')).toBeNull()
     expect(byTestId(container, 'skills-delete')).toBeTruthy()
-    await click(byTestId(container, 'skills-manage'))
+    await click(byTestId(container, 'skills-scopes'))
     const scope = dialog(container)
     await click(button(scope, 'Save scope'))
     const call = rpcCalls(rpc).find(([m]) => m === 'setSkillScope')
@@ -750,7 +771,10 @@ describe('providers tab', () => {
     expect(row.textContent).toContain('o/r')
     expect(row.textContent).toContain('2 skills')
     expect(row.textContent).toContain('never')
+    // Removal is two-step: the confirm modal names the provider, and the
+    // confirm dispatches with its id.
     await click(byTestId(container, 'skills-provider-remove'))
+    await click(byTestId(container, 'skills-provider-remove-confirm-btn'))
     expect(rpcCalls(rpc).find(([m]) => m === 'removeProvider')![1])
       .toEqual({ providerId: 'o-r' })
     await unmount()
@@ -840,6 +864,7 @@ describe('providers tab', () => {
     })
     const { container, unmount } = await openProviders(rpc)
     await click(byTestId(container, 'skills-provider-remove'))
+    await click(byTestId(container, 'skills-provider-remove-confirm-btn'))
     expect(byTestId(container, 'skills-message').textContent).toContain('provider busy')
     await unmount()
   })

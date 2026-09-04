@@ -31,7 +31,7 @@ with a built-in runtime for the components DSH activates in-process.
   filter, and an installed-only toggle. Installed cards show their installed
   version and, whenever the marketplace carries a newer one, an Update
   button (update also re-syncs that marketplace first, so it always pulls
-  the true latest). Each card's Add (or Manage) button opens the **scope
+  the true latest). Each card's Install (or Scopes) button opens the **scope
   modal**: a radio picks where the plugin's skills are enabled — **Global**
   (the default; skills land in the shared skills root this DSH home scans
   everywhere) or **Selected workspaces** (a checklist of the registered
@@ -60,10 +60,10 @@ with a built-in runtime for the components DSH activates in-process.
   | `agents/*.md` | Managed `dsh-tool-subagent` rows (one `cc-agent-<name>` delegation tool per agent, the agent markdown as the child persona; the `tools:` frontmatter becomes `toolFilter.allow` over translated DSH tool names — Claude built-ins through a well-known map, `mcp__` refs resolved through the plugin's installed MCP rows so server-name dedupe survives, and foreign `mcp__server__tool` refs passed through since DSH's MCP client uses Claude's exact naming; a mapped `model:` becomes `agentOptions.model`) | After a profile reload |
   | `hooks/hooks.json` | The runtime bridge runs each matching hook with Claude-compatible JSON stdin, `CLAUDE_PLUGIN_ROOT`/`CLAUDE_PLUGIN_DATA` env, the plugin's `bin/` directory on `PATH`, and per-hook timeouts. `PreToolUse`/`PostToolUse` ride `tools/pre-execute`/`tools/post-execute` (exit code 2 or a JSON deny blocks the call); `UserPromptSubmit` rides `agent/pre-step` (a block rejects the step, stdout becomes injected context); `SessionStart` rides `agent/session-start` (observe, stdout injected, matcher selects `startup`/`resume`/`clear`/`compact`); `Stop` rides `agent/turn-stopping` (a block steers the agent to continue, loop-guarded per turn); `SubagentStop` rides `subagent/end` (observe only) | While `runtime.hooks` is enabled |
 
-- **Manage installs** — update an installed plugin from upstream (skills
+- **Updating installs** — update an installed plugin from upstream (skills
   re-copied into every root the scope spans, removed skills recoverably
   trashed, managed rows re-rendered with stable server/tool names),
-  re-scope it from the Manage modal (skill copies move between roots —
+  re-scope it from the Scopes modal (skill copies move between roots —
   added roots get fresh copies from an existing install copy, dropped
   roots' copies move to `.trash` — without touching the plugin-level rows),
   and uninstall it (skills move to the root's `.trash`, managed rows and
@@ -291,7 +291,7 @@ with three tabs: **Plugins** (every marketplace's plugins in a card grid with
 search, marketplace filter, and installed-only toggle; installed version and
 Update button per card; an install-notes chip when the record carries notes;
 the plugin name opens a detail modal with metadata, the full component
-listing, dependencies, and notes; Add/Manage opens the scope modal — a
+listing, dependencies, and notes; Install/Scopes opens the scope modal — a
 Global-or-Workspaces radio with a workspace checklist), **Marketplaces**
 (add/refresh/remove sources with per-source last-synced age; snapshots
 older than 24 hours re-sync when the panel opens), and **Models** (map

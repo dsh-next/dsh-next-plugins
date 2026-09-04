@@ -38,8 +38,8 @@ export const zh: Record<MessageKey, string> = {
   'card.detailsTitle': '查看 {key} 的详情',
   'card.updateTitle': '将 {key} 更新到 {version}',
   'card.update': '更新',
-  'card.manage': '管理',
-  'card.add': '添加',
+  'card.scopes': '作用域',
+  'card.install': '安装',
 
   'summary.skill.one': '{count} 个技能',
   'summary.skill.many': '{count} 个技能',
@@ -90,9 +90,9 @@ export const zh: Record<MessageKey, string> = {
   'modal.workspaces.empty': '尚未注册任何工作区。',
   'modal.workspaceMissing': '未注册',
   'modal.save': '保存范围',
-  'modal.update': '更新',
   'modal.uninstall': '卸载',
-  'modal.confirmUninstall': '确认卸载',
+  'modal.uninstallTitle': '卸载 {name}？',
+  'modal.uninstallHint': '这会从你的 agent 配置中移除该插件及其组件。',
   'modal.cancel': '取消',
 
   'detail.aria': '插件详情“{name}”',
@@ -126,6 +126,9 @@ export const zh: Record<MessageKey, string> = {
   'marketplaces.lastSynced': '上次同步：{age}',
   'marketplaces.by': '作者：{owner}',
   'marketplaces.remove': '移除',
+  'marketplaces.removeAria': '移除市场“{name}”',
+  'marketplaces.removeTitle': '移除 {name}？',
+  'marketplaces.removeHint': '已安装的插件会保留；市场及其缓存的目录会被移除。',
 
   'status.requestFailed': '请求失败',
   'status.done': '完成',

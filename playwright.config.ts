@@ -6,7 +6,10 @@ export default defineConfig({
   // picks up *.spec.ts / *.test.ts, so name the e2e extension explicitly or
   // the lane silently discovers zero files.
   testMatch: /.*\.e2e\.ts/,
-  timeout: 60_000,
+  // One test drives every plugin marker; the worktrees marker walks the full
+  // isolate/chip/remove loop through the real GUI, which needs well over the
+  // 30s default.
+  timeout: 180_000,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
   use: {

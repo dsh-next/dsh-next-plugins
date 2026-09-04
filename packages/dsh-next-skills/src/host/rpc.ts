@@ -77,6 +77,10 @@ export function registerRpc(ctx: Context, service: SkillsService): void {
         skillPath: str(a.skillPath),
       })
     },
+    detachSkill: (args) => {
+      const a = record(args)
+      return service.detachSkill({ name: str(a.name), directory: str(a.directory) })
+    },
     deleteSkill: (args) => {
       const a = record(args)
       return service.deleteSkill({

@@ -1,11 +1,12 @@
 /**
  * jsdom render test for the Skills settings panel: proves the panel renders
- * the cc-plugins-style page (Skills / Providers tabs over a two-column card
- * grid) from the Host envelope and that the interactive controls dispatch the
- * right RPC calls — the scope modal (Add for catalog-only rows / Manage for
- * installed copies), the per-copy Update and two-step Delete controls, the
- * detail modal (markdown body), the provider filter, and the notification
- * hook. Complements the Host RPC contract test (shape) and the real-mount e2e
+ * the cc-plugins-style page (Skills / Providers tabs over a card grid) from
+ * the Host envelope and that the interactive controls dispatch the right RPC
+ * calls — the scope modal (Use for catalog-only rows / Scopes for installed
+ * copies), the source switcher (Providers button, overwrite confirm, detach),
+ * the recorded-provider Update and two-step Delete controls, the detail modal
+ * (markdown body), the provider filter, and the notification hook.
+ * Complements the Host RPC contract test (shape) and the real-mount e2e
  * marker (whole shell).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -20,8 +21,10 @@ import { buildGridEntries, filterEntries, formatLastSync, presenceLabel, SkillsP
 const skill: InstalledSkill = {
   name: 'security-review', description: 'Review code for security issues',
   scope: 'global', source: 'user-agents', kind: 'bundle', path: '/a/SKILL.md', directory: '/a',
-  provider: 'o/r', updateAvailable: true,
-  updateCandidates: [{ providerId: 'o-r', providerSpec: 'o/r', skillPath: 'skills/security-review', version: 'v2' }],
+  provider: 'o/r',
+  sources: [
+    { providerId: 'o-r', providerSpec: 'o/r', skillPath: 'skills/security-review', version: 'v2', matches: false },
+  ],
 }
 
 const STATE: SkillsState = {
@@ -33,23 +36,30 @@ const STATE: SkillsState = {
   ],
 }
 
-/** A second copy of `security-review` under a workspace root, with no update. */
+/** A second copy of `security-review` under a workspace root, with no sources. */
 const workspaceCopy: InstalledSkill = {
   ...skill, scope: 'workspace', source: 'project-agents', provider: undefined,
-  updateAvailable: undefined, updateCandidates: undefined,
+  sources: undefined,
   path: '/w1/.agents/skills/security-review/SKILL.md',
   directory: '/w1/.agents/skills/security-review',
 }
 
-/** An externally-owned copy (cc-plugins) — provider updates are not ours. */
+/** An externally-owned copy (cc-plugins) — its source is the owning plugin's. */
 const ownedCopy: InstalledSkill = {
-  ...skill, provider: undefined,
+  ...skill, provider: undefined, sources: undefined,
   ownership: { owner: 'cc-plugins', pluginKey: 'github:o/r/team-tools', marketplaceId: 'github:o/r', skillName: 'security-review' },
 }
 
 /** One installed copy (from o/r) whose name is offered by three providers. */
 const MULTI: SkillsState = {
-  installed: [{ ...skill, updateAvailable: undefined, updateCandidates: undefined }],
+  installed: [{
+    ...skill, provider: 'o/r',
+    sources: [
+      { providerId: 'o-r', providerSpec: 'o/r', skillPath: 'a', version: 'v1', matches: true },
+      { providerId: 'p-q', providerSpec: 'p/q', skillPath: 'b', version: 'v2', matches: false },
+      { providerId: 'z-9', providerSpec: 'z/9', skillPath: 'c', version: 'v3', matches: false },
+    ],
+  }],
   providers: [
     { id: 'o-r', spec: 'o/r', skillCount: 1, lastRefresh: '' },
     { id: 'p-q', spec: 'p/q', skillCount: 1, lastRefresh: '' },
@@ -66,7 +76,7 @@ const MULTI: SkillsState = {
 /** A second copy of `security-review` in the other GLOBAL root (user .dsh). */
 const secondGlobalCopy: InstalledSkill = {
   ...skill, scope: 'global', source: 'user-dsh', provider: undefined,
-  updateAvailable: undefined, updateCandidates: undefined,
+  sources: undefined,
   path: '/home/u/.dsh/skills/security-review/SKILL.md',
   directory: '/home/u/.dsh/skills/security-review',
 }
@@ -220,51 +230,45 @@ describe('grid composition (buildGridEntries + filterEntries)', () => {
     // Catalog-only entries (no row) are excluded by the installed-only toggle.
     expect(filterEntries(entries, '', '', true).every((e) => e.row !== undefined)).toBe(true)
   })
-  it('same-name offerings become sibling cards: one active source, the rest replaceable', () => {
+  it('an installed name renders only its copy: the offerings collapse into the switcher', () => {
     const entries = buildGridEntries(MULTI)
     const cards = entries.filter((e) => e.name === 'security-review')
-    // The installed copy plus one card per provider offering.
-    expect(cards).toHaveLength(4)
-    const row = cards.find((e) => e.row !== undefined)!
-    expect(row.sourceCount).toBe(3)
-    const siblings = cards.filter((e) => e.catalog !== undefined)
-    // The offering matching the copy's recorded provider is the active source.
-    expect(siblings.find((e) => e.providerSpec === 'o/r')!.installed).toEqual({ directory: '/a', active: true })
-    expect(siblings.find((e) => e.providerSpec === 'p/q')!.installed).toEqual({ directory: '/a', active: false })
-    expect(siblings.find((e) => e.providerSpec === 'z/9')!.installed).toEqual({ directory: '/a', active: false })
-    // A name with no installed copy keeps the plain Add shape.
-    expect(entries.find((e) => e.name === 'unrelated-skill')!.installed).toBeUndefined()
+    // One card for the installed copy — no sibling offering cards.
+    expect(cards).toHaveLength(1)
+    expect(cards[0]!.row).toBeDefined()
+    // The switcher's options ride the row (the host's per-provider parity).
+    expect(cards[0]!.row!.sources).toHaveLength(3)
+    // A name with no installed copy keeps the plain Use shape.
+    const add = entries.find((e) => e.name === 'unrelated-skill')!
+    expect(add.row).toBeUndefined()
+    expect(add.catalog).toBeDefined()
   })
-  it('the installed group sorts first and its managed copy precedes the offerings', () => {
+  it('the installed group sorts first, before names to add', () => {
     const entries = buildGridEntries(MULTI)
     expect(entries.map((e) => `${e.name}:${e.row !== undefined ? 'copy' : 'offering'}`)).toEqual([
       'security-review:copy',
-      'security-review:offering',
-      'security-review:offering',
-      'security-review:offering',
       'unrelated-skill:offering',
     ])
-    // Within the group: the copy, then the offerings by provider spec.
-    expect(entries.slice(1, 4).map((e) => e.providerSpec)).toEqual(['o/r', 'p/q', 'z/9'])
   })
-  it('a provider filter narrows the group to that provider\'s cards only', () => {
+  it('a provider filter narrows to that provider\'s cards; installed-only keeps copies', () => {
     const entries = buildGridEntries(MULTI)
-    // Filtering by p/q: the installed copy (recorded on o/r) and the other
-    // providers' offerings drop out — the group does not keep them visible.
-    const kept = filterEntries(entries, '', 'p-q', false)
-    expect(kept.map((e) => e.providerSpec ?? e.row?.provider)).toEqual(['p/q'])
+    // Filtering by p/q: the installed copy is recorded on o/r and the
+    // same-name offerings no longer render, so nothing survives.
+    expect(filterEntries(entries, '', 'p-q', false)).toEqual([])
+    // Filtering by o/r keeps the copy (recorded spec resolves) and the
+    // catalog-only name.
+    const kept = filterEntries(entries, '', 'o-r', false)
+    expect(kept.map((e) => e.providerSpec ?? e.row?.provider)).toEqual(['o/r', 'o/r'])
     // Installed-only drops every offering card, keeping the copy.
     const installedOnly = filterEntries(entries, '', '', true)
     expect(installedOnly).toHaveLength(1)
     expect(installedOnly[0]!.row).toBeDefined()
   })
-  it('externally-owned copies hide their name offerings and the sources chip', () => {
+  it('externally-owned copies hide their name offerings', () => {
     const state: SkillsState = { ...MULTI, installed: [ownedCopy] }
     const entries = buildGridEntries(state)
-    // No sibling cards for the owned name; no replace metadata anywhere.
+    // No sibling cards for the owned name; the copy itself renders.
     expect(entries.filter((e) => e.name === 'security-review')).toHaveLength(1)
-    expect(entries.every((e) => e.installed === undefined)).toBe(true)
-    expect(entries.find((e) => e.row !== undefined)!.sourceCount).toBeUndefined()
     // Unrelated names are unaffected.
     expect(entries.find((e) => e.name === 'unrelated-skill')).toBeTruthy()
   })
@@ -392,9 +396,12 @@ describe('SkillsPanel rendering', () => {
     expect(agentsCard).toBeTruthy()
     expect(dshCard).toBeTruthy()
     expect(agentsCard).not.toBe(dshCard)
-    // Only the copy with an update candidate gets the Update control.
+    // Only the copy whose recorded provider's content differs gets Update.
     expect(agentsCard.querySelector('[data-testid="skills-update"]')).toBeTruthy()
     expect(dshCard.querySelector('[data-testid="skills-update"]')).toBeNull()
+    // Only the copy with source options gets the Providers switcher.
+    expect(agentsCard.querySelector('[data-testid="skills-providers"]')).toBeTruthy()
+    expect(dshCard.querySelector('[data-testid="skills-providers"]')).toBeNull()
     // Every installed copy has its own Manage and Delete, side by side.
     for (const card of [agentsCard, dshCard]) {
       expect(card.querySelector('[data-testid="skills-scopes"]')).toBeTruthy()
@@ -507,57 +514,48 @@ describe('SkillsPanel rendering', () => {
     await unmount()
   })
 
-  it('multi-provider names: sources chip, current source, and Replace re-pins provenance', async () => {
+  it('multi-provider names: one card, a Providers button counting the offerings', async () => {
     const rpc = rpcMock(MULTI)
     const { container, unmount } = await render(rpc, WS)
     const cards = [...container.querySelectorAll('[data-testid="skills-card"]')]
 
-    // The installed card carries the sources chip.
+    // One card for the installed copy, carrying the Providers switcher.
+    expect(cards.filter((c) => c.textContent!.includes('security-review'))).toHaveLength(1)
     const rowCard = cards.find((c) => c.querySelector('[data-testid="skills-presence"]'))!
-    expect(rowCard.querySelector('[data-testid="skills-sources"]')!.textContent).toBe('3 sources')
+    const providers = rowCard.querySelector('[data-testid="skills-providers"]') as HTMLButtonElement
+    expect(providers.textContent).toBe('Providers (3)')
 
-    // The active source's sibling shows "current", no Replace and no Add.
-    const activeCard = cards.find((c) => c.querySelector('[data-testid="skills-source-current"]'))!
-    expect(activeCard.textContent).toContain('o/r')
-    expect(activeCard.querySelector('[data-testid="skills-replace"]')).toBeNull()
-    expect(activeCard.querySelector('[data-testid="skills-use"]')).toBeNull()
+    // No offering cards: no Replace buttons and no "current source" chips.
+    expect(container.querySelector('[data-testid="skills-replace"]')).toBeNull()
+    expect(container.querySelector('[data-testid="skills-source-current"]')).toBeNull()
 
-    // Another provider's sibling offers Replace; clicking re-pins via updateSkill.
-    const replaceCard = cards.find((c) => c.querySelector('[data-testid="skills-replace"]') && c.textContent!.includes('p/q'))!
-    const replace = replaceCard.querySelector('[data-testid="skills-replace"]') as HTMLButtonElement
-    expect(replace.disabled).toBe(false)
-    expect(replace.title).toContain('p/q')
-    await click(replace)
-    await act(async () => {})
-    const call = rpcCalls(rpc).find(([m]) => m === 'updateSkill')
-    expect(call![1]).toEqual({ name: 'security-review', directory: '/a', providerId: 'p-q', skillPath: 'b' })
+    // The recorded provider's content matches -> no Update button.
+    expect(rowCard.querySelector('[data-testid="skills-update"]')).toBeNull()
 
-    // A name with no installed copy still shows Add (not Replace).
+    // A name with no installed copy still shows Use.
     const addCard = cards.find((c) => c.textContent!.includes('unrelated-skill'))!
     expect(addCard.querySelector('[data-testid="skills-use"]')).toBeTruthy()
-    expect(addCard.querySelector('[data-testid="skills-replace"]')).toBeNull()
     await unmount()
   })
 
-  it('same-name cards share one bordered group box; single-card names stay unwrapped', async () => {
-    const rpc = rpcMock(MULTI)
+  it('two copies of one name share one bordered group box; single-card names stay unwrapped', async () => {
+    const rpc = rpcMock({ ...STATE, installed: [skill, secondGlobalCopy] })
     const { container, unmount } = await render(rpc, WS)
-    // One group box around the four security-review cards, copy first.
+    // One group box around the two security-review copies.
     const groups = allByTestId(container, 'skills-group')
     expect(groups).toHaveLength(1)
     const grouped = groups[0]!.querySelectorAll('[data-testid="skills-card"]')
-    expect(grouped).toHaveLength(4)
-    expect(grouped[0]!.querySelector('[data-testid="skills-presence"]')).toBeTruthy() // copy first
+    expect(grouped).toHaveLength(2)
     // The add-only name renders as a plain card outside any group.
     const addCard = [...container.querySelectorAll('[data-testid="skills-card"]')]
-      .find((c) => c.textContent!.includes('unrelated-skill'))!
+      .find((c) => c.textContent!.includes('find-skills'))!
     expect(addCard.closest('[data-testid="skills-group"]')).toBeNull()
     await unmount()
   })
 
-  it('a provider filter collapses the group to the matching card (no wrapper)', async () => {
-    // p/q's filter drops the installed copy and the other offerings: one
-    // card survives, so it renders as a plain card, not a group box.
+  it('a provider filter that matches no rendered card falls back to the empty state', async () => {
+    // p/q's filter: the installed copy is recorded on o/r and same-name
+    // offerings no longer render, so nothing survives.
     const rpc = rpcMock(MULTI)
     const { container, unmount } = await render(rpc, WS)
     await act(async () => {
@@ -566,21 +564,178 @@ describe('SkillsPanel rendering', () => {
       select.dispatchEvent(new Event('change', { bubbles: true }))
     })
     await act(async () => {})
-    expect(container.querySelectorAll('[data-testid="skills-group"]')).toHaveLength(0)
-    const cards = allByTestId(container, 'skills-card')
-    expect(cards).toHaveLength(1)
-    expect(cards[0]!.textContent).toContain('p/q')
+    expect(container.querySelectorAll('[data-testid="skills-card"]')).toHaveLength(0)
+    expect(byTestId(container, 'skills-empty').textContent).toContain('No skills match')
     await unmount()
   })
 
-  it('externally-owned names render no offerings, no sources chip, no Replace', async () => {
+  it('externally-owned names render no switcher and no offering cards', async () => {
     const rpc = rpcMock({ ...MULTI, installed: [ownedCopy] })
     const { container, unmount } = await render(rpc, WS)
+    expect(container.querySelector('[data-testid="skills-providers"]')).toBeNull()
     expect(container.querySelector('[data-testid="skills-replace"]')).toBeNull()
-    expect(container.querySelector('[data-testid="skills-sources"]')).toBeNull()
-    expect(container.querySelector('[data-testid="skills-source-current"]')).toBeNull()
     // The owned copy itself still renders with its presence badge.
     expect(container.querySelector('[data-testid="skills-presence"]')).toBeTruthy()
+    await unmount()
+  })
+})
+
+describe('source switcher modal (Providers button)', () => {
+  async function openSources(container: HTMLDivElement): Promise<void> {
+    await click(byTestId(container, 'skills-providers'))
+    await act(async () => {})
+  }
+
+  it('opens with Local and one radio per provider, current marked, match hints shown', async () => {
+    const rpc = rpcMock(MULTI)
+    const { container, unmount } = await render(rpc, WS)
+    await openSources(container)
+    const modal = byTestId(container, 'skills-sources-modal')
+    expect(modal.textContent).toContain('Sources for security-review')
+    // Local first; the copy is recorded on o/r, so Local is not current.
+    expect(byTestId(modal, 'skills-source-local').textContent).toContain('Local (hand-managed)')
+    expect(byTestId(modal, 'skills-source-local-hint').textContent).toBe('Keep the files as they are; no provider updates.')
+    // Providers sorted by spec, the recorded one marked Current, the rest
+    // carrying their content parity.
+    const options = allByTestId(modal, 'skills-source-option')
+    expect(options.map((o) => o.textContent)).toEqual([
+      expect.stringContaining('o/r'), expect.stringContaining('p/q'), expect.stringContaining('z/9'),
+    ])
+    expect(options[0]!.querySelector('[data-testid="skills-source-option-hint"]')!.textContent).toBe('Current')
+    expect(options[1]!.querySelector('[data-testid="skills-source-option-hint"]')!.textContent).toBe('Differs from your copy')
+    await unmount()
+  })
+
+  it('Replace is disabled while the current source is selected', async () => {
+    const rpc = rpcMock(MULTI)
+    const { container, unmount } = await render(rpc, WS)
+    await openSources(container)
+    // Draft starts on the current source (o/r): the footer action is a no-op.
+    const apply = byTestId(container, 'skills-source-apply') as HTMLButtonElement
+    expect(apply.disabled).toBe(true)
+    await unmount()
+  })
+
+  it('selecting a provider requires the overwrite confirm, which fires updateSkill', async () => {
+    const rpc = rpcMock(MULTI)
+    const { container, unmount } = await render(rpc, WS)
+    await openSources(container)
+    // Pick p/q's radio (the second provider option).
+    const option = allByTestId(container, 'skills-source-option')[1]!
+    await click(option.querySelector('input')!)
+    await act(async () => {})
+    const apply = byTestId(container, 'skills-source-apply') as HTMLButtonElement
+    expect(apply.textContent).toBe('Replace')
+    expect(apply.disabled).toBe(false)
+    // Still no RPC: the confirm phase guards the mutation.
+    expect(rpcCalls(rpc).filter(([m]) => m === 'updateSkill')).toHaveLength(0)
+    await click(apply)
+    await act(async () => {})
+    // The confirm phase replaces the radio content in the same overlay.
+    expect(container.querySelector('[data-testid="skills-source-options"]')).toBeNull()
+    expect(byTestId(container, 'skills-source-confirm-body').textContent).toContain('p/q version')
+    expect(byTestId(container, 'skills-source-confirm-body').textContent).toContain('not moved to trash')
+    expect(byTestId(container, 'skills-source-path').textContent).toBe('/a')
+    await click(byTestId(container, 'skills-source-confirm-btn'))
+    await act(async () => {})
+    const call = rpcCalls(rpc).find(([m]) => m === 'updateSkill')
+    expect(call![1]).toEqual({ name: 'security-review', directory: '/a', providerId: 'p-q', skillPath: 'b' })
+    // The modal closes after applying.
+    expect(container.querySelector('[data-testid="skills-sources-modal"]')).toBeNull()
+    await unmount()
+  })
+
+  it('cancelling the confirm returns to the radio phase without any RPC', async () => {
+    const rpc = rpcMock(MULTI)
+    const { container, unmount } = await render(rpc, WS)
+    await openSources(container)
+    const option = allByTestId(container, 'skills-source-option')[1]!
+    await click(option.querySelector('input')!)
+    await act(async () => {})
+    await click(byTestId(container, 'skills-source-apply'))
+    await act(async () => {})
+    await click(byTestId(container, 'skills-source-confirm-cancel'))
+    await act(async () => {})
+    // Back to the radios; the draft stays on the picked provider.
+    expect(byTestId(container, 'skills-source-options')).toBeTruthy()
+    expect(rpcCalls(rpc).filter(([m]) => m === 'updateSkill')).toHaveLength(0)
+    await unmount()
+  })
+
+  it('choosing Local on a recorded copy applies detachSkill directly (reversible, no confirm)', async () => {
+    const rpc = rpcMock(MULTI)
+    const { container, unmount } = await render(rpc, WS)
+    await openSources(container)
+    await click(byTestId(container, 'skills-source-local').querySelector('input')!)
+    await act(async () => {})
+    const apply = byTestId(container, 'skills-source-apply') as HTMLButtonElement
+    expect(apply.textContent).toBe('Detach')
+    expect(apply.disabled).toBe(false)
+    await click(apply)
+    await act(async () => {})
+    const call = rpcCalls(rpc).find(([m]) => m === 'detachSkill')
+    expect(call![1]).toEqual({ name: 'security-review', directory: '/a' })
+    expect(rpcCalls(rpc).filter(([m]) => m === 'updateSkill')).toHaveLength(0)
+    expect(container.querySelector('[data-testid="skills-sources-modal"]')).toBeNull()
+    await unmount()
+  })
+
+  it('a hand-managed copy with differing sources: no Update button, switch through the modal', async () => {
+    // Q6a: no silent candidates[0] — an unrecorded copy routes provider
+    // switches through the explicit modal even when content differs.
+    const unrecorded: InstalledSkill = {
+      ...skill, provider: undefined,
+      sources: [
+        { providerId: 'o-r', providerSpec: 'o/r', skillPath: 'skills/security-review', version: 'v2', matches: false },
+      ],
+    }
+    const rpc = rpcMock({ ...STATE, installed: [unrecorded] })
+    const { container, unmount } = await render(rpc, WS)
+    expect(container.querySelector('[data-testid="skills-update"]')).toBeNull()
+    await openSources(container)
+    // Local is current: its hint marks it, and the footer starts disabled.
+    expect(byTestId(container, 'skills-source-local-hint').textContent).toBe('Current')
+    expect((byTestId(container, 'skills-source-apply') as HTMLButtonElement).disabled).toBe(true)
+    // Picking the provider arms Replace; confirming adopts it via updateSkill.
+    const option = allByTestId(container, 'skills-source-option')[0]!
+    expect(option.querySelector('[data-testid="skills-source-option-hint"]')!.textContent).toBe('Differs from your copy')
+    await click(option.querySelector('input')!)
+    await act(async () => {})
+    await click(byTestId(container, 'skills-source-apply'))
+    await act(async () => {})
+    await click(byTestId(container, 'skills-source-confirm-btn'))
+    await act(async () => {})
+    const call = rpcCalls(rpc).find(([m]) => m === 'updateSkill')
+    expect(call![1]).toEqual({ name: 'security-review', directory: '/a', providerId: 'o-r', skillPath: 'skills/security-review' })
+    await unmount()
+  })
+
+  it('Escape closes the switcher from either phase and issues no RPC', async () => {
+    const rpc = rpcMock(MULTI)
+    const { container, unmount } = await render(rpc, WS)
+    await openSources(container)
+    const option = allByTestId(container, 'skills-source-option')[1]!
+    await click(option.querySelector('input')!)
+    await act(async () => {})
+    await click(byTestId(container, 'skills-source-apply'))
+    await act(async () => {})
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    })
+    await act(async () => {})
+    expect(container.querySelector('[data-testid="skills-sources-modal"]')).toBeNull()
+    expect(rpcCalls(rpc).filter(([m]) => m === 'updateSkill' || m === 'detachSkill')).toHaveLength(0)
+    await unmount()
+  })
+
+  it('flat and unoffered copies render no Providers button', async () => {
+    const flat: InstalledSkill = { ...skill, name: 'flat-skill', kind: 'flat', sources: undefined, path: '/flat.md', directory: '/home/u/.agents/skills' }
+    const plain: InstalledSkill = { ...skill, name: 'plain', sources: undefined }
+    const rpc = rpcMock({ ...STATE, installed: [flat, plain] })
+    const { container, unmount } = await render(rpc, WS)
+    expect(container.querySelector('[data-testid="skills-providers"]')).toBeNull()
+    // Delete and Scopes still render for both copies.
+    expect(allByTestId(container, 'skills-delete')).toHaveLength(2)
     await unmount()
   })
 })
@@ -678,7 +833,7 @@ describe('scope modal: add + manage', () => {
   it('a copy without an update candidate has no Update control but still manages and deletes', async () => {
     const state: SkillsState = {
       ...STATE,
-      installed: [{ ...skill, provider: undefined, updateAvailable: undefined, updateCandidates: undefined }],
+      installed: [{ ...skill, provider: undefined, sources: undefined }],
     }
     const rpc = rpcMock(state)
     const { container, unmount } = await render(rpc)

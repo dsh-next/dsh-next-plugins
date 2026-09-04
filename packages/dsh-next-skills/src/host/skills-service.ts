@@ -33,6 +33,7 @@ import type {
   Catalog,
   CatalogSkill,
   CatalogSkillMatch,
+  SkillSourceOption,
   CatalogSkillView,
   ExternalMutationResult,
   FetchLike,
@@ -203,7 +204,7 @@ export class SkillsService {
     const discovered: DiscoveredSkill[] = lists.flat()
     const config = this.config()
     const catalog = await this.store.readCatalog()
-    // Same-name catalog matches, indexed by name for the update candidates.
+    // Same-name catalog matches, indexed by name for the source options.
     const catalogByName = new Map<string, CatalogSkillMatch[]>()
     for (const provider of catalog.providers) {
       for (const skill of provider.skills) {
@@ -214,31 +215,23 @@ export class SkillsService {
     }
     return Promise.all(discovered.map(async (skill): Promise<InstalledSkill> => {
       const record = config.installations.find((r) => r.name === skill.name)
-      // Update candidates, pinned to provenance:
-      //  - externally-owned skills (the cc-plugins bridge) never offer
-      //    provider updates — their update path is the owning plugin;
-      //  - a recorded skill updates only from its recorded provider, so
-      //    same-name skills offered by OTHER providers never flap the
-      //    Update button in a cycle (vendor switching is a deliberate
-      //    delete-and-reinstall, not an "update");
-      //  - an unrecorded (hand-created) copy may adopt any same-name
-      //    catalog skill — the first update pins it via the ledger record.
-      // Only bundle skills are updatable; flat skills are DSH-native single
-      // files with no bundled directory to fingerprint against a catalog.
-      let updateCandidates: CatalogSkillMatch[] | undefined
+      // Source options for the Providers switcher: EVERY provider offering
+      // this name, each flagged against the copy's content fingerprint — not
+      // only the differing ones, because the modal must show "matches" too
+      // (a same-spec switch is an adopt, not a no-op). The Update button
+      // stays provenance-pinned client-side: it fires only for the copy's
+      // recorded provider. Externally-owned skills (the cc-plugins bridge)
+      // get no options — their source is the owning plugin's business. Only
+      // bundle skills fingerprint; flat skills are DSH-native single files
+      // with no directory to switch (they are edited by hand).
+      let sources: SkillSourceOption[] | undefined
       if (skill.kind === 'bundle' && skill.ownership === undefined) {
-        let matches = catalogByName.get(skill.name) ?? []
-        if (record !== undefined) {
-          const pinned = matches.filter((m) => m.providerId === record.providerId)
-          // Prefer the recorded path; a provider that moved the skill keeps
-          // its single same-name entry as the candidate.
-          const exact = pinned.find((m) => m.skillPath === record.skillPath)
-          matches = exact !== undefined ? [exact] : pinned.length === 1 ? pinned : []
-        }
+        const matches = catalogByName.get(skill.name) ?? []
         if (matches.length > 0) {
           const local = await this.fingerprintCopy(skill.directory)
-          const differing = matches.filter((m) => m.version !== local)
-          updateCandidates = differing.length > 0 ? differing : undefined
+          sources = matches
+            .map((m) => ({ ...m, matches: m.version === local }))
+            .sort((a, b) => a.providerSpec.localeCompare(b.providerSpec) || a.skillPath.localeCompare(b.skillPath))
         }
       }
       return {
@@ -252,7 +245,7 @@ export class SkillsService {
         directory: skill.directory,
         ...(skill.ownership !== undefined ? { ownership: skill.ownership } : {}),
         ...(record?.providerSpec !== undefined ? { provider: record.providerSpec } : {}),
-        ...(updateCandidates !== undefined ? { updateAvailable: true, updateCandidates } : {}),
+        ...(sources !== undefined ? { sources } : {}),
         ...(config.scopes[skill.name] !== undefined ? { configScope: config.scopes[skill.name] } : {}),
       }
     }))
@@ -554,6 +547,14 @@ export class SkillsService {
     if (ownership !== undefined) {
       return { ok: false, error: `skill "${args.name}" is managed by ${ownership.owner} (${ownership.pluginKey}); update it through that plugin` }
     }
+    // The copy must be a bundle directory. A flat skill's `directory` is its
+    // root itself; pruning that to the provider's file set would delete every
+    // other skill in the root. Flat files are edited by hand.
+    const skillMd = joinPath(args.directory, 'SKILL.md')
+    const isBundle = await this.opts.fs.readFile(skillMd).then(() => true, () => false)
+    if (!isBundle) {
+      return { ok: false, error: `skill "${args.name}" is not a bundle copy; flat skills are updated by hand` }
+    }
     const catalog = await this.store.readCatalog()
     const provider = catalog.providers.find((p) => p.id === args.providerId)
     const skill = provider?.skills.find((s) => s.skillPath === args.skillPath)
@@ -562,7 +563,10 @@ export class SkillsService {
     }
     if (skill.name !== args.name) return { ok: false, error: `skill "${args.skillPath}" has a different name` }
 
-    // Remove files that are gone upstream (keeps the caller's own extras).
+    // Make the directory match the provider copy exactly: provider files are
+    // copied over it and EVERY file not in the provider's set is removed —
+    // permanently, not into the trash (only deleteSkill uses the trash).
+    // Visibility scopes survive: they are config, not files.
     const keep = new Set(skill.files.map((f) => f.path))
     await this.pruneDirectory(args.directory, keep)
 
@@ -625,6 +629,27 @@ export class SkillsService {
       return `failed to install skill: ${error instanceof Error ? error.message : String(error)}`
     }
     return undefined
+  }
+
+  /**
+   * Detach an installed copy from its recorded provider: the installations
+   * record goes, the files stay — the copy becomes hand-managed (no provider
+   * chip, no pinned Update source). Config-only and reversible (any same-name
+   * catalog skill can re-adopt it through the source switcher).
+   */
+  async detachSkill(args: { name: string; directory: string }): Promise<MutationResult> {
+    if (!isSkillName(args.name)) return { ok: false, error: `invalid skill name "${args.name}"` }
+    if (!this.isWithinKnownRoot(args.directory)) return { ok: false, error: `directory is not inside a managed skill root` }
+    const ownership = await this.readOwnershipAt(args.directory)
+    if (ownership !== undefined) {
+      return { ok: false, error: `skill "${args.name}" is managed by ${ownership.owner} (${ownership.pluginKey}); detach it through that plugin` }
+    }
+    const config = this.config()
+    if (!config.installations.some((r) => r.name === args.name)) {
+      return { ok: false, error: `skill "${args.name}" has no recorded provider to detach from` }
+    }
+    await this.writeConfig({ ...config, installations: config.installations.filter((r) => r.name !== args.name) })
+    return { ok: true, state: await this.state() }
   }
 
   /**

@@ -28,23 +28,27 @@ export interface InstalledSkill {
   directory: string
   /** Provider spec (`owner/repo`) when installed from a provider; undefined for local skills. */
   provider?: string
-  /** True when a same-name catalog skill differs from this copy's content. */
-  updateAvailable?: boolean
-  /** Same-name catalog skills whose content differs (driver of the update picker). */
-  updateCandidates?: CatalogSkillMatch[]
+  /** Providers offering this name, each flagged against this copy's content
+   *  fingerprint (the source switcher's options; undefined for flat, owned,
+   *  or unoffered copies). */
+  sources?: SkillSourceOption[]
   /** The config enablement scope for this name (undefined = global default). */
   configScope?: SkillScopeSetting
   /** External-ownership provenance (undefined for skills- and hand-created skills). */
   ownership?: SkillOwnership
 }
 
-/** A catalog skill that can replace a local copy (name match + version differs). */
+/** A same-name catalog offering of an installed skill (the switcher index). */
 export interface CatalogSkillMatch {
   providerId: string
   providerSpec: string
   skillPath: string
   version: string
 }
+
+/** One selectable source for an installed skill: a catalog offering plus
+ *  whether the provider copy's content equals the local one. */
+export type SkillSourceOption = CatalogSkillMatch & { matches: boolean }
 
 /** Where a skill physically lives: a user/global root or a project root. */
 export type SkillScope = 'global' | 'workspace'

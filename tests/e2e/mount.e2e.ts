@@ -176,10 +176,12 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
   // nav level as General/Models/Plugins) with Skills and Providers tabs over
   // a card grid, backed by the settings.yaml configuration. Opening it must
   // reveal the tab bar and the seeded throwaway skill's card; the card's
-  // scope modal must offer Global vs the workspaces checklist and the red
-  // Delete must remove the skill end-to-end through the two-step confirm
-  // (guards a client-side state-refresh regression the "section renders"
-  // check cannot see). No network: providers are only added manually.
+  // scope modal must offer Global vs the workspaces checklist; the source
+  // switcher must detach (config-only) and re-adopt (overwrite confirm) the
+  // seeded same-name provider; and the red Delete must remove the skill
+  // end-to-end through the two-step confirm (guards client-side state-refresh
+  // regressions the "section renders" check cannot see). No network: the
+  // provider and its catalog are seeded into the scratch home only.
   'dsh-next-skills': async (page) => {
     await openSkillsSection(page)
     // The harness page scaffold: the section draws its own title heading
@@ -201,6 +203,42 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await expect(wsList).toContainText('workspace-a')
     await expect(wsList).toContainText('workspace-b')
     await modal.locator('[data-testid="skills-modal-confirm"]').click()
+    // Source switcher: the seeded provider offers the same name with a
+    // catalog version that never matches the local fingerprint, so the card
+    // shows the recorded-provider Update button plus the Providers switcher.
+    // The modal lists Local and the provider (marked Current, Replace
+    // disabled as a no-op); detaching applies directly (config-only: the
+    // provider chip's Update disappears, files stay), and re-adopting goes
+    // through the overwrite confirm (updateSkill re-pins provenance).
+    await expect(card.locator('[data-testid="skills-update"]')).toBeVisible()
+    const providersButton = card.locator('[data-testid="skills-providers"]')
+    await expect(providersButton).toContainText('Providers (1)')
+    await providersButton.click()
+    const sourcesModal = page.getByTestId('skills-sources-modal')
+    await expect(sourcesModal).toBeVisible()
+    await expect(sourcesModal.getByTestId('skills-source-local')).toContainText('Local (hand-managed)')
+    const sourceOption = sourcesModal.getByTestId('skills-source-option')
+    await expect(sourceOption).toContainText('e2e/local')
+    await expect(sourceOption).toContainText('Current')
+    await expect(sourcesModal.getByTestId('skills-source-apply')).toBeDisabled()
+    await sourcesModal.getByTestId('skills-source-local').locator('input').click()
+    await sourcesModal.getByTestId('skills-source-apply').click()
+    await expect(sourcesModal).toHaveCount(0)
+    // Detached: the provenance-pinned Update goes (no recorded provider);
+    // the switcher now marks Local as the current source.
+    await expect(card.locator('[data-testid="skills-update"]')).toHaveCount(0)
+    await providersButton.click()
+    await expect(sourcesModal.getByTestId('skills-source-local-hint')).toHaveText('Current')
+    // Re-adopt the provider: Replace demands the overwrite confirm first,
+    // whose body states the real semantics (permanent removal, no trash).
+    await sourceOption.locator('input').click()
+    await sourcesModal.getByTestId('skills-source-apply').click()
+    await expect(sourcesModal.getByTestId('skills-source-confirm-body')).toContainText('e2e/local version')
+    await expect(sourcesModal.getByTestId('skills-source-confirm-body')).toContainText('not moved to trash')
+    await sourcesModal.getByTestId('skills-source-confirm-btn').click()
+    await expect(sourcesModal).toHaveCount(0)
+    // Re-pinned: the Update button returns (the seed version still differs).
+    await expect(card.locator('[data-testid="skills-update"]')).toBeVisible()
     // Two-step delete drives the real host service; the confirm modal shows
     // the copy path, and confirming removes the card.
     await card.locator('[data-testid="skills-delete"]').click()
@@ -208,7 +246,13 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await expect(confirm).toBeVisible()
     await expect(confirm.getByTestId('skills-delete-path')).toContainText('e2e-test-skill')
     await confirm.getByTestId('skills-delete-confirm-btn').click()
-    await expect(page.locator('[data-testid="skills-card"]', { hasText: 'e2e-test-skill' })).toHaveCount(0)
+    // The managed card goes; the seeded provider still offers the name, so
+    // its card correctly flips to a catalog-only Use card (nothing managed
+    // remains: no Delete, no Providers switcher).
+    await expect(page.locator('[data-testid="skills-card"]', { hasText: 'e2e-test-skill' }).locator('[data-testid="skills-delete"]')).toHaveCount(0)
+    const remaining = page.locator('[data-testid="skills-card"]', { hasText: 'e2e-test-skill' })
+    await expect(remaining.getByTestId('skills-use')).toBeVisible()
+    await expect(remaining.getByTestId('skills-providers')).toHaveCount(0)
     // Providers tab renders with the add-provider control; the host seeds its
     // default providers shortly after boot, so rows may already be present —
     // never assert emptiness here.

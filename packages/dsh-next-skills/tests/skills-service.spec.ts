@@ -117,8 +117,9 @@ describe('listInstalled / state', () => {
 
   it('a legacy manifest sidecar confers nothing and is skipped by the fingerprint', async () => {
     // settings.yaml is the single source of provenance: the sidecar file
-    // neither marks a copy as provider-installed nor falsifies the update
-    // compare (it is excluded from the fingerprint).
+    // neither marks a copy as provider-installed nor falsifies the source
+    // compare (it is excluded from the fingerprint). The copy stays
+    // unrecorded; its content parity shows up in the source options.
     const h = makeHarness({
       [`${GLOBAL_DIR}/SKILL.md`]: SKILL('find-skills'),
       [`${GLOBAL_DIR}/references/note.md`]: 'note',
@@ -130,8 +131,9 @@ describe('listInstalled / state', () => {
     const state = await h.service.state()
     const row = state.installed.find((s) => s.name === 'find-skills')!
     expect(row.provider).toBeUndefined()
-    expect(row.updateAvailable).toBeUndefined()
-    expect(row.updateCandidates).toBeUndefined()
+    expect(row.sources).toEqual([
+      { providerId: 'o-r', providerSpec: 'o/r', skillPath: 'skills/find-skills', version: expect.any(String), matches: true },
+    ])
   })
 
   it('carries the config scope per name and exposes only the three envelope sections', async () => {
@@ -155,10 +157,12 @@ describe('listInstalled / state', () => {
     await seedCatalog(h)
     const row = (await h.service.state()).installed.find((s) => s.name === 'find-skills')!
     expect(row.provider).toBe('o/r')
-    expect(row.updateAvailable).toBeUndefined()
+    expect(row.sources).toEqual([
+      { providerId: 'o-r', providerSpec: 'o/r', skillPath: 'skills/find-skills', version: expect.any(String), matches: true },
+    ])
   })
 
-  it('flags updateAvailable on the copies whose content differs from the catalog', async () => {
+  it('flags content parity per offering on the copies that have same-name catalog skills', async () => {
     const h = makeHarness({
       // Hand-edited after install: the content no longer matches the catalog.
       [`${GLOBAL_DIR}/SKILL.md`]: SKILL('find-skills', 'local-tweak: true\n'),
@@ -174,13 +178,25 @@ describe('listInstalled / state', () => {
     await h.service.refreshProvider('o-r')
     const state = await h.service.state()
     const dirty = state.installed.find((s) => s.name === 'find-skills')!
-    expect(dirty.updateAvailable).toBe(true)
-    expect(dirty.updateCandidates).toEqual([
-      { providerId: 'o-r', providerSpec: 'o/r', skillPath: 'skills/find-skills', version: expect.any(String) },
+    expect(dirty.sources).toEqual([
+      { providerId: 'o-r', providerSpec: 'o/r', skillPath: 'skills/find-skills', version: expect.any(String), matches: false },
     ])
-    // Equal content fingerprints produce no update flag.
+    // Equal content fingerprints flag as matches.
     const clean = state.installed.find((s) => s.name === 'clean')!
-    expect(clean.updateAvailable).toBeUndefined()
+    expect(clean.sources).toEqual([
+      { providerId: 'o-r', providerSpec: 'o/r', skillPath: 'skills/clean', version: expect.any(String), matches: true },
+    ])
+  })
+
+  it('flat and unoffered copies get no source options', async () => {
+    const h = makeHarness({
+      '/home/u/.agents/skills/flat-skill.md': SKILL('flat-skill'),
+      '/home/u/.agents/skills/plain/SKILL.md': SKILL('plain'),
+    })
+    await seedCatalog(h)
+    const state = await h.service.state()
+    expect(state.installed.find((s) => s.name === 'flat-skill')!.sources).toBeUndefined()
+    expect(state.installed.find((s) => s.name === 'plain')!.sources).toBeUndefined()
   })
 
   it('state() prunes orphan scopes (no discovered copy and no catalog entry)', async () => {
@@ -280,9 +296,9 @@ describe('updateSkill (in place, explicit copy target)', () => {
     expect(h.config.raw().installations).toEqual([
       expect.objectContaining({ name: 'find-skills', providerSpec: 'o/r', skillPath: 'skills/find-skills' }),
     ])
-    // The refreshed fingerprint matches the catalog again: no update flag.
+    // The refreshed fingerprint matches the catalog again.
     const row = (await h.service.state()).installed.find((s) => s.name === 'find-skills')!
-    expect(row.updateAvailable).toBeUndefined()
+    expect(row.sources!.every((s) => s.matches)).toBe(true)
   })
 
   it('adopts a hand-created copy: overwrites it and records it in the ledger', async () => {
@@ -310,8 +326,9 @@ describe('updateSkill (in place, explicit copy target)', () => {
     await seedCatalog(h)
     await seedSecondProvider(h, candidateB, fingerprintVersion([{ path: 'SKILL.md', content: candidateB }]))
     const row = (await h.service.state()).installed.find((s) => s.name === 'find-skills')!
-    expect(row.updateAvailable).toBe(true)
-    expect(row.updateCandidates!.map((c) => c.providerId)).toEqual(['o-r', 'p-q'])
+    // Every offering is a source option, spec-sorted, none matching yet.
+    expect(row.sources!.map((s) => s.providerId)).toEqual(['o-r', 'p-q'])
+    expect(row.sources!.every((s) => !s.matches)).toBe(true)
 
     const result = await h.service.updateSkill({
       name: 'find-skills', directory: GLOBAL_DIR, providerId: 'p-q', skillPath: 'native/find-skills',
@@ -321,35 +338,37 @@ describe('updateSkill (in place, explicit copy target)', () => {
     expect(h.config.raw().installations).toEqual([
       expect.objectContaining({ name: 'find-skills', providerId: 'p-q', providerSpec: 'p/q', skillPath: 'native/find-skills' }),
     ])
-    // The adopted candidate no longer differs — and the skill is now PINNED
-    // to p-q, so o-r's differing same-name entry is not an update candidate
-    // (no provider cycling).
+    // The adopted source now matches; the other provider stays listed as a
+    // differing option (pinning to the recorded provider is the client's
+    // Update-button rule, not a host-side filter).
     const after = (await h.service.state()).installed.find((s) => s.name === 'find-skills')!
-    expect(after.updateAvailable).toBeUndefined()
-    expect(after.updateCandidates).toBeUndefined()
+    expect(after.provider).toBe('p/q')
+    expect(after.sources!.map((s) => [s.providerId, s.matches])).toEqual([['o-r', false], ['p-q', true]])
   })
 
-  it('pins update candidates to the recorded provider and never to other same-name providers', async () => {
+  it('reports per-provider parity so the client can pin Update to the recorded provider', async () => {
     const candidateB = SKILL('find-skills', 'from-pq: true\n')
     const h = makeHarness()
     await seedCatalog(h)
     await seedSecondProvider(h, candidateB, fingerprintVersion([{ path: 'SKILL.md', content: candidateB }]))
     // Install from o-r: the ledger pins the skill to that provider.
     await h.service.installSkill({ providerId: 'o-r', skillPath: 'skills/find-skills' })
-    // p-q ships a DIFFERENT same-name version, and the local copy now
-    // differs from it (adopting p-q's content would be a vendor switch).
+    // p-q ships a DIFFERENT same-name version, and o-r moves to v2 — the
+    // local copy now differs from both.
     h.gh.setFiles({ 'skills/find-skills/SKILL.md': SKILL('find-skills', 'v2: true\n') })
     await h.service.refreshProvider('o-r')
     const row = (await h.service.state()).installed.find((s) => s.name === 'find-skills')!
-    // Only o-r's entry is a candidate; p-q's is invisible to updates.
-    expect(row.updateCandidates!.map((c) => c.providerId)).toEqual(['o-r'])
-    // Up to date with the recorded provider -> no button, regardless of p-q.
+    // The client derives Update from the recorded provider's entry only.
+    const recorded = row.sources!.find((s) => s.providerSpec === row.provider)
+    expect(recorded).toMatchObject({ providerId: 'o-r', matches: false })
+    // Updating from the recorded provider restores parity with it; p-q's
+    // same-name option remains (a vendor switch, not an update).
     const upd = await h.service.updateSkill({
       name: 'find-skills', directory: GLOBAL_DIR, providerId: 'o-r', skillPath: 'skills/find-skills',
     })
     expect(upd.ok).toBe(true)
     const done = (await h.service.state()).installed.find((s) => s.name === 'find-skills')!
-    expect(done.updateAvailable).toBeUndefined()
+    expect(done.sources!.map((s) => [s.providerId, s.matches])).toEqual([['o-r', true], ['p-q', false]])
   })
 
   it('externally-owned skills carry no update candidates and reject provider updates', async () => {
@@ -363,9 +382,9 @@ describe('updateSkill (in place, explicit copy target)', () => {
     })
     const row = (await h.service.state()).installed.find((s) => s.name === 'find-skills')!
     expect(row.ownership?.pluginKey).toBe('github:o/r/team-tools')
-    // Same-name catalog skills differ, yet no Update is offered.
-    expect(row.updateAvailable).toBeUndefined()
-    expect(row.updateCandidates).toBeUndefined()
+    // Same-name catalog skills exist, yet an owned copy gets no source
+    // options (its source is the owning plugin's business).
+    expect(row.sources).toBeUndefined()
     // The RPC rejects a provider update onto the owned directory.
     const result = await h.service.updateSkill({
       name: 'find-skills', directory: '/home/u/.agents/skills/find-skills', providerId: 'o-r', skillPath: 'skills/find-skills',
@@ -385,6 +404,8 @@ describe('updateSkill (in place, explicit copy target)', () => {
     expect(await h.service.updateSkill({
       name: 'find-skills', directory: GLOBAL_DIR, providerId: 'o-r', skillPath: 'skills/nope',
     })).toEqual({ ok: false, error: 'provider "o-r" no longer offers "find-skills"' })
+    // A real bundle directory whose name differs from the requested skill.
+    await h.fs.writeFile('/home/u/.agents/skills/other-skill/SKILL.md', SKILL('other-skill'))
     expect(await h.service.updateSkill({
       name: 'other-skill', directory: '/home/u/.agents/skills/other-skill', providerId: 'o-r', skillPath: 'skills/find-skills',
     })).toEqual({ ok: false, error: 'skill "skills/find-skills" has a different name' })
@@ -404,6 +425,61 @@ describe('updateSkill (in place, explicit copy target)', () => {
     // The hand-managed file is untouched and not adopted into the ledger.
     expect(await h.fs.readFile('/repo/.agents/skills/find-skills/SKILL.md')).toContain('hand: true')
     expect(h.config.raw().installations).toEqual([])
+  })
+
+  it('refuses a flat copy: its directory is the root itself, and pruning it would wipe the root', async () => {
+    const h = makeHarness({ '/home/u/.agents/skills/flat-skill.md': SKILL('flat-skill') })
+    await seedCatalog(h)
+    const result = await h.service.updateSkill({
+      name: 'flat-skill', directory: '/home/u/.agents/skills', providerId: 'o-r', skillPath: 'skills/find-skills',
+    })
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toContain('not a bundle copy')
+    // Nothing in the root was touched.
+    expect(await h.fs.readFile('/home/u/.agents/skills/flat-skill.md')).toBe(SKILL('flat-skill'))
+    expect(h.fs.has('/home/u/.agents/skills/find-skills/SKILL.md')).toBe(false)
+    expect(h.config.raw().installations).toEqual([])
+  })
+})
+
+describe('detachSkill (config-only provenance drop)', () => {
+  it('removes the ledger record and keeps every file; the copy becomes hand-managed', async () => {
+    const h = makeHarness()
+    await seedCatalog(h)
+    await h.service.installSkill({ providerId: 'o-r', skillPath: 'skills/find-skills' })
+    await h.service.setSkillScope({ name: 'find-skills', workspaces: ['/Users/x/Projects/repo'] })
+    const before = h.fs.snapshot()
+    const result = await h.service.detachSkill({ name: 'find-skills', directory: GLOBAL_DIR })
+    expect(result.ok).toBe(true)
+    expect(h.config.raw().installations).toEqual([])
+    // Scope is enablement, not provenance: it survives a detach.
+    expect((h.config.raw().scopes as Record<string, unknown>)['find-skills']).toEqual(['repo'])
+    expect(h.fs.snapshot()).toEqual(before)
+    const row = (await h.service.state()).installed.find((s) => s.name === 'find-skills')!
+    expect(row.provider).toBeUndefined()
+    // Still switchable: the source options remain.
+    expect(row.sources).toEqual([
+      { providerId: 'o-r', providerSpec: 'o/r', skillPath: 'skills/find-skills', version: expect.any(String), matches: true },
+    ])
+  })
+
+  it('refuses an unrecorded copy, an owned copy, an unknown directory, and a bad name', async () => {
+    const h = makeHarness({ [`${GLOBAL_DIR}/SKILL.md`]: SKILL('find-skills') })
+    await seedCatalog(h)
+    expect(await h.service.detachSkill({ name: 'find-skills', directory: GLOBAL_DIR }))
+      .toEqual({ ok: false, error: 'skill "find-skills" has no recorded provider to detach from' })
+    expect(await h.service.detachSkill({ name: 'find-skills', directory: '/tmp/evil/x' }))
+      .toEqual({ ok: false, error: 'directory is not inside a managed skill root' })
+    expect(await h.service.detachSkill({ name: 'not a name', directory: GLOBAL_DIR }))
+      .toEqual({ ok: false, error: 'invalid skill name "not a name"' })
+    // An owned copy cannot be detached out from under its owning plugin.
+    await h.service.installExternalSkills({
+      owner: 'cc-plugins', pluginKey: 'github:o/r/team-tools', marketplaceId: 'github:o/r',
+      skills: [{ name: 'cc-skill', files: { 'SKILL.md': SKILL('cc-skill') } }],
+    })
+    const owned = await h.service.detachSkill({ name: 'cc-skill', directory: '/home/u/.agents/skills/cc-skill' })
+    expect(owned.ok).toBe(false)
+    if (!owned.ok) expect(owned.error).toContain('detach it through that plugin')
   })
 })
 

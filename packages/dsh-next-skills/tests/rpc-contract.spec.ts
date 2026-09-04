@@ -85,6 +85,19 @@ describe('skills state() RPC contract', () => {
     expect(ok).toHaveProperty('state')
   })
 
+  it('detachSkill round-trips: the ledger write persists and reads back as unrecorded', async () => {
+    const { service, config } = makeService()
+    await service.addProvider('o/r')
+    await service.installSkill({ providerId: 'o-r', skillPath: 'skills/find-skills' })
+    expect(config.raw().installations).toHaveLength(1)
+    const result = await service.detachSkill({ name: 'find-skills', directory: '/home/u/.agents/skills/find-skills' })
+    expect(result).toHaveProperty('ok', true)
+    expect(result).toHaveProperty('state')
+    expect(config.raw().installations).toEqual([])
+    const state = await service.state() as SkillsState
+    expect(state.installed.find((s) => s.name === 'find-skills')!.provider).toBeUndefined()
+  })
+
   it('state() serves provider rows and catalog skills after a sync', async () => {
     const { service } = makeService()
     await service.addProvider('o/r')

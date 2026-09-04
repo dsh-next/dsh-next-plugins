@@ -40,14 +40,12 @@ export const en = {
   'card.noDescription': 'no description',
   'card.detailsTitle': 'details for {name}',
   'card.update': 'Update',
+  'card.providers': 'Providers ({count})',
+  'card.providersTitle': 'Switch where this skill comes from',
   'card.delete': 'Delete',
   'card.scopes': 'Scopes',
   'card.use': 'Use',
   'card.replace': 'Replace',
-  'card.replaceTitle': 'Replace the installed copy with the {provider} version',
-  'card.currentSource': 'Current source',
-  'card.sources.one': '{count} source',
-  'card.sources.many': '{count} sources',
 
   'presence.everywhere': 'Everywhere',
   'presence.workspaces.one': '{count} workspace',
@@ -84,6 +82,21 @@ export const en = {
   'delete.aria': 'Delete skill "{name}"',
   'delete.title': 'Delete {name}?',
   'delete.hint': 'This moves the copy below into the trash of its root (recoverable).',
+
+  'sources.aria': 'Sources for skill "{name}"',
+  'sources.title': 'Sources for {name}',
+  'sources.hint': 'Pick where this skill comes from. Switching to a provider overwrites the copy in place.',
+  'sources.local': 'Local (hand-managed)',
+  'sources.localHint': 'Keep the files as they are; no provider updates.',
+  'sources.current': 'Current',
+  'sources.matches': 'Matches your copy',
+  'sources.differs': 'Differs from your copy',
+  'sources.detach': 'Detach',
+  'sources.confirmTitle': 'Replace {name}?',
+  // States the real updateSkill semantics: in-place overwrite, extras removed
+  // permanently (no trash), scopes untouched.
+  'sources.confirmBody': 'Your copy is overwritten with the {provider} version. Files that are not part of the provider copy are removed permanently (not moved to trash). Its visibility scopes are kept.',
+  'sources.confirmReplace': 'Replace',
 
   'providers.placeholder': 'owner/repo or GitHub URL…',
   'providers.add': 'Add provider',

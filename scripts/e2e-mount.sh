@@ -102,9 +102,11 @@ dsh-next-notifier:
 EOF
 
 # Seed one throwaway skill into the isolated agents root so the skills DOM
-# marker can exercise a real scope modal and a real two-step remove. The
-# matching settings record marks it plugin-managed (remove refuses files the
-# plugin did not install), which also exercises the settings.yaml state.
+# marker can exercise the scope modal, the source switcher, and a real
+# two-step remove. The settings record marks it plugin-installed (the
+# provenance ledger the panel reads chips and Update from); it must use the
+# current `installations` key — the registered schema resolves that key, so a
+# legacy `installed` seed would never reach the plugin.
 mkdir -p "$DSH_AGENTS_HOME/skills/e2e-test-skill"
 cat > "$DSH_AGENTS_HOME/skills/e2e-test-skill/SKILL.md" <<'EOF'
 ---
@@ -117,16 +119,46 @@ description: |
 EOF
 cat >> "$DSH_HOME/settings.yaml" <<EOF
 dsh-next-skills:
-  providers: []
-  installed:
+  providers:
+    - id: e2e-local
+      spec: e2e/local
+      addedAt: "2026-01-01T00:00:00.000Z"
+  installations:
     - name: e2e-test-skill
       providerId: e2e-local
       providerSpec: e2e/local
       skillPath: skills/e2e-test-skill
-      version: seed-v1
-      installedAt: "$(date -u +%FT%TZ)"
   scopes: {}
 EOF
+
+# Seed the market cache with a same-name offering from that provider so the
+# skills marker can drive the source switcher (Providers modal). The catalog
+# version constant never equals the local content fingerprint, so the copy
+# also shows the recorded-provider Update button (recorded + differs).
+mkdir -p "$DSH_HOME/skills-market/files/e2e-local/e2e__test"
+cat > "$DSH_HOME/skills-market/catalog.json" <<'EOF'
+{
+  "providers": [
+    {
+      "id": "e2e-local",
+      "spec": "e2e/local",
+      "lastRefresh": "2026-01-01T00:00:00.000Z",
+      "skills": [
+        {
+          "name": "e2e-test-skill",
+          "description": "Throwaway skill for the skills marker.",
+          "cacheDir": "e2e__test",
+          "skillPath": "skills/e2e-test-skill",
+          "version": "seed-v1",
+          "files": [{ "path": "SKILL.md", "sha": "seed" }]
+        }
+      ]
+    }
+  ]
+}
+EOF
+cp "$DSH_AGENTS_HOME/skills/e2e-test-skill/SKILL.md" \
+  "$DSH_HOME/skills-market/files/e2e-local/e2e__test/SKILL.md"
 
 # Pre-register two scratch workspaces in the home's storage registry so
 # every plugin's DOM marker can drive workspace-scoped flows (the

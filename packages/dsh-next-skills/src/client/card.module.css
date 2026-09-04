@@ -516,8 +516,17 @@
 
 /* --- Skills-specific extensions ------------------------------------------ */
 
-/* Card action row (Update / Delete / Scopes): natural-width buttons pinned
- * to the card's right edge, matching the offering row's alignment. */
+/* Right-aligned secondary text on a modal option row (the source switcher's
+ * Current / match-state hint). */
+.optionHint {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+  flex: none;
+}
+
+/* Card action row (Update / Providers / Delete / Scopes): natural-width
+ * buttons pinned to the card's right edge. */
 .cardActions {
   display: flex;
   justify-content: flex-end;

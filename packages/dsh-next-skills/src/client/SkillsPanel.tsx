@@ -4,17 +4,19 @@
  * chrome: `card.module.css` mirrors cc-plugins' module byte-for-byte on every
  * shared class, so the two settings pages read as one product.
  *
- *  - Skills: every discovered skill copy (project `.dsh`/`.agents` and user
- *    roots) plus every provider catalog skill in one two-column card grid —
- *    one card per copy, with a provider filter, a search box, and an
- *    installed-only toggle. Each card shows the name, an origin chip, the
- *    provider spec, and a presence badge, then an equal-width action row
- *    below the description: Update (warn-tinted outline, only when a newer
- *    catalog version exists), Delete (dark-red text, two-step confirm), and
- *    Scopes (opens the scope modal — Global by default or a checklist of
- *    workspaces).
- *    Catalog skills with no installed copy render an Add button. The name
- *    button opens the skill's full SKILL.md rendered as markdown.
+ *  - Skills: every discovered global skill copy plus every provider catalog
+ *    skill in one card grid — one card per copy, with a provider filter, a
+ *    search box, and an installed-only toggle. An installed card shows the
+ *    name, an origin chip, the recorded provider chip, and a presence badge,
+ *    then an action row below the description: Update (warn-tinted outline,
+ *    only when the recorded provider's content differs), Providers (opens the
+ *    source switcher — Local or any provider offering the name, with an
+ *    overwrite confirm), Delete (dark-red text, two-step confirm), and Scopes
+ *    (opens the scope modal — Global by default or a checklist of
+ *    workspaces). Catalog skills whose name has no installed copy render an
+ *    Add button; a name that IS installed renders only its copy cards — the
+ *    provider offerings live in the source switcher. The name button opens
+ *    the skill's full SKILL.md rendered as markdown.
  *  - Providers: source management (add by owner/repo shorthand or GitHub
  *    URL, refresh all, remove) with per-source sync age and error rows.
  *
@@ -64,7 +66,7 @@ const TAB_ORDER: readonly Tab[] = ['skills', 'providers']
 const PAGE_SIZE = 30
 
 /** Mutations whose success may change the installed copies the chat UI surfaces. */
-const CATALOG_MUTATIONS = new Set(['installSkill', 'setSkillScope', 'updateSkill', 'deleteSkill', 'addProvider', 'removeProvider', 'reconcileInstalled'])
+const CATALOG_MUTATIONS = new Set(['installSkill', 'setSkillScope', 'updateSkill', 'detachSkill', 'deleteSkill', 'addProvider', 'removeProvider', 'reconcileInstalled'])
 
 function isMutationError(result: unknown): result is { ok: false; error: string } {
   return !!result && typeof result === 'object' && (result as { ok?: unknown }).ok === false
@@ -113,13 +115,13 @@ export function sourceKey(source: string): MessageKey {
   }
 }
 
-/** One card in the skills grid: one discovered copy, or a catalog skill (Add). */
+/** One card in the skills grid: one discovered copy, or a catalog skill (Use). */
 export interface GridEntry {
   key: string
   name: string
   description: string
   whenToUse?: string
-  /** The catalog skill backing this entry (Add/Replace flow), when offered. */
+  /** The catalog skill backing this entry (Use flow), when offered. */
   catalog?: CatalogSkillView
   /** The discovered copy this card manages (undefined for offering cards). */
   row?: InstalledSkill
@@ -127,70 +129,39 @@ export interface GridEntry {
   providerId?: string
   /** Provider spec label (`owner/repo`), when provider-installed. */
   providerSpec?: string
-  /** For an offering card whose name is installed: the copy a Replace
-   *  targets, and whether this offering is that copy's active source. */
-  installed?: { directory: string; active: boolean }
-  /** How many providers offer this name (installed cards' sources chip;
-   *  present only when more than one and the copy is not externally owned). */
-  sourceCount?: number
 }
 
 /**
  * One card per discovered copy (a skill present in several roots produces a
- * card per root), joined with EVERY provider offering: a catalog skill whose
- * name is not installed becomes an Add row; a same-name offering of an
- * installed (non-owned) copy becomes a Replace row — its active source marked
- * "current", the rest one click away from switching vendors. Externally-owned
- * copies (the cc-plugins bridge) render no offerings and no sources chip:
+ * card per root), plus a Use card per catalog skill whose name has NO
+ * installed copy. A name that is installed renders only its copy cards: the
+ * provider offerings collapse into that copy's source switcher (the
+ * Providers button), so one skill + one source costs exactly one card.
+ * Externally-owned copies (the cc-plugins bridge) get no switcher either —
  * their source is the owning plugin's business.
  */
 export function buildGridEntries(state: SkillsState): GridEntry[] {
   const specToId = new Map(state.providers.map((p) => [p.spec, p.id]))
-  const offeringsByName = new Map<string, CatalogSkillView[]>()
-  for (const s of state.catalog) {
-    const list = offeringsByName.get(s.name) ?? []
-    list.push(s)
-    offeringsByName.set(s.name, list)
-  }
-  const compare = (a: GridEntry, b: GridEntry): number =>
-    // Installed names first, then names to add; within a name the managed
-    // copies precede the other providers' offerings.
-    ((groupHasInstall.has(b.name) ? 1 : 0) - (groupHasInstall.has(a.name) ? 1 : 0))
-    || a.name.localeCompare(b.name)
-    || ((a.row !== undefined ? 0 : 1) - (b.row !== undefined ? 0 : 1))
-    || (a.providerSpec ?? '').localeCompare(b.providerSpec ?? '')
-  // The first (highest-precedence) non-owned copy per name is the target a
-  // Replace switches; owned copies keep their name's offerings hidden (their
-  // source is the owning plugin's business, and the offerings would render
-  // unactionable Add cards for an already-installed name).
-  const replaceTarget = new Map<string, InstalledSkill>()
+  const installedNames = new Set<string>()
   const ownedNames = new Set<string>()
-  const groupHasInstall = new Set<string>()
   for (const row of state.installed) {
-    groupHasInstall.add(row.name)
-    if (row.ownership !== undefined) { ownedNames.add(row.name); continue }
-    if (!replaceTarget.has(row.name)) replaceTarget.set(row.name, row)
+    installedNames.add(row.name)
+    if (row.ownership !== undefined) ownedNames.add(row.name)
   }
-  const rows: GridEntry[] = state.installed.map((row) => {
-    const offerings = offeringsByName.get(row.name) ?? []
-    return {
-      key: `row:${row.source}:${row.path}`,
-      name: row.name,
-      description: row.description,
-      ...(row.whenToUse !== undefined ? { whenToUse: row.whenToUse } : {}),
-      row,
-      ...(row.provider !== undefined && specToId.get(row.provider) !== undefined
-        ? { providerId: specToId.get(row.provider) }
-        : {}),
-      ...(row.provider !== undefined ? { providerSpec: row.provider } : {}),
-      ...(row.ownership === undefined && offerings.length > 1 ? { sourceCount: offerings.length } : {}),
-    }
-  })
+  const rows: GridEntry[] = state.installed.map((row) => ({
+    key: `row:${row.source}:${row.path}`,
+    name: row.name,
+    description: row.description,
+    ...(row.whenToUse !== undefined ? { whenToUse: row.whenToUse } : {}),
+    row,
+    ...(row.provider !== undefined && specToId.get(row.provider) !== undefined
+      ? { providerId: specToId.get(row.provider) }
+      : {}),
+    ...(row.provider !== undefined ? { providerSpec: row.provider } : {}),
+  }))
   const offerings: GridEntry[] = state.catalog
-    .filter((s) => !ownedNames.has(s.name))
-    .map((s) => {
-    const target = replaceTarget.get(s.name)
-    return {
+    .filter((s) => !installedNames.has(s.name))
+    .map((s) => ({
       key: `cat:${s.providerId}/${s.skillPath}`,
       name: s.name,
       description: s.description,
@@ -198,10 +169,13 @@ export function buildGridEntries(state: SkillsState): GridEntry[] {
       catalog: s,
       providerId: s.providerId,
       providerSpec: s.providerSpec,
-      ...(target !== undefined ? { installed: { directory: target.directory, active: target.provider === s.providerSpec } } : {}),
-    }
-  })
-  return [...rows, ...offerings].sort(compare)
+    }))
+  return [...rows, ...offerings].sort((a, b) =>
+    // Installed names first, then names to add; within a class, by name and
+    // provider spec.
+    ((installedNames.has(b.name) ? 1 : 0) - (installedNames.has(a.name) ? 1 : 0))
+    || a.name.localeCompare(b.name)
+    || (a.providerSpec ?? '').localeCompare(b.providerSpec ?? ''))
 }
 
 /** Case-insensitive search + provider filter + installed-only filter. */
@@ -245,6 +219,13 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
   const [confirmDelete, setConfirmDelete] = React.useState<GridEntry | undefined>()
   /** The provider awaiting removal confirmation (two-step before the RPC). */
   const [confirmRemoveProvider, setConfirmRemoveProvider] = React.useState<ProviderView | undefined>()
+  /** The open source-switcher modal's entry (installed copies only). */
+  const [sourcesModal, setSourcesModal] = React.useState<GridEntry | undefined>()
+  /** The switcher's radio: 'local' or a provider id. */
+  const [sourceDraft, setSourceDraft] = React.useState<string>('local')
+  /** The provider switch awaiting overwrite confirmation — the switcher
+   *  modal's second phase, rendered in place of the radio list. */
+  const [confirmSource, setConfirmSource] = React.useState<{ providerId: string; providerSpec: string; skillPath: string } | undefined>()
   const [addSpec, setAddSpec] = React.useState('')
   const workspaces = deps.getWorkspaces()
   // The listing is global-only (project skills are hand-managed and live with
@@ -268,13 +249,13 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
   }, [refresh])
 
   React.useEffect(() => {
-    if (modal === undefined && detail === undefined && confirmDelete === undefined && confirmRemoveProvider === undefined) return
+    if (modal === undefined && detail === undefined && confirmDelete === undefined && confirmRemoveProvider === undefined && sourcesModal === undefined) return
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') { closeModal(); setDetail(undefined); setDetailData(undefined); setConfirmDelete(undefined); setConfirmRemoveProvider(undefined) }
+      if (e.key === 'Escape') { closeModal(); setDetail(undefined); setDetailData(undefined); setConfirmDelete(undefined); setConfirmRemoveProvider(undefined); closeSources() }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [modal, detail, confirmDelete, confirmRemoveProvider])
+  }, [modal, detail, confirmDelete, confirmRemoveProvider, sourcesModal])
 
   // Load the detail body whenever the detail modal opens for a new entry.
   // Installed rows pass the copy's path: a name may have several copies, and
@@ -404,6 +385,25 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
     setModal(undefined)
     setScopeMode('global')
     setChecked(new Set())
+  }
+
+  /** Radio value for a copy's current source: its recorded provider's id, or
+   *  'local' for a hand-managed copy (and for a record whose provider no
+   *  longer offers the name — detaching is the right move there too). */
+  const currentSourceId = (row: InstalledSkill): string => {
+    if (row.provider === undefined) return 'local'
+    return row.sources?.find((s) => s.providerSpec === row.provider)?.providerId ?? 'local'
+  }
+
+  const openSources = (entry: GridEntry): void => {
+    setSourcesModal(entry)
+    setSourceDraft(entry.row !== undefined ? currentSourceId(entry.row) : 'local')
+    setConfirmSource(undefined)
+  }
+
+  const closeSources = (): void => {
+    setSourcesModal(undefined)
+    setConfirmSource(undefined)
   }
 
   /** Open the scope modal; an installed skill starts on its current scope. */
@@ -641,15 +641,139 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
     )
   }
 
-  /** One card: a managed copy (installed) or a provider offering
-   *  (Add / Replace / current source). */
+  /** The source switcher: one radio per source — Local (detach) plus every
+   *  provider offering the name, current first and match state per row —
+   *  then, for a provider target, an in-place confirm phase stating the
+   *  overwrite semantics before the RPC. Detach applies directly: it only
+   *  drops the provenance record and is instantly reversible. */
+  const sourcesDialog = (): React.ReactElement | null => {
+    if (sourcesModal === undefined || sourcesModal.row === undefined) return null
+    const row = sourcesModal.row
+    const options = [...(row.sources ?? [])].sort((a, b) => a.providerSpec.localeCompare(b.providerSpec))
+    const currentId = currentSourceId(row)
+    const apply = (): void => {
+      if (sourceDraft === currentId) return
+      if (sourceDraft === 'local') {
+        void mutate('detachSkill', { name: sourcesModal.name, directory: row.directory })
+        closeSources()
+        return
+      }
+      const target = row.sources?.find((s) => s.providerId === sourceDraft)
+      if (target === undefined) return
+      setConfirmSource({ providerId: target.providerId, providerSpec: target.providerSpec, skillPath: target.skillPath })
+    }
+    const doReplace = (): void => {
+      if (confirmSource === undefined) return
+      void mutate('updateSkill', {
+        name: sourcesModal.name,
+        directory: row.directory,
+        providerId: confirmSource.providerId,
+        skillPath: confirmSource.skillPath,
+      })
+      closeSources()
+    }
+    return (
+      <div className={styles.overlay} role="presentation" onClick={closeSources}>
+        <div
+          className={styles.modal}
+          role="dialog"
+          aria-modal="true"
+          aria-label={t('sources.aria', { name: sourcesModal.name })}
+          data-testid="skills-sources-modal"
+          onClick={(e: React.MouseEvent) => e.stopPropagation()}
+        >
+          {confirmSource === undefined ? (
+            <>
+              <p className={styles.modalTitle}>{t('sources.title', { name: sourcesModal.name })}</p>
+              <p className={styles.modalHint}>{t('sources.hint')}</p>
+              <div className={styles.optionList} data-testid="skills-source-options">
+                <label className={styles.optionRow} data-testid="skills-source-local">
+                  <input
+                    type="radio"
+                    name="skills-source"
+                    checked={sourceDraft === 'local'}
+                    disabled={busy}
+                    onClick={() => setSourceDraft('local')}
+                    onChange={() => setSourceDraft('local')}
+                  />
+                  <span className={styles.optionLabel}>{t('sources.local')}</span>
+                  <span className={styles.optionHint} data-testid="skills-source-local-hint">
+                    {currentId === 'local' ? t('sources.current') : t('sources.localHint')}
+                  </span>
+                </label>
+                {options.map((option) => (
+                  <label key={option.providerId} className={styles.optionRow} data-testid="skills-source-option">
+                    <input
+                      type="radio"
+                      name="skills-source"
+                      checked={sourceDraft === option.providerId}
+                      disabled={busy}
+                      onClick={() => setSourceDraft(option.providerId)}
+                      onChange={() => setSourceDraft(option.providerId)}
+                    />
+                    <span className={styles.optionLabel}>{option.providerSpec}</span>
+                    <span className={styles.optionHint} data-testid="skills-source-option-hint">
+                      {currentId === option.providerId ? t('sources.current') : option.matches ? t('sources.matches') : t('sources.differs')}
+                    </span>
+                  </label>
+                ))}
+              </div>
+              <div className={styles.modalActions}>
+                <button
+                  type="button"
+                  className={styles.ghost}
+                  disabled={busy}
+                  onClick={closeSources}
+                  data-testid="skills-source-cancel"
+                >{t('modal.cancel')}</button>
+                <button
+                  type="button"
+                  className={styles.primary}
+                  disabled={busy || sourceDraft === currentId}
+                  onClick={apply}
+                  data-testid="skills-source-apply"
+                >{sourceDraft === 'local' ? t('sources.detach') : t('card.replace')}</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className={styles.modalTitle}>{t('sources.confirmTitle', { name: sourcesModal.name })}</p>
+              <p className={styles.modalHint} data-testid="skills-source-confirm-body">{t('sources.confirmBody', { provider: confirmSource.providerSpec })}</p>
+              <p className={styles.copyPath} data-testid="skills-source-path">{row.directory}</p>
+              <div className={styles.modalActions}>
+                <button
+                  type="button"
+                  className={styles.ghost}
+                  disabled={busy}
+                  onClick={() => setConfirmSource(undefined)}
+                  data-testid="skills-source-confirm-cancel"
+                >{t('modal.cancel')}</button>
+                <button
+                  type="button"
+                  className={styles.danger}
+                  disabled={busy}
+                  onClick={doReplace}
+                  data-testid="skills-source-confirm-btn"
+                >{t('sources.confirmReplace')}</button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  /** One card: a managed copy (installed) or a provider offering (Use). */
   const renderCard = (entry: GridEntry): React.ReactElement => {
     const row = entry.row
     const installedHere = row !== undefined
-    // Externally-owned skills never offer provider updates (their
-    // update path is the owning plugin) — defensive against a stale
-    // host envelope still carrying candidates.
-    const candidate = row !== undefined && row.ownership === undefined && row.updateCandidates !== undefined && row.updateCandidates.length > 0 ? row.updateCandidates[0] : undefined
+    // Update fires only for the copy's recorded provider (provenance-pinned):
+    // its source entry exists and differs from the local fingerprint.
+    // Hand-managed copies pick a source through the Providers switcher
+    // instead of an implicit first candidate.
+    const currentSource = installedHere && row.ownership === undefined && row.provider !== undefined
+      ? row.sources?.find((s) => s.providerSpec === row.provider)
+      : undefined
     const presenceTitle = row !== undefined && row.configScope !== undefined ? row.configScope.join('\n') : undefined
     return (
       <div key={entry.key} className={styles.pluginCard} data-testid="skills-card">
@@ -673,24 +797,29 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
               <span className={styles.presenceBadge} data-testid="skills-presence" title={presenceTitle}>
                 {presenceLabel(row.configScope, t)}
               </span>
-              {entry.sourceCount !== undefined && (
-                <span className={styles.providerChip} data-testid="skills-sources">
-                  {countOf(t, entry.sourceCount, 'card.sources.one', 'card.sources.many')}
-                </span>
-              )}
             </div>
           )}
         </div>
         {installedHere && (
           <div className={styles.cardActions} data-testid="skills-actions">
-            {candidate !== undefined && (
+            {currentSource !== undefined && !currentSource.matches && (
               <button
                 type="button"
                 className={styles.updateBtn}
                 disabled={busy}
-                onClick={() => { void mutate('updateSkill', { name: entry.name, directory: row.directory, providerId: candidate.providerId, skillPath: candidate.skillPath }) }}
+                onClick={() => { void mutate('updateSkill', { name: entry.name, directory: row.directory, providerId: currentSource.providerId, skillPath: currentSource.skillPath }) }}
                 data-testid="skills-update"
               >{t('card.update')}</button>
+            )}
+            {installedHere && row.ownership === undefined && row.sources !== undefined && row.sources.length > 0 && (
+              <button
+                type="button"
+                className={styles.ghost}
+                disabled={busy}
+                title={t('card.providersTitle')}
+                onClick={() => openSources(entry)}
+                data-testid="skills-providers"
+              >{t('card.providers', { count: row.sources.length })}</button>
             )}
             <button
               type="button"
@@ -712,35 +841,13 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
           <div className={styles.pluginCardTop}>
             {entry.providerSpec !== undefined && <span className={styles.providerChip}>{entry.providerSpec}</span>}
             <div className={styles.rowActions}>
-              {entry.installed === undefined && (
-                <button
-                  type="button"
-                  className={styles.primary}
-                  disabled={busy}
-                  onClick={() => openModal(entry)}
-                  data-testid="skills-use"
-                >{t('card.use')}</button>
-              )}
-              {entry.installed !== undefined && entry.installed.active && (
-                <span className={styles.sourceChip} data-testid="skills-source-current">{t('card.currentSource')}</span>
-              )}
-              {entry.installed !== undefined && !entry.installed.active && (
-                <button
-                  type="button"
-                  className={styles.updateBtn}
-                  disabled={busy}
-                  title={t('card.replaceTitle', { provider: entry.providerSpec ?? '' })}
-                  onClick={() => {
-                    void mutate('updateSkill', {
-                      name: entry.name,
-                      directory: entry.installed!.directory,
-                      providerId: entry.catalog!.providerId,
-                      skillPath: entry.catalog!.skillPath,
-                    })
-                  }}
-                  data-testid="skills-replace"
-                >{t('card.replace')}</button>
-              )}
+              <button
+                type="button"
+                className={styles.primary}
+                disabled={busy}
+                onClick={() => openModal(entry)}
+                data-testid="skills-use"
+              >{t('card.use')}</button>
             </div>
           </div>
         )}
@@ -748,9 +855,9 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
     )
   }
 
-  /** Same-name cards share one bordered group (the installed copies first,
-   *  then the other providers' offerings); a single-card group renders as a
-   *  plain card with no wrapper. */
+  /** Same-name cards (a skill installed into several roots) share one
+   *  bordered group; provider offerings never join it — they live in the
+   *  source switcher. A single-card group renders as a plain card. */
   const renderGroups = (): React.ReactElement[] => {
     const slice = filtered.slice(0, visible)
     const groups: GridEntry[][] = []
@@ -908,6 +1015,7 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
       {detailDialog()}
       {confirmDeleteDialog()}
       {confirmRemoveProviderDialog()}
+      {sourcesDialog()}
     </div>
   )
 }

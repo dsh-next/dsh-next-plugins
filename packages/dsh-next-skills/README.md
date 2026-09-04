@@ -14,34 +14,36 @@ as General, Models, and Plugins — registered through the official
 `settings.section` slot), styled after the Claude Plugins page, with two
 tabs:
 
-- **Skills** — one two-column card grid holding every skill in the global
-  roots (`~/.dsh/skills` and `~/.agents/skills`) plus every provider catalog
-  skill. Project/workspace skills are deliberately absent: they are
-  hand-managed in the project and discovered natively by DSH, so this panel
-  lists nothing it cannot manage. A search box, a provider filter, an
-  installed-only toggle, and a Show more button (30 cards per page) keep large
-  catalogs fast. A skill that exists in several roots shows **one card per
-  copy**, so per-copy actions are unambiguous: each carries an origin chip
-  (`user .dsh`, `user .agents`), the provider spec, and per-copy **Delete**
-  (recoverable) and **Update** (when the skill's recorded provider offers a
-  newer version — same-name skills from other providers never show as
-  updates, so the button cannot cycle between vendors). Every provider
-  offering is visible: a skill installed from one provider shows a small
-  `N sources` chip, and each other provider's same-name offering renders as
-  its own card with **Replace** (one click rewrites the files and re-pins
-  provenance to that provider; the recorded source itself is marked
-  `current source`). Externally-owned skills (installed by the cc-plugins
-  bridge) show no offerings and no sources chip — their source is the owning
-  plugin's business. The **presence badge** (`Everywhere`, `N workspaces`, or
-  `Off`) reflects the skill's scope, and clicking a name opens the full
-  SKILL.md rendered as markdown. Installed skills sort first; a name offered
-  by several providers shares one bordered group box (the installed copy at
-  the top, the other providers' offerings below it), and filtering by a
-  provider narrows that group to the matching cards only. The **Use/Scopes**
-  button opens the scope modal: a radio picks where the skill is enabled —
-  Global (the default, every workspace) or only in a checklist of registered
-  workspaces — and installing or saving applies that scope as pure
-  configuration.
+- **Skills** — one card grid holding every skill in the global roots
+  (`~/.dsh/skills` and `~/.agents/skills`) plus every provider catalog skill
+  that is not already installed. Project/workspace skills are deliberately
+  absent: they are hand-managed in the project and discovered natively by DSH,
+  so this panel lists nothing it cannot manage. A search box, a provider
+  filter, an installed-only toggle, and a Show more button (30 cards per page)
+  keep large catalogs fast. A skill that exists in several roots shows **one
+  card per copy**, so per-copy actions are unambiguous: each carries an origin
+  chip (`user .dsh`, `user .agents`), the recorded provider spec, and per-copy
+  **Delete** (recoverable), **Scopes**, **Providers**, and **Update**. Update
+  refreshes the copy from its recorded provider only (same-name skills from
+  other providers never show as updates, so the button cannot cycle between
+  vendors). A name that is installed renders only its copy cards — every
+  provider offering collapses into the copy's **Providers** button (labeled
+  with how many providers offer the name). The source switcher lists Local
+  plus each provider with its content parity ("matches your copy" / "differs
+  from your copy"), marks the current source, and switching to a provider
+  requires an overwrite confirm: the copy's files are rewritten in place,
+  files that are not part of the provider copy are removed permanently (not
+  moved to trash), and visibility scopes are kept. Choosing Local detaches the
+  copy from its provider (files stay, updates stop) and applies directly.
+  Externally-owned skills (installed by the cc-plugins bridge) show no
+  Providers switcher — their source is the owning plugin's business. The
+  **presence badge** (`Everywhere`, `N workspaces`, or `Off`) reflects the
+  skill's scope, and clicking a name opens the full SKILL.md rendered as
+  markdown. Installed skills sort first, and a name installed into several
+  roots shares one bordered group box. The **Use/Scopes** button opens the
+  scope modal: a radio picks where the skill is enabled — Global (the default,
+  every workspace) or only in a checklist of registered workspaces — and
+  installing or saving applies that scope as pure configuration.
 - **Providers** — manages GitHub skill repositories: add by URL
   (`https://github.com/owner/repo` or `owner/repo`), Refresh all, remove.
   Each row shows the repository description, the number of cached skills,
@@ -143,11 +145,13 @@ call. That keeps even large default providers well within GitHub's 60
 req/hr unauthenticated budget and makes first syncs a matter of seconds.
 
 **Change detection** fingerprints each local copy with the same content-hash
-recipe used for catalog versions and compares it against same-name catalog
-skills: when they differ, the copy's card shows an Update button (with a
-provider picker when several providers offer the name); updating overwrites
-the copy in place (pruning files that disappeared upstream) and adopts the
-name into the settings provenance record, leaving the scope untouched.
+recipe used for catalog versions and compares it against every same-name
+catalog skill. A copy's recorded provider drives the Update button: when its
+content differs, Update rewrites the copy in place (pruning files that
+disappeared upstream) and re-pins the provenance record, leaving the scope
+untouched. Every other provider's offering — including adopting a
+hand-managed copy — goes through the Providers source switcher, which
+requires an explicit overwrite confirm before rewriting anything.
 Refresh is manual (Refresh all) and detect-only: nothing is installed or
 overwritten without a click.
 

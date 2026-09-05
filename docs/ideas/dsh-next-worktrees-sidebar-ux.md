@@ -1,8 +1,7 @@
 # dsh-next-worktrees — owned-browser sidebar UX (design spec)
 
 - date: 2026-09-05
-- status: proposed (revision 2, post incumbent study + user decisions), awaiting
-  review before any code; commits to strategy B (full nesting now)
+- status: implemented through revision 3; commits to strategy B (full nesting)
 - supersedes: the M1 composer Isolated toggle and session-header chip (both
   removed), and revision 1's sidebar-foot popover (dropped — the owned
   browser makes it redundant)
@@ -19,7 +18,12 @@
   session here" dropped permanently**; **full rebuild from scratch — M1
   code and tests deleted** (user decision, superseding the
   keep-the-engine recommendation, to keep the agentic development
-  surface clean)
+  surface clean); **rev 3 (2026-09-05): the Name modal is gone — one
+  click auto-names; the worktree ICON is the status surface (green
+  merged / amber dirty / blue ahead / neutral clean, red reserved for
+  conflicts); the "merged" text badge and the row's worktree title are
+  removed; hover-card facts extend the stock session tooltip; Refresh
+  carries IconRefreshOutline**
 
 ## Verified platform facts (DSH 0.1.2-rc.1)
 
@@ -223,23 +227,31 @@ landing — never a half-executed state.
 | `hint.gitignore` | M1 copy, relocated under the repo row |
 | `error.rpc` | M1 copy, unchanged |
 
-### Create modal (relocated, with the Name prompt)
+### Status at a glance (rev 3, decided 2026-09-05)
 
-Opened from the repo row's worktree button. Fields:
+The create modal is gone and the row's status moved from text to color:
 
-- **Name** — required-by-default text input, prefilled with the generated
-  word-pair suggestion, freely editable; the typed name is the display
-  title everywhere (sidebar badge tooltip, facts, registry). The slug and
-  branch stay generated regardless — user text never reaches a branch
-  (M1 PII rule).
-- Preflight hints and the "Create and switch" confirmation carry over from
-  M1 unchanged, as does the `.worktreeinclude` copy and the one-time
-  `.dsh/` gitignore hint (now a dismissable line under the repo row).
-
-On success: the session is created, bound, its workspace titled
-`<repo> / <slug>` and pinned beneath the repo in the Host registry
-(invisible while the projection runs, but honest stock rows if the plugin
-is ever disabled — decided 2026-09-05), and the session opens.
+- **Create has no modal.** One click on the repo-row branch button runs
+  worktree -> workspace -> session -> bind -> open with the host-suggested
+  name (the client sends no `name`; the host owns the suggestion). A
+  `creating` flag guards re-entry. Rename-in-menu is the recorded escape
+  hatch if auto-naming proves wrong (Not Doing for now).
+- **The branch icon is the status.** First match wins: green
+  (`success-primary`) merged, amber (`warn-primary`) dirty, blue
+  (`business-primary`) ahead with the count beside it, neutral clean. Red
+  (`error-primary`) is reserved for the future conflict state — never
+  rendered in rev 3. Behind-base is Not Doing (needs fetch to be honest).
+- **Merged discriminator (bug fix).** Ancestry alone reported fresh
+  worktrees as merged (a zero-commit branch is trivially an ancestor).
+  Merged now requires the branch tip to differ from the base tip; the
+  same fix guards the merge preflight's `already-merged` blocker.
+- **Text is gone from the row.** No worktree title, no status words, no
+  "merged" badge — the ahead count is the only number. Identity and
+  details live in the hover card.
+- **Hover card extension.** The stock session hover card gains three
+  localized fact lines (title, branch, status) injected through the
+  `worktreeFacts` bridge method; the identity span's native `title`
+  attribute carries the same facts for the icon itself.
 
 ## Rebuild scope (decided 2026-09-05: from scratch)
 

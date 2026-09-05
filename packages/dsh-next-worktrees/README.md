@@ -10,15 +10,17 @@ a separate workspace.
 
 ## What you get
 
-- **Create from the repo row.** A branch-icon button beside the row's `+`
-  opens a modal that asks for a worktree Name (prefilled with a generated
-  suggestion; the name is the display title only — the branch name stays
-  generated). Confirming creates the worktree, opens a session inside it,
-  and binds the session's sandbox so git works in the linked worktree.
+- **Create from the repo row.** One click on the branch-icon button
+  beside the row's `+` creates the worktree with a generated name, opens
+  a session inside it, and binds the session's sandbox so git works in
+  the linked worktree. No prompt: the name is generated, and the hover
+  card carries the details.
 - **Nested rows.** Worktree sessions render under their repository's
-  sidebar group with a branch identity (title, dirty/ahead/merged
-  status), one indent deeper than the repo's own sessions. The separate
-  workspace row is hidden while the plugin is enabled.
+  sidebar group, one indent deeper than the repo's own sessions. The
+  branch icon IS the status: green merged, amber uncommitted changes,
+  blue ahead of base (with the count), neutral clean — and a fresh
+  worktree never reads as merged. The separate workspace row is hidden
+  while the plugin is enabled.
 - **Row menu.** The session row's `...` menu gains Refresh, Merge…, and
   Delete worktree…. Delete states what survives (the branch and session
   logs stay; the working copy goes) and demands an extra confirm for

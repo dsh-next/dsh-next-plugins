@@ -338,6 +338,10 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await page.locator('[data-dshx-button="keep"]').click()
     await expect(mergeModal).toBeHidden({ timeout: 10_000 })
     expect(() => git(['merge-base', '--is-ancestor', `dsh-worktrees/${slug}`, 'HEAD'])).not.toThrow()
+    // Pinned create-time SHA: a local-only repo (no origin) still shows
+    // merged after a fast-forward, instead of collapsing back to clean.
+    await expect(page.locator(`[data-dshx-worktree="${slug}"]`))
+      .toHaveAttribute('data-dshx-state', 'merged', { timeout: 15_000 })
 
     // Dirty two-step delete: uncommitted file, then Delete demands an
     // extra confirm (remove -> remove-armed) before the working copy

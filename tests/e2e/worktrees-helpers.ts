@@ -31,6 +31,7 @@ export function initGitRepo(cwd: string, branch = 'main'): void {
   git(cwd, ['init', '-q', '-b', branch])
   git(cwd, ['config', 'user.email', 'e2e@example.com'])
   git(cwd, ['config', 'user.name', 'e2e'])
+  git(cwd, ['config', 'commit.gpgsign', 'false'])
 }
 
 export function commitFile(cwd: string, relative: string, contents: string, message: string): void {

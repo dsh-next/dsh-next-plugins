@@ -36,6 +36,7 @@ export function initGitRepo(dir: string, branch = 'main'): void {
   runGit(dir, ['init', '-q', '-b', branch])
   runGit(dir, ['config', 'user.email', 'test@example.com'])
   runGit(dir, ['config', 'user.name', 'test'])
+  runGit(dir, ['config', 'commit.gpgsign', 'false'])
 }
 
 /** Write, add, and commit one file relative to cwd. */

@@ -132,6 +132,24 @@ exactly one row with one survivor directory. Also learned: archiving
 the CURRENT session legitimately leaves the platform's blank pseudo-row,
 so the marker asserts "no new group" rather than an exact row count.
 
+## Follow-up: sweeper re-keyed on blankness (same day)
+
+The first sweeper judged liveness by store ids - wrong signal. The
+harness drops an UNUSED session from the sidebar the moment the user
+switches away, but the blank session record lingers in the workspace's
+list (connectWorkspace may reuse it), so the orphan's session ids stayed
+"live" and nothing was swept. The sweep now judges by blankness: a
+worktree workspace is abandoned when every session it holds is blank
+(or gone from the store) and none is the currently open one; sessions
+are archived and the workspace deleted alongside the git removal.
+Second fix in the same pass: the sweep snapshot came from the effect
+closure keyed only on membership strings, which could predate
+sessions.open - a freshly created worktree (blank, not yet current) was
+swept the instant its first topology pull answered. The effect is now
+also keyed on the open session id so the snapshot is fresh when the
+open lands; e2e encodes the user's exact flow (create, switch away,
+assert zero worktrees, create again).
+
 ## Validation
 
 `mise run ci` green (117 worktrees tests; new cases: fresh-worktree status

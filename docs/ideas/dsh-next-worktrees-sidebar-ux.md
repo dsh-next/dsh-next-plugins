@@ -14,9 +14,12 @@
   repo's own sessions; repo-row worktree button is a quiet icon (no count
   badge); disabled-plugin fallback title is `<repo> / <slug>`; conflict
   handling is abort-to-manual now with agent-resolved "update from main"
-  as fast-follow; **full rebuild from scratch — M1 code and tests deleted**
-  (user decision, superseding the keep-the-engine recommendation, to keep
-  the agentic development surface clean)
+  as fast-follow; **one session per worktree — every worktree-icon click
+  creates a new worktree session; folder-grammar sub-rows and "new
+  session here" dropped permanently**; **full rebuild from scratch — M1
+  code and tests deleted** (user decision, superseding the
+  keep-the-engine recommendation, to keep the agentic development
+  surface clean)
 
 ## Verified platform facts (DSH 0.1.2-rc.1)
 
@@ -85,28 +88,31 @@ component with a projection. What the user sees:
 ```
 v repo/                    [...] [+] [⑂]        <- workspace row: stock controls + worktree button
     fix login race                              <- repo's own session rows (stock)
-    v ⑂ login-race fix    (dirty, +2) [...] [+]  <- worktree sub-row: chevron, badge,
-          stabilize auth timeout                   status, own "..." and "+"
-    > ⑂ docs sweep        (clean)               <- collapsed worktree sub-row
+      ⑂ login-race fix   (dirty, +2)            <- worktree session row: branch identity,
+      ⑂ docs sweep       (clean)                   one indent deeper, own "..." menu
 ungrouped / other repos                     <- untouched stock behavior
 ```
 
-- Worktree workspace groups vanish; each worktree renders a **sub-row
-  that mimics the workspace-row grammar** (decided 2026-09-05): an
-  expand/collapse chevron, its own hover `...` (options menu) and `+`
-  (new session in this worktree, gated on idle per the one-writer
-  invariant), a branch-icon badge with status (dirty/ahead now; delivery
-  states in M2), indented one step under the repo's sessions. The
-  worktree's own sessions render beneath its sub-row.
+- Worktree workspace groups vanish; each worktree session renders as a
+  **session row under its repo's group** with a branch-icon identity
+  (title, dirty/ahead/merged status), one indent deeper than the repo's
+  own sessions. This IS the shipped grammar.
+- **One session per worktree (decided 2026-09-05, superseding the folder
+  grammar): every click of the repo-row worktree icon creates a NEW
+  worktree session** — new slug, new branch, new checkout, one bound
+  session. Folder-grammar sub-rows (chevron, own `+`/`...`, nested
+  sessions) and "new session here" are dropped permanently: a fresh
+  context means a new worktree, so the rare multi-session cluster the
+  folders would have organized is never created. The registry's
+  tolerance for multiple rows per slug stays as data-model robustness,
+  not a UX offer.
 - The repo row keeps its stock controls and gains our quiet worktree
   button beside `+` (seam-injected, same geometry, no count badge),
   opening the create modal.
-- The worktree sub-row's `...` menu is the management surface — contents
-  under discussion, proposal below.
-- Session rows under a worktree stay stock (their own `...` handles
-  archive/rename); fork and drag are suppressed on them — reordering or
-  forking a re-parented session would address the wrong workspace
-  account.
+- The worktree session row's `...` menu is the management surface
+  (facts/Refresh/Merge/Delete below). Fork and drag are suppressed on
+  these rows — reordering or forking a re-parented session would address
+  the wrong workspace account.
 - Hover cards show worktree facts (branch, base, dirty/ahead).
 - Flat-list mode, search results, and the Ungrouped bucket consume the
   same projection, so worktree sessions appear correctly everywhere the
@@ -114,7 +120,7 @@ ungrouped / other repos                     <- untouched stock behavior
 - The "you are here" signal is the persistent selected tint on the open
   worktree session's row; no in-conversation worktree UI exists at all.
 
-### Worktree sub-row `...` menu (decided 2026-09-05)
+### Worktree session row `...` menu (decided 2026-09-05)
 
 ```
 swift-01 — login race fix
@@ -131,7 +137,7 @@ Delete worktree…                         <- danger modal: states what survives
 ```
 
 Decisions: facts block stays in the menu (hover card keeps glance duty);
-"New session here" lives on the `+` button only; the copy items are gone —
+the copy items are gone —
 Merge performs the landing for real, and the copyable-command recipe
 retires to the README as the manual fallback. Reserved between Merge and
 Delete: M2 Foreground / Return.
@@ -254,11 +260,9 @@ development than salvaged plumbing.
       into the repo item, worktree items dropped) without confusing
       `deriveGroups`, `deriveFlat`, or `deriveSearchResults` — pure
       function tests first, then live.
-- [ ] The row renderer can host a **synthetic sub-group level**
-      (repo → worktree → session): a third tree depth the stock browser
-      does not have. The incumbent decorated and suppressed at existing
-      levels; a sub-row with its own chevron, `...`, and `+` needs new
-      seams — the largest single risk in this design.
+- [x] The row renderer can host a synthetic sub-group level — moot:
+      the one-session-per-worktree decision (2026-09-05) dropped the
+      folder grammar, so no third tree depth is built at all.
 - [ ] Seam-injecting a button beside `+` and items into the session menu
       renders and behaves (the incumbent only removed/hid; adding needs
       its own seams).

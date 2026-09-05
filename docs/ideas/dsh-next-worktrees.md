@@ -91,8 +91,10 @@ Invariants:
    the primary checkout's current branch, conflict-dry-run via
    `git merge-tree`, aborting to the manual command on any blocker. The
    plugin never authors commit content of its own.
-2. One active session per worktree — parallel work means parallel trees;
-   "new session here" is takeover-when-idle, not concurrency.
+2. One session per worktree (1:1) — every worktree-icon click creates a
+   new worktree session; "new session here" and folder-grammar sub-rows
+   are dropped (user decision 2026-09-05). Parallel work means parallel
+   trees; a fresh context means a new tree.
 3. Foreground detaches the worktree (the worktree session keeps its cwd);
    cleanup is offered after landing.
 

@@ -43,7 +43,7 @@ export const zh: Record<MessageKey, string> = {
   'update.summary': '将 {source} 合并到 {target}',
   'update.ff': '快进合并（不产生合并提交）',
   'update.commit': '将在工作树中产生一个合并提交',
-  'update.wouldConflict': '将在工作树中开始合并。由此会话中的 agent 解决冲突并提交；之后合并到主检出即为快进。',
+  'update.wouldConflict': '将在工作树中开始合并。由此会话解决冲突并提交；之后合并到主检出即为快进。',
   'update.handoff': '此工作树正在合并中。请打开会话解决冲突文件并提交，然后再合并到主检出。关闭此对话框不会中止合并。',
   'update.prompt': '{source} 合并到当前分支正在进行中。请解决冲突文件、提交该合并，然后停止。不要推送。随后插件会将主检出快进。',
   'update.done': '已从 {source} 更新。合并到主检出现在是快进。',

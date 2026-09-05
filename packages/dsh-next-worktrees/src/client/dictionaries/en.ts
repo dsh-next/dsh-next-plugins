@@ -47,7 +47,7 @@ export const en = {
   'update.summary': 'Merge {source} into {target}',
   'update.ff': 'Fast-forward (no merge commit)',
   'update.commit': 'Creates a merge commit in the worktree',
-  'update.wouldConflict': 'This will start a merge in the worktree. The agent in this session will resolve the conflicts and commit; then Merge into the main checkout is a fast-forward.',
+  'update.wouldConflict': 'This will start a merge in the worktree. This session will resolve the conflicts and commit; then Merge into the main checkout is a fast-forward.',
   'update.handoff': 'A merge is in progress in this worktree. Open the session to resolve the conflicted files and commit, then Merge into the main checkout. Closing this dialog leaves the merge in progress.',
   'update.prompt': 'A merge of {source} into this branch is in progress. Resolve the conflicted files, commit the merge, and stop. Do not push. The plugin will then fast-forward the main checkout.',
   'update.done': 'Updated from {source}. Merge into the main checkout is now a fast-forward.',

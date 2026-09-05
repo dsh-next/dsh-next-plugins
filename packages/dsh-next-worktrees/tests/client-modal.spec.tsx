@@ -126,7 +126,7 @@ describe('UpdateModal', () => {
     expect(node.querySelector('[data-dshx-button="update"]')?.textContent).toBe('Resolve in this session')
     const warn = node.querySelector('[data-dshx-update="would-conflict"]')
     expect(warn?.className).toBe('dshx-warn')
-    expect(warn?.textContent).toMatch(/agent in this session/)
+    expect(warn?.textContent).toMatch(/This session will resolve/)
   })
 
   it('keeps Update from main on a clean catch-up', async () => {

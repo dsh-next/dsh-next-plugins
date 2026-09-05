@@ -10,8 +10,6 @@ import type { MessageKey } from './en.ts'
 /** The zh mirror: same keys, Simplified Chinese copy. */
 export const zh: Record<MessageKey, string> = {
   'row.facts.branch': '分支',
-  'row.facts.base': '基线',
-  'row.facts.path': '路径',
   'row.facts.status': '状态',
   'status.clean': '无改动',
   'status.dirty': '有未提交改动',
@@ -20,7 +18,6 @@ export const zh: Record<MessageKey, string> = {
   'row.refresh': '刷新',
   'row.merge': '合并…',
   'row.delete': '删除工作树…',
-  'row.newSession.aria': '在此工作树中新建会话',
   'merge.title': '合并工作树',
   'merge.summary': '将 {source} 合并到 {target}',
   'merge.ff': '快进合并（不产生合并提交）',
@@ -45,6 +42,4 @@ export const zh: Record<MessageKey, string> = {
   'create.error.hint': '未做任何更改；请先解决上述问题，然后重试。',
   'create.error.ok': '好',
   'create.cancel': '取消',
-  'hint.gitignore': '将 .dsh/ 加入 .gitignore，让工作树保持未跟踪。',
-  'error.rpc': '工作树请求失败（{status}）。',
 }

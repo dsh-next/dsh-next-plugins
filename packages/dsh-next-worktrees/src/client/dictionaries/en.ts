@@ -14,8 +14,6 @@ export const NS = 'worktrees'
 /** User-facing strings; the key set follows the UX spec's copy table. */
 export const en = {
   'row.facts.branch': 'Branch',
-  'row.facts.base': 'Base',
-  'row.facts.path': 'Path',
   'row.facts.status': 'Status',
   'status.clean': 'clean',
   'status.dirty': 'uncommitted changes',
@@ -24,7 +22,6 @@ export const en = {
   'row.refresh': 'Refresh',
   'row.merge': 'Merge…',
   'row.delete': 'Delete worktree…',
-  'row.newSession.aria': 'New session in this worktree',
   'merge.title': 'Merge worktree',
   'merge.summary': 'Merge {source} into {target}',
   'merge.ff': 'Fast-forward (no merge commit)',
@@ -49,8 +46,6 @@ export const en = {
   'create.error.hint': 'Nothing was changed; resolve the issue above and click again.',
   'create.error.ok': 'OK',
   'create.cancel': 'Cancel',
-  'hint.gitignore': 'Add .dsh/ to .gitignore so worktrees stay untracked.',
-  'error.rpc': 'Worktrees request failed ({status}).',
 }
 
 /** Every dictionary key. */

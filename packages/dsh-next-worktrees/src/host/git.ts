@@ -95,6 +95,8 @@ export interface GitPorts {
   aheadCount(cwd: string, base: string, branch: string): Promise<number>
   /** Whether `merge-base --is-ancestor a b` holds. */
   isAncestor(cwd: string, a: string, b: string): Promise<boolean>
+  /** The resolved commit id of a ref (undefined when it does not resolve). */
+  revParse(cwd: string, ref: string): Promise<string | undefined>
   /** The checked-out branch name at a directory. */
   currentBranch(cwd: string): Promise<string | undefined>
   /** `git --version` raw stdout. */
@@ -244,6 +246,13 @@ export class GitRunner implements GitPorts {
       cwd,
     )
     return result.code === 0
+  }
+
+  async revParse(cwd: string, ref: string): Promise<string | undefined> {
+    const result = await this.run(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], cwd)
+    if (result.code !== 0) return undefined
+    const value = result.stdout.trim()
+    return value === '' ? undefined : value
   }
 
   async currentBranch(cwd: string): Promise<string | undefined> {

@@ -40,6 +40,8 @@ class FakeGit implements GitPorts {
   mergeTreeResults = new Map<string, boolean>()
   mergeCalls: { cwd: string; source: string }[] = []
   rawResults = new Map<string, { code: number; stdout: string; stderr: string }>()
+  /** Resolved commit ids by `cwd|ref`; defaults give every ref a distinct tip. */
+  tips = new Map<string, string>()
 
   async placement(cwd: string): Promise<RepoPlacement> {
     const found = this.placements.get(cwd)
@@ -86,6 +88,10 @@ class FakeGit implements GitPorts {
 
   async isAncestor(cwd: string, a: string, b: string): Promise<boolean> {
     return this.ancestors.has(`${cwd}|${a}|${b}`)
+  }
+
+  async revParse(cwd: string, ref: string): Promise<string | undefined> {
+    return this.tips.get(`${cwd}|${ref}`) ?? `tip-${cwd}/${ref}`
   }
 
   async currentBranch(cwd: string): Promise<string | undefined> {
@@ -374,6 +380,20 @@ describe('status', () => {
     })
   })
 
+  it('never reports merged for a fresh worktree whose tip equals the base', async () => {
+    const h = harness()
+    const binding = seedWorktree(h, { sessionId: 'session-a' })
+    h.sessionCwds.set('session-a', binding.path)
+    h.git.branches.set(PRIMARY, 'main')
+    h.git.ancestors.add(`${PRIMARY}|dsh-worktrees/swift-01|main`)
+    const same = 'tip-fresh'
+    h.git.tips.set(`${binding.path}|dsh-worktrees/swift-01`, same)
+    h.git.tips.set(`${binding.path}|origin/HEAD`, same)
+    await expect(h.service.status('session-a')).resolves.toMatchObject({
+      status: { clean: true, dirty: false, ahead: 0, merged: false },
+    })
+  })
+
   it('refuses an unbound session', async () => {
     const h = harness()
     h.sessionCwds.set('session-x', PRIMARY)
@@ -508,6 +528,17 @@ describe('mergePreflight', () => {
     const result = await h.service.mergePreflight({ cwd: PRIMARY, slug: 'swift-01' })
     expect(result.blockers).toEqual(['old-git'])
     expect(result.manualCommand).toBe('git merge dsh-worktrees/swift-01')
+  })
+
+  it('treats a fresh worktree (tip == base) as mergeable, not already merged', async () => {
+    const h = mergeHarness()
+    h.git.ancestors.add(`${PRIMARY}|dsh-worktrees/swift-01|main`)
+    const binding = h.store.files.get(PRIMARY)!.bindings[0]!
+    const same = 'tip-fresh'
+    h.git.tips.set(`${binding.path}|dsh-worktrees/swift-01`, same)
+    h.git.tips.set(`${binding.path}|origin/HEAD`, same)
+    await expect(h.service.mergePreflight({ cwd: PRIMARY, slug: 'swift-01' }))
+      .resolves.toMatchObject({ green: true, fastForward: true, blockers: [] })
   })
 
   it('reports already merged', async () => {

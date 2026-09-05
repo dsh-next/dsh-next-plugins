@@ -401,9 +401,17 @@ export class WorktreesService {
     // modal says "refresh" and nothing else.
     const primaryClean = !slugKnown || (await this.ports.git.dirtyCount(placement.primary)) === 0
     const worktreeClean = !slugKnown || (await this.ports.git.dirtyCount(row!.path)) === 0
-    const alreadyMerged = slugKnown && target !== undefined
-      ? await this.ports.git.isAncestor(placement.primary, row!.branch, target)
-      : false
+    let alreadyMerged = false
+    if (slugKnown && target !== undefined) {
+      const [branchTip, baseTip] = await Promise.all([
+        this.ports.git.revParse(row!.path, row!.branch).catch(() => undefined),
+        this.ports.git.revParse(row!.path, row!.baseRef).catch(() => undefined),
+      ])
+      // A fresh branch (tip == base) is trivially an ancestor; that is
+      // "no unique work yet", not "already merged".
+      alreadyMerged = branchTip !== baseTip
+        && await this.ports.git.isAncestor(placement.primary, row!.branch, target)
+    }
     const dryRunRan = gitModern && slugKnown && target !== undefined && !alreadyMerged
     const dryRunClean = dryRunRan
       ? await this.ports.git.mergeTreeClean(placement.primary, target!, row!.branch)
@@ -452,7 +460,14 @@ export class WorktreesService {
     const mergedIntoTarget = target === undefined
       ? false
       : await this.ports.git.isAncestor(primary, row.branch, target).catch(() => false)
-    return worktreeStatus({ dirtyCount, aheadCount: ahead, mergedIntoTarget })
+    // Fresh-worktree discriminator: tip == base means no unique work yet,
+    // never "merged" (see worktreeStatus).
+    const [branchTip, baseTip] = await Promise.all([
+      this.ports.git.revParse(row.path, row.branch).catch(() => undefined),
+      this.ports.git.revParse(row.path, row.baseRef).catch(() => undefined),
+    ])
+    const tipEqualsBase = branchTip !== undefined && branchTip === baseTip
+    return worktreeStatus({ dirtyCount, aheadCount: ahead, mergedIntoTarget, tipEqualsBase })
   }
 
   /** Bindings reconciled against `git worktree list`; stale rows dropped. */

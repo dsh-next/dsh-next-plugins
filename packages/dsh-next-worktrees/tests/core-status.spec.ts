@@ -7,6 +7,7 @@ describe('worktreeStatus', () => {
       dirtyCount: 0,
       aheadCount: 0,
       mergedIntoTarget: false,
+      tipEqualsBase: false,
     })).toEqual({ clean: true, dirty: false, ahead: 0, merged: false })
   })
 
@@ -15,6 +16,7 @@ describe('worktreeStatus', () => {
       dirtyCount: 3,
       aheadCount: 2,
       mergedIntoTarget: false,
+      tipEqualsBase: false,
     })).toEqual({ clean: false, dirty: true, ahead: 2, merged: false })
   })
 
@@ -23,7 +25,28 @@ describe('worktreeStatus', () => {
       dirtyCount: 1,
       aheadCount: 0,
       mergedIntoTarget: true,
+      tipEqualsBase: false,
     })).toEqual({ clean: false, dirty: true, ahead: 0, merged: true })
+  })
+
+  it('never reports merged for a fresh worktree (tip == base)', () => {
+    // A brand-new branch is trivially an ancestor of the base; that is
+    // "no unique work yet", not "landed".
+    expect(worktreeStatus({
+      dirtyCount: 0,
+      aheadCount: 0,
+      mergedIntoTarget: true,
+      tipEqualsBase: true,
+    })).toEqual({ clean: true, dirty: false, ahead: 0, merged: false })
+  })
+
+  it('reports merged only when ancestry holds with a distinct tip', () => {
+    expect(worktreeStatus({
+      dirtyCount: 0,
+      aheadCount: 0,
+      mergedIntoTarget: true,
+      tipEqualsBase: false,
+    })).toEqual({ clean: true, dirty: false, ahead: 0, merged: true })
   })
 })
 

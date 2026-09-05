@@ -116,6 +116,11 @@ export const WORKTREE_STYLES = `
   line-height: 20px;
   color: var(--dsw-alias-state-error-primary);
 }
+.dshx-warn {
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-state-warn-label);
+}
 .dshx-modalActions {
   display: flex;
   justify-content: flex-end;

@@ -197,9 +197,11 @@ function MergeModal({ t, merge, host }: {
               <div className="dshx-blockers" data-dshx-merge="blockers">
                 {preflight.blockers.map((code) => (
                   <div key={code} className="dshx-error" data-dshx-blocker={code}>
-                    {t(BLOCKER_KEYS[code], code === 'conflict' || code === 'old-git'
+                    {t(BLOCKER_KEYS[code], code === 'old-git'
                       ? { command: preflight.manualCommand ?? '' }
-                      : undefined)}
+                      : code === 'conflict'
+                        ? { branch: preflight.target ?? '' }
+                        : undefined)}
                   </div>
                 ))}
               </div>
@@ -233,7 +235,7 @@ function MergeModal({ t, merge, host }: {
               onClick={() => { executeMerge(rpc) }}
               data-dshx-button="merge"
             >
-              {t('row.merge')}
+              {t('merge.confirm')}
             </button>
           )}
           {merge.done !== undefined && (
@@ -308,7 +310,7 @@ function UpdateModal({ t, update, sessions }: {
             </div>
           )}
           {!cleanDone && !inFlight && preflight !== undefined && preflight.green && preflight.wouldConflict && (
-            <div className="dshx-fieldHint" data-dshx-update="would-conflict">{t('update.wouldConflict')}</div>
+            <div className="dshx-warn" data-dshx-update="would-conflict">{t('update.wouldConflict')}</div>
           )}
           {!cleanDone && !inFlight && preflight !== undefined && !preflight.green && (
             <div className="dshx-blockers" data-dshx-update="blockers">
@@ -325,7 +327,7 @@ function UpdateModal({ t, update, sessions }: {
           {update.error !== undefined && <div className="dshx-error" data-dshx-error>{update.error}</div>}
         </div>
         <div className="dshx-modalActions">
-          {!cleanDone && (
+          {!cleanDone && !inFlight && (
             <button type="button" className="dshx-buttonGhost" disabled={update.busy} onClick={closeModal} data-dshx-button="cancel">
               {t('create.cancel')}
             </button>
@@ -333,7 +335,7 @@ function UpdateModal({ t, update, sessions }: {
           {inFlight && (
             <button
               type="button"
-              className="dshx-buttonGhost"
+              className="dshx-buttonDanger"
               disabled={update.busy}
               onClick={() => { void abortUpdate(rpc).then(() => requestTopologyRefresh()) }}
               data-dshx-button="abort-update"
@@ -363,7 +365,7 @@ function UpdateModal({ t, update, sessions }: {
               }}
               data-dshx-button="update"
             >
-              {t('row.update', { branch: preflight?.source ?? '' })}
+              {t('update.confirm', { branch: preflight?.source ?? '' })}
             </button>
           )}
           {cleanDone && (

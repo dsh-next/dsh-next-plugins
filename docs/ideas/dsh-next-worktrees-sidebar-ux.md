@@ -202,9 +202,10 @@ refuses to own. The ladder instead:
    diff widget.
 3. **Never — a plugin-owned three-way merge UI.**
 
-Degradation stays as specified: on conflict preflight or git < 2.38, the
-item explains and shows `git merge dsh-worktrees/<slug>` for manual
-landing — never a half-executed state.
+Degradation: git < 2.38 still explains and shows
+`git merge dsh-worktrees/<slug>` for manual landing. A conflict
+preflight no longer dumps a CLI recipe — the primary action is
+Update from the current branch (agent-resolved landing).
 - On success the modal offers cleanup ("Merged into `<branch>`. Remove
   the worktree?" — Keep it / Remove worktree), reusing the delete flow;
   this is the user-driven half of the M3 sweep idea.
@@ -224,7 +225,7 @@ landing — never a half-executed state.
 | `merge.blocker.dirtyPrimary` | The main checkout has uncommitted changes. Commit or stash them first. |
 | `merge.blocker.dirtyWorktree` | The worktree has uncommitted changes. Commit them in the worktree session first. |
 | `merge.blocker.running` | A session is running in this worktree. Stop it or wait for it to finish. |
-| `merge.blocker.conflict` | Merging would conflict. Resolve manually: `git merge dsh-worktrees/<slug>` |
+| `merge.blocker.conflict` | Merging would conflict. Update from `<branch>` in the worktree first; the session will resolve the conflicts, then Merge is a fast-forward. |
 | `merge.blocker.oldGit` | git 2.38 or newer is required for one-click merge. Run `git merge dsh-worktrees/<slug>` manually. |
 | `merge.done.title` | Merged into `<branch>` |
 | `merge.done.cleanup` | Remove the worktree? |

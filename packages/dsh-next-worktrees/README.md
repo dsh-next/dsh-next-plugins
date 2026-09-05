@@ -36,13 +36,15 @@ a separate workspace.
   offers to remove the merged worktree. Untracked `.dsh/` sidecar files
   (the plugin's own registry) do not count as uncommitted changes.
 - **Agent-resolved conflicts.** When merging into the main checkout
-  would conflict, Merge does not dump you to the CLI. The primary action
-  becomes Update from `<branch>`…: the plugin merges the main branch
-  *into the worktree*, leaves a mid-merge there if needed (red icon),
-  and focuses the bound session so the agent can resolve and commit.
-  After that, Merge is a fast-forward. Abort (`git merge --abort` in the
-  worktree) is offered while the merge is in flight. The plugin never
-  authors commit content and never leaves the main checkout mid-merge.
+  would conflict, Merge does not dump you to the CLI. The blocker names
+  Update from `<branch>` as the next step; the primary action opens that
+  flow (the plugin merges the main branch *into the worktree*, leaves a
+  mid-merge there if needed — red icon — and focuses the bound session
+  so the agent can resolve and commit). After that, Merge is a
+  fast-forward. While the merge is in flight the modal offers Abort
+  (`git merge --abort` in the worktree) and Open session; closing the
+  dialog leaves the merge in progress. The plugin never authors commit
+  content and never leaves the main checkout mid-merge.
 
 ## Compatibility contract
 

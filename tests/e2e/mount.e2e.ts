@@ -21,9 +21,20 @@
  *      they gain UI.
  */
 import { join } from 'node:path'
-import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { test, expect, type Page } from '@playwright/test'
+import {
+  commitFile,
+  gitOk,
+  hasMergeHead,
+  initGitRepo,
+  openWorktreeMenu,
+  readRegistry,
+  refreshWorktrees,
+  registryPath,
+  unblankCurrentSession,
+  worktreeDir,
+} from './worktrees-helpers.ts'
 
 const BASE_URL = process.env.DSH_E2E_URL
 if (!BASE_URL) {
@@ -190,14 +201,8 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     if (!workspaceA || !workspaceB) {
       throw new Error('DSH_E2E_WORKSPACE_A/_B are not set — run through scripts/e2e-mount.sh, which preseeds the workspaces')
     }
-    const git = (args: string[], cwd: string = workspaceA): string =>
-      execFileSync('git', args, { cwd, encoding: 'utf8' })
-    git(['init', '-q', '-b', 'main'])
-    git(['config', 'user.email', 'e2e@example.com'])
-    git(['config', 'user.name', 'e2e'])
-    writeFileSync(join(workspaceA, 'seed.txt'), 'seed\n')
-    git(['add', 'seed.txt'])
-    git(['commit', '-q', '-m', 'seed'])
+    initGitRepo(workspaceA)
+    commitFile(workspaceA, 'seed.txt', 'seed\n', 'seed')
 
     await dismissOnboarding(page)
 
@@ -220,7 +225,7 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     // repo was initialized AFTER mount, so the initial pull answered
     // false: dispatch the refresh event (the same one the menu Refresh
     // action rides) to force a re-pull before asserting.
-    await page.evaluate(() => { window.dispatchEvent(new Event('dsh-next-worktrees:refresh')) })
+    await refreshWorktrees(page)
     const createButton = page.locator('[data-dshx-create$="workspace-a"]')
     const repoRow = page.locator('[role="treeitem"]').filter({ has: createButton })
     await expect(repoRow).toHaveCount(1, { timeout: 15_000 })
@@ -248,20 +253,19 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
 
     // Host truth from disk: worktree directory, branch, and the claimed
     // session binding in the sidecar registry.
-    const registryFile = join(workspaceA, '.dsh', 'worktrees', 'registry.json')
+    const registryFile = registryPath(workspaceA)
     await expect.poll(() => existsSync(registryFile)).toBe(true)
-    const registry = JSON.parse(readFileSync(registryFile, 'utf8')) as {
-      bindings: { sessionId: string; slug: string; name: string }[]
-    }
+    const registry = readRegistry(workspaceA)
     expect(registry.bindings).toHaveLength(1)
     expect(registry.bindings[0]!.sessionId).not.toBe('')
     let slug = registry.bindings[0]!.slug
-    expect(existsSync(join(workspaceA, '.dsh', 'worktrees', slug))).toBe(true)
-    expect(git(['rev-parse', '--verify', `dsh-worktrees/${slug}`])).not.toBe('')
+    expect(existsSync(worktreeDir(workspaceA, slug))).toBe(true)
+    expect(gitOk(workspaceA, ['rev-parse', '--verify', `dsh-worktrees/${slug}`])).toBe(true)
 
     // Fresh worktree: tip == base, so the icon state is neutral "clean" —
     // never the (fixed) false "merged" the ancestor check alone produced.
     await expect(nested.first()).toHaveAttribute('data-dshx-state', 'clean')
+    await expect(nested.first()).toHaveAttribute('title', new RegExp(`dsh-worktrees/${slug}`))
 
     // Switch-away sweep (the user's report): an unused session vanishes
     // from the sidebar as soon as the user switches to another one, but
@@ -272,29 +276,22 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     const plainRow = page.locator('[role="treeitem"]').filter({ hasText: 'workspace-b' }).first()
     await plainRow.hover()
     await plainRow.locator('button[aria-label*="New session in workspace-b"]').click({ force: true })
-    await expect.poll(() => {
-      const after = JSON.parse(readFileSync(registryFile, 'utf8')) as { bindings: unknown[] }
-      return after.bindings.length
-    }, { timeout: 20_000 }).toBe(0)
-    await expect.poll(() => existsSync(join(workspaceA, '.dsh', 'worktrees', slug))).toBe(false)
+    await expect.poll(() => readRegistry(workspaceA).bindings.length, { timeout: 20_000 }).toBe(0)
+    await expect.poll(() => existsSync(worktreeDir(workspaceA, slug))).toBe(false)
 
     // Fresh create lands a new bound worktree row again.
     await repoRow.hover()
     await createButton.click({ force: true })
     await expect(page.locator('[data-dshx-modal="create-error"]')).toHaveCount(0, { timeout: 10_000 })
     await expect.poll(() => {
-      const after = JSON.parse(readFileSync(registryFile, 'utf8')) as {
-        bindings: { slug: string }[]
-      }
+      const after = readRegistry(workspaceA)
       return [after.bindings.length, after.bindings[0]?.slug] as const
     }, { timeout: 20_000 }).toEqual([1, expect.any(String)])
-    const registry2 = JSON.parse(readFileSync(registryFile, 'utf8')) as {
-      bindings: { slug: string }[]
-    }
+    const registry2 = readRegistry(workspaceA)
     const survivors = readdirSync(join(workspaceA, '.dsh', 'worktrees'))
       .filter((name) => name !== 'registry.json')
     expect(survivors).toEqual([registry2.bindings[0]!.slug])
-    expect(existsSync(join(workspaceA, '.dsh', 'worktrees', registry2.bindings[0]!.slug))).toBe(true)
+    expect(existsSync(worktreeDir(workspaceA, registry2.bindings[0]!.slug))).toBe(true)
     // The surviving worktree is whatever the second create left bound.
     slug = registry2.bindings[0]!.slug
 
@@ -305,30 +302,17 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     // The row menu: stock rows hide actions on blank sessions, so un-blank
     // the created session first - one recorded turn (the keyless send fails
     // at API auth but still records) flips the row into a real one.
-    const composer = page.locator('[contenteditable="true"]').first()
-    await composer.click({ timeout: 15_000 })
-    await composer.fill('hello from worktrees')
-    await composer.press('Enter')
-    const nestedRow = page.locator('[role="treeitem"]').filter({
-      has: page.locator(`[data-dshx-worktree="${slug}"]`),
-    })
-    const openRowMenu = async (): Promise<void> => {
-      await nestedRow.hover()
-      await expect(nestedRow.locator('button').first()).toBeVisible({ timeout: 20_000 })
-      await nestedRow.locator('button').last().click({ force: true })
-    }
+    await unblankCurrentSession(page, 'hello from worktrees')
 
     // Unique committed work so Merge is a green fast-forward. Refresh
     // through the row menu (covers the Refresh item) then Merge.
-    const wtDir = join(workspaceA, '.dsh', 'worktrees', slug)
-    writeFileSync(join(wtDir, 'feature.txt'), 'from worktree\n')
-    git(['add', 'feature.txt'], wtDir)
-    git(['commit', '-q', '-m', 'feature'], wtDir)
-    await openRowMenu()
+    const wtDir = worktreeDir(workspaceA, slug)
+    commitFile(wtDir, 'feature.txt', 'from worktree\n', 'feature')
+    await openWorktreeMenu(page, slug)
     await page.getByText('Refresh', { exact: true }).last().click()
     await expect(page.locator(`[data-dshx-worktree="${slug}"]`))
       .toHaveAttribute('data-dshx-state', 'ahead', { timeout: 15_000 })
-    await openRowMenu()
+    await openWorktreeMenu(page, slug)
     await page.getByText('Merge…').last().click()
     const mergeModal = page.locator('[data-dshx-modal="merge"]')
     await expect(mergeModal).toBeVisible({ timeout: 10_000 })
@@ -337,20 +321,26 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await expect(mergeModal).toContainText('Merged into', { timeout: 15_000 })
     await page.locator('[data-dshx-button="keep"]').click()
     await expect(mergeModal).toBeHidden({ timeout: 10_000 })
-    expect(() => git(['merge-base', '--is-ancestor', `dsh-worktrees/${slug}`, 'HEAD'])).not.toThrow()
+    expect(gitOk(workspaceA, ['merge-base', '--is-ancestor', `dsh-worktrees/${slug}`, 'HEAD'])).toBe(true)
     // Pinned create-time SHA: a local-only repo (no origin) still shows
     // merged after a fast-forward, instead of collapsing back to clean.
     await expect(page.locator(`[data-dshx-worktree="${slug}"]`))
       .toHaveAttribute('data-dshx-state', 'merged', { timeout: 15_000 })
 
+    // Already-merged: Merge after Keep must name the blocker, not execute.
+    await openWorktreeMenu(page, slug)
+    await page.getByText('Merge…').last().click()
+    await expect(mergeModal).toBeVisible({ timeout: 10_000 })
+    await expect(page.locator('[data-dshx-blocker="already-merged"]')).toBeVisible()
+    await mergeModal.locator('[data-dshx-button="cancel"]').click()
+    await expect(mergeModal).toBeHidden({ timeout: 10_000 })
+
     // Clean update from the ROW MENU (not the Merge-conflict CTA): a
     // main-only commit makes the worktree behind, Update fast-forwards
     // it, and the new file lands in the worktree.
-    writeFileSync(join(workspaceA, 'main-only.txt'), 'from main\n')
-    git(['add', 'main-only.txt'])
-    git(['commit', '-q', '-m', 'main only'])
-    await page.evaluate(() => { window.dispatchEvent(new Event('dsh-next-worktrees:refresh')) })
-    await openRowMenu()
+    commitFile(workspaceA, 'main-only.txt', 'from main\n', 'main only')
+    await refreshWorktrees(page)
+    await openWorktreeMenu(page, slug)
     await page.getByText(/Update from main/).last().click()
     const updateModal = page.locator('[data-dshx-modal="update"]')
     await expect(updateModal).toBeVisible({ timeout: 10_000 })
@@ -361,16 +351,20 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await expect(updateModal).toBeHidden({ timeout: 10_000 })
     await expect.poll(() => existsSync(join(wtDir, 'main-only.txt'))).toBe(true)
 
+    // Already-updated: a second Update is a no-op blocker.
+    await openWorktreeMenu(page, slug)
+    await page.getByText(/Update from main/).last().click()
+    await expect(updateModal).toBeVisible({ timeout: 10_000 })
+    await expect(page.locator('[data-dshx-blocker="already-updated"]')).toBeVisible()
+    await updateModal.locator('[data-dshx-button="cancel"]').click()
+    await expect(updateModal).toBeHidden({ timeout: 10_000 })
+
     // Conflict path: diverge the same file on main and in the worktree.
     // Merge must offer Update from main (not a disabled button + CLI dump).
-    writeFileSync(join(workspaceA, 'seed.txt'), 'main version\n')
-    git(['add', 'seed.txt'])
-    git(['commit', '-q', '-m', 'main edits seed'])
-    writeFileSync(join(wtDir, 'seed.txt'), 'worktree version\n')
-    git(['add', 'seed.txt'], wtDir)
-    git(['commit', '-q', '-m', 'worktree edits seed'], wtDir)
-    await page.evaluate(() => { window.dispatchEvent(new Event('dsh-next-worktrees:refresh')) })
-    await openRowMenu()
+    commitFile(workspaceA, 'seed.txt', 'main version\n', 'main edits seed')
+    commitFile(wtDir, 'seed.txt', 'worktree version\n', 'worktree edits seed')
+    await refreshWorktrees(page)
+    await openWorktreeMenu(page, slug)
     await page.getByText('Merge…').last().click()
     await expect(mergeModal).toBeVisible({ timeout: 10_000 })
     await expect(page.locator('[data-dshx-blocker="conflict"]')).toBeVisible({ timeout: 10_000 })
@@ -379,41 +373,70 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await page.locator('[data-dshx-button="update"]').click()
     await expect(page.locator(`[data-dshx-worktree="${slug}"]`))
       .toHaveAttribute('data-dshx-state', 'conflict', { timeout: 15_000 })
-    await expect.poll(() => {
-      try {
-        git(['rev-parse', '-q', '--verify', 'MERGE_HEAD'], wtDir)
-        return true
-      } catch {
-        return false
-      }
-    }, { timeout: 10_000 }).toBe(true)
+    await expect.poll(() => hasMergeHead(wtDir), { timeout: 10_000 }).toBe(true)
     // Continue focuses the session and closes; reopening Update from the
     // row menu must still see the in-flight merge (Abort / Open session).
     await expect(updateModal.locator('[data-dshx-button="continue-update"]')).toBeVisible()
     await page.locator('[data-dshx-button="continue-update"]').click()
     await expect(updateModal).toBeHidden({ timeout: 10_000 })
-    await openRowMenu()
+    await openWorktreeMenu(page, slug)
     await page.getByText(/Update from main/).last().click()
     await expect(updateModal).toBeVisible({ timeout: 10_000 })
     await expect(updateModal.locator('[data-dshx-update="handoff"]')).toBeVisible()
     await page.locator('[data-dshx-button="abort-update"]').click()
     await expect(updateModal).toBeHidden({ timeout: 15_000 })
-    await expect.poll(() => {
-      try {
-        git(['rev-parse', '-q', '--verify', 'MERGE_HEAD'], wtDir)
-        return true
-      } catch {
-        return false
-      }
-    }, { timeout: 10_000 }).toBe(false)
+    await expect.poll(() => hasMergeHead(wtDir), { timeout: 10_000 }).toBe(false)
+
+    // Dirty-primary / dirty-worktree blockers on Merge and Update.
+    writeFileSync(join(workspaceA, 'dirty-primary.txt'), 'nope\n')
+    await refreshWorktrees(page)
+    await openWorktreeMenu(page, slug)
+    await page.getByText('Merge…').last().click()
+    await expect(page.locator('[data-dshx-blocker="dirty-primary"]')).toBeVisible({ timeout: 10_000 })
+    await mergeModal.locator('[data-dshx-button="cancel"]').click()
+    unlinkSync(join(workspaceA, 'dirty-primary.txt'))
+    writeFileSync(join(wtDir, 'dirty-wt.txt'), 'nope\n')
+    await refreshWorktrees(page)
+    await openWorktreeMenu(page, slug)
+    await page.getByText('Merge…').last().click()
+    await expect(page.locator('[data-dshx-blocker="dirty-worktree"]')).toBeVisible({ timeout: 10_000 })
+    await mergeModal.locator('[data-dshx-button="cancel"]').click()
+    await openWorktreeMenu(page, slug)
+    await page.getByText(/Update from main/).last().click()
+    await expect(page.locator('[data-dshx-blocker="dirty-worktree"]')).toBeVisible({ timeout: 10_000 })
+    await updateModal.locator('[data-dshx-button="cancel"]').click()
+    unlinkSync(join(wtDir, 'dirty-wt.txt'))
+
+    // Second worktree: unique files on both sides → merge commit, then Remove.
+    await repoRow.hover()
+    await createButton.click({ force: true })
+    await expect(page.locator('[data-dshx-modal="create-error"]')).toHaveCount(0, { timeout: 10_000 })
+    await expect.poll(() => readRegistry(workspaceA).bindings.length, { timeout: 20_000 }).toBe(2)
+    const slug2 = readRegistry(workspaceA).bindings.find((b) => b.slug !== slug)!.slug
+    const wtDir2 = worktreeDir(workspaceA, slug2)
+    await unblankCurrentSession(page, 'hello from second worktree')
+    commitFile(wtDir2, 'wt-only.txt', 'wt\n', 'worktree unique')
+    commitFile(workspaceA, 'main-unique.txt', 'main\n', 'main unique')
+    await refreshWorktrees(page)
+    await openWorktreeMenu(page, slug2)
+    await page.getByText('Merge…').last().click()
+    await expect(mergeModal).toBeVisible({ timeout: 10_000 })
+    await expect(mergeModal).toContainText('Creates a merge commit')
+    await page.locator('[data-dshx-button="merge"]').click()
+    await expect(mergeModal).toContainText('Merged into', { timeout: 15_000 })
+    await page.locator('[data-dshx-button="cleanup"]').click()
+    await expect(mergeModal).toBeHidden({ timeout: 15_000 })
+    await expect.poll(() => existsSync(wtDir2)).toBe(false)
+    expect(gitOk(workspaceA, ['rev-parse', '--verify', `dsh-worktrees/${slug2}`])).toBe(true)
+    await expect.poll(() => readRegistry(workspaceA).bindings.map((b) => b.slug)).toEqual([slug])
 
     // Dirty two-step delete: uncommitted file, then Delete demands an
     // extra confirm (remove -> remove-armed) before the working copy
     // goes; the branch survives.
     writeFileSync(join(wtDir, 'dirty.txt'), 'uncommitted\n')
-    await page.evaluate(() => { window.dispatchEvent(new Event('dsh-next-worktrees:refresh')) })
+    await refreshWorktrees(page)
     await page.waitForTimeout(1500)
-    await openRowMenu()
+    await openWorktreeMenu(page, slug)
     const beforeDelete = await page.locator('[role="treeitem"]').count()
     const deleteItem = page.getByText('Delete worktree…').last()
     await expect(deleteItem).toBeVisible({ timeout: 5_000 })
@@ -433,12 +456,9 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     // the invariant is "no new group", not an exact row count.
     await expect.poll(() => page.locator('[role="treeitem"]').count(), { timeout: 15_000 }).toBeLessThanOrEqual(beforeDelete)
     await expect(page.locator('[role="treeitem"]', { hasText: slug })).toHaveCount(0)
-    await expect.poll(() => existsSync(join(workspaceA, '.dsh', 'worktrees', slug))).toBe(false)
-    expect(git(['rev-parse', '--verify', `dsh-worktrees/${slug}`])).not.toBe('')
-    await expect.poll(() => {
-      const after = JSON.parse(readFileSync(registryFile, 'utf8')) as { bindings: unknown[] }
-      return after.bindings.length
-    }).toBe(0)
+    await expect.poll(() => existsSync(worktreeDir(workspaceA, slug))).toBe(false)
+    expect(gitOk(workspaceA, ['rev-parse', '--verify', `dsh-worktrees/${slug}`])).toBe(true)
+    await expect.poll(() => readRegistry(workspaceA).bindings.length).toBe(0)
   },
 
   // nav level as General/Models/Plugins) with Skills and Providers tabs over

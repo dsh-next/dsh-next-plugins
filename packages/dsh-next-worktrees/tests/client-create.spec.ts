@@ -21,7 +21,10 @@ beforeEach(() => {
 describe('runCreateFlow', () => {
   function faces(overrides: {
     create?: (args: unknown) => Promise<unknown>
-    workspaces?: { create(a: { path: string }): Promise<{ workspaceId: string }> }
+    workspaces?: {
+      create(a: { path: string }): Promise<{ workspaceId: string }>
+      delete?(workspaceId: string): Promise<void>
+    }
     sessions?: { create(a: { workspaceId: string }): Promise<string>; open(id: string): void }
   } = {}) {
     const create = overrides.create ?? vi.fn().mockResolvedValue({
@@ -31,6 +34,7 @@ describe('runCreateFlow', () => {
     })
     const workspaces = overrides.workspaces ?? {
       create: vi.fn().mockResolvedValue({ workspaceId: 'ws-1' }),
+      delete: vi.fn().mockResolvedValue(undefined),
     }
     const sessions = overrides.sessions ?? {
       create: vi.fn().mockResolvedValue('session-1'),
@@ -134,6 +138,45 @@ describe('runCreateFlow', () => {
       onTopologyRefresh: () => {},
     })
     expect(modalState().kind).toBe('closed')
+  })
+
+  it('rolls back the git worktree and workspace when a later step fails', async () => {
+    const remove = vi.fn().mockResolvedValue(undefined)
+    const workspaces = {
+      create: vi.fn().mockResolvedValue({ workspaceId: 'ws-1' }),
+      delete: vi.fn().mockResolvedValue(undefined),
+    }
+    const sessions = {
+      create: vi.fn().mockRejectedValue(new Error('session store down')),
+      open: vi.fn(),
+    }
+    const rpc = vi.fn((method: string, args?: unknown) => {
+      if (method === 'create') {
+        return Promise.resolve({
+          slug: 'swift-01',
+          path: '/repos/wt-repo/.dsh/worktrees/swift-01',
+          relPath: '',
+        })
+      }
+      if (method === 'remove') return remove(args)
+      return Promise.resolve({})
+    })
+    await runCreateFlow({
+      cwd: '/repos/wt-repo',
+      rpc,
+      workspaces,
+      sessions,
+      onTopologyRefresh: vi.fn(),
+    })
+    expect(remove).toHaveBeenCalledWith({
+      cwd: '/repos/wt-repo/.dsh/worktrees/swift-01',
+      slug: 'swift-01',
+      force: true,
+    })
+    expect(workspaces.delete).toHaveBeenCalledWith('ws-1')
+    expect(sessions.open).not.toHaveBeenCalled()
+    expect(modalState().kind).toBe('create-error')
+    expect(modalState().createError).toContain('session store down')
   })
 })
 

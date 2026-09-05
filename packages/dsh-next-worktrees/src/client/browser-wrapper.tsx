@@ -19,7 +19,7 @@ import {
 } from './projection.ts'
 import { updateBridgeFacts } from './bridge.ts'
 import { modalState } from './create-store.ts'
-import { rpc, REFRESH_EVENT, type WorktreeTopology } from './rpc.ts'
+import { rpc, REFRESH_EVENT, requestTopologyRefresh, type WorktreeTopology } from './rpc.ts'
 import { sweepAbandonedWorktrees } from './sweeper.ts'
 
 /** Minimal component shape the wrapper needs from the official Browser. */
@@ -82,12 +82,24 @@ export function WorktreeBrowser(
     .map((w) => `${w.workspaceId}:${w.sessionIds.join(',')}`)
     .join('|')
   const sessionKey = sessionState.ids.join('|')
-  // The sweeper judges by the OPEN session; without this key the effect's
-  // closure could predate sessions.open and a freshly created (blank,
-  // not-yet-current) worktree would be swept the instant its topology
-  // pull answered.
   const currentKey = sessionState.current ?? ''
-  const snapshot = { workspaceState, sessionState }
+  // Live refs so a sweep that started from an older render still sees the
+  // session the user just opened (create race) without refetching git
+  // topology on every session switch.
+  const itemsRef = React.useRef(workspaceState.items)
+  itemsRef.current = workspaceState.items
+  const byIdRef = React.useRef(sessionState.byId)
+  byIdRef.current = sessionState.byId
+  const currentRef = React.useRef(sessionState.current)
+  currentRef.current = sessionState.current
+
+  const sweepNow = React.useCallback((): Promise<readonly string[]> =>
+    sweepAbandonedWorktrees({
+      workspaces: itemsRef.current,
+      sessionsById: byIdRef.current,
+      currentSessionId: currentRef.current,
+      creating: modalState().creating,
+    }), [])
 
   React.useEffect(() => {
     let active = true
@@ -102,12 +114,7 @@ export function WorktreeBrowser(
             // Reap worktrees whose sessions were replaced/removed without
             // ever starting (the platform replaces blank sessions); when
             // something was swept, re-pull once so the sidebar settles.
-            void sweepAbandonedWorktrees({
-              workspaces: snapshot.workspaceState.items,
-              sessionsById: snapshot.sessionState.byId,
-              currentSessionId: snapshot.sessionState.current,
-              creating: modalState().creating,
-            }).then((swept) => {
+            void sweepNow().then((swept) => {
               if (active && swept.length > 0) refresh()
             })
           },
@@ -120,10 +127,16 @@ export function WorktreeBrowser(
       active = false
       window.removeEventListener(REFRESH_EVENT, refresh)
     }
-    // Keyed on identity strings so a topology pull follows membership
-    // changes without refetching on unrelated re-renders.
+    // Membership only: switching the open session must not fan out git
+    // status across every worktree.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceKey, sessionKey, currentKey])
+  }, [workspaceKey, sessionKey, sweepNow])
+
+  React.useEffect(() => {
+    void sweepNow().then((swept) => {
+      if (swept.length > 0) requestTopologyRefresh()
+    })
+  }, [currentKey, sweepNow])
 
   const projection = React.useMemo(
     () => projectWorkspaceSidebar({

@@ -24,14 +24,8 @@
  *   destroyed); its workspace is kept too so it stays addressable;
  * - overlapping sweeps are skipped (a later topology pull retries).
  */
+import { parseWorktreeWorkspacePath } from '../core/paths.ts'
 import { WorktreesRpcError } from './rpc.ts'
-
-/** Marker every plugin-created worktree workspace carries in its path. */
-const WORKTREES_MARKER = '/.dsh/worktrees/'
-
-function toPosix(path: string): string {
-  return path.split('\\').join('/')
-}
 
 /** Session facts the sweep needs. */
 export interface SweepSessionLike {
@@ -110,17 +104,13 @@ export async function sweepAbandonedWorktrees(snapshot: SweepSnapshot): Promise<
   try {
     const swept: string[] = []
     for (const workspace of snapshot.workspaces) {
-      const posixPath = toPosix(workspace.path)
-      const markerAt = posixPath.lastIndexOf(WORKTREES_MARKER)
-      if (markerAt < 0) continue
+      const parsed = parseWorktreeWorkspacePath(workspace.path)
+      if (parsed === undefined) continue
       const sessions = workspace.sessionIds.map((id) => snapshot.sessionsById[id])
       if (sessions.some((session) => session !== undefined && !session.blank)) continue
       if (workspace.sessionIds.includes(snapshot.currentSessionId ?? '\u0000')) continue
-      const primary = posixPath.slice(0, markerAt)
-      const slug = posixPath.slice(markerAt + WORKTREES_MARKER.length)
-      if (slug === '' || slug.includes('/')) continue
       try {
-        await deps.removeWorktree({ cwd: primary, slug })
+        await deps.removeWorktree({ cwd: parsed.primary, slug: parsed.slug })
       } catch (error) {
         if (isDirtyRefusal(error)) continue // uncommitted work: keep it all
         // unknown-slug and friends: the git side is already gone; still
@@ -130,7 +120,7 @@ export async function sweepAbandonedWorktrees(snapshot: SweepSnapshot): Promise<
         await deps.archiveSession(sessionId).catch(() => {})
       }
       await deps.deleteWorkspace(workspace.workspaceId).catch(() => {})
-      swept.push(slug)
+      swept.push(parsed.slug)
     }
     return swept
   } finally {

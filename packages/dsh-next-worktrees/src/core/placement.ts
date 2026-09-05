@@ -8,6 +8,8 @@
  * - The session cwd preserves the workspace's relative path from the repo
  *   root (`repo/packages/foo` -> `<worktree>/packages/foo`).
  */
+import { toPosix } from './paths.ts'
+
 export interface RepoPlacement {
   /** Absolute main-working-tree root (owner of git-common-dir). */
   readonly primary: string
@@ -35,11 +37,6 @@ export interface PlacementInput {
    * one. Undefined means the invocation was not inside a work tree.
    */
   readonly gitCommonDir: string | undefined
-}
-
-/** Normalize separators so tests can pass POSIX-style fake paths anywhere. */
-function toPosix(path: string): string {
-  return path.split('\\').join('/')
 }
 
 /**

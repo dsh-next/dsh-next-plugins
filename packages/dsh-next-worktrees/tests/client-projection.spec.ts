@@ -151,6 +151,29 @@ describe('projectWorkspaceSidebar', () => {
     expect(result.decorations.get('s2')).toMatchObject({ workspaceId: 'wt-ws', sessionIds: ['s1', 's2'] })
   })
 
+  it('decorates a subdirectory workspace using the worktree root', () => {
+    const worktree = wt({ sessionIds: ['s1'] })
+    const result = projectWorkspaceSidebar({
+      workspaces: [
+        ws(),
+        ws({
+          workspaceId: 'wt-ws',
+          path: `${worktree.path}/packages/foo`,
+          sessionIds: ['s1'],
+        }),
+      ],
+      sessionsById: {},
+      topology: topology([{ primary: REPO, ok: true, worktrees: [worktree] }]),
+    })
+    expect(result.hiddenWorkspaceIds).toEqual(new Set(['wt-ws']))
+    expect(result.workspaces[0]!.sessionIds).toContain('s1')
+    expect(result.decorations.get('s1')).toMatchObject({
+      slug: 'swift-01',
+      path: worktree.path,
+      workspaceId: 'wt-ws',
+    })
+  })
+
   it('never duplicates a session already in the repo group', () => {
     const worktree = wt({ sessionIds: ['shared'] })
     const result = projectWorkspaceSidebar({

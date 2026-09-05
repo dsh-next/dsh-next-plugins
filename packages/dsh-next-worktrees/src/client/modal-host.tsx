@@ -23,6 +23,7 @@ import {
   type MergePreflightFacts,
   type WorktreeModalTarget,
 } from './create-store.ts'
+import type { MergeBlocker } from '../core/merge.ts'
 import { rpc, requestTopologyRefresh } from './rpc.ts'
 import type {
   SessionsServiceLike,
@@ -44,12 +45,15 @@ function hostCleanup(workspaces: WorkspacesServiceLike): HostCleanup {
   }
 }
 
-const BLOCKER_KEYS: Readonly<Record<string, string>> = {
+/** Locale key for every merge-preflight blocker the host can emit. */
+export const BLOCKER_KEYS: Readonly<Record<MergeBlocker, string>> = {
+  'unknown-slug': 'merge.blocker.unknownSlug',
+  'no-target-branch': 'merge.blocker.noTarget',
+  'old-git': 'merge.blocker.oldGit',
   'dirty-primary': 'merge.blocker.dirtyPrimary',
   'dirty-worktree': 'merge.blocker.dirtyWorktree',
-  running: 'merge.blocker.running',
   conflict: 'merge.blocker.conflict',
-  'old-git': 'merge.blocker.oldGit',
+  'already-merged': 'merge.blocker.alreadyMerged',
 }
 
 /** The root: renders the active modal, or nothing. */
@@ -163,11 +167,9 @@ function MergeModal({ t, merge, host }: {
               <div className="dshx-blockers" data-dshx-merge="blockers">
                 {preflight.blockers.map((code) => (
                   <div key={code} className="dshx-error" data-dshx-blocker={code}>
-                    {BLOCKER_KEYS[code] !== undefined
-                      ? t(BLOCKER_KEYS[code]!, code === 'conflict' || code === 'old-git'
-                        ? { command: preflight.manualCommand ?? '' }
-                        : undefined)
-                      : code}
+                    {t(BLOCKER_KEYS[code], code === 'conflict' || code === 'old-git'
+                      ? { command: preflight.manualCommand ?? '' }
+                      : undefined)}
                   </div>
                 ))}
               </div>

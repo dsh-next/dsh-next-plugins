@@ -6,6 +6,7 @@
  * reconciles rows against `git worktree list --porcelain`: a row whose
  * worktree path vanished is stale and drops.
  */
+import { toPosix } from './paths.ts'
 import { displayTitle } from './slug.ts'
 
 /** Forward-compat role field: always `owner` in this line (insurance). */
@@ -22,6 +23,12 @@ export interface WorktreeBinding {
   readonly baseRef: string
   /** Workspace cwd relative to the repo root ('' at the root). */
   readonly relPath: string
+  /**
+   * Commit id of `baseRef` at create time. Symbolic bases (HEAD,
+   * origin/HEAD) move; the pin is what lets "merged" survive a
+   * fast-forward into the same ref. '' on legacy rows.
+   */
+  readonly baseSha: string
   readonly role: WorktreeRole
   readonly createdAt: number
 }
@@ -88,11 +95,11 @@ export function reconcile(
   bindings: readonly WorktreeBinding[],
   worktrees: readonly WorktreeListEntry[],
 ): ReconcileResult {
-  const live = new Set(worktrees.map((w) => w.path))
+  const live = new Set(worktrees.map((w) => toPosix(w.path)))
   const kept: WorktreeBinding[] = []
   const dropped: WorktreeBinding[] = []
   for (const binding of bindings) {
-    if (live.has(binding.path)) kept.push(binding)
+    if (live.has(toPosix(binding.path))) kept.push(binding)
     else dropped.push(binding)
   }
   return { kept, dropped }
@@ -128,9 +135,11 @@ export function rowForCwd(
   sessionId: string,
   cwd: string,
 ): WorktreeBinding | undefined {
-  const inside = bindings.find(
-    (b) => cwd === b.path || cwd.startsWith(`${b.path}/`),
-  )
+  const cwdPosix = toPosix(cwd)
+  const inside = bindings.find((b) => {
+    const path = toPosix(b.path)
+    return cwdPosix === path || cwdPosix.startsWith(`${path}/`)
+  })
   if (inside === undefined) return undefined
   // A session already bound to this worktree keeps its row; a different
   // session takes over only an unclaimed one (one writer per tree, the

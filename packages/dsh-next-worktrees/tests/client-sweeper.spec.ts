@@ -155,13 +155,12 @@ describe('sweepAbandonedWorktrees', () => {
     expect(d.deleteWorkspace).toHaveBeenCalledWith('wt-ws')
   })
 
-  it('ignores non-worktree workspaces and nested paths', async () => {
+  it('ignores non-worktree workspaces', async () => {
     const d = deps()
     configureWorktreeSweeper(d)
     const swept = await sweepAbandonedWorktrees({
       workspaces: [
         ws({ workspaceId: 'plain', path: '/repos/plain', sessionIds: [] }),
-        ws({ workspaceId: 'nested', path: `${PRIMARY}/.dsh/worktrees/swift-01/sub`, sessionIds: [] }),
       ],
       sessionsById: { other: { id: 'other', blank: false } },
       currentSessionId: 'other',
@@ -169,6 +168,22 @@ describe('sweepAbandonedWorktrees', () => {
     })
     expect(swept).toEqual([])
     expect(d.removeWorktree).not.toHaveBeenCalled()
+  })
+
+  it('sweeps a subdirectory workspace using the worktree slug', async () => {
+    const d = deps()
+    configureWorktreeSweeper(d)
+    const swept = await sweepAbandonedWorktrees({
+      workspaces: [ws({
+        path: `${PRIMARY}/.dsh/worktrees/swift-01/packages/foo`,
+        sessionIds: ['blank-1'],
+      })],
+      sessionsById: blankStore(['blank-1']),
+      currentSessionId: 'other',
+      creating: false,
+    })
+    expect(swept).toEqual(['swift-01'])
+    expect(d.removeWorktree).toHaveBeenCalledWith({ cwd: PRIMARY, slug: 'swift-01' })
   })
 
   it('matches dirty refusal on the machine code, not the message', () => {

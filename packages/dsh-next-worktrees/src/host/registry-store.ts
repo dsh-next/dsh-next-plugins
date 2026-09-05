@@ -83,6 +83,7 @@ export class RegistryStore implements RegistryStorePorts {
           branch: typeof b.branch === 'string' ? b.branch : '',
           baseRef: typeof b.baseRef === 'string' ? b.baseRef : 'HEAD',
           relPath: typeof b.relPath === 'string' ? b.relPath : '',
+          baseSha: typeof b.baseSha === 'string' ? b.baseSha : '',
           role: 'owner' as const,
           createdAt: typeof b.createdAt === 'number' ? b.createdAt : 0,
         }))

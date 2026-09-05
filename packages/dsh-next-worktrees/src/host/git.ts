@@ -56,6 +56,14 @@ export const execGit: ExecFn = (file, args, options) =>
       { cwd: options.cwd, timeout: options.timeoutMs, maxBuffer: 16 * 1024 * 1024 },
       (error, stdout, stderr) => {
         const err = error as (NodeJS.ErrnoException & { code?: number | string }) | null
+        if (err && err.code === 'ENOENT') {
+          resolve({
+            code: 127,
+            stdout: String(stdout ?? ''),
+            stderr: String(stderr ?? 'git not found'),
+          })
+          return
+        }
         const code = typeof err?.code === 'number' ? err.code : err ? 1 : 0
         resolve({ code, stdout: String(stdout ?? ''), stderr: String(stderr ?? '') })
       },
@@ -146,6 +154,9 @@ export class GitRunner implements GitPorts {
       const result = await this.exec('git',
         ['rev-parse', '--path-format=absolute', '--git-common-dir'],
         { cwd, timeoutMs: TIMEOUT_MS })
+      if (result.code === 127) {
+        throw new GitError('git-unavailable', 'git is not runnable', result.stderr)
+      }
       if (result.code === GitRunner.NOT_REPO) {
         throw new GitError('not-a-repository', 'cwd is not inside a work tree')
       }
@@ -163,6 +174,9 @@ export class GitRunner implements GitPorts {
 
   async listWorktrees(primary: string): Promise<WorktreeListEntry[]> {
     const result = await this.run(['worktree', 'list', '--porcelain'], primary)
+    if (result.code !== 0) {
+      throw new GitError('git-failed', `git worktree list failed: ${result.stderr.trim()}`)
+    }
     return parseWorktreeList(result.stdout)
   }
 
@@ -227,12 +241,15 @@ export class GitRunner implements GitPorts {
 
   async dirtyCount(cwd: string): Promise<number> {
     const result = await this.run(['status', '--porcelain'], cwd)
+    if (result.code !== 0) {
+      throw new GitError('git-failed', `git status failed: ${result.stderr.trim()}`)
+    }
     const lines = result.stdout.split('\n').filter((line) => {
       if (line.trim() === '') return false
       // Porcelain is "XY <path>". The plugin's own sidecar (.dsh/) must
       // not count as dirt: it is created by worktree add and would
       // otherwise block every merge in a repo that does not gitignore it.
-      const path = line.slice(3).replace(/\\/g, '/')
+      const path = line.slice(3).replace(/\\/g, '/').replace(/^"/, '').replace(/"$/, '')
       return path !== '.dsh' && !path.startsWith('.dsh/')
     })
     return lines.length

@@ -7,6 +7,7 @@
  * rev 3): clicking the repo-row button creates the worktree immediately
  * with the host-suggested name; `creating` only guards re-entry.
  */
+import type { MergeBlocker } from '../core/merge.ts'
 
 export type ModalKind = 'closed' | 'create-error' | 'merge' | 'delete'
 
@@ -37,7 +38,7 @@ export interface HostCleanup {
 }
 
 export interface MergePreflightFacts {
-  readonly blockers: readonly string[]
+  readonly blockers: readonly MergeBlocker[]
   readonly green: boolean
   readonly target?: string
   readonly source?: string
@@ -246,15 +247,20 @@ export function resetModalStore(): void {
 export async function runCreateFlow(input: {
   readonly cwd: string
   readonly rpc: (method: string, args?: unknown) => Promise<unknown>
-  readonly workspaces: { create(a: { path: string }): Promise<{ workspaceId: string }> }
+  readonly workspaces: {
+    create(a: { path: string }): Promise<{ workspaceId: string }>
+    delete?(workspaceId: string): Promise<void>
+  }
   readonly sessions: { create(a: { workspaceId: string }): Promise<string>; open(id: string): void }
   readonly onTopologyRefresh: () => void
 }): Promise<void> {
   const { cwd, rpc, workspaces, sessions, onTopologyRefresh } = input
   if (state.creating) return
   setCreating(true)
+  let created: { slug: string; path: string; relPath: string } | undefined
+  let workspaceId: string | undefined
   try {
-    const created = await rpc('create', {
+    created = await rpc('create', {
       cwd,
     }) as {
       slug: string
@@ -265,15 +271,22 @@ export async function runCreateFlow(input: {
       ? created.path
       : `${created.path}/${created.relPath}`
     const workspace = await workspaces.create({ path: workspacePath })
+    workspaceId = workspace.workspaceId
     const sessionId = await sessions.create({ workspaceId: workspace.workspaceId })
     await rpc('bind', { sessionId })
     sessions.open(sessionId)
     set(INITIAL)
     onTopologyRefresh()
   } catch (error) {
-    // A silent sidebar click must not fail silently: surface the reason
-    // (git refused, workspace registration failed, ...) as a modal so
-    // the user knows the worktree was NOT created.
+    // Host create is not transactional with workspace/session/bind: if a
+    // later step fails, drop the git worktree (and any workspace we did
+    // register) so the error modal's "nothing was changed" hint holds.
+    if (created !== undefined) {
+      await rpc('remove', { cwd: created.path, slug: created.slug, force: true }).catch(() => {})
+      if (workspaceId !== undefined && workspaceId !== '' && workspaces.delete !== undefined) {
+        await workspaces.delete(workspaceId).catch(() => {})
+      }
+    }
     set({
       ...INITIAL,
       kind: 'create-error',

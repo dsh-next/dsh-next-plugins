@@ -19,6 +19,7 @@ function row(overrides: Partial<WorktreeBinding> = {}): WorktreeBinding {
     branch: 'dsh-worktrees/swift-01',
     baseRef: 'origin/main',
     relPath: '',
+    baseSha: '',
     role: 'owner',
     createdAt: 1,
     ...overrides,
@@ -69,6 +70,15 @@ describe('reconcile', () => {
     expect(dropped).toEqual([])
   })
 
+  it('treats windows and posix paths as the same worktree', () => {
+    const kept = row({ path: '/repos/wt-repo/.dsh/worktrees/swift-01' })
+    const { kept: keptRows, dropped } = reconcile([kept], [
+      { path: '\\repos\\wt-repo\\.dsh\\worktrees\\swift-01' },
+    ])
+    expect(keptRows).toEqual([kept])
+    expect(dropped).toEqual([])
+  })
+
   it('drops rows whose worktree vanished', () => {
     const stale = row({ slug: 'gone-01', path: '/repos/wt-repo/.dsh/worktrees/gone-01' })
     const { kept: keptRows, dropped } = reconcile([stale, row()], [
@@ -98,6 +108,11 @@ describe('row lookups', () => {
   it('rowForCwd matches inside the worktree path', () => {
     expect(rowForCwd(bindings, 'session-b', `${claimed.path}/packages/foo`)).toBeUndefined()
     expect(rowForCwd(bindings, 'session-a', `${claimed.path}/packages/foo`)).toBe(claimed)
+    expect(rowForCwd(
+      bindings,
+      'session-a',
+      `${claimed.path.replaceAll('/', '\\')}\\packages\\foo`,
+    )).toBe(claimed)
   })
 
   it('rowForCwd lets a session take over only an unclaimed row', () => {

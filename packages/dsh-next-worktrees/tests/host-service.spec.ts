@@ -42,6 +42,7 @@ class FakeGit implements GitPorts {
   rawResults = new Map<string, { code: number; stdout: string; stderr: string }>()
   /** Resolved commit ids by `cwd|ref`; defaults give every ref a distinct tip. */
   tips = new Map<string, string>()
+  listError: Error | undefined
 
   async placement(cwd: string): Promise<RepoPlacement> {
     const found = this.placements.get(cwd)
@@ -57,6 +58,7 @@ class FakeGit implements GitPorts {
   }
 
   async listWorktrees(): Promise<WorktreeListEntry[]> {
+    if (this.listError !== undefined) throw this.listError
     return this.worktrees
   }
 
@@ -192,6 +194,7 @@ function seedWorktree(h: Harness, overrides: Partial<WorktreeBinding> = {}): Wor
     branch: `dsh-worktrees/${slug}`,
     baseRef: 'origin/HEAD',
     relPath: '',
+    baseSha: '',
     role: 'owner',
     createdAt: 1,
     ...overrides,
@@ -275,6 +278,7 @@ describe('create', () => {
       slug: expectedSlug,
       name: 'login race fix',
       role: 'owner',
+      baseSha: `tip-${PRIMARY}/origin/HEAD`,
     })
   })
 
@@ -331,6 +335,19 @@ describe('create', () => {
     expect(h.copies).toEqual([
       { from: `${PRIMARY}/.env`, to: expect.stringContaining('/.env') },
       { from: `${PRIMARY}/cache/data`, to: expect.stringContaining('/cache/data') },
+    ])
+  })
+
+  it('skips absolute and parent-directory .worktreeinclude entries', async () => {
+    const h = harness()
+    h.git.rawResults.set('show HEAD:.worktreeinclude', {
+      code: 0,
+      stdout: '.env\n../secret\n/etc/passwd\nC:\\windows\\hint\n',
+      stderr: '',
+    })
+    await h.service.create({ cwd: PRIMARY })
+    expect(h.copies).toEqual([
+      { from: `${PRIMARY}/.env`, to: expect.stringContaining('/.env') },
     ])
   })
 })
@@ -424,9 +441,29 @@ describe('status', () => {
     h.git.ancestors.add(`${PRIMARY}|dsh-worktrees/swift-01|main`)
     const same = 'tip-fresh'
     h.git.tips.set(`${binding.path}|dsh-worktrees/swift-01`, same)
-    h.git.tips.set(`${binding.path}|origin/HEAD`, same)
+    h.git.tips.set(`${PRIMARY}|origin/HEAD`, same)
     await expect(h.service.status('session-a')).resolves.toMatchObject({
       status: { clean: true, dirty: false, ahead: 0, merged: false },
+    })
+  })
+
+  it('reports merged after a fast-forward when the base SHA was pinned at create', async () => {
+    const h = harness()
+    const binding = seedWorktree(h, {
+      sessionId: 'session-a',
+      baseRef: 'HEAD',
+      baseSha: 'sha-at-create',
+    })
+    h.sessionCwds.set('session-a', binding.path)
+    h.git.branches.set(PRIMARY, 'main')
+    h.git.ancestors.add(`${PRIMARY}|dsh-worktrees/swift-01|main`)
+    // After FF, live HEAD at the primary equals the branch tip — the
+    // discriminator the unpinned HEAD base used to trip. The pin keeps
+    // merged true.
+    h.git.tips.set(`${binding.path}|dsh-worktrees/swift-01`, 'feature-tip')
+    h.git.tips.set(`${PRIMARY}|HEAD`, 'feature-tip')
+    await expect(h.service.status('session-a')).resolves.toMatchObject({
+      status: { merged: true },
     })
   })
 
@@ -501,6 +538,7 @@ describe('topology', () => {
         branch: 'dsh-worktrees/gone-01',
         baseRef: 'origin/HEAD',
         relPath: '',
+        baseSha: '',
         role: 'owner',
         createdAt: 1,
       }],
@@ -508,6 +546,15 @@ describe('topology', () => {
     const result = await h.service.topology([PRIMARY])
     expect(result.repos[0]!.worktrees).toEqual([])
     expect(h.store.files.get(PRIMARY)?.bindings).toEqual([])
+  })
+
+  it('does not persist a reconcile drop when git worktree list fails', async () => {
+    const h = harness()
+    seedWorktree(h)
+    h.git.listError = new GitError('git-failed', 'unable to read index')
+    const result = await h.service.topology([PRIMARY])
+    expect(result.repos[0]).toMatchObject({ ok: false, worktrees: [] })
+    expect(h.store.files.get(PRIMARY)?.bindings).toHaveLength(1)
   })
 })
 
@@ -572,7 +619,7 @@ describe('mergePreflight', () => {
     const binding = h.store.files.get(PRIMARY)!.bindings[0]!
     const same = 'tip-fresh'
     h.git.tips.set(`${binding.path}|dsh-worktrees/swift-01`, same)
-    h.git.tips.set(`${binding.path}|origin/HEAD`, same)
+    h.git.tips.set(`${PRIMARY}|origin/HEAD`, same)
     await expect(h.service.mergePreflight({ cwd: PRIMARY, slug: 'swift-01' }))
       .resolves.toMatchObject({ green: true, fastForward: true, blockers: [] })
   })

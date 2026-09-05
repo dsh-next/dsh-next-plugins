@@ -10,6 +10,7 @@
  *
  * Structural, dependency-free shapes so the math tests need no SDK.
  */
+import { parseWorktreeWorkspacePath, toPosix } from '../core/paths.ts'
 import type { WorktreeTopology } from './rpc.ts'
 
 /** Workspace facts the projection needs (subset of the Host snapshot). */
@@ -56,21 +57,14 @@ export interface ProjectionResult {
   readonly hiddenWorkspaceIds: ReadonlySet<string>
 }
 
-function toPosix(path: string): string {
-  return path.split('\\').join('/')
-}
-
 function isInside(parent: string, child: string): boolean {
   const p = toPosix(parent)
   const c = toPosix(child)
   return c === p || c.startsWith(`${p}/`)
 }
 
-/** Marker every plugin-created worktree workspace carries in its path. */
-const WORKTREES_MARKER = '/.dsh/worktrees/'
-
 function isWorktreePath(path: string): boolean {
-  return toPosix(path).includes(WORKTREES_MARKER)
+  return parseWorktreeWorkspacePath(path) !== undefined
 }
 
 /**
@@ -107,19 +101,17 @@ export function projectWorkspaceSidebar(input: ProjectionInput): ProjectionResul
   const projected: WorkspaceItemLike[] = workspaces.map((w) => ({ ...w, sessionIds: [...w.sessionIds] }))
 
   projected.forEach((workspace, index) => {
-    const posixPath = toPosix(workspace.path)
-    const markerAt = posixPath.lastIndexOf(WORKTREES_MARKER)
-    if (markerAt < 0) return
-    // The primary this worktree was created from, by construction of the
-    // locked path rule (<primary>/.dsh/worktrees/<slug>).
-    const primary = posixPath.slice(0, markerAt)
+    const parsed = parseWorktreeWorkspacePath(workspace.path)
+    if (parsed === undefined) return
     // Merge into the first non-worktree workspace at or under the primary.
     const target = projected.findIndex((candidate, candidateIndex) =>
       candidateIndex !== index
       && !isWorktreePath(candidate.path)
-      && isInside(primary, candidate.path))
+      && isInside(parsed.primary, candidate.path))
     if (target < 0) return // No repo workspace: keep the group (fallback).
-    const worktree = worktreeByPath.get(posixPath)
+    // Topology keys the worktree at its git root; a subdirectory workspace
+    // (created from packages/foo) lives at `<root>/<relPath>`.
+    const worktree = worktreeByPath.get(parsed.root)
     for (const sessionId of workspace.sessionIds) {
       if (worktree !== undefined) {
         decorations.set(sessionId, {

@@ -196,6 +196,12 @@ export class WorktreesService {
     if (!hasCommits) {
       throw new WorktreeFlowError('no-commits', 'the repository has no commits to branch from')
     }
+    // Pin the resolved commit so "merged" still holds after a fast-forward
+    // into a moving symbolic base (HEAD / origin/HEAD).
+    const baseSha = await this.ports.git.revParse(placement.primary, baseRef)
+    if (baseSha === undefined) {
+      throw new WorktreeFlowError('no-commits', 'the repository has no commits to branch from')
+    }
     const registryPath = `${placement.primary}/.dsh/worktrees/registry.json`
     const bindings = await this.reconciled(placement.primary)
     const taken = [
@@ -222,6 +228,7 @@ export class WorktreesService {
           branch,
           baseRef,
           relPath: placement.relPath,
+          baseSha,
           role: 'owner' as const,
           createdAt: Date.now(),
         },
@@ -264,6 +271,7 @@ export class WorktreesService {
     const join = (...parts: readonly string[]): string =>
       parts.filter((p) => p !== '').join('/')
     for (const entry of entries) {
+      if (isUnsafeInclude(entry)) continue
       const from = join(primary, relPath, entry)
       const to = join(worktreePath, relPath, entry)
       await this.ports.copyFile(from, to)
@@ -407,35 +415,39 @@ export class WorktreesService {
     const placement = await this.ports.git.placement(input.cwd).catch(fromGit)
     const bindings = await this.reconciled(placement.primary)
     const row = rowsForSlug(bindings, input.slug)[0]
-    const target = await this.ports.git.currentBranch(placement.primary)
-    const version = parseGitVersion(await this.ports.git.versionStdout())
-    const gitModern = gitSupportsMergeTree(version)
     const slugKnown = row !== undefined
+    const [target, versionStdout, primaryDirty, worktreeDirty, branchTip, baseTip] = await Promise.all([
+      this.ports.git.currentBranch(placement.primary),
+      this.ports.git.versionStdout(),
+      slugKnown ? this.ports.git.dirtyCount(placement.primary) : Promise.resolve(0),
+      slugKnown ? this.ports.git.dirtyCount(row!.path) : Promise.resolve(0),
+      slugKnown
+        ? this.ports.git.revParse(row!.path, row!.branch).catch(() => undefined)
+        : Promise.resolve(undefined),
+      slugKnown ? this.resolveBaseTip(placement.primary, row!) : Promise.resolve(undefined),
+    ])
+    const gitModern = gitSupportsMergeTree(parseGitVersion(versionStdout))
     // Unknown slug: the remaining facts are noise, not blockers — the
     // modal says "refresh" and nothing else.
-    const primaryClean = !slugKnown || (await this.ports.git.dirtyCount(placement.primary)) === 0
-    const worktreeClean = !slugKnown || (await this.ports.git.dirtyCount(row!.path)) === 0
-    let alreadyMerged = false
-    if (slugKnown && target !== undefined) {
-      const [branchTip, baseTip] = await Promise.all([
-        this.ports.git.revParse(row!.path, row!.branch).catch(() => undefined),
-        this.ports.git.revParse(row!.path, row!.baseRef).catch(() => undefined),
-      ])
-      // A fresh branch (tip == base) is trivially an ancestor; that is
-      // "no unique work yet", not "already merged".
-      alreadyMerged = branchTip !== baseTip
-        && await this.ports.git.isAncestor(placement.primary, row!.branch, target)
-    }
+    const primaryClean = !slugKnown || primaryDirty === 0
+    const worktreeClean = !slugKnown || worktreeDirty === 0
+    // A fresh branch (tip == base) is trivially an ancestor; that is
+    // "no unique work yet", not "already merged".
+    const alreadyMerged = slugKnown && target !== undefined
+      && branchTip !== baseTip
+      && await this.ports.git.isAncestor(placement.primary, row!.branch, target)
     const dryRunRan = gitModern && slugKnown && target !== undefined && !alreadyMerged
-    const dryRunClean = dryRunRan
-      ? await this.ports.git.mergeTreeClean(placement.primary, target!, row!.branch)
-      : false
-    const fastForward = slugKnown && target !== undefined
-      ? await this.ports.git.isAncestor(placement.primary, target, row!.branch)
-      : false
-    const aheadCount = slugKnown
-      ? await this.ports.git.aheadCount(placement.primary, row!.baseRef, row!.branch)
-      : 0
+    const [dryRunClean, fastForward, aheadCount] = await Promise.all([
+      dryRunRan
+        ? this.ports.git.mergeTreeClean(placement.primary, target!, row!.branch)
+        : Promise.resolve(false),
+      slugKnown && target !== undefined
+        ? this.ports.git.isAncestor(placement.primary, target, row!.branch)
+        : Promise.resolve(false),
+      slugKnown
+        ? this.ports.git.aheadCount(placement.primary, row!.baseRef, row!.branch)
+        : Promise.resolve(0),
+    ])
     const verdict = mergeVerdict({
       slugKnown, gitModern, primaryClean, worktreeClean, targetBranch: target,
       dryRunClean, dryRunRan, alreadyMerged,
@@ -467,6 +479,14 @@ export class WorktreesService {
     return { target: pre.target, source: pre.source, fastForward: pre.fastForward }
   }
 
+  /** The commit this worktree was branched from (pinned SHA, else live at primary). */
+  private resolveBaseTip(primary: string, row: WorktreeBinding): Promise<string | undefined> {
+    if (row.baseSha !== '') return Promise.resolve(row.baseSha)
+    // Legacy rows: resolve at the primary so a stored HEAD is the repo's
+    // HEAD, not the worktree branch.
+    return this.ports.git.revParse(primary, row.baseRef).catch(() => undefined)
+  }
+
   private async statusOf(primary: string, row: WorktreeBinding): Promise<WorktreeStatus> {
     // Independent git answers run concurrently; only the ancestry probe
     // waits on the primary's branch name.
@@ -477,7 +497,7 @@ export class WorktreesService {
       this.ports.git.aheadCount(primary, row.baseRef, row.branch).catch(() => 0),
       this.ports.git.currentBranch(primary).catch(() => undefined),
       this.ports.git.revParse(row.path, row.branch).catch(() => undefined),
-      this.ports.git.revParse(row.path, row.baseRef).catch(() => undefined),
+      this.resolveBaseTip(primary, row),
     ])
     const mergedIntoTarget = target === undefined
       ? false
@@ -501,6 +521,16 @@ export class WorktreesService {
     }
     return kept
   }
+}
+
+/**
+ * Whether a `.worktreeinclude` entry is safe to copy. Absolute paths and
+ * `..` segments would read/write outside the worktree.
+ */
+function isUnsafeInclude(entry: string): boolean {
+  const posix = entry.replace(/\\/g, '/')
+  if (posix.startsWith('/') || /^[a-zA-Z]:/.test(posix)) return true
+  return posix.split('/').includes('..')
 }
 
 /** Name suggestion for the create modal prefill. */

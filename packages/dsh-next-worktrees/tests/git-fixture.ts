@@ -52,6 +52,23 @@ export async function commitFile(
   runGit(cwd, ['commit', '-q', '-m', message])
 }
 
+/**
+ * Finish an in-progress merge the way the bound session's agent would:
+ * write a resolution, `git add`, `git commit`. The primary is untouched.
+ */
+export async function completeConflictedMerge(
+  cwd: string,
+  relative: string,
+  contents: string,
+  message: string,
+): Promise<void> {
+  const full = join(cwd, relative)
+  await mkdir(dirname(full), { recursive: true })
+  await writeFile(full, contents)
+  runGit(cwd, ['add', '--', relative])
+  runGit(cwd, ['-c', 'core.editor=true', 'commit', '-q', '-m', message])
+}
+
 /** Write an uncommitted file (does not add). */
 export async function writeUncommitted(cwd: string, relative: string, contents: string): Promise<string> {
   const full = join(cwd, relative)

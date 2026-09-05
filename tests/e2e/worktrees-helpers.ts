@@ -41,6 +41,23 @@ export function commitFile(cwd: string, relative: string, contents: string, mess
   git(cwd, ['commit', '-q', '-m', message])
 }
 
+/**
+ * Finish an in-progress merge as the bound session's agent would: write a
+ * resolution, add, commit. Used by the keyless smoke (no live model).
+ */
+export function completeConflictedMerge(
+  cwd: string,
+  relative: string,
+  contents: string,
+  message: string,
+): void {
+  const full = join(cwd, relative)
+  mkdirSync(dirname(full), { recursive: true })
+  writeFileSync(full, contents)
+  git(cwd, ['add', '--', relative])
+  git(cwd, ['-c', 'core.editor=true', 'commit', '-q', '-m', message])
+}
+
 export interface WorktreeRegistry {
   readonly bindings: readonly { slug: string; sessionId: string }[]
 }

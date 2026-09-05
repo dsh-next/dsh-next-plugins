@@ -6,16 +6,25 @@ import { copyFile, mkdir, unlink } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { GitRunner } from '../src/host/git.ts'
+import type { GitPorts } from '../src/host/git.ts'
 import { RegistryStore } from '../src/host/registry-store.ts'
 import { WorktreesService } from '../src/host/service.ts'
 import {
   commitFile,
+  completeConflictedMerge,
   gitOk,
   hasMergeHead,
   makeTempRepo,
   runGit,
   writeUncommitted,
 } from './git-fixture.ts'
+
+/** Real git except `--version`, so merge-tree gating can be failed closed. */
+class OldGitRunner extends GitRunner {
+  override async versionStdout(): Promise<string> {
+    return 'git version 2.30.1\n'
+  }
+}
 
 interface Harness {
   readonly dir: string
@@ -31,12 +40,12 @@ afterEach(async () => {
   await Promise.all(cleanups.splice(0).map((fn) => fn()))
 })
 
-async function harness(): Promise<Harness> {
+async function harness(git: GitPorts = new GitRunner()): Promise<Harness> {
   const repo = await makeTempRepo()
   const sessionCwds = new Map<string, string | null>()
   const running = new Set<string>()
   const service = new WorktreesService({
-    git: new GitRunner(),
+    git,
     store: new RegistryStore(),
     getSessionCwd: (id) => sessionCwds.get(id) ?? null,
     applySandboxMode: () => true,
@@ -160,6 +169,41 @@ describe('WorktreesService real-git update', () => {
     await h.service.updateAbort({ cwd: h.dir, slug: created.slug })
     expect(hasMergeHead(created.path)).toBe(false)
     expect(runGit(created.path, ['log', '-1', '--pretty=%s']).trim()).toBe('wt seed')
+  })
+
+  it('after the agent resolves the worktree merge, Merge into main is a fast-forward', async () => {
+    const h = await harness()
+    const created = await createBound(h)
+    await commitFile(created.path, 'seed.txt', 'worktree\n', 'wt seed')
+    await commitFile(h.dir, 'seed.txt', 'main\n', 'main seed')
+    const started = await h.service.updateExecute({ cwd: h.dir, slug: created.slug })
+    expect(started.conflict).toBe(true)
+    expect(hasMergeHead(h.dir)).toBe(false)
+    await completeConflictedMerge(created.path, 'seed.txt', 'resolved\n', 'resolve conflicts')
+    expect(hasMergeHead(created.path)).toBe(false)
+    const pre = await h.service.mergePreflight({ cwd: h.dir, slug: created.slug })
+    expect(pre.green).toBe(true)
+    expect(pre.fastForward).toBe(true)
+    const landed = await h.service.mergeExecute({ cwd: h.dir, slug: created.slug })
+    expect(landed.fastForward).toBe(true)
+    expect(gitOk(h.dir, ['merge-base', '--is-ancestor', created.branch, 'HEAD'])).toBe(true)
+  })
+
+  it('blocks Merge on old git but still runs Update (no merge-tree required)', async () => {
+    const h = await harness(new OldGitRunner())
+    const created = await createBound(h)
+    await commitFile(created.path, 'feature.txt', 'x\n', 'feature')
+    await commitFile(h.dir, 'main-only.txt', 'y\n', 'main unique')
+    const mergePre = await h.service.mergePreflight({ cwd: h.dir, slug: created.slug })
+    expect(mergePre.blockers).toContain('old-git')
+    expect(mergePre.green).toBe(false)
+    await expect(h.service.mergeExecute({ cwd: h.dir, slug: created.slug }))
+      .rejects.toMatchObject({ code: 'merge-blocked' })
+    const updatePre = await h.service.updatePreflight({ cwd: h.dir, slug: created.slug })
+    expect(updatePre.blockers).not.toContain('old-git')
+    expect(updatePre.green).toBe(true)
+    const updated = await h.service.updateExecute({ cwd: h.dir, slug: created.slug })
+    expect(updated.conflict).toBe(false)
   })
 
   it('blocks dirty worktree, running session, and unbound session', async () => {

@@ -25,6 +25,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFile
 import { test, expect, type Page } from '@playwright/test'
 import {
   commitFile,
+  completeConflictedMerge,
   gitOk,
   hasMergeHead,
   initGitRepo,
@@ -374,18 +375,26 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await expect(page.locator(`[data-dshx-worktree="${slug}"]`))
       .toHaveAttribute('data-dshx-state', 'conflict', { timeout: 15_000 })
     await expect.poll(() => hasMergeHead(wtDir), { timeout: 10_000 }).toBe(true)
-    // Continue focuses the session and closes; reopening Update from the
-    // row menu must still see the in-flight merge (Abort / Open session).
     await expect(updateModal.locator('[data-dshx-button="continue-update"]')).toBeVisible()
     await page.locator('[data-dshx-button="continue-update"]').click()
     await expect(updateModal).toBeHidden({ timeout: 10_000 })
-    await openWorktreeMenu(page, slug)
-    await page.getByText(/Update from main/).last().click()
-    await expect(updateModal).toBeVisible({ timeout: 10_000 })
-    await expect(updateModal.locator('[data-dshx-update="handoff"]')).toBeVisible()
-    await page.locator('[data-dshx-button="abort-update"]').click()
-    await expect(updateModal).toBeHidden({ timeout: 15_000 })
+    // Keyless smoke: the plugin seeds a user turn via ISession.prompt. The
+    // model call fails at API auth, but the handoff text must still land
+    // in the conversation. Then this test plays the agent: resolve, commit.
+    await expect(page.getByText(/Resolve the conflicted files/).first())
+      .toBeVisible({ timeout: 15_000 })
+    completeConflictedMerge(wtDir, 'seed.txt', 'resolved\n', 'resolve conflicts')
     await expect.poll(() => hasMergeHead(wtDir), { timeout: 10_000 }).toBe(false)
+    await refreshWorktrees(page)
+    await openWorktreeMenu(page, slug)
+    await page.getByText('Merge…').last().click()
+    await expect(mergeModal).toBeVisible({ timeout: 10_000 })
+    await expect(mergeModal).toContainText('Fast-forward')
+    await page.locator('[data-dshx-button="merge"]').click()
+    await expect(mergeModal).toContainText('Merged into', { timeout: 15_000 })
+    await page.locator('[data-dshx-button="keep"]').click()
+    await expect(mergeModal).toBeHidden({ timeout: 10_000 })
+    expect(gitOk(workspaceA, ['merge-base', '--is-ancestor', `dsh-worktrees/${slug}`, 'HEAD'])).toBe(true)
 
     // Dirty-primary / dirty-worktree blockers on Merge and Update.
     writeFileSync(join(workspaceA, 'dirty-primary.txt'), 'nope\n')

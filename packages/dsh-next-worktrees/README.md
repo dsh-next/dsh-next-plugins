@@ -34,7 +34,8 @@ a separate workspace.
   and a conflict dry-run (`git merge-tree`, git 2.38+). Any blocker names
   its fix; conflicts and old git fall back to the exact manual command.
   A green merge is a single `git merge --no-edit`; afterwards the modal
-  offers to remove the merged worktree.
+  offers to remove the merged worktree. Untracked `.dsh/` sidecar files
+  (the plugin's own registry) do not count as uncommitted changes.
 
 ## Compatibility contract
 

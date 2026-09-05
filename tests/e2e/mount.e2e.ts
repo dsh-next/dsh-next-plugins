@@ -34,8 +34,12 @@ import {
   refreshWorktrees,
   registryPath,
   unblankCurrentSession,
+  waitForTurnIdle,
   worktreeDir,
 } from './worktrees-helpers.ts'
+
+/** Live-model lane: the official DeepSeek route has a real DEEPSEEK_API_KEY. */
+const LIVE = process.env.DSH_E2E_LIVE === '1'
 
 const BASE_URL = process.env.DSH_E2E_URL
 if (!BASE_URL) {
@@ -304,6 +308,7 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     // the created session first - one recorded turn (the keyless send fails
     // at API auth but still records) flips the row into a real one.
     await unblankCurrentSession(page, 'hello from worktrees')
+    if (LIVE) await waitForTurnIdle(page)
 
     // Unique committed work so Merge is a green fast-forward. Refresh
     // through the row menu (covers the Refresh item) then Merge.
@@ -403,12 +408,20 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     // Keyless smoke: the plugin seeds a user turn via ISession.prompt. The
     // model call fails at API auth, but the handoff text must still land
     // in the conversation. Then this test plays the agent: resolve, commit.
+    // Live lane (DSH_E2E_LIVE=1): wait for the bound session to finish the
+    // merge itself — MERGE_HEAD gone without this test writing the resolution.
     await expect(page.getByText(/Resolve the conflicted files/).first())
       .toBeVisible({ timeout: 15_000 })
     await page.screenshot({ path: join(shots, 'worktrees-conflict-prompt.png') })
     await conflictRow.screenshot({ path: join(shots, 'worktrees-conflict-row.png') })
-    completeConflictedMerge(wtDir, 'seed.txt', 'resolved\n', 'resolve conflicts')
-    await expect.poll(() => hasMergeHead(wtDir), { timeout: 10_000 }).toBe(false)
+    if (LIVE) {
+      await waitForTurnIdle(page)
+      await expect.poll(() => hasMergeHead(wtDir), { timeout: 120_000 }).toBe(false)
+      await page.screenshot({ path: join(shots, 'worktrees-conflict-live-resolved.png') })
+    } else {
+      completeConflictedMerge(wtDir, 'seed.txt', 'resolved\n', 'resolve conflicts')
+      await expect.poll(() => hasMergeHead(wtDir), { timeout: 10_000 }).toBe(false)
+    }
     await refreshWorktrees(page)
     await openWorktreeMenu(page, slug)
     await page.getByText('Merge…').last().click()
@@ -451,6 +464,7 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     const slug2 = readRegistry(workspaceA).bindings.find((b) => b.slug !== slug)!.slug
     const wtDir2 = worktreeDir(workspaceA, slug2)
     await unblankCurrentSession(page, 'hello from second worktree')
+    if (LIVE) await waitForTurnIdle(page)
     commitFile(wtDir2, 'wt-only.txt', 'wt\n', 'worktree unique')
     commitFile(workspaceA, 'main-unique.txt', 'main\n', 'main unique')
     await refreshWorktrees(page)
@@ -784,6 +798,7 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
 }
 
 test('plugin family mounts the dsh-next plugins without crash markers', async ({ page }) => {
+  test.setTimeout(LIVE ? 360_000 : 180_000)
   const pageErrors: string[] = []
   const pluginConsoleErrors: string[] = []
   page.on('pageerror', (error) => { pageErrors.push(error.message) })

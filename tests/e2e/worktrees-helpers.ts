@@ -95,4 +95,19 @@ export async function unblankCurrentSession(page: Page, text: string): Promise<v
   await composer.press('Enter')
 }
 
+/**
+ * Wait until a generation that started after send is no longer running.
+ * Live-model lanes need this before Update (running-session is a blocker).
+ * Keyless auth failures never show Stop; we then no-op after a short wait.
+ */
+export async function waitForTurnIdle(page: Page, timeoutMs = 120_000): Promise<void> {
+  const stop = page.getByRole('button', { name: /Stop/i })
+  const started = await stop.first().isVisible().catch(() => false)
+  if (!started) {
+    await page.waitForTimeout(1_500)
+    if (!(await stop.first().isVisible().catch(() => false))) return
+  }
+  await expect(stop.first()).toBeHidden({ timeout: timeoutMs })
+}
+
 

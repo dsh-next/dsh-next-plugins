@@ -251,7 +251,7 @@ say "dsh web ready at $URL (pid $SERVER_PID)"
 
 # Run the headless render lane.
 say "running Playwright headless mount smoke"
-DSH_E2E_URL="$URL" DSH_E2E_PLUGINS="$PLUGIN_IDS" \
+DSH_E2E_URL="$URL" DSH_E2E_PLUGINS="$PLUGIN_IDS" DSH_E2E_LIVE="${DSH_E2E_LIVE:-}" \
   pnpm exec playwright test
 
 say "pass: plugin family mounted into a real DSH with no crash markers"

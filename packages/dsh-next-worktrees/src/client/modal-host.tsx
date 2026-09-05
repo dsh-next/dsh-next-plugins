@@ -199,9 +199,7 @@ function MergeModal({ t, merge, host }: {
                   <div key={code} className="dshx-error" data-dshx-blocker={code}>
                     {t(BLOCKER_KEYS[code], code === 'old-git'
                       ? { command: preflight.manualCommand ?? '' }
-                      : code === 'conflict'
-                        ? { branch: preflight.target ?? '' }
-                        : undefined)}
+                      : undefined)}
                   </div>
                 ))}
               </div>
@@ -224,7 +222,7 @@ function MergeModal({ t, merge, host }: {
               onClick={() => { openUpdate(merge.target, rpc) }}
               data-dshx-button="update-from-merge"
             >
-              {t('row.update', { branch: preflight.target ?? '' })}
+              {t('merge.resolve')}
             </button>
           )}
           {merge.done === undefined && (preflight === undefined || !preflight.blockers.includes('conflict')) && (
@@ -365,7 +363,10 @@ function UpdateModal({ t, update, sessions }: {
               }}
               data-dshx-button="update"
             >
-              {t('update.confirm', { branch: preflight?.source ?? '' })}
+              {t(
+                preflight?.wouldConflict === true ? 'update.resolve' : 'update.confirm',
+                { branch: preflight?.source ?? '' },
+              )}
             </button>
           )}
           {cleanDone && (

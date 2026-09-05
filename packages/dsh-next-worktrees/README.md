@@ -37,11 +37,12 @@ a separate workspace.
   (the plugin's own registry) do not count as uncommitted changes.
 - **Agent-resolved conflicts.** When merging into the main checkout
   would conflict, Merge does not dump you to the CLI. The blocker names
-  Update from `<branch>` as the next step; the primary action opens that
-  flow (the plugin merges the main branch *into the worktree*, leaves a
-  mid-merge there if needed — red icon — and focuses the bound session
-  so the agent can resolve and commit). After that, Merge is a
-  fast-forward. While the merge is in flight the modal offers Abort
+  Resolve in this session as the next step; that action opens Update
+  from `<branch>` (the plugin merges the main branch *into the
+  worktree*, leaves a mid-merge there if needed — red icon — and focuses
+  the bound session so the agent can resolve and commit). A clean
+  catch-up keeps the Update from `<branch>` label. After that, Merge is
+  a fast-forward. While the merge is in flight the modal offers Abort
   (`git merge --abort` in the worktree) and Open session; closing the
   dialog leaves the merge in progress. The plugin never authors commit
   content and never leaves the main checkout mid-merge.

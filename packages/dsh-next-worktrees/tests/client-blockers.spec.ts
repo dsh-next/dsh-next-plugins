@@ -24,17 +24,19 @@ describe('merge blocker copy', () => {
     expect(Object.keys(BLOCKER_KEYS).sort()).toEqual([...ALL_BLOCKERS].sort())
   })
 
-  it('points conflict at Update from the target branch, not a CLI dump', () => {
-    expect(en['merge.blocker.conflict']).toContain('{branch}')
-    expect(en['merge.blocker.conflict']).not.toMatch(/git merge|\{command\}/)
+  it('points conflict at Resolve in this session, not a CLI dump', () => {
+    expect(en['merge.blocker.conflict']).toContain('Resolve in this session')
+    expect(en['merge.blocker.conflict']).not.toMatch(/git merge|\{command\}|\{branch\}/)
     expect(en['merge.blocker.oldGit']).toContain('{command}')
   })
 
-  it('keeps ellipsis on menu items and drops it on in-modal confirms', () => {
+  it('keeps ellipsis on menu items and dialog-opening CTAs, not on confirms', () => {
     expect(en['row.merge']).toBe('Merge…')
     expect(en['row.update']).toBe('Update from {branch}…')
+    expect(en['merge.resolve']).toBe('Resolve in this session…')
     expect(en['merge.confirm']).toBe('Merge')
     expect(en['update.confirm']).toBe('Update from {branch}')
+    expect(en['update.resolve']).toBe('Resolve in this session')
   })
 })
 

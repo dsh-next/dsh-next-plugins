@@ -87,8 +87,9 @@ it is sitting there.
   for Foreground (between Refresh and Merge). Same preflight modal
   grammar as Merge.
 - Merge modal: when the blocker is `conflict`, the primary button is
-  **Update from `<target>`…** (opens the update modal). The blocker
-  copy names that step; there is no CLI dump.
+  **Resolve in this session…** (opens the update modal). The blocker
+  copy names that step; there is no CLI dump. A clean catch-up keeps
+  **Update from `<branch>`**.
 - Status: red icon for merge-in-progress / conflict (the token already
   reserved). Refresh notices it.
 - Abort: if the worktree is mid-merge, the modal offers Abort

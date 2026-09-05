@@ -225,7 +225,9 @@ Update from the current branch (agent-resolved landing).
 | `merge.blocker.dirtyPrimary` | The main checkout has uncommitted changes. Commit or stash them first. |
 | `merge.blocker.dirtyWorktree` | The worktree has uncommitted changes. Commit them in the worktree session first. |
 | `merge.blocker.running` | A session is running in this worktree. Stop it or wait for it to finish. |
-| `merge.blocker.conflict` | Merging would conflict. Update from `<branch>` in the worktree first; the session will resolve the conflicts, then Merge is a fast-forward. |
+| `merge.blocker.conflict` | Merging would conflict. Resolve in this session first; then Merge is a fast-forward. |
+| `merge.resolve` | Resolve in this session… |
+| `update.resolve` | Resolve in this session |
 | `merge.blocker.oldGit` | git 2.38 or newer is required for one-click merge. Run `git merge dsh-worktrees/<slug>` manually. |
 | `merge.done.title` | Merged into `<branch>` |
 | `merge.done.cleanup` | Remove the worktree? |

@@ -65,7 +65,7 @@ afterEach(async () => {
 })
 
 describe('MergeModal', () => {
-  it('names Update from the target branch on conflict, with no CLI dump', async () => {
+  it('names Resolve in this session on conflict, with no CLI dump', async () => {
     const rpc = vi.fn().mockResolvedValue({
       blockers: ['conflict'],
       green: false,
@@ -81,10 +81,10 @@ describe('MergeModal', () => {
       expect(node.querySelector('[data-dshx-blocker="conflict"]')).not.toBeNull()
     })
     const blocker = node.querySelector('[data-dshx-blocker="conflict"]')
-    expect(blocker?.textContent).toContain('Update from main')
+    expect(blocker?.textContent).toContain('Resolve in this session')
     expect(blocker?.textContent).not.toMatch(/git merge/)
     const cta = node.querySelector('[data-dshx-button="update-from-merge"]')
-    expect(cta?.textContent).toBe('Update from main…')
+    expect(cta?.textContent).toBe('Resolve in this session…')
     expect(node.querySelector('[data-dshx-button="merge"]')).toBeNull()
   })
 
@@ -123,10 +123,29 @@ describe('UpdateModal', () => {
     await vi.waitFor(() => {
       expect(node.querySelector('[data-dshx-button="update"]')).not.toBeNull()
     })
-    expect(node.querySelector('[data-dshx-button="update"]')?.textContent).toBe('Update from main')
+    expect(node.querySelector('[data-dshx-button="update"]')?.textContent).toBe('Resolve in this session')
     const warn = node.querySelector('[data-dshx-update="would-conflict"]')
     expect(warn?.className).toBe('dshx-warn')
     expect(warn?.textContent).toMatch(/agent in this session/)
+  })
+
+  it('keeps Update from main on a clean catch-up', async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      blockers: [],
+      green: true,
+      source: 'main',
+      target: 'dsh-worktrees/swift-01',
+      fastForward: true,
+      wouldConflict: false,
+      inProgress: false,
+      sessionId: 'wt-session-1',
+    })
+    openUpdate(target, rpc)
+    const node = await mount()
+    await vi.waitFor(() => {
+      expect(node.querySelector('[data-dshx-button="update"]')).not.toBeNull()
+    })
+    expect(node.querySelector('[data-dshx-button="update"]')?.textContent).toBe('Update from main')
   })
 
   it('drops Cancel on an in-flight merge and paints Abort as danger', async () => {

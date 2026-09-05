@@ -95,6 +95,23 @@ indistinguishable from a repo-level ref D/F conflict until reproduced
 outside. Boot demo servers with full access when the user tests against
 their own repos.
 
+## Follow-up: topology latency scaled with worktree count (same day)
+
+Live use (a dozen worktrees on one repo) made the worktree button feel
+2s-slow next to the instant regular `+`. Instrumentation split the
+cost: the create chain itself is ~300ms (git worktree add dominates at
+~175ms), but the topology pull that follows - the one that decorates
+the new row - ran 5 SEQUENTIAL git spawns per worktree and took 1.2s at
+13 worktrees. `topology()` and `statusOf()` now parallelize
+(Promise.all both levels: per-workspace facts, per-worktree status, and
+the independent probes inside one status); topology dropped to ~0.33s
+at the same depth. Remaining lever if it ever matters again: batch the
+per-worktree probes into single git invocations (for-each-ref /
+rev-list --stdin). Measurement note: exec spawn cost, not git itself,
+is the floor - and demo servers must be restarted from the repo root
+(a stray `cd ../..` once launched the server from ~/Projects and
+everything failed fast with ENOENT).
+
 ## Validation
 
 `mise run ci` green (117 worktrees tests; new cases: fresh-worktree status

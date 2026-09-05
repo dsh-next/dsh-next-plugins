@@ -332,39 +332,36 @@ export class WorktreesService {
 
   /** Repo-wide topology for the sidebar projection and menus. */
   async topology(cwds: readonly string[]): Promise<TopologyResult> {
+    // Every fact below is an independent git spawn; with a dozen
+    // worktrees the sequential fan-out cost ~100ms per worktree and the
+    // sidebar waited over a second on refresh. Parallelize both levels.
     const primaries = new Map<string, string>()
-    const workspaces: WorkspaceFacts[] = []
-    for (const cwd of cwds) {
-      const facts = await this.workspaceFacts(cwd)
-      workspaces.push(facts)
+    const workspaces = await Promise.all(cwds.map((cwd) => this.workspaceFacts(cwd)))
+    for (const facts of workspaces) {
       if (facts.canCreate || facts.primary !== '') {
         primaries.set(facts.primary, facts.cwd)
       }
     }
-    const repos: TopologyRepo[] = []
-    for (const [primary] of primaries) {
+    const repos = await Promise.all([...primaries].map(async ([primary]): Promise<TopologyRepo> => {
       try {
         const bindings = await this.reconciled(primary)
-        const worktrees: TopologyWorktree[] = []
-        for (const row of bindings) {
-          const status = await this.statusOf(primary, row)
-          worktrees.push({
-            slug: row.slug,
-            title: displayTitle(row.name, row.slug),
-            path: row.path,
-            branch: row.branch,
-            baseRef: row.baseRef,
-            status,
-            sessionIds: rowsForSlug(bindings, row.slug)
-              .map((b) => b.sessionId)
-              .filter((id) => id !== ''),
-          })
-        }
-        repos.push({ primary, ok: true, worktrees })
+        const statuses = await Promise.all(bindings.map((row) => this.statusOf(primary, row)))
+        const worktrees: TopologyWorktree[] = bindings.map((row, index) => ({
+          slug: row.slug,
+          title: displayTitle(row.name, row.slug),
+          path: row.path,
+          branch: row.branch,
+          baseRef: row.baseRef,
+          status: statuses[index]!,
+          sessionIds: rowsForSlug(bindings, row.slug)
+            .map((b) => b.sessionId)
+            .filter((id) => id !== ''),
+        }))
+        return { primary, ok: true, worktrees }
       } catch {
-        repos.push({ primary, ok: false, worktrees: [] })
+        return { primary, ok: false, worktrees: [] }
       }
-    }
+    }))
     return { repos, workspaces }
   }
 
@@ -454,18 +451,20 @@ export class WorktreesService {
   }
 
   private async statusOf(primary: string, row: WorktreeBinding): Promise<WorktreeStatus> {
-    const dirtyCount = await this.ports.git.dirtyCount(row.path).catch(() => 0)
-    const ahead = await this.ports.git.aheadCount(row.path, row.baseRef, row.branch).catch(() => 0)
-    const target = await this.ports.git.currentBranch(primary).catch(() => undefined)
+    // Independent git answers run concurrently; only the ancestry probe
+    // waits on the primary's branch name.
+    const [dirtyCount, ahead, target, branchTip, baseTip] = await Promise.all([
+      this.ports.git.dirtyCount(row.path).catch(() => 0),
+      this.ports.git.aheadCount(row.path, row.baseRef, row.branch).catch(() => 0),
+      this.ports.git.currentBranch(primary).catch(() => undefined),
+      this.ports.git.revParse(row.path, row.branch).catch(() => undefined),
+      this.ports.git.revParse(row.path, row.baseRef).catch(() => undefined),
+    ])
     const mergedIntoTarget = target === undefined
       ? false
       : await this.ports.git.isAncestor(primary, row.branch, target).catch(() => false)
     // Fresh-worktree discriminator: tip == base means no unique work yet,
     // never "merged" (see worktreeStatus).
-    const [branchTip, baseTip] = await Promise.all([
-      this.ports.git.revParse(row.path, row.branch).catch(() => undefined),
-      this.ports.git.revParse(row.path, row.baseRef).catch(() => undefined),
-    ])
     const tipEqualsBase = branchTip !== undefined && branchTip === baseTip
     return worktreeStatus({ dirtyCount, aheadCount: ahead, mergedIntoTarget, tipEqualsBase })
   }

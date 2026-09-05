@@ -304,11 +304,7 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
 
     // The row menu: stock rows hide actions on blank sessions, so un-blank
     // the created session first - one recorded turn (the keyless send fails
-    // at API auth but still records) flips the row into a real one. Then
-    // hovering the nested row reveals the stock actions plus the worktree
-    // items; Delete opens the confirm modal, and removing a clean worktree
-    // drops the row, the directory, and the registry binding while the
-    // branch survives (the M1 danger grammar).
+    // at API auth but still records) flips the row into a real one.
     const composer = page.locator('[contenteditable="true"]').first()
     await composer.click({ timeout: 15_000 })
     await composer.fill('hello from worktrees')
@@ -316,9 +312,40 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     const nestedRow = page.locator('[role="treeitem"]').filter({
       has: page.locator(`[data-dshx-worktree="${slug}"]`),
     })
-    await nestedRow.hover()
-    await expect(nestedRow.locator('button').first()).toBeVisible({ timeout: 20_000 })
-    await nestedRow.locator('button').last().click({ force: true })
+    const openRowMenu = async (): Promise<void> => {
+      await nestedRow.hover()
+      await expect(nestedRow.locator('button').first()).toBeVisible({ timeout: 20_000 })
+      await nestedRow.locator('button').last().click({ force: true })
+    }
+
+    // Unique committed work so Merge is a green fast-forward. Refresh
+    // through the row menu (covers the Refresh item) then Merge.
+    const wtDir = join(workspaceA, '.dsh', 'worktrees', slug)
+    writeFileSync(join(wtDir, 'feature.txt'), 'from worktree\n')
+    git(['add', 'feature.txt'], wtDir)
+    git(['commit', '-q', '-m', 'feature'], wtDir)
+    await openRowMenu()
+    await page.getByText('Refresh', { exact: true }).last().click()
+    await expect(page.locator(`[data-dshx-worktree="${slug}"]`))
+      .toHaveAttribute('data-dshx-state', 'ahead', { timeout: 15_000 })
+    await openRowMenu()
+    await page.getByText('Merge…').last().click()
+    const mergeModal = page.locator('[data-dshx-modal="merge"]')
+    await expect(mergeModal).toBeVisible({ timeout: 10_000 })
+    await expect(mergeModal).toContainText('Fast-forward')
+    await page.locator('[data-dshx-button="merge"]').click()
+    await expect(mergeModal).toContainText('Merged into', { timeout: 15_000 })
+    await page.locator('[data-dshx-button="keep"]').click()
+    await expect(mergeModal).toBeHidden({ timeout: 10_000 })
+    expect(() => git(['merge-base', '--is-ancestor', `dsh-worktrees/${slug}`, 'HEAD'])).not.toThrow()
+
+    // Dirty two-step delete: uncommitted file, then Delete demands an
+    // extra confirm (remove -> remove-armed) before the working copy
+    // goes; the branch survives.
+    writeFileSync(join(wtDir, 'dirty.txt'), 'uncommitted\n')
+    await page.evaluate(() => { window.dispatchEvent(new Event('dsh-next-worktrees:refresh')) })
+    await page.waitForTimeout(1500)
+    await openRowMenu()
     const beforeDelete = await page.locator('[role="treeitem"]').count()
     const deleteItem = page.getByText('Delete worktree…').last()
     await expect(deleteItem).toBeVisible({ timeout: 5_000 })
@@ -326,7 +353,8 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     const deleteModal = page.locator('[data-dshx-modal="delete"]')
     await expect(deleteModal).toBeVisible({ timeout: 5_000 })
     await expect(deleteModal).toContainText(`dsh-worktrees/${slug}`)
-    // Clean worktree: armed immediately - one confirm removes it.
+    await expect(deleteModal).toContainText('uncommitted')
+    await page.locator('[data-dshx-button="remove"]').click()
     await page.locator('[data-dshx-button="remove-armed"]').click()
     await expect(deleteModal).toBeHidden({ timeout: 15_000 })
     await expect(page.locator(`[data-dshx-worktree="${slug}"]`)).toHaveCount(0, { timeout: 15_000 })

@@ -30,8 +30,8 @@ a separate workspace.
   automatically (checkout, registry row, and workspace together). A
   worktree with uncommitted changes is never auto-removed.
 - **Guarded merge.** Merge… preflights everything before it can run: a
-  clean main checkout, a fully committed worktree, no running session,
-  and a conflict dry-run (`git merge-tree`, git 2.38+). Any blocker names
+  clean main checkout, a fully committed worktree, and a conflict
+  dry-run (`git merge-tree`, git 2.38+). Any blocker names
   its fix; conflicts and old git fall back to the exact manual command.
   A green merge is a single `git merge --no-edit`; afterwards the modal
   offers to remove the merged worktree. Untracked `.dsh/` sidecar files

@@ -1,19 +1,24 @@
 # dsh-next-worktrees — owned-browser sidebar UX (design spec)
 
 - date: 2026-09-05
-- status: implemented through revision 3; commits to strategy B (full nesting)
+- status: implemented through revision 3; commits to strategy B (full nesting).
+  Next milestone is agent-resolved landing (public 0.1.0), not
+  Foreground/Return — see
+  [dsh-next-worktrees-0.1.md](dsh-next-worktrees-0.1.md).
 - supersedes: the M1 composer Isolated toggle and session-header chip (both
   removed), and revision 1's sidebar-foot popover (dropped — the owned
   browser makes it redundant)
 - companion doc: [dsh-next-worktrees.md](dsh-next-worktrees.md) (product
-  one-pager; milestones and invariants unchanged unless noted here)
+  one-pager). Next milestone:
+  [dsh-next-worktrees-0.1.md](dsh-next-worktrees-0.1.md).
 - decisions locked with the user 2026-09-05: full nesting (B); create modal
   prompts for a worktree name; "you are here" is a persistent selected tint;
   git-branch glyph; nested worktree rows indent one step deeper than the
   repo's own sessions; repo-row worktree button is a quiet icon (no count
   badge); disabled-plugin fallback title is `<repo> / <slug>`; conflict
-  handling is abort-to-manual now with agent-resolved "update from main"
-  as fast-follow; **one session per worktree — every worktree-icon click
+  handling is abort-to-manual now, with agent-resolved "update from
+  main" as the 0.1.0 milestone (not fast-follow — see
+  [dsh-next-worktrees-0.1.md](dsh-next-worktrees-0.1.md)); **one session per worktree — every worktree-icon click
   creates a new worktree session; folder-grammar sub-rows and "new
   session here" dropped permanently**; **full rebuild from scratch — M1
   code and tests deleted** (user decision, superseding the
@@ -134,6 +139,7 @@ Path     <repo>/.dsh/worktrees/swift-01
 Status   dirty, 2 ahead
 ────────────────────────────────────────
 Refresh                                  <- re-run git facts + reconcile
+Update from <branch>…                    <- 0.1.0: merge primary into worktree
 Merge…                                   <- guarded one-click landing (below)
 ────────────────────────────────────────
 Delete worktree…                         <- danger modal: states what survives,
@@ -143,8 +149,9 @@ Delete worktree…                         <- danger modal: states what survives
 Decisions: facts block stays in the menu (hover card keeps glance duty);
 the copy items are gone —
 Merge performs the landing for real, and the copyable-command recipe
-retires to the README as the manual fallback. Reserved between Merge and
-Delete: M2 Foreground / Return.
+retires to the README as the manual fallback. Reserved between Refresh
+and Merge: **Update from `<branch>`…** (0.1.0 agent-resolved landing).
+Foreground/Return is parked.
 
 #### The Merge action (guarded one-click landing)
 
@@ -338,12 +345,17 @@ development than salvaged plumbing.
 - Keeping any composer entry (toggle or send-interception) — decided
   against; creation is a sidebar action.
 - Rewriting the host engine — kept deliberately; see the table above.
-- Delivery-state badges, foreground/return — M2, riding the same
-  projection and row menu, reserved but not built.
-- Settings registry card — remains M3.
+- Delivery-state badges, foreground/return — parked (2026-09-05). The
+  reserved row-menu slot between Refresh and Merge is now
+  **Update from `<branch>`…** (agent-resolved landing). Foreground stays
+  off the 0.1.0 board; see
+  [dsh-next-worktrees-0.1.md](dsh-next-worktrees-0.1.md).
+- Settings registry card — remains later (was M3).
 
 ## Open questions
 
-None remaining — every fork is decided (see the decisions line in the
-header). Next step is the probe list under "Hidden assumptions to
-validate", then implementation.
+Owned-browser forks are decided (see the decisions line in the header).
+Next product milestone is [dsh-next-worktrees-0.1.md](dsh-next-worktrees-0.1.md)
+(agent-resolved landing, then un-private). The remaining open questions
+live there (session-message seam, mid-merge Abort/Continue, un-private
+PR shape).

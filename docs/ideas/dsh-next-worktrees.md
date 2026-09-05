@@ -1,17 +1,23 @@
 # dsh-next-worktrees (idea one-pager)
 
 - date: 2026-09-04
-- status: refined concept, pre-implementation; M0 probes passed 2026-09-04
-  (see docs/archive/2026-09-04-worktrees-m0-probe.md)
+- status: isolate + nested sidebar + guarded merge shipped (2026-09-05);
+  next milestone is agent-resolved landing, then public 0.1.0 — see
+  [dsh-next-worktrees-0.1.md](dsh-next-worktrees-0.1.md). M0 probes passed
+  2026-09-04 (docs/archive/2026-09-04-worktrees-m0-probe.md).
 - name: `dsh-next-worktrees` (no `git-` qualifier; discovery via package.json
   keywords: git, worktree, git-worktree, worktrees, deepseek-harness, dsh,
   plugin)
 - product: one-sentence pitch — "Run parallel DSH agents on one repo without
-  collisions; shuttle the winner's branch into your checkout in one click."
+  collisions; land the winner with one-click merge (agent-resolved when it
+  conflicts)."
 - ux pivot (2026-09-05): the composer toggle and header chip are replaced by
   a sidebar-first surface; see
   [dsh-next-worktrees-sidebar-ux.md](dsh-next-worktrees-sidebar-ux.md) —
-  the design spec that owns the current UI plan.
+  the design spec that owns the current UI.
+- v1 pivot (2026-09-05): Foreground/Return (old M2) is parked. Public 0.1.0
+  is isolate → run → conflict-complete merge → cleanup, not the Cursor
+  shuttle. Contract in the 0.1 one-pager.
 
 ## Problem Statement
 
@@ -132,9 +138,10 @@ Then:
 
 M1 done: two isolated sessions run on one repo without colliding.
 
-v1 ship: a user completes one full unaided loop — spawn two isolated
-sessions, run concurrently, foreground one (lands in the main-checkout
-session), return it, land via plain git, clean up.
+v1 ship (superseded 2026-09-05): a user completes one full unaided loop —
+spawn two isolated sessions, run concurrently, land via guarded Merge
+(agent-resolved update-from-main on conflict), clean up. Foreground/Return
+is parked; see [dsh-next-worktrees-0.1.md](dsh-next-worktrees-0.1.md).
 
 Do not promise the family mount smoke drives that loop.
 `tests/e2e/mount.e2e.ts` asserts the Isolated toggle and the header chip
@@ -156,14 +163,10 @@ Milestones (each independently shippable, ordered by the loop):
   count, status dot: clean/dirty/foregrounded/error) with dropdown
   (worktree facts, sibling list with running/idle dots, "new session here"
   gated on idle, remove with danger grammar stating what survives).
-- M2 — Shuttle: foreground and return with shared preflight guards (clean
-  main, committed worktree, **idle session as a blocker** — never shuttle a
-  running agent onto detached HEAD). True one-click when green: `git
-  switch` on the main checkout **and** focus or create the session whose
-  cwd is that checkout. Return is the inverse, on the worktree chip and on
-  the main session's passive affordance. Blocker-only modals naming the
-  fix, chip spinner during operations, toast via `shell.overlay`, "copy
-  merge command" on the chip.
+- M2 — Shuttle: **parked 2026-09-05.** Replaced as the next milestone by
+  agent-resolved landing (update-from-main, then Merge is a fast-forward).
+  Foreground/Return stays a fast-follow if live use produces a pull.
+  Contract: [dsh-next-worktrees-0.1.md](dsh-next-worktrees-0.1.md).
 - M3 — Hygiene + management: silent startup sweep that removes only
   plugin-marked, fast-forward-merged, clean worktrees (squash-merge will
   not look merged; user-initiated remove is the real hygiene — do not

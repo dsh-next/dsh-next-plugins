@@ -91,7 +91,7 @@ export interface GitPorts {
   }): Promise<void>
   /** Porcelain line count at a directory (0 = clean). */
   dirtyCount(cwd: string): Promise<number>
-  /** `rev-list --count <base>..<branch>`; 0 when the range is empty. */
+  /** `rev-list --count <base>..<branch>` at cwd (the primary, so symbolic bases resolve); 0 when the range is empty. */
   aheadCount(cwd: string, base: string, branch: string): Promise<number>
   /** Whether `merge-base --is-ancestor a b` holds. */
   isAncestor(cwd: string, a: string, b: string): Promise<boolean>
@@ -227,7 +227,14 @@ export class GitRunner implements GitPorts {
 
   async dirtyCount(cwd: string): Promise<number> {
     const result = await this.run(['status', '--porcelain'], cwd)
-    const lines = result.stdout.split('\n').filter((line) => line.trim() !== '')
+    const lines = result.stdout.split('\n').filter((line) => {
+      if (line.trim() === '') return false
+      // Porcelain is "XY <path>". The plugin's own sidecar (.dsh/) must
+      // not count as dirt: it is created by worktree add and would
+      // otherwise block every merge in a repo that does not gitignore it.
+      const path = line.slice(3).replace(/\\/g, '/')
+      return path !== '.dsh' && !path.startsWith('.dsh/')
+    })
     return lines.length
   }
 

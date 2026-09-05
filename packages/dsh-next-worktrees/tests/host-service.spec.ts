@@ -82,7 +82,9 @@ class FakeGit implements GitPorts {
     return this.dirtyCounts.get(cwd) ?? 0
   }
 
-  async aheadCount(_cwd: string, base: string, branch: string): Promise<number> {
+  lastAheadCwd: string | undefined
+  async aheadCount(cwd: string, base: string, branch: string): Promise<number> {
+    this.lastAheadCwd = cwd
     return this.aheadCounts.get(`${base}..${branch}`) ?? 0
   }
 
@@ -120,6 +122,7 @@ class FakeGit implements GitPorts {
 class MemoryStore implements RegistryStorePorts {
   files = new Map<string, RegistryFile>()
   replaceCount = 0
+  throwOnMutate: Error | undefined
 
   async load(primary: string): Promise<RegistryFile> {
     return this.files.get(primary) ?? EMPTY_REGISTRY
@@ -130,6 +133,7 @@ class MemoryStore implements RegistryStorePorts {
     _path: string,
     fn: (rows: readonly WorktreeBinding[]) => readonly WorktreeBinding[] | Promise<readonly WorktreeBinding[]>,
   ): Promise<readonly WorktreeBinding[]> {
+    if (this.throwOnMutate !== undefined) throw this.throwOnMutate
     const current = await this.load(primary)
     const rows = await fn(current.bindings)
     this.files.set(primary, { version: 1, bindings: rows })
@@ -304,6 +308,18 @@ describe('create', () => {
     await expect(h.service.create({ cwd: PRIMARY })).rejects.toMatchObject({ code: 'branch-exists' })
   })
 
+  it('removes the git worktree when the registry write fails after add', async () => {
+    const h = harness()
+    h.store.throwOnMutate = new Error('disk full')
+    await expect(h.service.create({ cwd: PRIMARY })).rejects.toThrow('disk full')
+    expect(h.git.addCalls).toHaveLength(1)
+    expect(h.git.removeCalls).toEqual([{
+      primary: PRIMARY,
+      path: h.git.addCalls[0]!.path,
+      force: true,
+    }])
+  })
+
   it('copies .worktreeinclude entries into the fresh worktree', async () => {
     const h = harness()
     h.git.rawResults.set('show HEAD:.worktreeinclude', {
@@ -359,6 +375,25 @@ describe('bind', () => {
     const h = harness()
     await expect(h.service.bind('ghost')).rejects.toMatchObject({ code: 'unknown-session' })
   })
+
+  it('surfaces a sandbox-knob refusal', async () => {
+    const git = new FakeGit()
+    git.placements.set(PRIMARY, placement())
+    git.existingRefs.add('HEAD')
+    const store = new MemoryStore()
+    const sessionCwds = new Map<string, string | null>()
+    const service = new WorktreesService({
+      git,
+      store,
+      getSessionCwd: (id) => sessionCwds.get(id) ?? null,
+      applySandboxMode: () => false,
+      copyFile: async () => {},
+    })
+    const h = { service, git, store, sessionCwds, knobWrites: [], copies: [] }
+    const binding = seedWorktree(h)
+    sessionCwds.set('session-a', binding.path)
+    await expect(service.bind('session-a')).rejects.toMatchObject({ code: 'sandbox-refused' })
+  })
 })
 
 describe('status', () => {
@@ -378,6 +413,7 @@ describe('status', () => {
       baseRef: 'origin/HEAD',
       status: { clean: false, dirty: true, ahead: 3, merged: true },
     })
+    expect(h.git.lastAheadCwd).toBe(PRIMARY)
   })
 
   it('never reports merged for a fresh worktree whose tip equals the base', async () => {

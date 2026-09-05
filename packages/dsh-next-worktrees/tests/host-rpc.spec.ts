@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, type Mock } from 'vitest'
-import { createHandlers } from '../src/host/rpc.ts'
+import type { Context } from '@deepseek-ai/cordis'
+import { createHandlers, registerRpc, RPC_PATH } from '../src/host/rpc.ts'
 import { WorktreesService } from '../src/host/service.ts'
 
 /**
@@ -83,5 +84,31 @@ describe('createHandlers', () => {
     const handlers = createHandlers(serviceWith({}))
     await expect(handlers.preflight!(null)).rejects.toMatchObject({ code: 'bad-request' })
     await expect(handlers.preflight!('string')).rejects.toMatchObject({ code: 'bad-request' })
+  })
+})
+
+describe('registerRpc', () => {
+  it('registers the route inside ctx.effect so dispose unregisters', () => {
+    const off = vi.fn()
+    const register = vi.fn().mockReturnValue(off)
+    const effect = vi.fn((setup: () => unknown) => setup())
+    const ctx = {
+      get: (name: string) => name === 'webServer' ? { register } : undefined,
+      effect,
+    }
+    registerRpc(ctx as unknown as Context, serviceWith({}))
+    expect(register).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'exact',
+      path: RPC_PATH,
+    }))
+    expect(effect).toHaveBeenCalledTimes(1)
+    const setup = effect.mock.calls[0]![0] as () => unknown
+    expect(setup()).toBe(off)
+  })
+
+  it('is a no-op when webServer is missing', () => {
+    const effect = vi.fn()
+    registerRpc({ get: () => undefined, effect } as unknown as Context, serviceWith({}))
+    expect(effect).not.toHaveBeenCalled()
   })
 })

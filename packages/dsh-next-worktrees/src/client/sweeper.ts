@@ -21,11 +21,17 @@
  * - never sweeps on an unloaded session store (empty knowledge must
  *   not read as "all blank");
  * - a dirty worktree refuses removal (uncommitted work is never
- *   destroyed); its workspace is kept too so it stays addressable.
+ *   destroyed); its workspace is kept too so it stays addressable;
+ * - overlapping sweeps are skipped (a later topology pull retries).
  */
+import { WorktreesRpcError } from './rpc.ts'
 
 /** Marker every plugin-created worktree workspace carries in its path. */
 const WORKTREES_MARKER = '/.dsh/worktrees/'
+
+function toPosix(path: string): string {
+  return path.split('\\').join('/')
+}
 
 /** Session facts the sweep needs. */
 export interface SweepSessionLike {
@@ -62,14 +68,27 @@ export interface SweepDeps {
 }
 
 let deps: SweepDeps | undefined
+let running = false
 
 /** Install (or clear) the sweep faces; called by the entry. */
 export function configureWorktreeSweeper(next: SweepDeps | undefined): void {
   deps = next
+  if (next === undefined) running = false
 }
 
-/** Whether an error is the dirty-refusal from the remove RPC. */
-function isDirtyRefusal(error: unknown): boolean {
+/**
+ * Whether an error is the dirty-refusal from the remove RPC.
+ *
+ * Production throws WorktreesRpcError with code `dirty-remove-refused`
+ * and a human message that does NOT contain that token. Matching the
+ * message alone (the previous implementation) archived the session and
+ * deleted the workspace while leaving the dirty checkout on disk.
+ */
+export function isDirtyRefusal(error: unknown): boolean {
+  if (error instanceof WorktreesRpcError) return error.code === 'dirty-remove-refused'
+  if (typeof error === 'object' && error !== null && 'code' in error) {
+    return (error as { code: unknown }).code === 'dirty-remove-refused'
+  }
   return error instanceof Error && /dirty-remove-refused/.test(error.message)
 }
 
@@ -84,30 +103,37 @@ function isDirtyRefusal(error: unknown): boolean {
  */
 export async function sweepAbandonedWorktrees(snapshot: SweepSnapshot): Promise<readonly string[]> {
   if (deps === undefined) return []
+  if (running) return []
   if (snapshot.creating) return []
   if (Object.keys(snapshot.sessionsById).length === 0) return []
-  const swept: string[] = []
-  for (const workspace of snapshot.workspaces) {
-    const markerAt = workspace.path.lastIndexOf(WORKTREES_MARKER)
-    if (markerAt < 0) continue
-    const sessions = workspace.sessionIds.map((id) => snapshot.sessionsById[id])
-    if (sessions.some((session) => session !== undefined && !session.blank)) continue
-    if (workspace.sessionIds.includes(snapshot.currentSessionId ?? '\u0000')) continue
-    const primary = workspace.path.slice(0, markerAt)
-    const slug = workspace.path.slice(markerAt + WORKTREES_MARKER.length)
-    if (slug === '' || slug.includes('/')) continue
-    try {
-      await deps.removeWorktree({ cwd: primary, slug })
-    } catch (error) {
-      if (isDirtyRefusal(error)) continue // uncommitted work: keep it all
-      // unknown-slug and friends: the git side is already gone; still
-      // drop the leftover workspace below.
+  running = true
+  try {
+    const swept: string[] = []
+    for (const workspace of snapshot.workspaces) {
+      const posixPath = toPosix(workspace.path)
+      const markerAt = posixPath.lastIndexOf(WORKTREES_MARKER)
+      if (markerAt < 0) continue
+      const sessions = workspace.sessionIds.map((id) => snapshot.sessionsById[id])
+      if (sessions.some((session) => session !== undefined && !session.blank)) continue
+      if (workspace.sessionIds.includes(snapshot.currentSessionId ?? '\u0000')) continue
+      const primary = posixPath.slice(0, markerAt)
+      const slug = posixPath.slice(markerAt + WORKTREES_MARKER.length)
+      if (slug === '' || slug.includes('/')) continue
+      try {
+        await deps.removeWorktree({ cwd: primary, slug })
+      } catch (error) {
+        if (isDirtyRefusal(error)) continue // uncommitted work: keep it all
+        // unknown-slug and friends: the git side is already gone; still
+        // drop the leftover workspace below.
+      }
+      for (const sessionId of workspace.sessionIds) {
+        await deps.archiveSession(sessionId).catch(() => {})
+      }
+      await deps.deleteWorkspace(workspace.workspaceId).catch(() => {})
+      swept.push(slug)
     }
-    for (const sessionId of workspace.sessionIds) {
-      await deps.archiveSession(sessionId).catch(() => {})
-    }
-    await deps.deleteWorkspace(workspace.workspaceId).catch(() => {})
-    swept.push(slug)
+    return swept
+  } finally {
+    running = false
   }
-  return swept
 }

@@ -121,7 +121,7 @@ export function registerRpc(ctx: Context, service: WorktreesService): void {
   const server = ctx.get('webServer') as WebServerLike | undefined
   if (server === undefined || typeof server.register !== 'function') return
   const handlers = createHandlers(service)
-  server.register({
+  const off = server.register({
     kind: 'exact',
     path: RPC_PATH,
     handler: (req, res) => {
@@ -172,4 +172,8 @@ export function registerRpc(ctx: Context, service: WorktreesService): void {
       })
     },
   })
+  if (typeof off === 'function') {
+    const dispose = off as () => void
+    ctx.effect(() => dispose)
+  }
 }

@@ -107,7 +107,7 @@ export interface WorkspaceFacts {
   readonly cwd: string
   /** The repo primary this cwd belongs to ('' when not a repository). */
   readonly primary: string
-  /** Whether the worktree button may open the create modal here. */
+  /** Whether the worktree button renders on this repo row. */
   readonly canCreate: boolean
   /** Machine reason when canCreate is false. */
   readonly reason?: 'not-a-repository' | 'bare-or-unknown-layout' | 'already-in-worktree' | 'git-unavailable' | 'no-commits'
@@ -211,20 +211,31 @@ export class WorktreesService {
       branch,
       baseRef,
     }).catch(fromGit)
-    await this.ports.store.mutate(placement.primary, registryPath, (rows) => [
-      ...rows,
-      {
-        sessionId: '',
-        slug,
-        name,
+    try {
+      await this.ports.store.mutate(placement.primary, registryPath, (rows) => [
+        ...rows,
+        {
+          sessionId: '',
+          slug,
+          name,
+          path,
+          branch,
+          baseRef,
+          relPath: placement.relPath,
+          role: 'owner' as const,
+          createdAt: Date.now(),
+        },
+      ])
+    } catch (error) {
+      // Registry write failed after git created the worktree: drop the
+      // checkout so we never leave an untracked tree on disk.
+      await this.ports.git.removeWorktree({
+        primary: placement.primary,
         path,
-        branch,
-        baseRef,
-        relPath: placement.relPath,
-        role: 'owner' as const,
-        createdAt: Date.now(),
-      },
-    ])
+        force: true,
+      }).catch(() => {})
+      throw error
+    }
     await this.copyWorktreeInclude(placement.primary, placement.relPath, path)
     return { slug, name, title: displayTitle(name, slug), path, branch, baseRef, relPath: placement.relPath }
   }
@@ -282,7 +293,13 @@ export class WorktreesService {
       await this.ports.store.mutate(placement.primary, registryPath, (rows) =>
         rows.map((b) => b.path === row.path ? { ...b, sessionId } : b))
     }
-    this.ports.applySandboxMode(sessionId, 'danger-full-access')
+    if (!this.ports.applySandboxMode(sessionId, 'danger-full-access')) {
+      throw new WorktreeFlowError(
+        'sandbox-refused',
+        'could not grant the session danger-full-access',
+        'retry bind after the session is ready',
+      )
+    }
     return { slug: row.slug, title: displayTitle(row.name, row.slug), path: row.path }
   }
 
@@ -417,7 +434,7 @@ export class WorktreesService {
       ? await this.ports.git.isAncestor(placement.primary, target, row!.branch)
       : false
     const aheadCount = slugKnown
-      ? await this.ports.git.aheadCount(row!.path, row!.baseRef, row!.branch)
+      ? await this.ports.git.aheadCount(placement.primary, row!.baseRef, row!.branch)
       : 0
     const verdict = mergeVerdict({
       slugKnown, gitModern, primaryClean, worktreeClean, targetBranch: target,
@@ -455,7 +472,9 @@ export class WorktreesService {
     // waits on the primary's branch name.
     const [dirtyCount, ahead, target, branchTip, baseTip] = await Promise.all([
       this.ports.git.dirtyCount(row.path).catch(() => 0),
-      this.ports.git.aheadCount(row.path, row.baseRef, row.branch).catch(() => 0),
+      // Count from the primary so a stored symbolic base (HEAD, origin/HEAD)
+      // resolves there, not inside the worktree where HEAD *is* the branch.
+      this.ports.git.aheadCount(primary, row.baseRef, row.branch).catch(() => 0),
       this.ports.git.currentBranch(primary).catch(() => undefined),
       this.ports.git.revParse(row.path, row.branch).catch(() => undefined),
       this.ports.git.revParse(row.path, row.baseRef).catch(() => undefined),

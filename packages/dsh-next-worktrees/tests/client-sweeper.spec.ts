@@ -1,6 +1,8 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
+import { WorktreesRpcError } from '../src/client/rpc.ts'
 import {
   configureWorktreeSweeper,
+  isDirtyRefusal,
   sweepAbandonedWorktrees,
   type SweepDeps,
 } from '../src/client/sweeper.ts'
@@ -119,8 +121,11 @@ describe('sweepAbandonedWorktrees', () => {
   })
 
   it('a dirty worktree refuses removal and keeps everything', async () => {
+    // Production shape: code on .code, human message without the token.
     const d = deps({
-      removeWorktree: vi.fn().mockRejectedValue(new Error('dirty-remove-refused: dirty')),
+      removeWorktree: vi.fn().mockRejectedValue(
+        new WorktreesRpcError('dirty-remove-refused', 'worktree has uncommitted changes'),
+      ),
     })
     configureWorktreeSweeper(d)
     const swept = await sweepAbandonedWorktrees({
@@ -164,6 +169,46 @@ describe('sweepAbandonedWorktrees', () => {
     })
     expect(swept).toEqual([])
     expect(d.removeWorktree).not.toHaveBeenCalled()
+  })
+
+  it('matches dirty refusal on the machine code, not the message', () => {
+    expect(isDirtyRefusal(new WorktreesRpcError('dirty-remove-refused', 'worktree has uncommitted changes'))).toBe(true)
+    expect(isDirtyRefusal(new WorktreesRpcError('unknown-slug', 'no worktree bound'))).toBe(false)
+    expect(isDirtyRefusal(new Error('worktree has uncommitted changes'))).toBe(false)
+    expect(isDirtyRefusal(new Error('dirty-remove-refused: dirty'))).toBe(true)
+  })
+
+  it('skips an overlapping sweep rather than running two at once', async () => {
+    let release: () => void = () => {}
+    const d = deps({
+      removeWorktree: vi.fn().mockReturnValue(new Promise<void>((resolve) => { release = resolve })),
+    })
+    configureWorktreeSweeper(d)
+    const snapshot = {
+      workspaces: [ws({ sessionIds: ['blank-1'] })],
+      sessionsById: blankStore(['blank-1']),
+      currentSessionId: 'other',
+      creating: false,
+    }
+    const first = sweepAbandonedWorktrees(snapshot)
+    const second = await sweepAbandonedWorktrees(snapshot)
+    expect(second).toEqual([])
+    expect(d.removeWorktree).toHaveBeenCalledTimes(1)
+    release()
+    await first
+  })
+
+  it('treats windows separators as the worktrees marker', async () => {
+    const d = deps()
+    configureWorktreeSweeper(d)
+    const swept = await sweepAbandonedWorktrees({
+      workspaces: [ws({ path: `${PRIMARY}\\.dsh\\worktrees\\swift-01`, sessionIds: ['blank-1'] })],
+      sessionsById: blankStore(['blank-1']),
+      currentSessionId: 'other',
+      creating: false,
+    })
+    expect(swept).toEqual(['swift-01'])
+    expect(d.removeWorktree).toHaveBeenCalledWith({ cwd: PRIMARY, slug: 'swift-01' })
   })
 
   it('is a no-op without configured deps', async () => {

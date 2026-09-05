@@ -17,6 +17,9 @@ export const WORKTREE_STYLES = `
   gap: 4px;
   min-width: 0;
   flex: none;
+  /* Read as a leading glyph of the session title, not a separate chip:
+     pull back over the official row's flex gap. */
+  margin-right: -14px;
   color: var(--dsw-alias-label-secondary);
   font-size: 12px;
   line-height: 18px;

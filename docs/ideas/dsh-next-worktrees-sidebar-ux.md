@@ -248,6 +248,18 @@ The create modal is gone and the row's status moved from text to color:
 - **Text is gone from the row.** No worktree title, no status words, no
   "merged" badge — the ahead count is the only number. Identity and
   details live in the hover card.
+- **Host-truth cleanup on remove.** Deleting a worktree also archives
+  its sessions and deletes its host workspace (the stock `archiveSession`
+  + `workspace.delete` service calls, the same ones the official
+  browser's own delete drives). Without this, the worktree's registered
+  workspace lingered as a regular sidebar folder once the topology
+  stopped listing it. Applies to both the delete modal and the
+  merge-done cleanup.
+- **Structural hiding.** The projection hides any workspace whose path
+  sits under `/.dsh/worktrees/` by path marker alone — no topology
+  answer required — so a freshly created worktree never flashes as (or
+  lingers as) a separate workspace folder; the topology pull only
+  enriches rows with the identity decoration.
 - **Hover card extension.** The stock session hover card gains three
   localized fact lines (title, branch, status) injected through the
   `worktreeFacts` bridge method; the identity span's native `title`

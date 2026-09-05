@@ -56,6 +56,30 @@ import, so no new externals were needed.
 - The official `SessionHoverContent` is a stable seam site: its
   `!node.blank && hoverTime` block is unique in the gated source.
 
+## Follow-up: removal leaves host-truth orphans (same day)
+
+Live testing found two consequences of the host registry holding a real
+workspace per worktree:
+
+1. **Delete left the workspace behind.** After `remove`, the topology
+   stopped listing the worktree, the projection un-hid its workspace,
+   and it rendered as a regular workspace folder. Fix: the delete modal
+   and the merge-done cleanup now archive the worktree's sessions and
+   delete its workspace through the stock service face
+   (`workspaces.archiveSession` / `workspaces.delete` — the exact calls
+   the official browser's own delete drives) after the git removal
+   succeeds. Note the method is `delete`, not `remove`; a first pass
+   using `remove` failed silently at runtime.
+2. **Create could flash a separate folder.** Hiding depended on the
+   topology pull listing the new worktree; on a miss the worktree
+   workspace stayed visible. Fix: the projection now hides by the
+   `/.dsh/worktrees/` path marker alone (structural rule) and uses the
+   topology only to enrich rows with the identity decoration.
+
+The decorations now carry `workspaceId` + `sessionIds` for the cleanup;
+the e2e marker asserts the sidebar treeitem count drops by exactly the
+worktree row across delete (no lingering folder).
+
 ## Validation
 
 `mise run ci` green (117 worktrees tests; new cases: fresh-worktree status

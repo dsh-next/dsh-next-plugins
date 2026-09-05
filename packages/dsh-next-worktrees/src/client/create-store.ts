@@ -1,20 +1,14 @@
 /**
- * External store for the create modal (and the shared modal surface the
- * merge/delete flows will join). React 18's useSyncExternalStore consumes
- * it; non-React callers (the bridge) drive it directly.
+ * External store for the merge/delete modals and the auto-named create
+ * flow. React 18's useSyncExternalStore consumes it; non-React callers
+ * (the bridge) drive it directly.
+ *
+ * Create has no modal (decision: docs/ideas/dsh-next-worktrees-sidebar-ux.md
+ * rev 3): clicking the repo-row button creates the worktree immediately
+ * with the host-suggested name; `creating` only guards re-entry.
  */
 
-export interface CreateModalState {
-  readonly open: boolean
-  readonly repoPath: string
-  readonly repoLabel: string
-  readonly suggestion: string
-  readonly name: string
-  readonly busy: boolean
-  readonly error?: string
-}
-
-export type ModalKind = 'closed' | 'create' | 'merge' | 'delete'
+export type ModalKind = 'closed' | 'merge' | 'delete'
 
 /** Facts a worktree modal needs, carried from the row decoration. */
 export interface WorktreeModalTarget {
@@ -39,7 +33,8 @@ export interface MergePreflightFacts {
 
 export interface ModalState {
   readonly kind: ModalKind
-  readonly create: CreateModalState
+  /** True while the auto-named create flow is in flight. */
+  readonly creating: boolean
   readonly merge?: {
     readonly target: WorktreeModalTarget
     readonly preflight?: MergePreflightFacts
@@ -55,16 +50,7 @@ export interface ModalState {
   }
 }
 
-const CLOSED_CREATE: CreateModalState = {
-  open: false,
-  repoPath: '',
-  repoLabel: '',
-  suggestion: '',
-  name: '',
-  busy: false,
-}
-
-const INITIAL: ModalState = { kind: 'closed', create: CLOSED_CREATE }
+const INITIAL: ModalState = { kind: 'closed', creating: false }
 
 type Listener = () => void
 
@@ -91,37 +77,18 @@ export function modalState(): ModalState {
   return state
 }
 
-/** Open the create modal for a repo row. */
-export function openCreate(repoPath: string, repoLabel: string, suggestion: string): void {
-  set({
-    kind: 'create',
-    create: {
-      open: true,
-      repoPath,
-      repoLabel,
-      suggestion,
-      name: suggestion,
-      busy: false,
-      error: undefined,
-    },
-    merge: undefined,
-    delete: undefined,
-  })
-}
-
 /** Close whatever modal is open (Escape, mask click, cancel). */
 export function closeModal(): void {
-  if (state.create.busy) return
   if (state.merge !== undefined && state.merge.busy) return
   if (state.delete !== undefined && state.delete.busy) return
-  set({ kind: 'closed', create: CLOSED_CREATE })
+  set({ ...INITIAL, creating: state.creating })
 }
 
 /** Open the merge modal and pull its preflight. */
 export function openMerge(target: WorktreeModalTarget, rpc: (m: string, a?: unknown) => Promise<unknown>): void {
   set({
     kind: 'merge',
-    create: CLOSED_CREATE,
+    creating: state.creating,
     merge: { target, busy: true },
     delete: undefined,
   })
@@ -173,7 +140,7 @@ export function cleanupMerged(rpc: (m: string, a?: unknown) => Promise<unknown>)
   const target = state.merge.target
   set({ ...state, merge: { ...state.merge, busy: true, error: undefined } })
   return rpc('remove', { cwd: target.path, slug: target.slug, force: false })
-    .then(() => { set({ kind: 'closed', create: CLOSED_CREATE }) })
+    .then(() => { set(INITIAL) })
     .catch((error: unknown) => {
       if (state.kind !== 'merge' || state.merge === undefined) return
       set({
@@ -191,7 +158,7 @@ export function cleanupMerged(rpc: (m: string, a?: unknown) => Promise<unknown>)
 export function openDelete(target: WorktreeModalTarget): void {
   set({
     kind: 'delete',
-    create: CLOSED_CREATE,
+    creating: state.creating,
     merge: undefined,
     delete: { target, busy: false, armed: !target.dirty },
   })
@@ -209,7 +176,7 @@ export function executeDelete(rpc: (m: string, a?: unknown) => Promise<unknown>)
   const target = state.delete.target
   set({ ...state, delete: { ...state.delete, busy: true, error: undefined } })
   return rpc('remove', { cwd: target.path, slug: target.slug, force: target.dirty })
-    .then(() => { set({ kind: 'closed', create: CLOSED_CREATE }) })
+    .then(() => { set(INITIAL) })
     .catch((error: unknown) => {
       if (state.kind !== 'delete' || state.delete === undefined) return
       set({
@@ -223,16 +190,9 @@ export function executeDelete(rpc: (m: string, a?: unknown) => Promise<unknown>)
     })
 }
 
-/** Edit the name field. */
-export function setCreateName(name: string): void {
-  if (state.kind !== 'create') return
-  set({ ...state, create: { ...state.create, name } })
-}
-
-/** Mark the create flow busy (submit in flight). */
-export function setCreateBusy(busy: boolean, error?: string): void {
-  if (state.kind !== 'create') return
-  set({ ...state, create: { ...state.create, busy, error } })
+/** Mark the create flow in/out of flight (re-entry guard). */
+function setCreating(creating: boolean): void {
+  set({ ...state, creating })
 }
 
 /** Reset for tests. */
@@ -241,28 +201,29 @@ export function resetModalStore(): void {
 }
 
 /**
- * The full create flow, driven from the modal's confirm button.
+ * The auto-named create flow, driven straight from the repo-row button.
  *
- * Order matters: the worktree exists before the workspace is registered
- * (the workspace path must resolve), the session exists before the bind
- * (the bind claims the row for the session), and the open comes last so
- * the user lands in the bound session.
+ * No modal (rev 3 decision): the name is omitted so the host applies its
+ * own suggestion. Order matters: the worktree exists before the workspace
+ * is registered (the workspace path must resolve), the session exists
+ * before the bind (the bind claims the row for the session), and the open
+ * comes last so the user lands in the bound session.
  *
- * @param input - the current modal state plus the service/RPC faces.
+ * @param input - the repo cwd plus the service/RPC faces.
  */
 export async function runCreateFlow(input: {
-  readonly state: CreateModalState
+  readonly cwd: string
   readonly rpc: (method: string, args?: unknown) => Promise<unknown>
   readonly workspaces: { create(a: { path: string }): Promise<{ workspaceId: string }> }
   readonly sessions: { create(a: { workspaceId: string }): Promise<string>; open(id: string): void }
   readonly onTopologyRefresh: () => void
 }): Promise<void> {
-  const { state: modal, rpc, workspaces, sessions, onTopologyRefresh } = input
-  setCreateBusy(true)
+  const { cwd, rpc, workspaces, sessions, onTopologyRefresh } = input
+  if (state.creating) return
+  setCreating(true)
   try {
     const created = await rpc('create', {
-      cwd: modal.repoPath,
-      name: modal.name === modal.suggestion ? undefined : modal.name,
+      cwd,
     }) as {
       slug: string
       path: string
@@ -275,9 +236,10 @@ export async function runCreateFlow(input: {
     const sessionId = await sessions.create({ workspaceId: workspace.workspaceId })
     await rpc('bind', { sessionId })
     sessions.open(sessionId)
-    set({ kind: 'closed', create: CLOSED_CREATE })
+    set(INITIAL)
     onTopologyRefresh()
   } catch (error) {
-    setCreateBusy(false, error instanceof Error ? error.message : String(error))
+    setCreating(false)
+    throw error
   }
 }

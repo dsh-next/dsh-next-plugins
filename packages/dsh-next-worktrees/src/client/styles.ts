@@ -3,7 +3,9 @@
  * decorations. The official rows use CSS Modules we cannot reach; our
  * injected markup carries the `dshx-` class names styled here. Tokens
  * only (docs/i18n.md of design: --dsw-* are the only colors we may
- * name); monochrome for Phase 2 — state colors arrive with the row menu.
+ * name). The worktree icon IS the status surface (rev 3): green merged,
+ * amber dirty, blue ahead, neutral clean — first match wins, computed in
+ * the seam and carried by `data-dshx-state`.
  */
 export const WORKTREE_STYLES = `
 .dshx-sessionRow--worktree {
@@ -23,19 +25,21 @@ export const WORKTREE_STYLES = `
   flex: none;
   color: var(--dsw-alias-label-tertiary);
 }
-.dshx-worktree-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 160px;
+.dshx-worktree-identity[data-dshx-state='merged'] svg {
+  color: var(--dsw-alias-state-success-primary);
 }
-.dshx-worktree-status {
+.dshx-worktree-identity[data-dshx-state='dirty'] svg {
+  color: var(--dsw-alias-state-warn-primary);
+}
+.dshx-worktree-identity[data-dshx-state='ahead'] svg {
+  color: var(--dsw-alias-state-business-primary);
+}
+.dshx-worktree-ahead {
   flex: none;
-  color: var(--dsw-alias-label-caption);
-}
-.dshx-worktree-status[data-state='ahead'],
-.dshx-worktree-status[data-state='dirty'] {
-  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-state-business-primary);
+  font-variant-numeric: tabular-nums;
 }
 .dshx-mask {
   position: fixed;

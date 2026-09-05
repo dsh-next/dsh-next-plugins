@@ -27,10 +27,12 @@ export interface WorktreesBridge {
   canCreate(cwd: string | undefined): boolean
   /** Localized aria label for the create button. */
   createLabel(repoLabel: string): string
-  /** The create button was clicked: open the create modal. */
+  /** The create button was clicked: start the auto-named create flow. */
   requestCreate(cwd: string, repoLabel: string): void
   /** Localized label for a menu item key. */
   menuLabel(key: string): string
+  /** Localized hover-card fact lines for one worktree row. */
+  worktreeFacts(decoration: MenuDecoration): readonly string[]
   /** A worktree menu action fired on a session row. */
   requestMenu(action: string, decoration: MenuDecoration, sessionId: string): void
 }
@@ -54,6 +56,7 @@ export function installBridge(handlers: {
   createLabel(repoLabel: string): string
   requestCreate(cwd: string, repoLabel: string): void
   menuLabel(key: string): string
+  worktreeFacts(decoration: MenuDecoration): readonly string[]
   requestMenu(action: string, decoration: MenuDecoration, sessionId: string): void
 }): () => void {
   window.__dshNextWorktreesBridge = {
@@ -61,6 +64,7 @@ export function installBridge(handlers: {
     createLabel: handlers.createLabel,
     requestCreate: handlers.requestCreate,
     menuLabel: handlers.menuLabel,
+    worktreeFacts: handlers.worktreeFacts,
     requestMenu: handlers.requestMenu,
   }
   return () => {

@@ -12,8 +12,8 @@
  * from the official source unchanged.
  *
  * The entry also owns the plugin's own surfaces: the locale dictionaries,
- * the derived-browser bridge (repo-row create button), and the body-level
- * modal root (create modal; merge and delete join later).
+ * the derived-browser bridge (repo-row create button, hover facts), and
+ * the body-level modal root (merge and delete).
  *
  * The `require` identifier is the loader-provided module resolver in
  * scope inside this bundle's factory closure (see loader-require.d.ts).
@@ -24,7 +24,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { runOfficialWorkspaceClient } from '../generated/workspace-browser.generated.mjs'
 import { WorktreeBrowser } from './browser-wrapper.tsx'
 import { installBridge } from './bridge.ts'
-import { openCreate, openDelete, openMerge } from './create-store.ts'
+import { openDelete, openMerge, runCreateFlow } from './create-store.ts'
 import { ModalHost } from './modal-host.tsx'
 import { requestTopologyRefresh, rpc } from './rpc.ts'
 import { WORKTREE_STYLES } from './styles.ts'
@@ -107,16 +107,38 @@ export function apply(ctx: Context): void {
   const workspaces = loose.get('workspaces') as WorkspacesServiceLike | undefined
   const sessions = loose.get('sessions') as SessionsServiceLike | undefined
 
-  // The derived-browser bridge: repo-row button gating + modal opening.
+  // The derived-browser bridge: repo-row button gating, the auto-named
+  // create flow, menu labels, and localized hover facts.
   ctx.effect(() => installBridge({
     createLabel: (repoLabel) => t('create.title' satisfies MessageKey, { repo: repoLabel }),
-    requestCreate: (cwd, repoLabel) => {
-      void rpc<string>('suggestName').then(
-        (suggestion) => { openCreate(cwd, repoLabel, suggestion) },
-        () => { openCreate(cwd, repoLabel, '') },
-      )
+    requestCreate: (cwd) => {
+      void runCreateFlow({
+        cwd,
+        rpc,
+        workspaces: workspaces ?? { create: async () => ({ workspaceId: '' }) },
+        sessions: sessions ?? { create: async () => '', open: () => {} },
+        onTopologyRefresh: requestTopologyRefresh,
+      }).catch(() => {
+        // The flow is best-effort from a sidebar click; failures surface
+        // as a silently unchanged sidebar rather than an unhandled
+        // rejection. The next topology pull reconciles partial state.
+      })
     },
     menuLabel: (key) => t(key as MessageKey),
+    worktreeFacts: (decoration) => {
+      const status = decoration.merged
+        ? t('status.merged')
+        : decoration.dirty
+          ? t('status.dirty')
+          : decoration.ahead > 0
+            ? t('status.ahead', { count: decoration.ahead })
+            : t('status.clean')
+      return [
+        decoration.title,
+        `${t('row.facts.branch')}: ${decoration.branch}`,
+        `${t('row.facts.status')}: ${status}`,
+      ]
+    },
     requestMenu: (action, decoration) => {
       if (action === 'refresh') {
         requestTopologyRefresh()

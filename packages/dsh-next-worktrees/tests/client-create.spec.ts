@@ -6,62 +6,16 @@ import {
   executeDelete,
   executeMerge,
   modalState,
-  openCreate,
   openDelete,
   openMerge,
   resetModalStore,
   runCreateFlow,
-  setCreateBusy,
-  setCreateName,
   subscribeModal,
 } from '../src/client/create-store.ts'
 import { installBridge, updateBridgeFacts } from '../src/client/bridge.ts'
 
 beforeEach(() => {
   resetModalStore()
-})
-
-describe('create modal store', () => {
-  it('opens with the suggestion prefilled', () => {
-    openCreate('/repos/wt-repo', 'wt-repo', 'quiet otter')
-    expect(modalState()).toMatchObject({
-      kind: 'create',
-      create: {
-        open: true,
-        repoPath: '/repos/wt-repo',
-        repoLabel: 'wt-repo',
-        suggestion: 'quiet otter',
-        name: 'quiet otter',
-      },
-    })
-  })
-
-  it('edits the name and clears it only through the store', () => {
-    openCreate('/r', 'r', 'suggestion')
-    setCreateName('  my fix  ')
-    expect(modalState().create.name).toBe('  my fix  ')
-  })
-
-  it('notifies subscribers on change', () => {
-    const listener = vi.fn()
-    const unsubscribe = subscribeModal(listener)
-    openCreate('/r', 'r', 's')
-    expect(listener).toHaveBeenCalled()
-    unsubscribe()
-    listener.mockClear()
-    setCreateName('x')
-    expect(listener).not.toHaveBeenCalled()
-  })
-
-  it('refuses to close while busy', () => {
-    openCreate('/r', 'r', 's')
-    setCreateBusy(true)
-    closeModal()
-    expect(modalState().create.open).toBe(true)
-    setCreateBusy(false)
-    closeModal()
-    expect(modalState().kind).toBe('closed')
-  })
 })
 
 describe('runCreateFlow', () => {
@@ -86,42 +40,51 @@ describe('runCreateFlow', () => {
     return { create, workspaces, sessions, onTopologyRefresh }
   }
 
-  it('creates, registers, binds, opens, and closes in order', async () => {
+  function rpcOf(create: (args: unknown) => Promise<unknown>) {
+    return vi.fn(((method: string, args?: unknown) =>
+      method === 'create' ? create(args) : Promise.resolve({})) as unknown as (m: string, a?: unknown) => Promise<unknown>)
+  }
+
+  it('creates, registers, binds, opens, and resets in order', async () => {
     const f = faces()
-    openCreate('/repos/wt-repo', 'wt-repo', 'quiet otter')
-    setCreateName('my own name')
     await runCreateFlow({
-      state: modalState().create,
-      rpc: vi.fn(((method: string, args?: unknown) => {
-        if (method === 'create') return f.create(args)
-        return Promise.resolve({})
-      })) as unknown as (m: string, a?: unknown) => Promise<unknown>,
+      cwd: '/repos/wt-repo',
+      rpc: rpcOf(f.create),
       workspaces: f.workspaces,
       sessions: f.sessions,
       onTopologyRefresh: f.onTopologyRefresh,
     })
-    expect(f.create).toHaveBeenCalledWith({ cwd: '/repos/wt-repo', name: 'my own name' })
+    expect(f.create).toHaveBeenCalledWith({ cwd: '/repos/wt-repo' })
     expect(f.workspaces.create).toHaveBeenCalledWith({
       path: '/repos/wt-repo/.dsh/worktrees/swift-01',
     })
     expect(f.sessions.create).toHaveBeenCalledWith({ workspaceId: 'ws-1' })
     expect(f.sessions.open).toHaveBeenCalledWith('session-1')
     expect(modalState().kind).toBe('closed')
+    expect(modalState().creating).toBe(false)
     expect(f.onTopologyRefresh).toHaveBeenCalled()
   })
 
-  it('sends name undefined when the suggestion is untouched', async () => {
-    const f = faces()
-    openCreate('/r', 'r', 'quiet otter')
-    await runCreateFlow({
-      state: modalState().create,
-      rpc: vi.fn(((method: string, args?: unknown) =>
-        method === 'create' ? f.create(args) : Promise.resolve({})) as unknown as (m: string, a?: unknown) => Promise<unknown>),
+  it('guards re-entry while the flow is in flight', async () => {
+    const f = faces({
+      create: vi.fn(() => new Promise(() => {})), // never settles
+    })
+    const first = runCreateFlow({
+      cwd: '/r',
+      rpc: rpcOf(f.create),
       workspaces: f.workspaces,
       sessions: f.sessions,
       onTopologyRefresh: () => {},
     })
-    expect(f.create).toHaveBeenCalledWith({ cwd: '/r', name: undefined })
+    await vi.waitFor(() => { expect(modalState().creating).toBe(true) })
+    await runCreateFlow({
+      cwd: '/r',
+      rpc: rpcOf(f.create),
+      workspaces: f.workspaces,
+      sessions: f.sessions,
+      onTopologyRefresh: () => {},
+    })
+    expect(f.create).toHaveBeenCalledTimes(1)
   })
 
   it('mirrors a subdirectory relPath into the workspace path', async () => {
@@ -132,11 +95,9 @@ describe('runCreateFlow', () => {
         relPath: 'packages/foo',
       }),
     })
-    openCreate('/repos/wt-repo/packages/foo', 'foo', 's')
     await runCreateFlow({
-      state: modalState().create,
-      rpc: vi.fn(((method: string, args?: unknown) =>
-        method === 'create' ? f.create(args) : Promise.resolve({})) as unknown as (m: string, a?: unknown) => Promise<unknown>),
+      cwd: '/repos/wt-repo/packages/foo',
+      rpc: rpcOf(f.create),
       workspaces: f.workspaces,
       sessions: f.sessions,
       onTopologyRefresh: () => {},
@@ -146,22 +107,18 @@ describe('runCreateFlow', () => {
     })
   })
 
-  it('surfaces the failure and keeps the modal open', async () => {
+  it('releases the re-entry guard and rethrows on failure', async () => {
     const f = faces({
       create: vi.fn().mockRejectedValue(new Error('branch-exists: branch taken')),
     })
-    openCreate('/r', 'r', 's')
-    await runCreateFlow({
-      state: modalState().create,
-      rpc: vi.fn(((method: string, args?: unknown) =>
-        method === 'create' ? f.create(args) : Promise.resolve({})) as unknown as (m: string, a?: unknown) => Promise<unknown>),
+    await expect(runCreateFlow({
+      cwd: '/r',
+      rpc: rpcOf(f.create),
       workspaces: f.workspaces,
       sessions: f.sessions,
       onTopologyRefresh: () => {},
-    })
-    expect(modalState().create.open).toBe(true)
-    expect(modalState().create.busy).toBe(false)
-    expect(modalState().create.error).toContain('branch taken')
+    })).rejects.toThrow('branch taken')
+    expect(modalState().creating).toBe(false)
     expect(f.workspaces.create).not.toHaveBeenCalled()
   })
 })
@@ -172,6 +129,7 @@ describe('bridge', () => {
       createLabel: (label) => `New worktree in ${label}`,
       requestCreate: () => {},
       menuLabel: (key) => `label:${key}`,
+      worktreeFacts: () => [],
       requestMenu: () => {},
     })
     const bridge = window.__dshNextWorktreesBridge
@@ -188,16 +146,27 @@ describe('bridge', () => {
     expect(window.__dshNextWorktreesBridge).toBeUndefined()
   })
 
-  it('forwards requestCreate to the handler', () => {
+  it('forwards requestCreate and serves localized worktree facts', () => {
     const requestCreate = vi.fn()
     const requestMenu = vi.fn()
-    const uninstall = installBridge({ createLabel: () => 'x', requestCreate, menuLabel: () => 'm', requestMenu })
+    const worktreeFacts = vi.fn(() => ['title', 'branch: b', 'status: clean'])
+    const uninstall = installBridge({
+      createLabel: () => 'x',
+      requestCreate,
+      menuLabel: () => 'm',
+      worktreeFacts,
+      requestMenu,
+    })
     window.__dshNextWorktreesBridge?.requestCreate('/r', 'label')
     expect(requestCreate).toHaveBeenCalledWith('/r', 'label')
     const decoration = { slug: 'swift-01', title: 't', branch: 'b', path: '/r/.dsh/worktrees/swift-01', dirty: false, ahead: 0, merged: false }
     window.__dshNextWorktreesBridge?.requestMenu('merge', decoration, 'session-1')
     expect(requestMenu).toHaveBeenCalledWith('merge', decoration, 'session-1')
     expect(window.__dshNextWorktreesBridge?.menuLabel('row.refresh')).toBe('m')
+    expect(window.__dshNextWorktreesBridge?.worktreeFacts(decoration)).toEqual([
+      'title', 'branch: b', 'status: clean',
+    ])
+    expect(worktreeFacts).toHaveBeenCalledWith(decoration)
     uninstall()
   })
 })

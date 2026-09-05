@@ -1,6 +1,7 @@
 /**
- * The plugin's modal surface: a body-level React root owning the create
- * modal (merge and delete modals join it later). Rendered outside the
+ * The plugin's modal surface: a body-level React root owning the merge
+ * and delete modals (create is modal-free since rev 3 — the repo-row
+ * button runs the auto-named flow directly). Rendered outside the
  * official browser's tree on purpose — the conversation and the sidebar
  * stay pure harness; our overlays live in our own root.
  *
@@ -17,10 +18,7 @@ import {
   executeDelete,
   executeMerge,
   modalState,
-  runCreateFlow,
-  setCreateName,
   subscribeModal,
-  type CreateModalState,
   type MergePreflightFacts,
   type WorktreeModalTarget,
 } from './create-store.ts'
@@ -48,9 +46,6 @@ const BLOCKER_KEYS: Readonly<Record<string, string>> = {
 /** The root: renders the active modal, or nothing. */
 export function ModalHost(props: ModalHostProps): React.ReactElement | null {
   const state = React.useSyncExternalStore(subscribeModal, modalState, modalState)
-  if (state.kind === 'create' && state.create.open) {
-    return <CreateModal {...props} state={state.create} />
-  }
   if (state.kind === 'merge' && state.merge !== undefined) {
     return <MergeModal t={props.t} merge={state.merge} />
   }
@@ -68,82 +63,6 @@ export function ModalHost(props: ModalHostProps): React.ReactElement | null {
   return null
 }
 
-function CreateModal(
-  { state, t, workspaces, sessions }: ModalHostProps & { state: CreateModalState },
-): React.ReactElement {
-  const nameRef = React.useRef<HTMLInputElement | null>(null)
-
-  React.useEffect(() => {
-    nameRef.current?.focus()
-    nameRef.current?.select()
-  }, [])
-
-  React.useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') closeModal()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => { window.removeEventListener('keydown', onKey) }
-  }, [])
-
-  const onSubmit = (event: React.FormEvent): void => {
-    event.preventDefault()
-    if (state.busy) return
-    void runCreateFlow({ state, rpc, workspaces, sessions, onTopologyRefresh: requestTopologyRefresh })
-  }
-
-  return (
-    <div
-      className="dshx-mask"
-      onMouseDown={(event) => { if (event.target === event.currentTarget) closeModal() }}
-      data-dshx-modal="create"
-    >
-      <form
-        className="dshx-modal"
-        onSubmit={onSubmit}
-        role="dialog"
-        aria-modal="true"
-        aria-label={t('create.title', { repo: state.repoLabel })}
-      >
-        <div className="dshx-modalTitle">{t('create.title', { repo: state.repoLabel })}</div>
-        <label className="dshx-field">
-          <span className="dshx-fieldLabel">{t('create.nameLabel')}</span>
-          <input
-            ref={nameRef}
-            className="dshx-input"
-            value={state.name}
-            disabled={state.busy}
-            onChange={(event) => { setCreateName(event.target.value) }}
-            data-dshx-input="name"
-          />
-          <span className="dshx-fieldHint">{t('create.nameHint')}</span>
-        </label>
-        {state.error !== undefined && (
-          <div className="dshx-error" data-dshx-error>{state.error}</div>
-        )}
-        <div className="dshx-modalActions">
-          <button
-            type="button"
-            className="dshx-buttonGhost"
-            disabled={state.busy}
-            onClick={closeModal}
-            data-dshx-button="cancel"
-          >
-            {t('create.cancel')}
-          </button>
-          <button
-            type="submit"
-            className="dshx-buttonPrimary"
-            disabled={state.busy}
-            data-dshx-button="confirm"
-          >
-            {t('create.confirm')}
-          </button>
-        </div>
-      </form>
-    </div>
-  )
-}
 function useEscapeClose(): void {
   React.useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {

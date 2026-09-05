@@ -177,11 +177,11 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
   // ui-workspace row is disabled and a derived, hash-gated copy of the
   // official client renders the sidebar). The marker drives the full
   // create loop through the real GUI: the repo-row branch button appears
-  // only on git-passing workspaces, the create modal prefills a generated
-  // Name suggestion, confirming creates the worktree plus its workspace,
-  // session, bind, and focus, and the sidebar re-renders the worktree
-  // session NESTED under its repo group (branch identity row) instead of
-  // a separate workspace row. Host-side truth is asserted from disk: the
+  // only on git-passing workspaces, one click creates the worktree with a
+  // host-suggested name (no modal) plus its workspace, session, bind, and
+  // focus, and the sidebar re-renders the worktree session NESTED under
+  // its repo group (colored branch icon row) instead of a separate
+  // workspace row. Host-side truth is asserted from disk: the
   // worktree directory, the branch, and the sidecar registry's claimed
   // session binding.
   'dsh-next-worktrees': async (page) => {
@@ -229,22 +229,17 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     // The non-git workspace never gets the button.
     await expect(page.locator('[data-dshx-create$="workspace-b"]')).toHaveCount(0)
 
-    // Open the create modal: prefilled suggestion, unique name typed over it.
+    // One click creates the worktree — no modal since rev 3: the flow
+    // auto-names through the host suggestion and runs worktree ->
+    // workspace -> session -> bind -> open immediately.
     await createButton.click({ force: true })
-    const modal = page.locator('[data-dshx-modal="create"]')
-    await expect(modal).toBeVisible({ timeout: 10_000 })
-    const nameInput = page.locator('[data-dshx-input="name"]')
-    await expect(nameInput).not.toHaveValue('')
-    const runTag = Date.now().toString(36)
-    await nameInput.fill(`e2e nested ${runTag}`)
-    await page.locator('[data-dshx-button="confirm"]').click()
-    await expect(modal).toBeHidden({ timeout: 20_000 })
+    await expect(page.locator('[data-dshx-modal="create"]')).toHaveCount(0)
+    await expect(page.locator('[data-dshx-modal]')).toHaveCount(0, { timeout: 20_000 })
 
     // The nested row: a worktree session re-parented under the repo group,
-    // rendered with the branch identity (not its own workspace row).
+    // rendered with the colored branch icon (no worktree title text).
     const nested = page.locator('[data-dshx-worktree]')
     await expect(nested.first()).toBeVisible({ timeout: 20_000 })
-    await expect(nested.first()).toContainText(`e2e nested ${runTag}`)
 
     // Host truth from disk: worktree directory, branch, and the claimed
     // session binding in the sidecar registry.
@@ -255,10 +250,13 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     }
     expect(registry.bindings).toHaveLength(1)
     expect(registry.bindings[0]!.sessionId).not.toBe('')
-    expect(registry.bindings[0]!.name).toBe(`e2e nested ${runTag}`)
     const slug = registry.bindings[0]!.slug
     expect(existsSync(join(workspaceA, '.dsh', 'worktrees', slug))).toBe(true)
     expect(git(['rev-parse', '--verify', `dsh-worktrees/${slug}`])).not.toBe('')
+
+    // Fresh worktree: tip == base, so the icon state is neutral "clean" —
+    // never the (fixed) false "merged" the ancestor check alone produced.
+    await expect(nested.first()).toHaveAttribute('data-dshx-state', 'clean')
 
     // Visual evidence for the owned-browser redesign (light + dark ride the
     // same tokens; this shot pins the nested-identity chrome).

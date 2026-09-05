@@ -8,7 +8,7 @@
  * with the host-suggested name; `creating` only guards re-entry.
  */
 
-export type ModalKind = 'closed' | 'merge' | 'delete'
+export type ModalKind = 'closed' | 'create-error' | 'merge' | 'delete'
 
 /** Facts a worktree modal needs, carried from the row decoration. */
 export interface WorktreeModalTarget {
@@ -50,6 +50,8 @@ export interface ModalState {
   readonly kind: ModalKind
   /** True while the auto-named create flow is in flight. */
   readonly creating: boolean
+  /** Why the auto-named create flow failed (modal-free flow, modal error). */
+  readonly createError?: string
   readonly merge?: {
     readonly target: WorktreeModalTarget
     readonly preflight?: MergePreflightFacts
@@ -269,7 +271,13 @@ export async function runCreateFlow(input: {
     set(INITIAL)
     onTopologyRefresh()
   } catch (error) {
-    setCreating(false)
-    throw error
+    // A silent sidebar click must not fail silently: surface the reason
+    // (git refused, workspace registration failed, ...) as a modal so
+    // the user knows the worktree was NOT created.
+    set({
+      ...INITIAL,
+      kind: 'create-error',
+      createError: error instanceof Error ? error.message : String(error),
+    })
   }
 }

@@ -80,6 +80,21 @@ The decorations now carry `workspaceId` + `sessionIds` for the cleanup;
 the e2e marker asserts the sidebar treeitem count drops by exactly the
 worktree row across delete (no lingering folder).
 
+## Follow-up: silent create failures (same day)
+
+Live testing on a real repo under ~/Projects exposed that the modal-free
+create flow swallowed its failures (`.catch(() => {})`), so a refused
+`git worktree add` looked like a dead button. The flow now lands every
+failure in a `create-error` modal (store kind + `createError` state,
+`create.error.*` dictionary keys) showing the raw reason; dismissing
+returns to closed and a retry is a fresh flow. The trigger itself was
+an environment artifact worth remembering: a dev server booted from a
+sandboxed agent session inherits the sandbox, so git children get EPERM
+writing `.git/refs/heads/...` in repos outside the sandbox roots —
+indistinguishable from a repo-level ref D/F conflict until reproduced
+outside. Boot demo servers with full access when the user tests against
+their own repos.
+
 ## Validation
 
 `mise run ci` green (117 worktrees tests; new cases: fresh-worktree status

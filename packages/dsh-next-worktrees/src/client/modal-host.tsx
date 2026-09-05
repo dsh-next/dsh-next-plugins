@@ -55,6 +55,9 @@ const BLOCKER_KEYS: Readonly<Record<string, string>> = {
 /** The root: renders the active modal, or nothing. */
 export function ModalHost(props: ModalHostProps): React.ReactElement | null {
   const state = React.useSyncExternalStore(subscribeModal, modalState, modalState)
+  if (state.kind === 'create-error' && state.createError !== undefined) {
+    return <CreateErrorModal t={props.t} message={state.createError} />
+  }
   if (props.workspaces === undefined) return null
   const host = hostCleanup(props.workspaces)
   if (state.kind === 'merge' && state.merge !== undefined) {
@@ -73,6 +76,38 @@ export function ModalHost(props: ModalHostProps): React.ReactElement | null {
     )
   }
   return null
+}
+
+function CreateErrorModal({ t, message }: {
+  readonly t: Translate
+  readonly message: string
+}): React.ReactElement {
+  useEscapeClose()
+  return (
+    <div
+      className="dshx-mask"
+      onMouseDown={(event) => { if (event.target === event.currentTarget) closeModal() }}
+      data-dshx-modal="create-error"
+    >
+      <div className="dshx-modal" role="dialog" aria-modal="true" aria-label={t('create.error.title')}>
+        <div className="dshx-modalTitle">{t('create.error.title')}</div>
+        <div className="dshx-modalBody">
+          <div className="dshx-error" data-dshx-error>{message}</div>
+          <div className="dshx-fieldHint">{t('create.error.hint')}</div>
+        </div>
+        <div className="dshx-modalActions">
+          <button
+            type="button"
+            className="dshx-buttonPrimary"
+            onClick={closeModal}
+            data-dshx-button="create-error-ok"
+          >
+            {t('create.error.ok')}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function useEscapeClose(): void {

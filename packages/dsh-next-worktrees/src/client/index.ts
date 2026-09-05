@@ -112,16 +112,14 @@ export function apply(ctx: Context): void {
   ctx.effect(() => installBridge({
     createLabel: (repoLabel) => t('create.title' satisfies MessageKey, { repo: repoLabel }),
     requestCreate: (cwd) => {
+      // Failures surface through the store (create-error modal); the
+      // flow itself never rejects.
       void runCreateFlow({
         cwd,
         rpc,
         workspaces: workspaces ?? { create: async () => ({ workspaceId: '' }) },
         sessions: sessions ?? { create: async () => '', open: () => {} },
         onTopologyRefresh: requestTopologyRefresh,
-      }).catch(() => {
-        // The flow is best-effort from a sidebar click; failures surface
-        // as a silently unchanged sidebar rather than an unhandled
-        // rejection. The next topology pull reconciles partial state.
       })
     },
     menuLabel: (key) => t(key as MessageKey),

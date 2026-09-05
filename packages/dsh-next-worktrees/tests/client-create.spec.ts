@@ -107,19 +107,33 @@ describe('runCreateFlow', () => {
     })
   })
 
-  it('releases the re-entry guard and rethrows on failure', async () => {
+  it('surfaces a create failure as the create-error modal', async () => {
     const f = faces({
-      create: vi.fn().mockRejectedValue(new Error('branch-exists: branch taken')),
+      create: vi.fn().mockRejectedValue(new Error('git worktree add failed: cannot lock ref')),
     })
-    await expect(runCreateFlow({
+    await runCreateFlow({
       cwd: '/r',
       rpc: rpcOf(f.create),
       workspaces: f.workspaces,
       sessions: f.sessions,
       onTopologyRefresh: () => {},
-    })).rejects.toThrow('branch taken')
+    })
+    expect(modalState().kind).toBe('create-error')
+    expect(modalState().createError).toContain('cannot lock ref')
     expect(modalState().creating).toBe(false)
     expect(f.workspaces.create).not.toHaveBeenCalled()
+    // Dismissing returns to the closed state; a retry is a fresh flow.
+    closeModal()
+    expect(modalState().kind).toBe('closed')
+    const f2 = faces()
+    await runCreateFlow({
+      cwd: '/r',
+      rpc: rpcOf(f2.create),
+      workspaces: f2.workspaces,
+      sessions: f2.sessions,
+      onTopologyRefresh: () => {},
+    })
+    expect(modalState().kind).toBe('closed')
   })
 })
 

@@ -22,7 +22,7 @@
  */
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { test, expect, type Page } from '@playwright/test'
 
 const BASE_URL = process.env.DSH_E2E_URL
@@ -255,13 +255,37 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     }
     expect(registry.bindings).toHaveLength(1)
     expect(registry.bindings[0]!.sessionId).not.toBe('')
-    const slug = registry.bindings[0]!.slug
+    let slug = registry.bindings[0]!.slug
     expect(existsSync(join(workspaceA, '.dsh', 'worktrees', slug))).toBe(true)
     expect(git(['rev-parse', '--verify', `dsh-worktrees/${slug}`])).not.toBe('')
 
     // Fresh worktree: tip == base, so the icon state is neutral "clean" —
     // never the (fixed) false "merged" the ancestor check alone produced.
     await expect(nested.first()).toHaveAttribute('data-dshx-state', 'clean')
+
+    // Blank-replacement sweep: the platform replaces a never-started
+    // session when a new one begins. Clicking the worktree button again
+    // (nothing typed yet) must therefore end with exactly ONE worktree:
+    // the sweeper removes the abandoned checkout, registry row, and
+    // workspace of the replaced session.
+    await repoRow.hover()
+    await createButton.click({ force: true })
+    await expect(page.locator('[data-dshx-modal="create-error"]')).toHaveCount(0, { timeout: 10_000 })
+    await expect.poll(() => {
+      const after = JSON.parse(readFileSync(registryFile, 'utf8')) as {
+        bindings: { slug: string }[]
+      }
+      return [after.bindings.length, after.bindings[0]?.slug] as const
+    }, { timeout: 20_000 }).toEqual([1, expect.any(String)])
+    const registry2 = JSON.parse(readFileSync(registryFile, 'utf8')) as {
+      bindings: { slug: string }[]
+    }
+    const survivors = readdirSync(join(workspaceA, '.dsh', 'worktrees'))
+      .filter((name) => name !== 'registry.json')
+    expect(survivors).toEqual([registry2.bindings[0]!.slug])
+    expect(existsSync(join(workspaceA, '.dsh', 'worktrees', registry2.bindings[0]!.slug))).toBe(true)
+    // The surviving worktree is whatever the second create left bound.
+    slug = registry2.bindings[0]!.slug
 
     // Visual evidence for the owned-browser redesign (light + dark ride the
     // same tokens; this shot pins the nested-identity chrome).
@@ -296,10 +320,12 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await expect(deleteModal).toBeHidden({ timeout: 15_000 })
     await expect(page.locator(`[data-dshx-worktree="${slug}"]`)).toHaveCount(0, { timeout: 15_000 })
     // No lingering group: the worktree's host workspace is deleted with
-    // it (archiveSession + workspace delete), so the sidebar returns to
-    // exactly the rows it had before the delete minus the worktree row
-    // itself - no extra workspace folder where the worktree used to be.
-    await expect.poll(() => page.locator('[role="treeitem"]').count(), { timeout: 15_000 }).toBe(beforeDelete - 1)
+    // it (archiveSession + workspace delete) - no extra workspace folder
+    // where the worktree used to be. Archiving the current session may
+    // legitimately leave the platform's blank New Session pseudo-row, so
+    // the invariant is "no new group", not an exact row count.
+    await expect.poll(() => page.locator('[role="treeitem"]').count(), { timeout: 15_000 }).toBeLessThanOrEqual(beforeDelete)
+    await expect(page.locator('[role="treeitem"]', { hasText: slug })).toHaveCount(0)
     await expect.poll(() => existsSync(join(workspaceA, '.dsh', 'worktrees', slug))).toBe(false)
     expect(git(['rev-parse', '--verify', `dsh-worktrees/${slug}`])).not.toBe('')
     await expect.poll(() => {

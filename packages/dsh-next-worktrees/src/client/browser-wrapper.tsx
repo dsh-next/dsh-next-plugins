@@ -18,7 +18,9 @@ import {
   type WorkspaceItemLike,
 } from './projection.ts'
 import { updateBridgeFacts } from './bridge.ts'
+import { modalState } from './create-store.ts'
 import { rpc, REFRESH_EVENT, type WorktreeTopology } from './rpc.ts'
+import { sweepAbandonedWorktrees } from './sweeper.ts'
 
 /** Minimal component shape the wrapper needs from the official Browser. */
 export type OfficialBrowserComponent = React.ComponentType<Record<string, unknown>>
@@ -90,6 +92,16 @@ export function WorktreeBrowser(
             if (!active) return
             setTopology(value)
             updateBridgeFacts(value.workspaces)
+            // Reap worktrees whose sessions were replaced/removed without
+            // ever starting (the platform replaces blank sessions); when
+            // something was swept, re-pull once so the sidebar settles.
+            void sweepAbandonedWorktrees({
+              workspaces: workspaceState.items,
+              liveSessionIds: new Set(sessionState.ids),
+              creating: modalState().creating,
+            }).then((swept) => {
+              if (active && swept.length > 0) refresh()
+            })
           },
           () => { if (active) setTopology(EMPTY_TOPOLOGY) },
         )

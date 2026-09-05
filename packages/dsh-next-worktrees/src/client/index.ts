@@ -27,6 +27,7 @@ import { installBridge } from './bridge.ts'
 import { openDelete, openMerge, runCreateFlow } from './create-store.ts'
 import { ModalHost } from './modal-host.tsx'
 import { requestTopologyRefresh, rpc } from './rpc.ts'
+import { configureWorktreeSweeper } from './sweeper.ts'
 import { WORKTREE_STYLES } from './styles.ts'
 import { en, englishTranslate, NS, zh, type MessageKey } from './dictionaries.ts'
 import type {
@@ -151,6 +152,17 @@ export function apply(ctx: Context): void {
       }
     },
   }), 'dsh-next-worktrees: bridge')
+
+  // The abandoned-worktree sweeper: same host-truth faces the delete
+  // modal drives, minus the UI.
+  ctx.effect(() => {
+    if (workspaces === undefined) return () => {}
+    configureWorktreeSweeper({
+      removeWorktree: (input) => rpc('remove', { ...input, force: false }) as Promise<void>,
+      deleteWorkspace: (workspaceId) => workspaces.delete(workspaceId),
+    })
+    return () => { configureWorktreeSweeper(undefined) }
+  }, 'dsh-next-worktrees: sweeper')
 
   // The modal root: our overlays live in their own React tree at the body
   // level; the conversation and sidebar stay pure harness.

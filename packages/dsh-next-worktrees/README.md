@@ -25,6 +25,10 @@ a separate workspace.
   Delete worktree…. Delete states what survives (the branch and session
   logs stay; the working copy goes) and demands an extra confirm for
   dirty worktrees.
+- **No orphan worktrees.** A never-started session is replaced by the
+  platform when the next one begins; the worktree behind it is removed
+  automatically (checkout, registry row, and workspace together). A
+  worktree with uncommitted changes is never auto-removed.
 - **Guarded merge.** Merge… preflights everything before it can run: a
   clean main checkout, a fully committed worktree, no running session,
   and a conflict dry-run (`git merge-tree`, git 2.38+). Any blocker names

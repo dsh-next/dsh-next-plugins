@@ -343,6 +343,24 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await expect(page.locator(`[data-dshx-worktree="${slug}"]`))
       .toHaveAttribute('data-dshx-state', 'merged', { timeout: 15_000 })
 
+    // Clean update from the ROW MENU (not the Merge-conflict CTA): a
+    // main-only commit makes the worktree behind, Update fast-forwards
+    // it, and the new file lands in the worktree.
+    writeFileSync(join(workspaceA, 'main-only.txt'), 'from main\n')
+    git(['add', 'main-only.txt'])
+    git(['commit', '-q', '-m', 'main only'])
+    await page.evaluate(() => { window.dispatchEvent(new Event('dsh-next-worktrees:refresh')) })
+    await openRowMenu()
+    await page.getByText(/Update from main/).last().click()
+    const updateModal = page.locator('[data-dshx-modal="update"]')
+    await expect(updateModal).toBeVisible({ timeout: 10_000 })
+    await expect(updateModal).toContainText('Fast-forward')
+    await page.locator('[data-dshx-button="update"]').click()
+    await expect(updateModal.locator('[data-dshx-update="done"]')).toBeVisible({ timeout: 15_000 })
+    await page.locator('[data-dshx-button="update-ok"]').click()
+    await expect(updateModal).toBeHidden({ timeout: 10_000 })
+    await expect.poll(() => existsSync(join(wtDir, 'main-only.txt'))).toBe(true)
+
     // Conflict path: diverge the same file on main and in the worktree.
     // Merge must offer Update from main (not a disabled button + CLI dump).
     writeFileSync(join(workspaceA, 'seed.txt'), 'main version\n')
@@ -353,12 +371,10 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     git(['commit', '-q', '-m', 'worktree edits seed'], wtDir)
     await page.evaluate(() => { window.dispatchEvent(new Event('dsh-next-worktrees:refresh')) })
     await openRowMenu()
-    await expect(page.getByText(/Update from main/).last()).toBeVisible({ timeout: 5_000 })
     await page.getByText('Merge…').last().click()
     await expect(mergeModal).toBeVisible({ timeout: 10_000 })
     await expect(page.locator('[data-dshx-blocker="conflict"]')).toBeVisible({ timeout: 10_000 })
     await page.locator('[data-dshx-button="update-from-merge"]').click()
-    const updateModal = page.locator('[data-dshx-modal="update"]')
     await expect(updateModal).toBeVisible({ timeout: 10_000 })
     await page.locator('[data-dshx-button="update"]').click()
     await expect(page.locator(`[data-dshx-worktree="${slug}"]`))
@@ -371,7 +387,15 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
         return false
       }
     }, { timeout: 10_000 }).toBe(true)
-    await expect(updateModal.locator('[data-dshx-button="abort-update"]')).toBeVisible()
+    // Continue focuses the session and closes; reopening Update from the
+    // row menu must still see the in-flight merge (Abort / Open session).
+    await expect(updateModal.locator('[data-dshx-button="continue-update"]')).toBeVisible()
+    await page.locator('[data-dshx-button="continue-update"]').click()
+    await expect(updateModal).toBeHidden({ timeout: 10_000 })
+    await openRowMenu()
+    await page.getByText(/Update from main/).last().click()
+    await expect(updateModal).toBeVisible({ timeout: 10_000 })
+    await expect(updateModal.locator('[data-dshx-update="handoff"]')).toBeVisible()
     await page.locator('[data-dshx-button="abort-update"]').click()
     await expect(updateModal).toBeHidden({ timeout: 15_000 })
     await expect.poll(() => {

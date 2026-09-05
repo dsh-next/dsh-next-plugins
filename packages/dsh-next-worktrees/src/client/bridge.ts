@@ -16,6 +16,10 @@ export interface MenuDecoration {
   readonly title: string
   readonly branch: string
   readonly path: string
+  /** The host workspace registered for this worktree (delete cleanup). */
+  readonly workspaceId?: string
+  /** Sessions living in the worktree workspace (delete cleanup). */
+  readonly sessionIds?: readonly string[]
   readonly dirty: boolean
   readonly ahead: number
   readonly merged: boolean

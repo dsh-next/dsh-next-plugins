@@ -78,6 +78,8 @@ describe('projectWorkspaceSidebar', () => {
       branch: 'dsh-worktrees/swift-01',
       baseRef: 'origin/HEAD',
       path: worktree.path,
+      workspaceId: 'wt-ws',
+      sessionIds: ['s1'],
       dirty: true,
       ahead: 2,
       merged: false,
@@ -122,15 +124,31 @@ describe('projectWorkspaceSidebar', () => {
     expect(result.decorations.size).toBe(0)
   })
 
-  it('ignores workspaces whose path matches no topology worktree', () => {
-    const other = ws({ workspaceId: 'stranger', path: `${REPO}/.dsh/worktrees/unknown-09` })
+  it('hides worktree workspaces by path marker even before topology lists them', () => {
+    // Structural rule: any workspace under /.dsh/worktrees/ is ours. It
+    // must never flash as (or linger as) a separate workspace folder
+    // while the topology pull has not caught up.
+    const fresh = ws({ workspaceId: 'fresh-wt', path: `${REPO}/.dsh/worktrees/new-01`, sessionIds: ['fresh-s'] })
     const result = projectWorkspaceSidebar({
-      workspaces: [ws(), other],
+      workspaces: [ws(), fresh],
       sessionsById: {},
-      topology: topology([{ primary: REPO, ok: true, worktrees: [wt()] }]),
+      topology: topology([{ primary: REPO, ok: true, worktrees: [] }]),
     })
-    expect(result.workspaces).toHaveLength(2)
-    expect(result.hiddenWorkspaceIds.size).toBe(0)
+    expect(result.hiddenWorkspaceIds).toEqual(new Set(['fresh-wt']))
+    expect(result.workspaces).toHaveLength(1)
+    expect(result.workspaces[0]!.sessionIds).toContain('fresh-s')
+    // No topology facts yet: the row is nested but undecorated.
+    expect(result.decorations.size).toBe(0)
+  })
+
+  it('carries the workspace id and sessions for delete cleanup', () => {
+    const worktree = wt({ sessionIds: ['s1', 's2'] })
+    const result = projectWorkspaceSidebar({
+      workspaces: [ws(), ws({ workspaceId: 'wt-ws', path: worktree.path, sessionIds: ['s1', 's2'] })],
+      sessionsById: {},
+      topology: topology([{ primary: REPO, ok: true, worktrees: [worktree] }]),
+    })
+    expect(result.decorations.get('s2')).toMatchObject({ workspaceId: 'wt-ws', sessionIds: ['s1', 's2'] })
   })
 
   it('never duplicates a session already in the repo group', () => {
@@ -156,6 +174,8 @@ describe('decorateSessions', () => {
       branch: 'b',
       baseRef: 'r',
       path: 'p',
+      workspaceId: 'wt-ws',
+      sessionIds: ['s1'],
       dirty: false,
       ahead: 0,
       merged: false,

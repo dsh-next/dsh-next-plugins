@@ -177,9 +177,18 @@ describe('merge and delete modals', () => {
     title: 'login race fix',
     branch: 'dsh-worktrees/swift-01',
     path: '/repos/wt-repo/.dsh/worktrees/swift-01',
+    workspaceId: 'wt-ws',
+    sessionIds: ['wt-session-1'],
     dirty: false,
     ahead: 2,
     merged: false,
+  }
+
+  function host() {
+    return {
+      archiveSession: vi.fn().mockResolvedValue(undefined),
+      removeWorkspace: vi.fn().mockResolvedValue(undefined),
+    }
   }
 
   it('openMerge pulls the preflight into state', async () => {
@@ -224,9 +233,27 @@ describe('merge and delete modals', () => {
     executeMerge(exec)
     await vi.waitFor(() => { expect(modalState().merge?.done).toBeDefined() })
     const remove = vi.fn().mockResolvedValue(undefined)
-    await cleanupMerged(remove)
+    const h = host()
+    await cleanupMerged(remove, h)
     expect(remove).toHaveBeenCalledWith('remove', { cwd: target.path, slug: target.slug, force: false })
+    expect(h.archiveSession).toHaveBeenCalledWith('wt-session-1')
+    expect(h.removeWorkspace).toHaveBeenCalledWith('wt-ws')
     expect(modalState().kind).toBe('closed')
+  })
+
+  it('cleanupMerged still closes when the host cleanup fails', async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      blockers: [], green: true, target: 'main',
+      source: 'dsh-worktrees/swift-01', fastForward: true, aheadCount: 0,
+    })
+    openMerge(target, rpc)
+    await vi.waitFor(() => { expect(modalState().merge?.preflight).toBeDefined() })
+    executeMerge(vi.fn().mockResolvedValue({ target: 'main', fastForward: true }))
+    await vi.waitFor(() => { expect(modalState().merge?.done).toBeDefined() })
+    const h = { archiveSession: vi.fn().mockRejectedValue(new Error('gone')), removeWorkspace: vi.fn().mockRejectedValue(new Error('gone')) }
+    await cleanupMerged(vi.fn().mockResolvedValue(undefined), h)
+    expect(modalState().merge?.error).toContain('gone')
+    expect(modalState().kind).toBe('merge')
   })
 
   it('delete arms immediately for a clean target', async () => {
@@ -234,8 +261,21 @@ describe('merge and delete modals', () => {
     expect(modalState().kind).toBe('delete')
     expect(modalState().delete?.armed).toBe(true)
     const remove = vi.fn().mockResolvedValue(undefined)
-    await executeDelete(remove)
+    const h = host()
+    await executeDelete(remove, h)
     expect(remove).toHaveBeenCalledWith('remove', { cwd: target.path, slug: target.slug, force: false })
+    expect(h.archiveSession).toHaveBeenCalledWith('wt-session-1')
+    expect(h.removeWorkspace).toHaveBeenCalledWith('wt-ws')
+    expect(modalState().kind).toBe('closed')
+  })
+
+  it('delete skips host cleanup fields when the decoration lacks them', async () => {
+    openDelete({ ...target, workspaceId: undefined, sessionIds: undefined })
+    const remove = vi.fn().mockResolvedValue(undefined)
+    const h = host()
+    await executeDelete(remove, h)
+    expect(h.archiveSession).not.toHaveBeenCalled()
+    expect(h.removeWorkspace).not.toHaveBeenCalled()
     expect(modalState().kind).toBe('closed')
   })
 
@@ -243,10 +283,11 @@ describe('merge and delete modals', () => {
     openDelete({ ...target, dirty: true })
     expect(modalState().delete?.armed).toBe(false)
     const remove = vi.fn().mockResolvedValue(undefined)
-    executeDelete(remove)
+    const h = host()
+    executeDelete(remove, h)
     expect(remove).not.toHaveBeenCalled()
     armDelete()
-    await executeDelete(remove)
+    await executeDelete(remove, h)
     expect(remove).toHaveBeenCalledWith('remove', { cwd: target.path, slug: target.slug, force: true })
     expect(modalState().kind).toBe('closed')
   })
@@ -254,7 +295,7 @@ describe('merge and delete modals', () => {
   it('delete surfaces removal failures', async () => {
     openDelete(target)
     const remove = vi.fn().mockRejectedValue(new Error('dirty-remove-refused: dirty'))
-    await executeDelete(remove)
+    await executeDelete(remove, host())
     expect(modalState().kind).toBe('delete')
     expect(modalState().delete?.error).toContain('dirty-remove-refused')
   })

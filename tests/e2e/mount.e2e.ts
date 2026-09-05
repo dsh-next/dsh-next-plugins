@@ -232,6 +232,7 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     // One click creates the worktree — no modal since rev 3: the flow
     // auto-names through the host suggestion and runs worktree ->
     // workspace -> session -> bind -> open immediately.
+    const rowBaseline = await page.locator('[role="treeitem"]').count()
     await createButton.click({ force: true })
     await expect(page.locator('[data-dshx-modal="create"]')).toHaveCount(0)
     await expect(page.locator('[data-dshx-modal]')).toHaveCount(0, { timeout: 20_000 })
@@ -240,6 +241,10 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     // rendered with the colored branch icon (no worktree title text).
     const nested = page.locator('[data-dshx-worktree]')
     await expect(nested.first()).toBeVisible({ timeout: 20_000 })
+    // Structural nesting: the worktree workspace must never appear as a
+    // separate sidebar group - the re-parented row renders INSIDE the
+    // repo group, so the treeitem count stays at the pre-create baseline.
+    await expect(page.locator('[role="treeitem"]')).toHaveCount(rowBaseline, { timeout: 5_000 })
 
     // Host truth from disk: worktree directory, branch, and the claimed
     // session binding in the sidecar registry.
@@ -279,6 +284,7 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await nestedRow.hover()
     await expect(nestedRow.locator('button').first()).toBeVisible({ timeout: 20_000 })
     await nestedRow.locator('button').last().click({ force: true })
+    const beforeDelete = await page.locator('[role="treeitem"]').count()
     const deleteItem = page.getByText('Delete worktree…').last()
     await expect(deleteItem).toBeVisible({ timeout: 5_000 })
     await deleteItem.click()
@@ -289,6 +295,11 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await page.locator('[data-dshx-button="remove-armed"]').click()
     await expect(deleteModal).toBeHidden({ timeout: 15_000 })
     await expect(page.locator(`[data-dshx-worktree="${slug}"]`)).toHaveCount(0, { timeout: 15_000 })
+    // No lingering group: the worktree's host workspace is deleted with
+    // it (archiveSession + workspace delete), so the sidebar returns to
+    // exactly the rows it had before the delete minus the worktree row
+    // itself - no extra workspace folder where the worktree used to be.
+    await expect.poll(() => page.locator('[role="treeitem"]').count(), { timeout: 15_000 }).toBe(beforeDelete - 1)
     await expect.poll(() => existsSync(join(workspaceA, '.dsh', 'worktrees', slug))).toBe(false)
     expect(git(['rev-parse', '--verify', `dsh-worktrees/${slug}`])).not.toBe('')
     await expect.poll(() => {

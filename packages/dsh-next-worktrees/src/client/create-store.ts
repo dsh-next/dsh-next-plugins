@@ -16,9 +16,24 @@ export interface WorktreeModalTarget {
   readonly title: string
   readonly branch: string
   readonly path: string
+  /** The host workspace registered for this worktree (delete cleanup). */
+  readonly workspaceId?: string
+  /** Sessions living in the worktree workspace (delete cleanup). */
+  readonly sessionIds?: readonly string[]
   readonly dirty: boolean
   readonly ahead: number
   readonly merged: boolean
+}
+
+/**
+ * Host-truth cleanup face: after the git worktree is gone, the workspace
+ * registered for it must go too, or it lingers as a regular workspace
+ * folder. Uses the stock service calls (archiveSession + workspace
+ * delete) — the same ones the official browser's own delete drives.
+ */
+export interface HostCleanup {
+  archiveSession(sessionId: string): Promise<void>
+  removeWorkspace(workspaceId: string): Promise<void>
 }
 
 export interface MergePreflightFacts {
@@ -134,12 +149,23 @@ export function executeMerge(rpc: (m: string, a?: unknown) => Promise<unknown>):
     })
 }
 
+/** Archive a worktree's sessions and drop its host workspace. */
+async function cleanupHost(target: WorktreeModalTarget, host: HostCleanup): Promise<void> {
+  for (const sessionId of target.sessionIds ?? []) {
+    await host.archiveSession(sessionId).catch(() => {})
+  }
+  if (target.workspaceId !== undefined && target.workspaceId !== '') {
+    await host.removeWorkspace(target.workspaceId)
+  }
+}
+
 /** Remove the merged worktree from the merge-done view. */
-export function cleanupMerged(rpc: (m: string, a?: unknown) => Promise<unknown>): Promise<void> {
+export function cleanupMerged(rpc: (m: string, a?: unknown) => Promise<unknown>, host: HostCleanup): Promise<void> {
   if (state.kind !== 'merge' || state.merge === undefined) return Promise.resolve()
   const target = state.merge.target
   set({ ...state, merge: { ...state.merge, busy: true, error: undefined } })
   return rpc('remove', { cwd: target.path, slug: target.slug, force: false })
+    .then(() => cleanupHost(target, host))
     .then(() => { set(INITIAL) })
     .catch((error: unknown) => {
       if (state.kind !== 'merge' || state.merge === undefined) return
@@ -171,11 +197,15 @@ export function armDelete(): void {
 }
 
 /** Execute the removal from the delete modal. */
-export function executeDelete(rpc: (m: string, a?: unknown) => Promise<unknown>): Promise<void> {
+export function executeDelete(
+  rpc: (m: string, a?: unknown) => Promise<unknown>,
+  host: HostCleanup,
+): Promise<void> {
   if (state.kind !== 'delete' || state.delete === undefined || !state.delete.armed) return Promise.resolve()
   const target = state.delete.target
   set({ ...state, delete: { ...state.delete, busy: true, error: undefined } })
   return rpc('remove', { cwd: target.path, slug: target.slug, force: target.dirty })
+    .then(() => cleanupHost(target, host))
     .then(() => { set(INITIAL) })
     .catch((error: unknown) => {
       if (state.kind !== 'delete' || state.delete === undefined) return

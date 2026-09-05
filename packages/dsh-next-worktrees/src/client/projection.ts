@@ -32,6 +32,10 @@ export interface WorktreeRowDecoration {
   readonly branch: string
   readonly baseRef: string
   readonly path: string
+  /** The host workspace registered for this worktree (delete cleanup). */
+  readonly workspaceId: string
+  /** Sessions living in the worktree workspace (delete cleanup). */
+  readonly sessionIds: readonly string[]
   readonly dirty: boolean
   readonly ahead: number
   readonly merged: boolean
@@ -62,13 +66,28 @@ function isInside(parent: string, child: string): boolean {
   return c === p || c.startsWith(`${p}/`)
 }
 
+/** Marker every plugin-created worktree workspace carries in its path. */
+const WORKTREES_MARKER = '/.dsh/worktrees/'
+
+function isWorktreePath(path: string): boolean {
+  return toPosix(path).includes(WORKTREES_MARKER)
+}
+
 /**
  * Derive the projected sidebar state.
  *
- * Merge rule: a worktree workspace's sessions join the first workspace
- * whose path is the repo primary or inside it (deterministic in list
- * order). When no repo workspace is registered, the worktree workspace is
- * kept as an ordinary group — sessions must never vanish from the sidebar.
+ * Structural hiding: any workspace whose path sits under a
+ * `/.dsh/worktrees/` root is a worktree workspace by construction and is
+ * hidden + re-parented as soon as a repo workspace for its primary
+ * exists — this must not wait for a topology answer, or freshly created
+ * worktrees flash as separate workspace folders (and stay there on a
+ * topology miss). The topology pull only enriches the rows: when it has
+ * the matching worktree, sessions carry the full identity decoration;
+ * until then they render as ordinary nested rows.
+ *
+ * When no repo workspace exists for the primary, the worktree group is
+ * kept as an ordinary group — sessions must never vanish from the
+ * sidebar.
  *
  * @param input - host workspace/session snapshots plus the topology RPC's
  * answer.
@@ -77,9 +96,7 @@ function isInside(parent: string, child: string): boolean {
 export function projectWorkspaceSidebar(input: ProjectionInput): ProjectionResult {
   const { workspaces, topology } = input
   const worktreeByPath = new Map<string, WorktreeTopology['repos'][number]['worktrees'][number]>()
-  const repoByPath = new Map<string, WorktreeTopology['repos'][number]>()
   for (const repo of topology.repos) {
-    repoByPath.set(toPosix(repo.primary), repo)
     for (const worktree of repo.worktrees) {
       worktreeByPath.set(toPosix(worktree.path), worktree)
     }
@@ -90,33 +107,35 @@ export function projectWorkspaceSidebar(input: ProjectionInput): ProjectionResul
   const projected: WorkspaceItemLike[] = workspaces.map((w) => ({ ...w, sessionIds: [...w.sessionIds] }))
 
   projected.forEach((workspace, index) => {
-    const worktree = worktreeByPath.get(toPosix(workspace.path))
-    if (worktree === undefined) return
+    const posixPath = toPosix(workspace.path)
+    const markerAt = posixPath.lastIndexOf(WORKTREES_MARKER)
+    if (markerAt < 0) return
     // The primary this worktree was created from, by construction of the
     // locked path rule (<primary>/.dsh/worktrees/<slug>).
-    const marker = '/.dsh/worktrees/'
-    const markerAt = worktree.path.lastIndexOf(marker)
-    if (markerAt < 0) return
-    const primary = toPosix(worktree.path.slice(0, markerAt))
-    if (!repoByPath.has(primary)) return
+    const primary = posixPath.slice(0, markerAt)
     // Merge into the first non-worktree workspace at or under the primary.
     const target = projected.findIndex((candidate, candidateIndex) =>
       candidateIndex !== index
-      && !worktreeByPath.has(toPosix(candidate.path))
+      && !isWorktreePath(candidate.path)
       && isInside(primary, candidate.path))
     if (target < 0) return // No repo workspace: keep the group (fallback).
+    const worktree = worktreeByPath.get(posixPath)
     for (const sessionId of workspace.sessionIds) {
-      decorations.set(sessionId, {
-        kind: 'dsh-next-worktrees',
-        slug: worktree.slug,
-        title: worktree.title,
-        branch: worktree.branch,
-        baseRef: worktree.baseRef,
-        path: worktree.path,
-        dirty: worktree.status.dirty,
-        ahead: worktree.status.ahead,
-        merged: worktree.status.merged,
-      })
+      if (worktree !== undefined) {
+        decorations.set(sessionId, {
+          kind: 'dsh-next-worktrees',
+          slug: worktree.slug,
+          title: worktree.title,
+          branch: worktree.branch,
+          baseRef: worktree.baseRef,
+          path: worktree.path,
+          workspaceId: workspace.workspaceId,
+          sessionIds: [...workspace.sessionIds],
+          dirty: worktree.status.dirty,
+          ahead: worktree.status.ahead,
+          merged: worktree.status.merged,
+        })
+      }
       if (!projected[target]!.sessionIds.includes(sessionId)) {
         projected[target] = {
           ...projected[target]!,

@@ -19,6 +19,7 @@ import {
   executeMerge,
   modalState,
   subscribeModal,
+  type HostCleanup,
   type MergePreflightFacts,
   type WorktreeModalTarget,
 } from './create-store.ts'
@@ -35,6 +36,14 @@ export interface ModalHostProps {
   readonly sessions: SessionsServiceLike
 }
 
+/** Host-truth cleanup over the stock workspace service. */
+function hostCleanup(workspaces: WorkspacesServiceLike): HostCleanup {
+  return {
+    archiveSession: (sessionId) => workspaces.archiveSession(sessionId),
+    removeWorkspace: (workspaceId) => workspaces.delete(workspaceId),
+  }
+}
+
 const BLOCKER_KEYS: Readonly<Record<string, string>> = {
   'dirty-primary': 'merge.blocker.dirtyPrimary',
   'dirty-worktree': 'merge.blocker.dirtyWorktree',
@@ -46,8 +55,10 @@ const BLOCKER_KEYS: Readonly<Record<string, string>> = {
 /** The root: renders the active modal, or nothing. */
 export function ModalHost(props: ModalHostProps): React.ReactElement | null {
   const state = React.useSyncExternalStore(subscribeModal, modalState, modalState)
+  if (props.workspaces === undefined) return null
+  const host = hostCleanup(props.workspaces)
   if (state.kind === 'merge' && state.merge !== undefined) {
-    return <MergeModal t={props.t} merge={state.merge} />
+    return <MergeModal t={props.t} merge={state.merge} host={host} />
   }
   if (state.kind === 'delete' && state.delete !== undefined) {
     return (
@@ -57,6 +68,7 @@ export function ModalHost(props: ModalHostProps): React.ReactElement | null {
         armed={state.delete.armed}
         busy={state.delete.busy}
         error={state.delete.error}
+        host={host}
       />
     )
   }
@@ -73,8 +85,9 @@ function useEscapeClose(): void {
   }, [])
 }
 
-function MergeModal({ t, merge }: {
+function MergeModal({ t, merge, host }: {
   readonly t: Translate
+  readonly host: HostCleanup
   readonly merge: {
     readonly target: WorktreeModalTarget
     readonly preflight?: MergePreflightFacts
@@ -155,7 +168,7 @@ function MergeModal({ t, merge }: {
               type="button"
               className="dshx-buttonPrimary"
               disabled={merge.busy}
-              onClick={() => { void cleanupMerged(rpc).then(() => requestTopologyRefresh()) }}
+              onClick={() => { void cleanupMerged(rpc, host).then(() => requestTopologyRefresh()) }}
               data-dshx-button="cleanup"
             >
               {t('merge.done.remove')}
@@ -167,12 +180,13 @@ function MergeModal({ t, merge }: {
   )
 }
 
-function DeleteModal({ t, target, armed, busy, error }: {
+function DeleteModal({ t, target, armed, busy, error, host }: {
   readonly t: Translate
   readonly target: WorktreeModalTarget
   readonly armed: boolean
   readonly busy: boolean
   readonly error?: string
+  readonly host: HostCleanup
 }): React.ReactElement {
   useEscapeClose()
   return (
@@ -196,7 +210,7 @@ function DeleteModal({ t, target, armed, busy, error }: {
             type="button"
             className={armed ? 'dshx-buttonDanger' : 'dshx-buttonGhost'}
             disabled={busy}
-            onClick={() => { if (armed) { void executeDelete(rpc).then(() => requestTopologyRefresh()) } else armDelete() }}
+            onClick={() => { if (armed) { void executeDelete(rpc, host).then(() => requestTopologyRefresh()) } else armDelete() }}
             data-dshx-button={armed ? 'remove-armed' : 'remove'}
           >
             {armed ? (target.dirty ? t('delete.confirm.force') : t('delete.confirm.ok')) : t('delete.confirm.force')}

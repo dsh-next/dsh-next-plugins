@@ -18,6 +18,10 @@ export interface WorkspaceFactsLike {
 /** The workspaces service face this plugin drives. */
 export interface WorkspacesServiceLike {
   create(input: { path: string }): Promise<{ workspaceId: string; path: string }>
+  /** The stock delete: drops the host workspace registry entry. */
+  delete(workspaceId: string): Promise<void>
+  /** The stock archive: moves a session out of its workspace's list. */
+  archiveSession(sessionId: string): Promise<void>
 }
 
 /** The sessions service face this plugin drives. */

@@ -263,6 +263,40 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     // Visual evidence for the owned-browser redesign (light + dark ride the
     // same tokens; this shot pins the nested-identity chrome).
     await page.screenshot({ path: join('docs', 'screenshots', 'worktrees-nested-sidebar.png') })
+
+    // The row menu: stock rows hide actions on blank sessions, so un-blank
+    // the created session first - one recorded turn (the keyless send fails
+    // at API auth but still records) flips the row into a real one. Then
+    // hovering the nested row reveals the stock actions plus the worktree
+    // items; Delete opens the confirm modal, and removing a clean worktree
+    // drops the row, the directory, and the registry binding while the
+    // branch survives (the M1 danger grammar).
+    const composer = page.locator('[contenteditable="true"]').first()
+    await composer.click({ timeout: 15_000 })
+    await composer.fill('hello from worktrees')
+    await composer.press('Enter')
+    const nestedRow = page.locator('[role="treeitem"]').filter({
+      has: page.locator(`[data-dshx-worktree="${slug}"]`),
+    })
+    await nestedRow.hover()
+    await expect(nestedRow.locator('button').first()).toBeVisible({ timeout: 20_000 })
+    await nestedRow.locator('button').last().click({ force: true })
+    const deleteItem = page.getByText('Delete worktree…').last()
+    await expect(deleteItem).toBeVisible({ timeout: 5_000 })
+    await deleteItem.click()
+    const deleteModal = page.locator('[data-dshx-modal="delete"]')
+    await expect(deleteModal).toBeVisible({ timeout: 5_000 })
+    await expect(deleteModal).toContainText(`dsh-worktrees/${slug}`)
+    // Clean worktree: armed immediately - one confirm removes it.
+    await page.locator('[data-dshx-button="remove-armed"]').click()
+    await expect(deleteModal).toBeHidden({ timeout: 15_000 })
+    await expect(page.locator(`[data-dshx-worktree="${slug}"]`)).toHaveCount(0, { timeout: 15_000 })
+    await expect.poll(() => existsSync(join(workspaceA, '.dsh', 'worktrees', slug))).toBe(false)
+    expect(git(['rev-parse', '--verify', `dsh-worktrees/${slug}`])).not.toBe('')
+    await expect.poll(() => {
+      const after = JSON.parse(readFileSync(registryFile, 'utf8')) as { bindings: unknown[] }
+      return after.bindings.length
+    }).toBe(0)
   },
 
   // nav level as General/Models/Plugins) with Skills and Providers tabs over

@@ -24,9 +24,9 @@ import type { Context } from '@deepseek-ai/cordis'
 import { runOfficialWorkspaceClient } from '../generated/workspace-browser.generated.mjs'
 import { WorktreeBrowser } from './browser-wrapper.tsx'
 import { installBridge } from './bridge.ts'
-import { openCreate } from './create-store.ts'
+import { openCreate, openDelete, openMerge } from './create-store.ts'
 import { ModalHost } from './modal-host.tsx'
-import { rpc } from './rpc.ts'
+import { requestTopologyRefresh, rpc } from './rpc.ts'
 import { WORKTREE_STYLES } from './styles.ts'
 import { en, englishTranslate, NS, zh, type MessageKey } from './dictionaries.ts'
 import type {
@@ -115,6 +115,20 @@ export function apply(ctx: Context): void {
         (suggestion) => { openCreate(cwd, repoLabel, suggestion) },
         () => { openCreate(cwd, repoLabel, '') },
       )
+    },
+    menuLabel: (key) => t(key as MessageKey),
+    requestMenu: (action, decoration) => {
+      if (action === 'refresh') {
+        requestTopologyRefresh()
+        return
+      }
+      if (action === 'merge') {
+        openMerge(decoration, rpc)
+        return
+      }
+      if (action === 'delete') {
+        openDelete(decoration)
+      }
     },
   }), 'dsh-next-worktrees: bridge')
 

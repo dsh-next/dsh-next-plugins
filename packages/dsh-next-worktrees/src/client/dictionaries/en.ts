@@ -37,6 +37,7 @@ export const en = {
   'delete.confirm.title': 'Delete worktree',
   'delete.confirm.body': 'The branch {branch} and the session log survive; the working copy is deleted.',
   'delete.confirm.dirty': 'This worktree has uncommitted changes.',
+  'delete.confirm.ok': 'Remove worktree',
   'delete.confirm.force': 'Remove anyway',
   'delete.confirm.cancel': 'Cancel',
   'create.title': 'New worktree in {repo}',

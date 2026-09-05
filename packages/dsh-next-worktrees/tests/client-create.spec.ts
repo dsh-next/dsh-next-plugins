@@ -1,8 +1,14 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import {
+  armDelete,
+  cleanupMerged,
   closeModal,
+  executeDelete,
+  executeMerge,
   modalState,
   openCreate,
+  openDelete,
+  openMerge,
   resetModalStore,
   runCreateFlow,
   setCreateBusy,
@@ -165,6 +171,8 @@ describe('bridge', () => {
     const uninstall = installBridge({
       createLabel: (label) => `New worktree in ${label}`,
       requestCreate: () => {},
+      menuLabel: (key) => `label:${key}`,
+      requestMenu: () => {},
     })
     const bridge = window.__dshNextWorktreesBridge
     expect(bridge?.canCreate('/repos/wt-repo')).toBe(false)
@@ -182,9 +190,103 @@ describe('bridge', () => {
 
   it('forwards requestCreate to the handler', () => {
     const requestCreate = vi.fn()
-    const uninstall = installBridge({ createLabel: () => 'x', requestCreate })
+    const requestMenu = vi.fn()
+    const uninstall = installBridge({ createLabel: () => 'x', requestCreate, menuLabel: () => 'm', requestMenu })
     window.__dshNextWorktreesBridge?.requestCreate('/r', 'label')
     expect(requestCreate).toHaveBeenCalledWith('/r', 'label')
+    const decoration = { slug: 'swift-01', title: 't', branch: 'b', path: '/r/.dsh/worktrees/swift-01', dirty: false, ahead: 0, merged: false }
+    window.__dshNextWorktreesBridge?.requestMenu('merge', decoration, 'session-1')
+    expect(requestMenu).toHaveBeenCalledWith('merge', decoration, 'session-1')
+    expect(window.__dshNextWorktreesBridge?.menuLabel('row.refresh')).toBe('m')
     uninstall()
+  })
+})
+
+describe('merge and delete modals', () => {
+  const target = {
+    slug: 'swift-01',
+    title: 'login race fix',
+    branch: 'dsh-worktrees/swift-01',
+    path: '/repos/wt-repo/.dsh/worktrees/swift-01',
+    dirty: false,
+    ahead: 2,
+    merged: false,
+  }
+
+  it('openMerge pulls the preflight into state', async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      blockers: [], green: true, target: 'main',
+      source: 'dsh-worktrees/swift-01', fastForward: true, aheadCount: 2,
+    })
+    openMerge(target, rpc)
+    expect(modalState().kind).toBe('merge')
+    expect(modalState().merge?.busy).toBe(true)
+    await vi.waitFor(() => { expect(modalState().merge?.busy).toBe(false) })
+    expect(modalState().merge?.preflight).toMatchObject({ green: true, target: 'main' })
+    expect(rpc).toHaveBeenCalledWith('merge/preflight', { cwd: target.path, slug: target.slug })
+  })
+
+  it('openMerge surfaces a preflight failure as an error', async () => {
+    const rpc = vi.fn().mockRejectedValue(new Error('rpc down'))
+    openMerge(target, rpc)
+    await vi.waitFor(() => { expect(modalState().merge?.error).toContain('rpc down') })
+  })
+
+  it('executeMerge lands on the done view', async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      blockers: [], green: true, target: 'main',
+      source: 'dsh-worktrees/swift-01', fastForward: false, aheadCount: 1,
+    })
+    openMerge(target, rpc)
+    await vi.waitFor(() => { expect(modalState().merge?.preflight).toBeDefined() })
+    const exec = vi.fn().mockResolvedValue({ target: 'main', fastForward: false })
+    executeMerge(exec)
+    await vi.waitFor(() => { expect(modalState().merge?.done).toEqual({ target: 'main', fastForward: false }) })
+  })
+
+  it('cleanupMerged removes and closes', async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      blockers: [], green: true, target: 'main',
+      source: 'dsh-worktrees/swift-01', fastForward: true, aheadCount: 0,
+    })
+    openMerge(target, rpc)
+    await vi.waitFor(() => { expect(modalState().merge?.preflight).toBeDefined() })
+    const exec = vi.fn().mockResolvedValue({ target: 'main', fastForward: true })
+    executeMerge(exec)
+    await vi.waitFor(() => { expect(modalState().merge?.done).toBeDefined() })
+    const remove = vi.fn().mockResolvedValue(undefined)
+    await cleanupMerged(remove)
+    expect(remove).toHaveBeenCalledWith('remove', { cwd: target.path, slug: target.slug, force: false })
+    expect(modalState().kind).toBe('closed')
+  })
+
+  it('delete arms immediately for a clean target', async () => {
+    openDelete(target)
+    expect(modalState().kind).toBe('delete')
+    expect(modalState().delete?.armed).toBe(true)
+    const remove = vi.fn().mockResolvedValue(undefined)
+    await executeDelete(remove)
+    expect(remove).toHaveBeenCalledWith('remove', { cwd: target.path, slug: target.slug, force: false })
+    expect(modalState().kind).toBe('closed')
+  })
+
+  it('delete forces a two-step arm for a dirty target', async () => {
+    openDelete({ ...target, dirty: true })
+    expect(modalState().delete?.armed).toBe(false)
+    const remove = vi.fn().mockResolvedValue(undefined)
+    executeDelete(remove)
+    expect(remove).not.toHaveBeenCalled()
+    armDelete()
+    await executeDelete(remove)
+    expect(remove).toHaveBeenCalledWith('remove', { cwd: target.path, slug: target.slug, force: true })
+    expect(modalState().kind).toBe('closed')
+  })
+
+  it('delete surfaces removal failures', async () => {
+    openDelete(target)
+    const remove = vi.fn().mockRejectedValue(new Error('dirty-remove-refused: dirty'))
+    await executeDelete(remove)
+    expect(modalState().kind).toBe('delete')
+    expect(modalState().delete?.error).toContain('dirty-remove-refused')
   })
 })

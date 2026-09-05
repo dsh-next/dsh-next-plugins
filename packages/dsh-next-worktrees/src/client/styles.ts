@@ -145,8 +145,49 @@ export const WORKTREE_STYLES = `
   background: var(--dsw-alias-button-primary-hover);
 }
 .dshx-buttonGhost:focus-visible,
-.dshx-buttonPrimary:focus-visible {
+.dshx-buttonPrimary:focus-visible,
+.dshx-buttonDanger:focus-visible {
   outline: 2px solid var(--dsw-alias-state-business-primary);
   outline-offset: 1px;
+}
+.dshx-modalBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dshx-factLine {
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+  word-break: break-word;
+}
+.dshx-doneTitle {
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+.dshx-blockers {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dshx-buttonDanger {
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--dsw-alias-state-error-primary);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 14px;
+  line-height: 22px;
+  cursor: pointer;
+}
+.dshx-buttonDanger:hover {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+}
+.dshx-buttonDanger:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 `

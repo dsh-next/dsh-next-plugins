@@ -33,6 +33,7 @@ export const zh: Record<MessageKey, string> = {
   'delete.confirm.title': '删除工作树',
   'delete.confirm.body': '分支 {branch} 与会话记录会保留；工作副本将被删除。',
   'delete.confirm.dirty': '此工作树存在未提交的更改。',
+  'delete.confirm.ok': '移除工作树',
   'delete.confirm.force': '仍要移除',
   'delete.confirm.cancel': '取消',
   'create.title': '在 {repo} 中新建工作树',

@@ -151,12 +151,17 @@ export const SEAMS = [
   {
     label: 'session fork filter define',
     needle: '\t\t\t];\n\t\t\treturn (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.HoverCard, {',
-    replacement: '\t\t\t];\n\t\t\tconst visibleSessionMenuItems = worktreeDecoration === void 0 ? sessionMenuItems : sessionMenuItems.filter((item) => item.id !== "fork");\n\t\t\treturn (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.HoverCard, {',
+    replacement: '\t\t\t];\n\t\t\tconst visibleSessionMenuItems = worktreeDecoration === void 0 ? sessionMenuItems : [...sessionMenuItems.filter((item) => item.id !== "fork"), {\n\t\t\t\tid: "dshx-refresh",\n\t\t\t\tlabel: window.__dshNextWorktreesBridge === void 0 ? "Refresh" : window.__dshNextWorktreesBridge.menuLabel("row.refresh")\n\t\t\t}, {\n\t\t\t\tid: "dshx-merge",\n\t\t\t\tlabel: window.__dshNextWorktreesBridge === void 0 ? "Merge" : window.__dshNextWorktreesBridge.menuLabel("row.merge"),\n\t\t\t\ticon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconBranchOutline16, {})\n\t\t\t}, {\n\t\t\t\tid: "dshx-delete",\n\t\t\t\tlabel: window.__dshNextWorktreesBridge === void 0 ? "Delete worktree" : window.__dshNextWorktreesBridge.menuLabel("row.delete"),\n\t\t\t\ticon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconTrashOutline16, {})\n\t\t\t}];\n\t\t\treturn (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.HoverCard, {',
   },
   {
     label: 'session fork filter use',
     needle: '\t\t\t\t\t\t\t\titems: sessionMenuItems,',
     replacement: '\t\t\t\t\t\t\t\titems: visibleSessionMenuItems,',
+  },
+  {
+    label: 'session menu worktree dispatch',
+    needle: 'if (id === "archive") onArchive(node.id);',
+    replacement: 'if (id === "archive") onArchive(node.id);\n\t\t\t\t\t\t\tif (id.startsWith("dshx-") && worktreeDecoration !== void 0 && window.__dshNextWorktreesBridge !== void 0) window.__dshNextWorktreesBridge.requestMenu(id.slice(5), worktreeDecoration, node.id);',
   },
   {
     label: 'repo row worktree button',

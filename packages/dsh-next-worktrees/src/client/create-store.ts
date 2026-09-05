@@ -14,11 +14,45 @@ export interface CreateModalState {
   readonly error?: string
 }
 
-export type ModalKind = 'closed' | 'create'
+export type ModalKind = 'closed' | 'create' | 'merge' | 'delete'
+
+/** Facts a worktree modal needs, carried from the row decoration. */
+export interface WorktreeModalTarget {
+  readonly slug: string
+  readonly title: string
+  readonly branch: string
+  readonly path: string
+  readonly dirty: boolean
+  readonly ahead: number
+  readonly merged: boolean
+}
+
+export interface MergePreflightFacts {
+  readonly blockers: readonly string[]
+  readonly green: boolean
+  readonly target?: string
+  readonly source?: string
+  readonly fastForward: boolean
+  readonly aheadCount: number
+  readonly manualCommand?: string
+}
 
 export interface ModalState {
   readonly kind: ModalKind
   readonly create: CreateModalState
+  readonly merge?: {
+    readonly target: WorktreeModalTarget
+    readonly preflight?: MergePreflightFacts
+    readonly busy: boolean
+    readonly done?: { target: string; fastForward: boolean }
+    readonly error?: string
+  }
+  readonly delete?: {
+    readonly target: WorktreeModalTarget
+    readonly busy: boolean
+    readonly armed: boolean
+    readonly error?: string
+  }
 }
 
 const CLOSED_CREATE: CreateModalState = {
@@ -70,13 +104,123 @@ export function openCreate(repoPath: string, repoLabel: string, suggestion: stri
       busy: false,
       error: undefined,
     },
+    merge: undefined,
+    delete: undefined,
   })
 }
 
 /** Close whatever modal is open (Escape, mask click, cancel). */
 export function closeModal(): void {
   if (state.create.busy) return
+  if (state.merge !== undefined && state.merge.busy) return
+  if (state.delete !== undefined && state.delete.busy) return
   set({ kind: 'closed', create: CLOSED_CREATE })
+}
+
+/** Open the merge modal and pull its preflight. */
+export function openMerge(target: WorktreeModalTarget, rpc: (m: string, a?: unknown) => Promise<unknown>): void {
+  set({
+    kind: 'merge',
+    create: CLOSED_CREATE,
+    merge: { target, busy: true },
+    delete: undefined,
+  })
+  rpc('merge/preflight', { cwd: target.path, slug: target.slug })
+    .then((preflight) => {
+      if (state.kind !== 'merge' || state.merge === undefined || state.merge.target !== target) return
+      set({ ...state, merge: { ...state.merge, preflight: preflight as MergePreflightFacts, busy: false } })
+    })
+    .catch((error: unknown) => {
+      if (state.kind !== 'merge' || state.merge === undefined) return
+      set({
+        ...state,
+        merge: {
+          ...state.merge,
+          busy: false,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      })
+    })
+}
+
+/** Execute the guarded merge from the merge modal. */
+export function executeMerge(rpc: (m: string, a?: unknown) => Promise<unknown>): void {
+  if (state.kind !== 'merge' || state.merge === undefined) return
+  const target = state.merge.target
+  set({ ...state, merge: { ...state.merge, busy: true, error: undefined } })
+  void rpc('merge/execute', { cwd: target.path, slug: target.slug })
+    .then((result) => {
+      if (state.kind !== 'merge' || state.merge === undefined) return
+      const done = result as { target: string; fastForward: boolean }
+      set({ ...state, merge: { ...state.merge, busy: false, done } })
+    })
+    .catch((error: unknown) => {
+      if (state.kind !== 'merge' || state.merge === undefined) return
+      set({
+        ...state,
+        merge: {
+          ...state.merge,
+          busy: false,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      })
+    })
+}
+
+/** Remove the merged worktree from the merge-done view. */
+export function cleanupMerged(rpc: (m: string, a?: unknown) => Promise<unknown>): Promise<void> {
+  if (state.kind !== 'merge' || state.merge === undefined) return Promise.resolve()
+  const target = state.merge.target
+  set({ ...state, merge: { ...state.merge, busy: true, error: undefined } })
+  return rpc('remove', { cwd: target.path, slug: target.slug, force: false })
+    .then(() => { set({ kind: 'closed', create: CLOSED_CREATE }) })
+    .catch((error: unknown) => {
+      if (state.kind !== 'merge' || state.merge === undefined) return
+      set({
+        ...state,
+        merge: {
+          ...state.merge,
+          busy: false,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      })
+    })
+}
+
+/** Open the delete modal (dirty targets arm the force grammar). */
+export function openDelete(target: WorktreeModalTarget): void {
+  set({
+    kind: 'delete',
+    create: CLOSED_CREATE,
+    merge: undefined,
+    delete: { target, busy: false, armed: !target.dirty },
+  })
+}
+
+/** Arm the force step for a dirty target. */
+export function armDelete(): void {
+  if (state.kind !== 'delete' || state.delete === undefined) return
+  set({ ...state, delete: { ...state.delete, armed: true } })
+}
+
+/** Execute the removal from the delete modal. */
+export function executeDelete(rpc: (m: string, a?: unknown) => Promise<unknown>): Promise<void> {
+  if (state.kind !== 'delete' || state.delete === undefined || !state.delete.armed) return Promise.resolve()
+  const target = state.delete.target
+  set({ ...state, delete: { ...state.delete, busy: true, error: undefined } })
+  return rpc('remove', { cwd: target.path, slug: target.slug, force: target.dirty })
+    .then(() => { set({ kind: 'closed', create: CLOSED_CREATE }) })
+    .catch((error: unknown) => {
+      if (state.kind !== 'delete' || state.delete === undefined) return
+      set({
+        ...state,
+        delete: {
+          ...state.delete,
+          busy: false,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      })
+    })
 }
 
 /** Edit the name field. */

@@ -63,6 +63,19 @@ describe('createHandlers', () => {
     expect(mergeExecute).toHaveBeenCalledWith({ cwd: '/r', slug: 'swift-01' })
   })
 
+  it('routes update preflight, execute, and abort with cwd and slug', async () => {
+    const updatePreflight = vi.fn().mockResolvedValue({})
+    const updateExecute = vi.fn().mockResolvedValue({})
+    const updateAbort = vi.fn().mockResolvedValue(undefined)
+    const handlers = createHandlers(serviceWith({ updatePreflight, updateExecute, updateAbort }))
+    await handlers['update/preflight']!({ cwd: '/r', slug: 'swift-01' })
+    await handlers['update/execute']!({ cwd: '/r', slug: 'swift-01' })
+    await handlers['update/abort']!({ cwd: '/r', slug: 'swift-01' })
+    expect(updatePreflight).toHaveBeenCalledWith({ cwd: '/r', slug: 'swift-01' })
+    expect(updateExecute).toHaveBeenCalledWith({ cwd: '/r', slug: 'swift-01' })
+    expect(updateAbort).toHaveBeenCalledWith({ cwd: '/r', slug: 'swift-01' })
+  })
+
   it('answers suggestName with a two-word string', async () => {
     const handlers = createHandlers(serviceWith({}))
     const value = await handlers.suggestName!(null) as string
@@ -78,6 +91,9 @@ describe('createHandlers', () => {
     await expect(handlers.remove!({})).rejects.toMatchObject({ code: 'bad-request' })
     await expect(handlers['merge/preflight']!({})).rejects.toMatchObject({ code: 'bad-request' })
     await expect(handlers['merge/execute']!({})).rejects.toMatchObject({ code: 'bad-request' })
+    await expect(handlers['update/preflight']!({})).rejects.toMatchObject({ code: 'bad-request' })
+    await expect(handlers['update/execute']!({})).rejects.toMatchObject({ code: 'bad-request' })
+    await expect(handlers['update/abort']!({})).rejects.toMatchObject({ code: 'bad-request' })
   })
 
   it('rejects non-object payloads as bad-request', async () => {

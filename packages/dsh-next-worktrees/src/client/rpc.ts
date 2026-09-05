@@ -26,6 +26,7 @@ export interface WorktreeTopologyStatus {
   readonly dirty: boolean
   readonly ahead: number
   readonly merged: boolean
+  readonly conflict: boolean
 }
 
 export interface WorktreeTopologyWorktree {
@@ -34,6 +35,7 @@ export interface WorktreeTopologyWorktree {
   readonly path: string
   readonly branch: string
   readonly baseRef: string
+  readonly primaryBranch: string
   readonly status: WorktreeTopologyStatus
   readonly sessionIds: readonly string[]
 }

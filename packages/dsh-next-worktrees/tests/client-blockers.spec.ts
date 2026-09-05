@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { BLOCKER_KEYS } from '../src/client/modal-host.tsx'
+import { BLOCKER_KEYS, UPDATE_BLOCKER_KEYS } from '../src/client/modal-host.tsx'
 import { en } from '../src/client/dictionaries/en.ts'
 import type { MergeBlocker } from '../src/core/merge.ts'
+import type { UpdateBlocker } from '../src/core/update.ts'
 
 const ALL_BLOCKERS: readonly MergeBlocker[] = [
   'unknown-slug',
@@ -21,5 +22,26 @@ describe('merge blocker copy', () => {
       expect(en[key as keyof typeof en], key).toBeTypeOf('string')
     }
     expect(Object.keys(BLOCKER_KEYS).sort()).toEqual([...ALL_BLOCKERS].sort())
+  })
+})
+
+const ALL_UPDATE_BLOCKERS: readonly UpdateBlocker[] = [
+  'unknown-slug',
+  'no-target-branch',
+  'no-bound-session',
+  'running-session',
+  'in-progress',
+  'dirty-worktree',
+  'already-updated',
+]
+
+describe('update blocker copy', () => {
+  it('maps every host blocker to an English dictionary key', () => {
+    for (const code of ALL_UPDATE_BLOCKERS) {
+      const key = UPDATE_BLOCKER_KEYS[code]
+      expect(key, code).toBeTypeOf('string')
+      expect(en[key as keyof typeof en], key).toBeTypeOf('string')
+    }
+    expect(Object.keys(UPDATE_BLOCKER_KEYS).sort()).toEqual([...ALL_UPDATE_BLOCKERS].sort())
   })
 })

@@ -20,6 +20,7 @@ import {
   WorktreesService,
   type ApplySandboxMode,
   type GetSessionCwd,
+  type IsSessionRunning,
 } from './host/service.ts'
 import { registerRpc } from './host/rpc.ts'
 
@@ -53,11 +54,17 @@ export function apply(ctx: Context): void {
     }
   }
 
+  const isSessionRunning: IsSessionRunning = (sessionId) => {
+    const session = sessions?.get?.(sessionId) as { running?: boolean } | undefined
+    return session?.running === true
+  }
+
   const service = new WorktreesService({
     git,
     store,
     getSessionCwd,
     applySandboxMode,
+    isSessionRunning,
     copyFile: async (from, to) => {
       try {
         await mkdir(dirname(to), { recursive: true })

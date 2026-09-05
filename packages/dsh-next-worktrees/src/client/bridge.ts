@@ -15,6 +15,7 @@ export interface MenuDecoration {
   readonly slug: string
   readonly title: string
   readonly branch: string
+  readonly primaryBranch?: string
   readonly path: string
   /** The host workspace registered for this worktree (delete cleanup). */
   readonly workspaceId?: string
@@ -23,6 +24,7 @@ export interface MenuDecoration {
   readonly dirty: boolean
   readonly ahead: number
   readonly merged: boolean
+  readonly conflict: boolean
 }
 
 /** The bridge the seam markup consumes. */
@@ -33,8 +35,8 @@ export interface WorktreesBridge {
   createLabel(repoLabel: string): string
   /** The create button was clicked: start the auto-named create flow. */
   requestCreate(cwd: string, repoLabel: string): void
-  /** Localized label for a menu item key. */
-  menuLabel(key: string): string
+  /** Localized label for a menu item key (decoration supplies {branch} for update). */
+  menuLabel(key: string, decoration?: MenuDecoration): string
   /** Localized hover-card fact lines for one worktree row. */
   worktreeFacts(decoration: MenuDecoration): readonly string[]
   /** A worktree menu action fired on a session row. */
@@ -59,7 +61,7 @@ const factsStore = new Map<string, boolean>()
 export function installBridge(handlers: {
   createLabel(repoLabel: string): string
   requestCreate(cwd: string, repoLabel: string): void
-  menuLabel(key: string): string
+  menuLabel(key: string, decoration?: MenuDecoration): string
   worktreeFacts(decoration: MenuDecoration): readonly string[]
   requestMenu(action: string, decoration: MenuDecoration, sessionId: string): void
 }): () => void {

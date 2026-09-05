@@ -6,11 +6,12 @@
  *   `git worktree list`; every write is serialized per repo.
  * - user text never reaches a branch (slug-only refs; Name is display).
  * - the only writes to the user's checkout are the guarded worktree-add /
- *   worktree-remove pair and the preflighted merge.
+ *   worktree-remove pair, the preflighted merge into the primary, and
+ *   update-from-main (a merge into the worktree that may stay mid-merge).
  * - one writer per worktree: a session takes over only an unclaimed row.
  */
-import { randomUUID } from 'node:crypto'
 import { mergeVerdict, parseGitVersion, gitSupportsMergeTree, type MergeBlocker } from '../core/merge.ts'
+import { updateVerdict, type UpdateBlocker } from '../core/update.ts'
 import {
   reconcile,
   rowForCwd,
@@ -38,12 +39,15 @@ export class WorktreeFlowError extends Error {
 
 export type GetSessionCwd = (sessionId: string) => string | null
 export type ApplySandboxMode = (sessionId: string, mode: 'danger-full-access') => boolean
+export type IsSessionRunning = (sessionId: string) => boolean
 
 export interface ServicePorts {
   readonly git: GitPorts
   readonly store: RegistryStorePorts
   readonly getSessionCwd: GetSessionCwd
   readonly applySandboxMode: ApplySandboxMode
+  /** One-writer gate for update-from-main (false when the session is unknown). */
+  readonly isSessionRunning: IsSessionRunning
   /**
    * Copy one file for `.worktreeinclude` replication; a no-op when the
    * source is missing (best-effort convention).
@@ -91,6 +95,8 @@ export interface TopologyWorktree {
   readonly path: string
   readonly branch: string
   readonly baseRef: string
+  /** Primary checkout's current branch (the update-from source). */
+  readonly primaryBranch: string
   readonly status: WorktreeStatus
   readonly sessionIds: readonly string[]
 }
@@ -133,6 +139,29 @@ export interface MergeExecuteResult {
   readonly target: string
   readonly source: string
   readonly fastForward: boolean
+}
+
+/** Update-from-main preflight answer for the confirmation modal. */
+export interface UpdatePreflightResult {
+  readonly blockers: readonly UpdateBlocker[]
+  readonly green: boolean
+  /** Primary branch being merged into the worktree. */
+  readonly source?: string
+  /** Worktree branch receiving the update. */
+  readonly target?: string
+  readonly fastForward: boolean
+  readonly wouldConflict: boolean
+  readonly inProgress: boolean
+  readonly sessionId?: string
+  readonly manualCommand?: string
+}
+
+export interface UpdateExecuteResult {
+  readonly source: string
+  readonly target: string
+  readonly fastForward: boolean
+  readonly conflict: boolean
+  readonly sessionId: string
 }
 
 const fromGit = (error: unknown): never => {
@@ -370,13 +399,17 @@ export class WorktreesService {
     const repos = await Promise.all([...primaries].map(async ([primary]): Promise<TopologyRepo> => {
       try {
         const bindings = await this.reconciled(primary)
-        const statuses = await Promise.all(bindings.map((row) => this.statusOf(primary, row)))
+        const [statuses, primaryBranch] = await Promise.all([
+          Promise.all(bindings.map((row) => this.statusOf(primary, row))),
+          this.ports.git.currentBranch(primary).catch(() => undefined),
+        ])
         const worktrees: TopologyWorktree[] = bindings.map((row, index) => ({
           slug: row.slug,
           title: displayTitle(row.name, row.slug),
           path: row.path,
           branch: row.branch,
           baseRef: row.baseRef,
+          primaryBranch: primaryBranch ?? '',
           status: statuses[index]!,
           sessionIds: rowsForSlug(bindings, row.slug)
             .map((b) => b.sessionId)
@@ -479,6 +512,99 @@ export class WorktreesService {
     return { target: pre.target, source: pre.source, fastForward: pre.fastForward }
   }
 
+  /** Update-from-main preflight: merge the primary branch into the worktree. */
+  async updatePreflight(input: { cwd: string; slug: string }): Promise<UpdatePreflightResult> {
+    const placement = await this.ports.git.placement(input.cwd).catch(fromGit)
+    const bindings = await this.reconciled(placement.primary)
+    const row = rowsForSlug(bindings, input.slug)[0]
+    const slugKnown = row !== undefined
+    const sessionId = row !== undefined && row.sessionId !== '' ? row.sessionId : undefined
+    const [source, worktreeDirty, inProgress] = await Promise.all([
+      this.ports.git.currentBranch(placement.primary),
+      slugKnown ? this.ports.git.dirtyCount(row!.path) : Promise.resolve(0),
+      slugKnown ? this.ports.git.merging(row!.path) : Promise.resolve(false),
+    ])
+    const boundSession = sessionId !== undefined
+    const sessionRunning = boundSession && this.ports.isSessionRunning(sessionId)
+    const alreadyUpdated = slugKnown && source !== undefined && !inProgress
+      && await this.ports.git.isAncestor(placement.primary, source, row!.branch)
+    const worktreeClean = !slugKnown || worktreeDirty === 0
+    const verdict = updateVerdict({
+      slugKnown,
+      sourceBranch: source,
+      boundSession,
+      sessionRunning,
+      inProgress,
+      worktreeClean,
+      alreadyUpdated,
+    })
+    const gitModern = gitSupportsMergeTree(parseGitVersion(await this.ports.git.versionStdout()))
+    const dryRunRan = gitModern && slugKnown && source !== undefined && !alreadyUpdated && !inProgress
+    const [wouldConflict, fastForward] = await Promise.all([
+      dryRunRan
+        ? this.ports.git.mergeTreeClean(placement.primary, row!.branch, source!).then((clean) => !clean)
+        : Promise.resolve(false),
+      slugKnown && source !== undefined
+        ? this.ports.git.isAncestor(placement.primary, row!.branch, source)
+        : Promise.resolve(false),
+    ])
+    return {
+      blockers: verdict.blockers,
+      green: verdict.green,
+      source,
+      target: row?.branch,
+      fastForward,
+      wouldConflict,
+      inProgress,
+      sessionId,
+      manualCommand: source === undefined ? undefined : `git merge ${source}`,
+    }
+  }
+
+  /**
+   * Start (or complete) the update merge inside the worktree. A conflict
+   * outcome is success: the tree is left MERGING for the bound session.
+   */
+  async updateExecute(input: { cwd: string; slug: string }): Promise<UpdateExecuteResult> {
+    const pre = await this.updatePreflight(input)
+    if (!pre.green || pre.source === undefined || pre.target === undefined || pre.sessionId === undefined) {
+      throw new WorktreeFlowError(
+        'update-blocked',
+        'update preflight is not green',
+        pre.manualCommand ?? 'resolve the blockers and retry',
+      )
+    }
+    const placement = await this.ports.git.placement(input.cwd).catch(fromGit)
+    const bindings = await this.reconciled(placement.primary)
+    const row = rowsForSlug(bindings, input.slug)[0]
+    if (row === undefined) {
+      throw new WorktreeFlowError('unknown-slug', `no worktree bound to slug ${input.slug}`)
+    }
+    const outcome = await this.ports.git.mergeAllowConflicts(row.path, pre.source).catch(fromGit)
+    return {
+      source: pre.source,
+      target: pre.target,
+      fastForward: pre.fastForward,
+      conflict: outcome === 'conflict',
+      sessionId: pre.sessionId,
+    }
+  }
+
+  /** Abort an in-flight update merge inside the worktree. */
+  async updateAbort(input: { cwd: string; slug: string }): Promise<void> {
+    const placement = await this.ports.git.placement(input.cwd).catch(fromGit)
+    const bindings = await this.reconciled(placement.primary)
+    const row = rowsForSlug(bindings, input.slug)[0]
+    if (row === undefined) {
+      throw new WorktreeFlowError('unknown-slug', `no worktree bound to slug ${input.slug}`)
+    }
+    const inProgress = await this.ports.git.merging(row.path)
+    if (!inProgress) {
+      throw new WorktreeFlowError('not-in-progress', 'this worktree is not in the middle of a merge')
+    }
+    await this.ports.git.mergeAbort(row.path).catch(fromGit)
+  }
+
   /** The commit this worktree was branched from (pinned SHA, else live at primary). */
   private resolveBaseTip(primary: string, row: WorktreeBinding): Promise<string | undefined> {
     if (row.baseSha !== '') return Promise.resolve(row.baseSha)
@@ -490,7 +616,7 @@ export class WorktreesService {
   private async statusOf(primary: string, row: WorktreeBinding): Promise<WorktreeStatus> {
     // Independent git answers run concurrently; only the ancestry probe
     // waits on the primary's branch name.
-    const [dirtyCount, ahead, target, branchTip, baseTip] = await Promise.all([
+    const [dirtyCount, ahead, target, branchTip, baseTip, merging] = await Promise.all([
       this.ports.git.dirtyCount(row.path).catch(() => 0),
       // Count from the primary so a stored symbolic base (HEAD, origin/HEAD)
       // resolves there, not inside the worktree where HEAD *is* the branch.
@@ -498,6 +624,7 @@ export class WorktreesService {
       this.ports.git.currentBranch(primary).catch(() => undefined),
       this.ports.git.revParse(row.path, row.branch).catch(() => undefined),
       this.resolveBaseTip(primary, row),
+      this.ports.git.merging(row.path).catch(() => false),
     ])
     const mergedIntoTarget = target === undefined
       ? false
@@ -505,7 +632,13 @@ export class WorktreesService {
     // Fresh-worktree discriminator: tip == base means no unique work yet,
     // never "merged" (see worktreeStatus).
     const tipEqualsBase = branchTip !== undefined && branchTip === baseTip
-    return worktreeStatus({ dirtyCount, aheadCount: ahead, mergedIntoTarget, tipEqualsBase })
+    return worktreeStatus({
+      dirtyCount,
+      aheadCount: ahead,
+      mergedIntoTarget,
+      tipEqualsBase,
+      merging,
+    })
   }
 
   /** Bindings reconciled against `git worktree list`; stale rows dropped. */
@@ -536,9 +669,4 @@ function isUnsafeInclude(entry: string): boolean {
 /** Name suggestion for the create modal prefill. */
 export function nameSuggestion(seed: number): string {
   return suggestName(seed)
-}
-
-/** Reserved for the M2 shuttle preflight (request correlation). */
-export function newRequestId(): string {
-  return randomUUID()
 }

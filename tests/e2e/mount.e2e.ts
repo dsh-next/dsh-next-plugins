@@ -343,6 +343,46 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await expect(page.locator(`[data-dshx-worktree="${slug}"]`))
       .toHaveAttribute('data-dshx-state', 'merged', { timeout: 15_000 })
 
+    // Conflict path: diverge the same file on main and in the worktree.
+    // Merge must offer Update from main (not a disabled button + CLI dump).
+    writeFileSync(join(workspaceA, 'seed.txt'), 'main version\n')
+    git(['add', 'seed.txt'])
+    git(['commit', '-q', '-m', 'main edits seed'])
+    writeFileSync(join(wtDir, 'seed.txt'), 'worktree version\n')
+    git(['add', 'seed.txt'], wtDir)
+    git(['commit', '-q', '-m', 'worktree edits seed'], wtDir)
+    await page.evaluate(() => { window.dispatchEvent(new Event('dsh-next-worktrees:refresh')) })
+    await openRowMenu()
+    await expect(page.getByText(/Update from main/).last()).toBeVisible({ timeout: 5_000 })
+    await page.getByText('Merge…').last().click()
+    await expect(mergeModal).toBeVisible({ timeout: 10_000 })
+    await expect(page.locator('[data-dshx-blocker="conflict"]')).toBeVisible({ timeout: 10_000 })
+    await page.locator('[data-dshx-button="update-from-merge"]').click()
+    const updateModal = page.locator('[data-dshx-modal="update"]')
+    await expect(updateModal).toBeVisible({ timeout: 10_000 })
+    await page.locator('[data-dshx-button="update"]').click()
+    await expect(page.locator(`[data-dshx-worktree="${slug}"]`))
+      .toHaveAttribute('data-dshx-state', 'conflict', { timeout: 15_000 })
+    await expect.poll(() => {
+      try {
+        git(['rev-parse', '-q', '--verify', 'MERGE_HEAD'], wtDir)
+        return true
+      } catch {
+        return false
+      }
+    }, { timeout: 10_000 }).toBe(true)
+    await expect(updateModal.locator('[data-dshx-button="abort-update"]')).toBeVisible()
+    await page.locator('[data-dshx-button="abort-update"]').click()
+    await expect(updateModal).toBeHidden({ timeout: 15_000 })
+    await expect.poll(() => {
+      try {
+        git(['rev-parse', '-q', '--verify', 'MERGE_HEAD'], wtDir)
+        return true
+      } catch {
+        return false
+      }
+    }, { timeout: 10_000 }).toBe(false)
+
     // Dirty two-step delete: uncommitted file, then Delete demands an
     // extra confirm (remove -> remove-armed) before the working copy
     // goes; the branch survives.

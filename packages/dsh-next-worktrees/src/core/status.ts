@@ -16,6 +16,8 @@ export interface WorktreeStatusInput {
    * worktree with no unique work yet).
    */
   readonly tipEqualsBase: boolean
+  /** The worktree has MERGE_HEAD (an in-flight merge, typically a conflict). */
+  readonly merging?: boolean
 }
 
 export interface WorktreeStatus {
@@ -27,6 +29,8 @@ export interface WorktreeStatus {
   readonly ahead: number
   /** Landed in the primary's branch already (cleanup is safe-ish). */
   readonly merged: boolean
+  /** In-flight merge in the worktree (red icon; Abort / Continue). */
+  readonly conflict: boolean
 }
 
 /**
@@ -41,18 +45,21 @@ export interface WorktreeStatus {
  * @returns the shaped status.
  */
 export function worktreeStatus(input: WorktreeStatusInput): WorktreeStatus {
+  const conflict = input.merging === true
   return {
-    clean: input.dirtyCount === 0,
-    dirty: input.dirtyCount > 0,
+    clean: input.dirtyCount === 0 && !conflict,
+    dirty: input.dirtyCount > 0 || conflict,
     ahead: input.aheadCount,
     merged: input.mergedIntoTarget && !input.tipEqualsBase,
+    conflict,
   }
 }
 
 /** One-line summary for tooltips and the menu facts block. */
 export function statusLine(status: WorktreeStatus): string {
   const parts: string[] = []
-  parts.push(status.dirty ? 'dirty' : 'clean')
+  if (status.conflict) parts.push('conflict')
+  else parts.push(status.dirty ? 'dirty' : 'clean')
   if (status.ahead > 0) parts.push(`${status.ahead} ahead`)
   if (status.merged) parts.push('merged')
   return parts.join(', ')

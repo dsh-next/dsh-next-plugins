@@ -113,6 +113,16 @@ export interface GitPorts {
   mergeTreeClean(cwd: string, target: string, source: string): Promise<boolean>
   /** The guarded write: `git merge --no-edit <source>` at cwd. */
   merge(cwd: string, source: string): Promise<void>
+  /**
+   * Merge that MAY leave the tree mid-merge: used for update-from-main
+   * inside a worktree. `'clean'` on exit 0; `'conflict'` when MERGE_HEAD
+   * remains; anything else throws.
+   */
+  mergeAllowConflicts(cwd: string, source: string): Promise<'clean' | 'conflict'>
+  /** Whether `MERGE_HEAD` exists at cwd (in-flight merge). */
+  merging(cwd: string): Promise<boolean>
+  /** `git merge --abort` at cwd. */
+  mergeAbort(cwd: string): Promise<void>
   /** Execute an arbitrary git call (worktreeinclude copying etc.). */
   raw(args: readonly string[], cwd: string): Promise<GitResult>
 }
@@ -311,6 +321,29 @@ export class GitRunner implements GitPorts {
         `git merge failed: ${result.stderr.trim()}`,
         'the preflight should have caught this; resolve manually',
       )
+    }
+  }
+
+  async mergeAllowConflicts(cwd: string, source: string): Promise<'clean' | 'conflict'> {
+    const result = await this.run(['merge', '--no-edit', source], cwd)
+    if (result.code === 0) return 'clean'
+    if (await this.merging(cwd)) return 'conflict'
+    throw new GitError(
+      'merge-blocked',
+      `git merge failed: ${result.stderr.trim()}`,
+      'resolve manually inside the worktree',
+    )
+  }
+
+  async merging(cwd: string): Promise<boolean> {
+    const result = await this.run(['rev-parse', '-q', '--verify', 'MERGE_HEAD'], cwd)
+    return result.code === 0
+  }
+
+  async mergeAbort(cwd: string): Promise<void> {
+    const result = await this.run(['merge', '--abort'], cwd)
+    if (result.code !== 0) {
+      throw new GitError('git-failed', `git merge --abort failed: ${result.stderr.trim()}`)
     }
   }
 

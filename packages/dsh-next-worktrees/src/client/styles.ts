@@ -4,8 +4,8 @@
  * injected markup carries the `dshx-` class names styled here. Tokens
  * only (docs/i18n.md of design: --dsw-* are the only colors we may
  * name). The worktree icon IS the status surface (rev 3): green merged,
- * amber dirty, blue ahead, neutral clean — first match wins, computed in
- * the seam and carried by `data-dshx-state`.
+ * amber dirty, blue ahead, red conflict, neutral clean — first match
+ * wins, computed in the seam and carried by `data-dshx-state`.
  */
 export const WORKTREE_STYLES = `
 .dshx-sessionRow--worktree {
@@ -36,6 +36,9 @@ export const WORKTREE_STYLES = `
 }
 .dshx-worktree-identity[data-dshx-state='ahead'] svg {
   color: var(--dsw-alias-state-business-primary);
+}
+.dshx-worktree-identity[data-dshx-state='conflict'] svg {
+  color: var(--dsw-alias-state-error-primary);
 }
 .dshx-worktree-ahead {
   flex: none;

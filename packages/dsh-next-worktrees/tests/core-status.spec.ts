@@ -8,7 +8,7 @@ describe('worktreeStatus', () => {
       aheadCount: 0,
       mergedIntoTarget: false,
       tipEqualsBase: false,
-    })).toEqual({ clean: true, dirty: false, ahead: 0, merged: false })
+    })).toEqual({ clean: true, dirty: false, ahead: 0, merged: false, conflict: false })
   })
 
   it('derives dirty with an ahead count', () => {
@@ -17,7 +17,7 @@ describe('worktreeStatus', () => {
       aheadCount: 2,
       mergedIntoTarget: false,
       tipEqualsBase: false,
-    })).toEqual({ clean: false, dirty: true, ahead: 2, merged: false })
+    })).toEqual({ clean: false, dirty: true, ahead: 2, merged: false, conflict: false })
   })
 
   it('carries the merged flag independently of dirt', () => {
@@ -26,7 +26,7 @@ describe('worktreeStatus', () => {
       aheadCount: 0,
       mergedIntoTarget: true,
       tipEqualsBase: false,
-    })).toEqual({ clean: false, dirty: true, ahead: 0, merged: true })
+    })).toEqual({ clean: false, dirty: true, ahead: 0, merged: true, conflict: false })
   })
 
   it('never reports merged for a fresh worktree (tip == base)', () => {
@@ -37,7 +37,7 @@ describe('worktreeStatus', () => {
       aheadCount: 0,
       mergedIntoTarget: true,
       tipEqualsBase: true,
-    })).toEqual({ clean: true, dirty: false, ahead: 0, merged: false })
+    })).toEqual({ clean: true, dirty: false, ahead: 0, merged: false, conflict: false })
   })
 
   it('reports merged only when ancestry holds with a distinct tip', () => {
@@ -46,17 +46,30 @@ describe('worktreeStatus', () => {
       aheadCount: 0,
       mergedIntoTarget: true,
       tipEqualsBase: false,
-    })).toEqual({ clean: true, dirty: false, ahead: 0, merged: true })
+    })).toEqual({ clean: true, dirty: false, ahead: 0, merged: true, conflict: false })
   })
 })
 
 describe('statusLine', () => {
   it('reads clean alone when nothing else applies', () => {
-    expect(statusLine({ clean: true, dirty: false, ahead: 0, merged: false })).toBe('clean')
+    expect(statusLine({ clean: true, dirty: false, ahead: 0, merged: false, conflict: false })).toBe('clean')
   })
 
   it('composes dirty, ahead, and merged in order', () => {
-    expect(statusLine({ clean: false, dirty: true, ahead: 2, merged: true }))
+    expect(statusLine({ clean: false, dirty: true, ahead: 2, merged: true, conflict: false }))
       .toBe('dirty, 2 ahead, merged')
+  })
+
+  it('reports conflict ahead of dirty when a merge is in flight', () => {
+    expect(worktreeStatus({
+      dirtyCount: 2,
+      aheadCount: 0,
+      mergedIntoTarget: false,
+      tipEqualsBase: false,
+      merging: true,
+    })).toEqual({ clean: false, dirty: true, ahead: 0, merged: false, conflict: true })
+    expect(statusLine({
+      clean: false, dirty: true, ahead: 1, merged: false, conflict: true,
+    })).toBe('conflict, 1 ahead')
   })
 })

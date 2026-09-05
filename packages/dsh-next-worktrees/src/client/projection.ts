@@ -32,6 +32,7 @@ export interface WorktreeRowDecoration {
   readonly title: string
   readonly branch: string
   readonly baseRef: string
+  readonly primaryBranch: string
   readonly path: string
   /** The host workspace registered for this worktree (delete cleanup). */
   readonly workspaceId: string
@@ -40,6 +41,7 @@ export interface WorktreeRowDecoration {
   readonly dirty: boolean
   readonly ahead: number
   readonly merged: boolean
+  readonly conflict: boolean
 }
 
 export interface ProjectionInput {
@@ -120,12 +122,14 @@ export function projectWorkspaceSidebar(input: ProjectionInput): ProjectionResul
           title: worktree.title,
           branch: worktree.branch,
           baseRef: worktree.baseRef,
+          primaryBranch: worktree.primaryBranch,
           path: worktree.path,
           workspaceId: workspace.workspaceId,
           sessionIds: [...workspace.sessionIds],
           dirty: worktree.status.dirty,
           ahead: worktree.status.ahead,
           merged: worktree.status.merged,
+          conflict: worktree.status.conflict,
         })
       }
       if (!projected[target]!.sessionIds.includes(sessionId)) {

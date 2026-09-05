@@ -110,6 +110,7 @@ export const SEAMS = [
       '\t\t\treturn value;',
       '\t\t}',
       '\t\tfunction dshNextWorktreesState(decoration) {',
+      '\t\t\tif (decoration.conflict) return "conflict";',
       '\t\t\tif (decoration.merged) return "merged";',
       '\t\t\tif (decoration.dirty) return "dirty";',
       '\t\t\tif (decoration.ahead > 0) return "ahead";',
@@ -164,7 +165,7 @@ export const SEAMS = [
   {
     label: 'session fork filter define',
     needle: '\t\t\t];\n\t\t\treturn (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.HoverCard, {',
-    replacement: '\t\t\t];\n\t\t\tconst visibleSessionMenuItems = worktreeDecoration === void 0 ? sessionMenuItems : [...sessionMenuItems.filter((item) => item.id !== "fork"), {\n\t\t\t\tid: "dshx-refresh",\n\t\t\t\tlabel: window.__dshNextWorktreesBridge === void 0 ? "Refresh" : window.__dshNextWorktreesBridge.menuLabel("row.refresh"),\n\t\t\t\ticon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconRefreshOutline16, {})\n\t\t\t}, {\n\t\t\t\tid: "dshx-merge",\n\t\t\t\tlabel: window.__dshNextWorktreesBridge === void 0 ? "Merge" : window.__dshNextWorktreesBridge.menuLabel("row.merge"),\n\t\t\t\ticon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconBranchOutline16, {})\n\t\t\t}, {\n\t\t\t\tid: "dshx-delete",\n\t\t\t\tlabel: window.__dshNextWorktreesBridge === void 0 ? "Delete worktree" : window.__dshNextWorktreesBridge.menuLabel("row.delete"),\n\t\t\t\ticon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconTrashOutline16, {})\n\t\t\t}];\n\t\t\treturn (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.HoverCard, {',
+    replacement: '\t\t\t];\n\t\t\tconst visibleSessionMenuItems = worktreeDecoration === void 0 ? sessionMenuItems : [...sessionMenuItems.filter((item) => item.id !== "fork"), {\n\t\t\t\tid: "dshx-refresh",\n\t\t\t\tlabel: window.__dshNextWorktreesBridge === void 0 ? "Refresh" : window.__dshNextWorktreesBridge.menuLabel("row.refresh"),\n\t\t\t\ticon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconRefreshOutline16, {})\n\t\t\t}, {\n\t\t\t\tid: "dshx-update",\n\t\t\t\tlabel: window.__dshNextWorktreesBridge === void 0 ? "Update" : window.__dshNextWorktreesBridge.menuLabel("row.update", worktreeDecoration),\n\t\t\t\ticon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconBranchOutline16, {})\n\t\t\t}, {\n\t\t\t\tid: "dshx-merge",\n\t\t\t\tlabel: window.__dshNextWorktreesBridge === void 0 ? "Merge" : window.__dshNextWorktreesBridge.menuLabel("row.merge"),\n\t\t\t\ticon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconBranchOutline16, {})\n\t\t\t}, {\n\t\t\t\tid: "dshx-delete",\n\t\t\t\tlabel: window.__dshNextWorktreesBridge === void 0 ? "Delete worktree" : window.__dshNextWorktreesBridge.menuLabel("row.delete"),\n\t\t\t\ticon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconTrashOutline16, {})\n\t\t\t}];\n\t\t\treturn (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.HoverCard, {',
   },
   {
     label: 'session fork filter use',

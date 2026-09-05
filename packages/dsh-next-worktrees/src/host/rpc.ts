@@ -99,6 +99,33 @@ export function createHandlers(service: WorktreesService): Record<string, Handle
       }
       return service.mergeExecute({ cwd, slug })
     },
+    'update/preflight': async (args) => {
+      const a = asRecord(args)
+      const cwd = str(a.cwd)
+      const slug = str(a.slug)
+      if (cwd === undefined || slug === undefined) {
+        throw new WorktreeFlowError('bad-request', 'update/preflight requires cwd and slug')
+      }
+      return service.updatePreflight({ cwd, slug })
+    },
+    'update/execute': async (args) => {
+      const a = asRecord(args)
+      const cwd = str(a.cwd)
+      const slug = str(a.slug)
+      if (cwd === undefined || slug === undefined) {
+        throw new WorktreeFlowError('bad-request', 'update/execute requires cwd and slug')
+      }
+      return service.updateExecute({ cwd, slug })
+    },
+    'update/abort': async (args) => {
+      const a = asRecord(args)
+      const cwd = str(a.cwd)
+      const slug = str(a.slug)
+      if (cwd === undefined || slug === undefined) {
+        throw new WorktreeFlowError('bad-request', 'update/abort requires cwd and slug')
+      }
+      return service.updateAbort({ cwd, slug })
+    },
   }
 }
 

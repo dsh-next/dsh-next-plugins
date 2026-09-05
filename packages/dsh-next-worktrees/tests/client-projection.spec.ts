@@ -19,7 +19,8 @@ function wt(overrides: Partial<WorktreeTopology['repos'][number]['worktrees'][nu
     path: `${REPO}/.dsh/worktrees/swift-01`,
     branch: 'dsh-worktrees/swift-01',
     baseRef: 'origin/HEAD',
-    status: { clean: true, dirty: false, ahead: 0, merged: false },
+    primaryBranch: 'main',
+    status: { clean: true, dirty: false, ahead: 0, merged: false, conflict: false },
     sessionIds: [],
     ...overrides,
   }
@@ -65,7 +66,7 @@ describe('projectWorkspaceSidebar', () => {
   })
 
   it('decorates every re-parented session with worktree facts', () => {
-    const worktree = wt({ sessionIds: ['s1'], status: { clean: false, dirty: true, ahead: 2, merged: false } })
+    const worktree = wt({ sessionIds: ['s1'], status: { clean: false, dirty: true, ahead: 2, merged: false, conflict: false } })
     const result = projectWorkspaceSidebar({
       workspaces: [ws(), ws({ workspaceId: 'wt-ws', path: worktree.path, sessionIds: ['s1'] })],
       sessionsById: {},
@@ -77,12 +78,14 @@ describe('projectWorkspaceSidebar', () => {
       title: 'login race fix',
       branch: 'dsh-worktrees/swift-01',
       baseRef: 'origin/HEAD',
+      primaryBranch: 'main',
       path: worktree.path,
       workspaceId: 'wt-ws',
       sessionIds: ['s1'],
       dirty: true,
       ahead: 2,
       merged: false,
+      conflict: false,
     })
   })
 
@@ -196,12 +199,14 @@ describe('decorateSessions', () => {
       title: 't',
       branch: 'b',
       baseRef: 'r',
+      primaryBranch: 'main',
       path: 'p',
       workspaceId: 'wt-ws',
       sessionIds: ['s1'],
       dirty: false,
       ahead: 0,
       merged: false,
+      conflict: false,
     } as const
     const byId = {
       s1: { id: 's1' },

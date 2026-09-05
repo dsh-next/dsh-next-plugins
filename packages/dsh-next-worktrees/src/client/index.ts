@@ -24,7 +24,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { runOfficialWorkspaceClient } from '../generated/workspace-browser.generated.mjs'
 import { WorktreeBrowser } from './browser-wrapper.tsx'
 import { installBridge } from './bridge.ts'
-import { openDelete, openMerge, runCreateFlow } from './create-store.ts'
+import { openDelete, openMerge, openUpdate, runCreateFlow } from './create-store.ts'
 import { ModalHost } from './modal-host.tsx'
 import { requestTopologyRefresh, rpc } from './rpc.ts'
 import { configureWorktreeSweeper } from './sweeper.ts'
@@ -123,15 +123,19 @@ export function apply(ctx: Context): void {
         onTopologyRefresh: requestTopologyRefresh,
       })
     },
-    menuLabel: (key) => t(key as MessageKey),
+    menuLabel: (key, decoration) => key === 'row.update'
+      ? t('row.update' satisfies MessageKey, { branch: decoration?.primaryBranch || decoration?.branch || '' })
+      : t(key as MessageKey),
     worktreeFacts: (decoration) => {
-      const status = decoration.merged
-        ? t('status.merged')
-        : decoration.dirty
-          ? t('status.dirty')
-          : decoration.ahead > 0
-            ? t('status.ahead', { count: decoration.ahead })
-            : t('status.clean')
+      const status = decoration.conflict
+        ? t('status.conflict')
+        : decoration.merged
+          ? t('status.merged')
+          : decoration.dirty
+            ? t('status.dirty')
+            : decoration.ahead > 0
+              ? t('status.ahead', { count: decoration.ahead })
+              : t('status.clean')
       return [
         decoration.title,
         `${t('row.facts.branch')}: ${decoration.branch}`,
@@ -145,6 +149,10 @@ export function apply(ctx: Context): void {
       }
       if (action === 'merge') {
         openMerge(decoration, rpc)
+        return
+      }
+      if (action === 'update') {
+        openUpdate(decoration, rpc)
         return
       }
       if (action === 'delete') {

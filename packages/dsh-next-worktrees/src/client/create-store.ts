@@ -8,8 +8,9 @@
  * with the host-suggested name; `creating` only guards re-entry.
  */
 import type { MergeBlocker } from '../core/merge.ts'
+import type { UpdateBlocker } from '../core/update.ts'
 
-export type ModalKind = 'closed' | 'create-error' | 'merge' | 'delete'
+export type ModalKind = 'closed' | 'create-error' | 'merge' | 'delete' | 'update'
 
 /** Facts a worktree modal needs, carried from the row decoration. */
 export interface WorktreeModalTarget {
@@ -24,6 +25,7 @@ export interface WorktreeModalTarget {
   readonly dirty: boolean
   readonly ahead: number
   readonly merged: boolean
+  readonly conflict?: boolean
 }
 
 /**
@@ -47,6 +49,24 @@ export interface MergePreflightFacts {
   readonly manualCommand?: string
 }
 
+export interface UpdatePreflightFacts {
+  readonly blockers: readonly UpdateBlocker[]
+  readonly green: boolean
+  readonly source?: string
+  readonly target?: string
+  readonly fastForward: boolean
+  readonly wouldConflict: boolean
+  readonly inProgress: boolean
+  readonly sessionId?: string
+  readonly manualCommand?: string
+}
+
+/** Optional session handoff after a conflicting update starts. */
+export interface UpdateHandoff {
+  open(sessionId: string): void
+  prompt?(sessionId: string, text: string): void
+}
+
 export interface ModalState {
   readonly kind: ModalKind
   /** True while the auto-named create flow is in flight. */
@@ -64,6 +84,13 @@ export interface ModalState {
     readonly target: WorktreeModalTarget
     readonly busy: boolean
     readonly armed: boolean
+    readonly error?: string
+  }
+  readonly update?: {
+    readonly target: WorktreeModalTarget
+    readonly preflight?: UpdatePreflightFacts
+    readonly busy: boolean
+    readonly done?: { source: string; conflict: boolean; sessionId: string }
     readonly error?: string
   }
 }
@@ -99,6 +126,7 @@ export function modalState(): ModalState {
 export function closeModal(): void {
   if (state.merge !== undefined && state.merge.busy) return
   if (state.delete !== undefined && state.delete.busy) return
+  if (state.update !== undefined && state.update.busy) return
   set({ ...INITIAL, creating: state.creating })
 }
 
@@ -109,6 +137,7 @@ export function openMerge(target: WorktreeModalTarget, rpc: (m: string, a?: unkn
     creating: state.creating,
     merge: { target, busy: true },
     delete: undefined,
+    update: undefined,
   })
   rpc('merge/preflight', { cwd: target.path, slug: target.slug })
     .then((preflight) => {
@@ -190,7 +219,89 @@ export function openDelete(target: WorktreeModalTarget): void {
     creating: state.creating,
     merge: undefined,
     delete: { target, busy: false, armed: !target.dirty },
+    update: undefined,
   })
+}
+
+/** Open the update-from-main modal and pull its preflight. */
+export function openUpdate(target: WorktreeModalTarget, rpc: (m: string, a?: unknown) => Promise<unknown>): void {
+  set({
+    kind: 'update',
+    creating: state.creating,
+    merge: undefined,
+    delete: undefined,
+    update: { target, busy: true },
+  })
+  rpc('update/preflight', { cwd: target.path, slug: target.slug })
+    .then((preflight) => {
+      if (state.kind !== 'update' || state.update === undefined || state.update.target !== target) return
+      set({ ...state, update: { ...state.update, preflight: preflight as UpdatePreflightFacts, busy: false } })
+    })
+    .catch((error: unknown) => {
+      if (state.kind !== 'update' || state.update === undefined) return
+      set({
+        ...state,
+        update: {
+          ...state.update,
+          busy: false,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      })
+    })
+}
+
+/** Execute update-from-main; on conflict, hand off to the bound session. */
+export function executeUpdate(
+  rpc: (m: string, a?: unknown) => Promise<unknown>,
+  handoff?: UpdateHandoff,
+  promptText?: string,
+): void {
+  if (state.kind !== 'update' || state.update === undefined) return
+  const target = state.update.target
+  set({ ...state, update: { ...state.update, busy: true, error: undefined } })
+  void rpc('update/execute', { cwd: target.path, slug: target.slug })
+    .then((result) => {
+      if (state.kind !== 'update' || state.update === undefined) return
+      const done = result as { source: string; conflict: boolean; sessionId: string }
+      set({ ...state, update: { ...state.update, busy: false, done } })
+      if (done.sessionId !== '') {
+        handoff?.open(done.sessionId)
+        if (done.conflict && promptText !== undefined && promptText !== '') {
+          handoff?.prompt?.(done.sessionId, promptText)
+        }
+      }
+    })
+    .catch((error: unknown) => {
+      if (state.kind !== 'update' || state.update === undefined) return
+      set({
+        ...state,
+        update: {
+          ...state.update,
+          busy: false,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      })
+    })
+}
+
+/** Abort an in-flight update merge in the worktree. */
+export function abortUpdate(rpc: (m: string, a?: unknown) => Promise<unknown>): Promise<void> {
+  if (state.kind !== 'update' || state.update === undefined) return Promise.resolve()
+  const target = state.update.target
+  set({ ...state, update: { ...state.update, busy: true, error: undefined } })
+  return rpc('update/abort', { cwd: target.path, slug: target.slug })
+    .then(() => { set(INITIAL) })
+    .catch((error: unknown) => {
+      if (state.kind !== 'update' || state.update === undefined) return
+      set({
+        ...state,
+        update: {
+          ...state.update,
+          busy: false,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      })
+    })
 }
 
 /** Arm the force step for a dirty target. */

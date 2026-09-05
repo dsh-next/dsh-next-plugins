@@ -24,10 +24,26 @@ export interface WorkspacesServiceLike {
   archiveSession(sessionId: string): Promise<void>
 }
 
+/** One listed session row this plugin reads (running + prompt handoff). */
+export interface SessionListRowLike {
+  readonly running?: boolean
+}
+
 /** The sessions service face this plugin drives. */
 export interface SessionsServiceLike {
   create(input: { workspaceId: string }): Promise<string>
   open(sessionId: string): void
+  readonly list?: {
+    getSnapshot(): { byId: Readonly<Record<string, SessionListRowLike | undefined>> }
+  }
+  binding?(sessionId: string): {
+    session: {
+      prompt(
+        content: readonly { type: 'text'; text: string }[],
+        mode: 'queue' | 'steer',
+      ): Promise<unknown>
+    }
+  } | undefined
 }
 
 /** Translate face backed by the locale dictionaries. */

@@ -6,8 +6,11 @@ import {
   executeDelete,
   executeMerge,
   modalState,
+  abortUpdate,
+  executeUpdate,
   openDelete,
   openMerge,
+  openUpdate,
   resetModalStore,
   runCreateFlow,
   subscribeModal,
@@ -216,7 +219,7 @@ describe('bridge', () => {
     })
     window.__dshNextWorktreesBridge?.requestCreate('/r', 'label')
     expect(requestCreate).toHaveBeenCalledWith('/r', 'label')
-    const decoration = { slug: 'swift-01', title: 't', branch: 'b', path: '/r/.dsh/worktrees/swift-01', dirty: false, ahead: 0, merged: false }
+    const decoration = { slug: 'swift-01', title: 't', branch: 'b', path: '/r/.dsh/worktrees/swift-01', dirty: false, ahead: 0, merged: false, conflict: false }
     window.__dshNextWorktreesBridge?.requestMenu('merge', decoration, 'session-1')
     expect(requestMenu).toHaveBeenCalledWith('merge', decoration, 'session-1')
     expect(window.__dshNextWorktreesBridge?.menuLabel('row.refresh')).toBe('m')
@@ -355,5 +358,101 @@ describe('merge and delete modals', () => {
     await executeDelete(remove, host())
     expect(modalState().kind).toBe('delete')
     expect(modalState().delete?.error).toContain('dirty-remove-refused')
+  })
+})
+
+describe('update modal', () => {
+  const target = {
+    slug: 'swift-01',
+    title: 'login race fix',
+    branch: 'dsh-worktrees/swift-01',
+    path: '/repos/wt-repo/.dsh/worktrees/swift-01',
+    workspaceId: 'wt-ws',
+    sessionIds: ['wt-session-1'],
+    dirty: false,
+    ahead: 2,
+    merged: false,
+    conflict: false,
+  }
+
+  it('openUpdate pulls the preflight into state', async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      blockers: [], green: true, source: 'main',
+      target: 'dsh-worktrees/swift-01', fastForward: true,
+      wouldConflict: false, inProgress: false, sessionId: 'wt-session-1',
+    })
+    openUpdate(target, rpc)
+    expect(modalState().kind).toBe('update')
+    await vi.waitFor(() => { expect(modalState().update?.busy).toBe(false) })
+    expect(modalState().update?.preflight).toMatchObject({ green: true, source: 'main' })
+    expect(rpc).toHaveBeenCalledWith('update/preflight', { cwd: target.path, slug: target.slug })
+  })
+
+  it('executeUpdate lands on the done view and hands off on conflict', async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      blockers: [], green: true, source: 'main',
+      target: 'dsh-worktrees/swift-01', fastForward: false,
+      wouldConflict: true, inProgress: false, sessionId: 'wt-session-1',
+    })
+    openUpdate(target, rpc)
+    await vi.waitFor(() => { expect(modalState().update?.preflight).toBeDefined() })
+    const exec = vi.fn().mockResolvedValue({
+      source: 'main', conflict: true, sessionId: 'wt-session-1',
+    })
+    const open = vi.fn()
+    const prompt = vi.fn()
+    executeUpdate(exec, { open, prompt }, 'please resolve')
+    await vi.waitFor(() => {
+      expect(modalState().update?.done).toEqual({
+        source: 'main', conflict: true, sessionId: 'wt-session-1',
+      })
+    })
+    expect(open).toHaveBeenCalledWith('wt-session-1')
+    expect(prompt).toHaveBeenCalledWith('wt-session-1', 'please resolve')
+  })
+
+  it('executeUpdate does not prompt on a clean update', async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      blockers: [], green: true, source: 'main',
+      target: 'dsh-worktrees/swift-01', fastForward: true,
+      wouldConflict: false, inProgress: false, sessionId: 'wt-session-1',
+    })
+    openUpdate(target, rpc)
+    await vi.waitFor(() => { expect(modalState().update?.preflight).toBeDefined() })
+    const prompt = vi.fn()
+    executeUpdate(
+      vi.fn().mockResolvedValue({ source: 'main', conflict: false, sessionId: 'wt-session-1' }),
+      { open: vi.fn(), prompt },
+      'please resolve',
+    )
+    await vi.waitFor(() => { expect(modalState().update?.done?.conflict).toBe(false) })
+    expect(prompt).not.toHaveBeenCalled()
+  })
+
+  it('abortUpdate closes on success', async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      blockers: ['in-progress'], green: false, source: 'main',
+      target: 'dsh-worktrees/swift-01', fastForward: false,
+      wouldConflict: false, inProgress: true, sessionId: 'wt-session-1',
+    })
+    openUpdate(target, rpc)
+    await vi.waitFor(() => { expect(modalState().update?.preflight).toBeDefined() })
+    const abort = vi.fn().mockResolvedValue(undefined)
+    await abortUpdate(abort)
+    expect(abort).toHaveBeenCalledWith('update/abort', { cwd: target.path, slug: target.slug })
+    expect(modalState().kind).toBe('closed')
+  })
+
+  it('abortUpdate surfaces failures', async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      blockers: ['in-progress'], green: false, inProgress: true,
+      source: 'main', target: 'dsh-worktrees/swift-01',
+      fastForward: false, wouldConflict: false, sessionId: 'wt-session-1',
+    })
+    openUpdate(target, rpc)
+    await vi.waitFor(() => { expect(modalState().update?.preflight).toBeDefined() })
+    await abortUpdate(vi.fn().mockRejectedValue(new Error('not-in-progress')))
+    expect(modalState().kind).toBe('update')
+    expect(modalState().update?.error).toContain('not-in-progress')
   })
 })

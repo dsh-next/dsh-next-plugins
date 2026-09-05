@@ -39,6 +39,9 @@ class FakeGit implements GitPorts {
   version = 'git version 2.45.0'
   mergeTreeResults = new Map<string, boolean>()
   mergeCalls: { cwd: string; source: string }[] = []
+  mergingPaths = new Set<string>()
+  mergeAbortCalls: string[] = []
+  mergeAllowOutcomes = new Map<string, 'clean' | 'conflict'>()
   rawResults = new Map<string, { code: number; stdout: string; stderr: string }>()
   /** Resolved commit ids by `cwd|ref`; defaults give every ref a distinct tip. */
   tips = new Map<string, string>()
@@ -114,6 +117,22 @@ class FakeGit implements GitPorts {
     this.mergeCalls.push({ cwd, source })
   }
 
+  async mergeAllowConflicts(cwd: string, source: string): Promise<'clean' | 'conflict'> {
+    this.mergeCalls.push({ cwd, source })
+    const outcome = this.mergeAllowOutcomes.get(cwd) ?? 'clean'
+    if (outcome === 'conflict') this.mergingPaths.add(cwd)
+    return outcome
+  }
+
+  async merging(cwd: string): Promise<boolean> {
+    return this.mergingPaths.has(cwd)
+  }
+
+  async mergeAbort(cwd: string): Promise<void> {
+    this.mergeAbortCalls.push(cwd)
+    this.mergingPaths.delete(cwd)
+  }
+
   async raw(args: readonly string[], _cwd: string) {
     const key = args.join(' ')
     const found = this.rawResults.get(key)
@@ -174,6 +193,7 @@ function harness(seed = 7): Harness {
       knobWrites.push({ sessionId, mode })
       return true
     },
+    isSessionRunning: (sessionId) => sessionId === 'running-session',
     copyFile: async (from, to) => {
       copies.push({ from, to })
     },
@@ -404,6 +424,7 @@ describe('bind', () => {
       store,
       getSessionCwd: (id) => sessionCwds.get(id) ?? null,
       applySandboxMode: () => false,
+      isSessionRunning: () => false,
       copyFile: async () => {},
     })
     const h = { service, git, store, sessionCwds, knobWrites: [], copies: [] }
@@ -428,7 +449,7 @@ describe('status', () => {
       path: binding.path,
       branch: 'dsh-worktrees/swift-01',
       baseRef: 'origin/HEAD',
-      status: { clean: false, dirty: true, ahead: 3, merged: true },
+      status: { clean: false, dirty: true, ahead: 3, merged: true, conflict: false },
     })
     expect(h.git.lastAheadCwd).toBe(PRIMARY)
   })
@@ -443,7 +464,7 @@ describe('status', () => {
     h.git.tips.set(`${binding.path}|dsh-worktrees/swift-01`, same)
     h.git.tips.set(`${PRIMARY}|origin/HEAD`, same)
     await expect(h.service.status('session-a')).resolves.toMatchObject({
-      status: { clean: true, dirty: false, ahead: 0, merged: false },
+      status: { clean: true, dirty: false, ahead: 0, merged: false, conflict: false },
     })
   })
 
@@ -662,5 +683,153 @@ describe('mergeExecute', () => {
     await expect(h.service.mergeExecute({ cwd: PRIMARY, slug: 'swift-01' }))
       .rejects.toMatchObject({ code: 'merge-blocked' })
     expect(h.git.mergeCalls).toEqual([])
+  })
+})
+
+describe('updatePreflight', () => {
+  function updateHarness(): Harness {
+    const h = harness()
+    const binding = seedWorktree(h, { sessionId: 'session-a' })
+    h.sessionCwds.set('session-a', binding.path)
+    h.git.branches.set(PRIMARY, 'main')
+    // Worktree is behind main: merging main in is a fast-forward.
+    h.git.ancestors.add(`${PRIMARY}|dsh-worktrees/swift-01|main`)
+    return h
+  }
+
+  it('answers green with source, target, and fast-forward', async () => {
+    const h = updateHarness()
+    await expect(h.service.updatePreflight({ cwd: PRIMARY, slug: 'swift-01' })).resolves.toEqual({
+      blockers: [],
+      green: true,
+      source: 'main',
+      target: 'dsh-worktrees/swift-01',
+      fastForward: true,
+      wouldConflict: false,
+      inProgress: false,
+      sessionId: 'session-a',
+      manualCommand: 'git merge main',
+    })
+  })
+
+  it('does not treat a merge-tree conflict as a blocker', async () => {
+    const h = updateHarness()
+    h.git.mergeTreeResults.set('dsh-worktrees/swift-01..main', false)
+    await expect(h.service.updatePreflight({ cwd: PRIMARY, slug: 'swift-01' }))
+      .resolves.toMatchObject({ green: true, wouldConflict: true, blockers: [] })
+  })
+
+  it('blocks a dirty worktree', async () => {
+    const h = updateHarness()
+    h.git.dirtyCounts.set(`${PRIMARY}/.dsh/worktrees/swift-01`, 2)
+    await expect(h.service.updatePreflight({ cwd: PRIMARY, slug: 'swift-01' }))
+      .resolves.toMatchObject({ green: false, blockers: ['dirty-worktree'] })
+  })
+
+  it('blocks a missing bound session', async () => {
+    const h = updateHarness()
+    const rows = h.store.files.get(PRIMARY)!.bindings.map((b) => ({ ...b, sessionId: '' }))
+    h.store.files.set(PRIMARY, { version: 1, bindings: rows })
+    await expect(h.service.updatePreflight({ cwd: PRIMARY, slug: 'swift-01' }))
+      .resolves.toMatchObject({ green: false, blockers: ['no-bound-session'] })
+  })
+
+  it('blocks a running session', async () => {
+    const h = updateHarness()
+    const rows = h.store.files.get(PRIMARY)!.bindings.map((b) => ({ ...b, sessionId: 'running-session' }))
+    h.store.files.set(PRIMARY, { version: 1, bindings: rows })
+    await expect(h.service.updatePreflight({ cwd: PRIMARY, slug: 'swift-01' }))
+      .resolves.toMatchObject({ green: false, blockers: ['running-session'] })
+  })
+
+  it('blocks an in-progress merge instead of dirty', async () => {
+    const h = updateHarness()
+    h.git.mergingPaths.add(`${PRIMARY}/.dsh/worktrees/swift-01`)
+    h.git.dirtyCounts.set(`${PRIMARY}/.dsh/worktrees/swift-01`, 4)
+    await expect(h.service.updatePreflight({ cwd: PRIMARY, slug: 'swift-01' }))
+      .resolves.toMatchObject({ green: false, inProgress: true, blockers: ['in-progress'] })
+  })
+
+  it('blocks already-updated when the primary is an ancestor of the worktree', async () => {
+    const h = updateHarness()
+    h.git.ancestors.delete(`${PRIMARY}|dsh-worktrees/swift-01|main`)
+    h.git.ancestors.add(`${PRIMARY}|main|dsh-worktrees/swift-01`)
+    await expect(h.service.updatePreflight({ cwd: PRIMARY, slug: 'swift-01' }))
+      .resolves.toMatchObject({ green: false, blockers: ['already-updated'] })
+  })
+
+  it('blocks an unknown slug', async () => {
+    const h = updateHarness()
+    await expect(h.service.updatePreflight({ cwd: PRIMARY, slug: 'nope-99' }))
+      .resolves.toMatchObject({ green: false, blockers: ['unknown-slug'] })
+  })
+})
+
+describe('updateExecute', () => {
+  it('merges the primary branch into the worktree on green', async () => {
+    const h = harness()
+    const binding = seedWorktree(h, { sessionId: 'session-a' })
+    h.git.branches.set(PRIMARY, 'main')
+    h.git.ancestors.add(`${PRIMARY}|dsh-worktrees/swift-01|main`)
+    await expect(h.service.updateExecute({ cwd: PRIMARY, slug: 'swift-01' })).resolves.toEqual({
+      source: 'main',
+      target: 'dsh-worktrees/swift-01',
+      fastForward: true,
+      conflict: false,
+      sessionId: 'session-a',
+    })
+    expect(h.git.mergeCalls).toEqual([{ cwd: binding.path, source: 'main' }])
+  })
+
+  it('returns conflict when the worktree merge stops mid-merge', async () => {
+    const h = harness()
+    const binding = seedWorktree(h, { sessionId: 'session-a' })
+    h.git.branches.set(PRIMARY, 'main')
+    h.git.ancestors.add(`${PRIMARY}|dsh-worktrees/swift-01|main`)
+    h.git.mergeAllowOutcomes.set(binding.path, 'conflict')
+    await expect(h.service.updateExecute({ cwd: PRIMARY, slug: 'swift-01' }))
+      .resolves.toMatchObject({ conflict: true, sessionId: 'session-a' })
+    expect(h.git.mergingPaths.has(binding.path)).toBe(true)
+  })
+
+  it('refuses to execute when the preflight is not green', async () => {
+    const h = harness()
+    seedWorktree(h, { sessionId: 'session-a' })
+    h.git.branches.set(PRIMARY, 'main')
+    h.git.dirtyCounts.set(`${PRIMARY}/.dsh/worktrees/swift-01`, 3)
+    await expect(h.service.updateExecute({ cwd: PRIMARY, slug: 'swift-01' }))
+      .rejects.toMatchObject({ code: 'update-blocked' })
+    expect(h.git.mergeCalls).toEqual([])
+  })
+})
+
+describe('updateAbort', () => {
+  it('aborts an in-flight merge in the worktree', async () => {
+    const h = harness()
+    const binding = seedWorktree(h, { sessionId: 'session-a' })
+    h.git.mergingPaths.add(binding.path)
+    await h.service.updateAbort({ cwd: PRIMARY, slug: 'swift-01' })
+    expect(h.git.mergeAbortCalls).toEqual([binding.path])
+    expect(h.git.mergingPaths.has(binding.path)).toBe(false)
+  })
+
+  it('refuses when no merge is in progress', async () => {
+    const h = harness()
+    seedWorktree(h, { sessionId: 'session-a' })
+    await expect(h.service.updateAbort({ cwd: PRIMARY, slug: 'swift-01' }))
+      .rejects.toMatchObject({ code: 'not-in-progress' })
+  })
+})
+
+describe('status conflict', () => {
+  it('reports conflict when MERGE_HEAD is present', async () => {
+    const h = harness()
+    const binding = seedWorktree(h, { sessionId: 'session-a' })
+    h.sessionCwds.set('session-a', binding.path)
+    h.git.mergingPaths.add(binding.path)
+    h.git.dirtyCounts.set(binding.path, 2)
+    await expect(h.service.status('session-a')).resolves.toMatchObject({
+      status: { conflict: true, dirty: true },
+    })
   })
 })

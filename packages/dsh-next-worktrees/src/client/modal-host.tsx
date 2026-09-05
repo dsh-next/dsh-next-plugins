@@ -12,18 +12,24 @@
  */
 import * as React from 'react'
 import {
+  abortUpdate,
   armDelete,
   cleanupMerged,
   closeModal,
   executeDelete,
   executeMerge,
+  executeUpdate,
   modalState,
+  openUpdate,
   subscribeModal,
   type HostCleanup,
   type MergePreflightFacts,
+  type UpdateHandoff,
+  type UpdatePreflightFacts,
   type WorktreeModalTarget,
 } from './create-store.ts'
 import type { MergeBlocker } from '../core/merge.ts'
+import type { UpdateBlocker } from '../core/update.ts'
 import { rpc, requestTopologyRefresh } from './rpc.ts'
 import type {
   SessionsServiceLike,
@@ -56,6 +62,27 @@ export const BLOCKER_KEYS: Readonly<Record<MergeBlocker, string>> = {
   'already-merged': 'merge.blocker.alreadyMerged',
 }
 
+/** Locale key for every update-preflight blocker the host can emit. */
+export const UPDATE_BLOCKER_KEYS: Readonly<Record<UpdateBlocker, string>> = {
+  'unknown-slug': 'update.blocker.unknownSlug',
+  'no-target-branch': 'update.blocker.noTarget',
+  'no-bound-session': 'update.blocker.noSession',
+  'running-session': 'update.blocker.running',
+  'in-progress': 'update.blocker.inProgress',
+  'dirty-worktree': 'update.blocker.dirtyWorktree',
+  'already-updated': 'update.blocker.alreadyUpdated',
+}
+
+function handoffOf(sessions: SessionsServiceLike): UpdateHandoff {
+  return {
+    open: (sessionId) => { sessions.open(sessionId) },
+    prompt: (sessionId, text) => {
+      const binding = sessions.binding?.(sessionId)
+      void binding?.session.prompt([{ type: 'text', text }], 'queue').catch(() => {})
+    },
+  }
+}
+
 /** The root: renders the active modal, or nothing. */
 export function ModalHost(props: ModalHostProps): React.ReactElement | null {
   const state = React.useSyncExternalStore(subscribeModal, modalState, modalState)
@@ -66,6 +93,9 @@ export function ModalHost(props: ModalHostProps): React.ReactElement | null {
   const host = hostCleanup(props.workspaces)
   if (state.kind === 'merge' && state.merge !== undefined) {
     return <MergeModal t={props.t} merge={state.merge} host={host} />
+  }
+  if (state.kind === 'update' && state.update !== undefined) {
+    return <UpdateModal t={props.t} update={state.update} sessions={props.sessions} />
   }
   if (state.kind === 'delete' && state.delete !== undefined) {
     return (
@@ -184,7 +214,18 @@ function MergeModal({ t, merge, host }: {
               {t('create.cancel')}
             </button>
           )}
-          {merge.done === undefined && (
+          {merge.done === undefined && preflight !== undefined && preflight.blockers.includes('conflict') && (
+            <button
+              type="button"
+              className="dshx-buttonPrimary"
+              disabled={merge.busy}
+              onClick={() => { openUpdate(merge.target, rpc) }}
+              data-dshx-button="update-from-merge"
+            >
+              {t('row.update', { branch: preflight.target ?? '' })}
+            </button>
+          )}
+          {merge.done === undefined && (preflight === undefined || !preflight.blockers.includes('conflict')) && (
             <button
               type="button"
               className="dshx-buttonPrimary"
@@ -209,6 +250,131 @@ function MergeModal({ t, merge, host }: {
               data-dshx-button="cleanup"
             >
               {t('merge.done.remove')}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function UpdateModal({ t, update, sessions }: {
+  readonly t: Translate
+  readonly sessions: SessionsServiceLike
+  readonly update: {
+    readonly target: WorktreeModalTarget
+    readonly preflight?: UpdatePreflightFacts
+    readonly busy: boolean
+    readonly done?: { source: string; conflict: boolean; sessionId: string }
+    readonly error?: string
+  }
+}): React.ReactElement {
+  useEscapeClose()
+  React.useEffect(() => {
+    if (update.done !== undefined) requestTopologyRefresh()
+  }, [update.done])
+  const preflight = update.preflight
+  const inFlight = update.done?.conflict === true
+    || (preflight !== undefined && preflight.inProgress)
+  const source = update.done?.source ?? preflight?.source ?? ''
+  const sessionId = update.done?.sessionId ?? preflight?.sessionId
+  const titleBranch = source === '' ? update.target.branch : source
+  const cleanDone = update.done !== undefined && !update.done.conflict
+  return (
+    <div
+      className="dshx-mask"
+      onMouseDown={(event) => { if (event.target === event.currentTarget) closeModal() }}
+      data-dshx-modal="update"
+    >
+      <div className="dshx-modal" role="dialog" aria-modal="true" aria-label={t('update.title', { branch: titleBranch })}>
+        <div className="dshx-modalTitle">{t('update.title', { branch: titleBranch })}</div>
+        <div className="dshx-modalBody">
+          {cleanDone && (
+            <div className="dshx-doneTitle" data-dshx-update="done">
+              {t('update.done', { source })}
+            </div>
+          )}
+          {!cleanDone && inFlight && (
+            <div className="dshx-factLine" data-dshx-update="handoff">{t('update.handoff')}</div>
+          )}
+          {!cleanDone && !inFlight && preflight !== undefined && preflight.source !== undefined && preflight.target !== undefined && (
+            <div className="dshx-factLine" data-dshx-update="summary">
+              {t('update.summary', { source: preflight.source, target: preflight.target })}
+            </div>
+          )}
+          {!cleanDone && !inFlight && preflight !== undefined && preflight.green && (
+            <div className="dshx-factLine" data-dshx-update="shape">
+              {t(preflight.fastForward ? 'update.ff' : 'update.commit')}
+            </div>
+          )}
+          {!cleanDone && !inFlight && preflight !== undefined && preflight.green && preflight.wouldConflict && (
+            <div className="dshx-fieldHint" data-dshx-update="would-conflict">{t('update.wouldConflict')}</div>
+          )}
+          {!cleanDone && !inFlight && preflight !== undefined && !preflight.green && (
+            <div className="dshx-blockers" data-dshx-update="blockers">
+              {preflight.blockers.map((code) => (
+                <div key={code} className="dshx-error" data-dshx-blocker={code}>
+                  {t(UPDATE_BLOCKER_KEYS[code])}
+                </div>
+              ))}
+            </div>
+          )}
+          {preflight === undefined && update.error === undefined && !cleanDone && (
+            <div className="dshx-fieldHint">{t('row.refresh')}</div>
+          )}
+          {update.error !== undefined && <div className="dshx-error" data-dshx-error>{update.error}</div>}
+        </div>
+        <div className="dshx-modalActions">
+          {!cleanDone && (
+            <button type="button" className="dshx-buttonGhost" disabled={update.busy} onClick={closeModal} data-dshx-button="cancel">
+              {t('create.cancel')}
+            </button>
+          )}
+          {inFlight && (
+            <button
+              type="button"
+              className="dshx-buttonGhost"
+              disabled={update.busy}
+              onClick={() => { void abortUpdate(rpc).then(() => requestTopologyRefresh()) }}
+              data-dshx-button="abort-update"
+            >
+              {t('update.abort')}
+            </button>
+          )}
+          {inFlight && sessionId !== undefined && sessionId !== '' && (
+            <button
+              type="button"
+              className="dshx-buttonPrimary"
+              disabled={update.busy}
+              onClick={() => { sessions.open(sessionId); closeModal(); requestTopologyRefresh() }}
+              data-dshx-button="continue-update"
+            >
+              {t('update.continue')}
+            </button>
+          )}
+          {!cleanDone && !inFlight && (
+            <button
+              type="button"
+              className="dshx-buttonPrimary"
+              disabled={update.busy || preflight === undefined || !preflight.green}
+              onClick={() => {
+                const prompt = t('update.prompt', { source: preflight?.source ?? '' })
+                executeUpdate(rpc, handoffOf(sessions), prompt)
+              }}
+              data-dshx-button="update"
+            >
+              {t('row.update', { branch: preflight?.source ?? '' })}
+            </button>
+          )}
+          {cleanDone && (
+            <button
+              type="button"
+              className="dshx-buttonPrimary"
+              disabled={update.busy}
+              onClick={() => { closeModal(); requestTopologyRefresh() }}
+              data-dshx-button="update-ok"
+            >
+              {t('update.ok')}
             </button>
           )}
         </div>

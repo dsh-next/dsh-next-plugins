@@ -112,6 +112,26 @@ is the floor - and demo servers must be restarted from the repo root
 (a stray `cd ../..` once launched the server from ~/Projects and
 everything failed fast with ENOENT).
 
+## Follow-up: abandoned-worktree sweeper (same day)
+
+Live use found the inverse of the delete cleanup: the platform replaces
+a never-started (blank) session when the next session begins - expected
+sidebar behavior - but the worktree behind the replaced session survived
+as an invisible orphan (real checkout, registry row, empty hidden
+workspace). New `client/sweeper.ts` runs after every topology pull and,
+for any worktree workspace whose sessions are all gone, drives the same
+host-truth cleanup as the delete modal (rpc remove force-false, then
+workspace delete), then re-pulls once. Gates: never while a create flow
+is in flight (the fresh workspace legitimately has no session for a few
+round trips); never when the live-session set is empty (store still
+loading - empty knowledge is not "all dead"); dirty trees refuse and
+keep everything (uncommitted work is never destroyed); unknown-slug
+still deletes the leftover workspace (idempotent). The e2e marker now
+creates twice without typing and asserts the registry settles at
+exactly one row with one survivor directory. Also learned: archiving
+the CURRENT session legitimately leaves the platform's blank pseudo-row,
+so the marker asserts "no new group" rather than an exact row count.
+
 ## Validation
 
 `mise run ci` green (117 worktrees tests; new cases: fresh-worktree status

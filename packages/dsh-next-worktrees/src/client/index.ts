@@ -159,6 +159,7 @@ export function apply(ctx: Context): void {
     if (workspaces === undefined) return () => {}
     configureWorktreeSweeper({
       removeWorktree: (input) => rpc('remove', { ...input, force: false }) as Promise<void>,
+      archiveSession: (sessionId) => workspaces.archiveSession(sessionId),
       deleteWorkspace: (workspaceId) => workspaces.delete(workspaceId),
     })
     return () => { configureWorktreeSweeper(undefined) }

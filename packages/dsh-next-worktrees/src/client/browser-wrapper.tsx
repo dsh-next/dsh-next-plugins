@@ -41,7 +41,8 @@ interface WorkspaceStateLike {
 
 interface SessionStateLike {
   readonly ids: readonly string[]
-  readonly byId: Readonly<Record<string, { id: string } | undefined>>
+  readonly byId: Readonly<Record<string, { id: string; blank?: boolean } | undefined>>
+  readonly current?: string
 }
 
 interface OfficialPropsLike {
@@ -81,6 +82,12 @@ export function WorktreeBrowser(
     .map((w) => `${w.workspaceId}:${w.sessionIds.join(',')}`)
     .join('|')
   const sessionKey = sessionState.ids.join('|')
+  // The sweeper judges by the OPEN session; without this key the effect's
+  // closure could predate sessions.open and a freshly created (blank,
+  // not-yet-current) worktree would be swept the instant its topology
+  // pull answered.
+  const currentKey = sessionState.current ?? ''
+  const snapshot = { workspaceState, sessionState }
 
   React.useEffect(() => {
     let active = true
@@ -96,8 +103,9 @@ export function WorktreeBrowser(
             // ever starting (the platform replaces blank sessions); when
             // something was swept, re-pull once so the sidebar settles.
             void sweepAbandonedWorktrees({
-              workspaces: workspaceState.items,
-              liveSessionIds: new Set(sessionState.ids),
+              workspaces: snapshot.workspaceState.items,
+              sessionsById: snapshot.sessionState.byId,
+              currentSessionId: snapshot.sessionState.current,
               creating: modalState().creating,
             }).then((swept) => {
               if (active && swept.length > 0) refresh()
@@ -115,7 +123,7 @@ export function WorktreeBrowser(
     // Keyed on identity strings so a topology pull follows membership
     // changes without refetching on unrelated re-renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceKey, sessionKey])
+  }, [workspaceKey, sessionKey, currentKey])
 
   const projection = React.useMemo(
     () => projectWorkspaceSidebar({

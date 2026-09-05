@@ -263,11 +263,22 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     // never the (fixed) false "merged" the ancestor check alone produced.
     await expect(nested.first()).toHaveAttribute('data-dshx-state', 'clean')
 
-    // Blank-replacement sweep: the platform replaces a never-started
-    // session when a new one begins. Clicking the worktree button again
-    // (nothing typed yet) must therefore end with exactly ONE worktree:
-    // the sweeper removes the abandoned checkout, registry row, and
-    // workspace of the replaced session.
+    // Switch-away sweep (the user's report): an unused session vanishes
+    // from the sidebar as soon as the user switches to another one, but
+    // the worktree behind it used to survive as an invisible orphan.
+    // Starting a session in the OTHER workspace switches current away;
+    // the sweeper must then remove the abandoned checkout, registry row,
+    // and workspace - the folder the user never typed in.
+    const plainRow = page.locator('[role="treeitem"]').filter({ hasText: 'workspace-b' }).first()
+    await plainRow.hover()
+    await plainRow.locator('button[aria-label*="New session in workspace-b"]').click({ force: true })
+    await expect.poll(() => {
+      const after = JSON.parse(readFileSync(registryFile, 'utf8')) as { bindings: unknown[] }
+      return after.bindings.length
+    }, { timeout: 20_000 }).toBe(0)
+    await expect.poll(() => existsSync(join(workspaceA, '.dsh', 'worktrees', slug))).toBe(false)
+
+    // Fresh create lands a new bound worktree row again.
     await repoRow.hover()
     await createButton.click({ force: true })
     await expect(page.locator('[data-dshx-modal="create-error"]')).toHaveCount(0, { timeout: 10_000 })

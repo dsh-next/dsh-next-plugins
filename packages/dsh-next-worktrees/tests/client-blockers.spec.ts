@@ -37,6 +37,7 @@ describe('merge blocker copy', () => {
     expect(en['merge.confirm']).toBe('Merge')
     expect(en['update.confirm']).toBe('Update from {branch}')
     expect(en['update.resolve']).toBe('Resolve in this session')
+    expect(en['update.inProgressTitle']).toBe('Merge in progress')
   })
 })
 

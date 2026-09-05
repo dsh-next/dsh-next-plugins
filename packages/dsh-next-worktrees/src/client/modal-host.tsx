@@ -280,14 +280,17 @@ function UpdateModal({ t, update, sessions }: {
   const sessionId = update.done?.sessionId ?? preflight?.sessionId
   const titleBranch = source === '' ? update.target.branch : source
   const cleanDone = update.done !== undefined && !update.done.conflict
+  const title = inFlight
+    ? t('update.inProgressTitle')
+    : t('update.title', { branch: titleBranch })
   return (
     <div
       className="dshx-mask"
       onMouseDown={(event) => { if (event.target === event.currentTarget) closeModal() }}
       data-dshx-modal="update"
     >
-      <div className="dshx-modal" role="dialog" aria-modal="true" aria-label={t('update.title', { branch: titleBranch })}>
-        <div className="dshx-modalTitle">{t('update.title', { branch: titleBranch })}</div>
+      <div className="dshx-modal" role="dialog" aria-modal="true" aria-label={title}>
+        <div className="dshx-modalTitle">{title}</div>
         <div className="dshx-modalBody">
           {cleanDone && (
             <div className="dshx-doneTitle" data-dshx-update="done">
@@ -349,7 +352,7 @@ function UpdateModal({ t, update, sessions }: {
               onClick={() => { sessions.open(sessionId); closeModal(); requestTopologyRefresh() }}
               data-dshx-button="continue-update"
             >
-              {t('update.continue')}
+              {t('update.resolve')}
             </button>
           )}
           {!cleanDone && !inFlight && (

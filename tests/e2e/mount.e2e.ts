@@ -388,9 +388,10 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
       .toHaveAttribute('data-dshx-state', 'conflict', { timeout: 15_000 })
     await expect.poll(() => hasMergeHead(wtDir), { timeout: 10_000 }).toBe(true)
     await expect(updateModal.locator('[data-dshx-update="handoff"]')).toBeVisible()
+    await expect(updateModal).toContainText('Merge in progress')
     await expect(updateModal.locator('[data-dshx-button="cancel"]')).toHaveCount(0)
     await expect(updateModal.locator('[data-dshx-button="abort-update"]')).toHaveClass(/dshx-buttonDanger/)
-    await expect(updateModal.locator('[data-dshx-button="continue-update"]')).toBeVisible()
+    await expect(updateModal.locator('[data-dshx-button="continue-update"]')).toHaveText('Resolve in this session')
     await updateModal.locator('.dshx-modal').screenshot({ path: join(shots, 'worktrees-conflict-handoff.png') })
     await page.screenshot({ path: join(shots, 'worktrees-conflict-handoff-page.png') })
     const conflictRow = page.locator('[role="treeitem"]').filter({

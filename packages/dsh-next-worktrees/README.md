@@ -42,9 +42,10 @@ a separate workspace.
   worktree*, leaves a mid-merge there if needed — red icon — and focuses
   the bound session so the agent can resolve and commit). A clean
   catch-up keeps the Update from `<branch>` label. After that, Merge is
-  a fast-forward. While the merge is in flight the modal offers Abort
-  (`git merge --abort` in the worktree) and Open session; closing the
-  dialog leaves the merge in progress. The plugin never authors commit
+  a fast-forward. While the merge is in flight the modal is titled Merge
+  in progress and offers Abort (`git merge --abort` in the worktree) and
+  Resolve in this session; closing the dialog leaves the merge in
+  progress. The plugin never authors commit
   content and never leaves the main checkout mid-merge.
 
 ## Compatibility contract

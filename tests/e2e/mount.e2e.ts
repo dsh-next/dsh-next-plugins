@@ -363,7 +363,7 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await expect(updateModal).toBeHidden({ timeout: 10_000 })
 
     // Conflict path: diverge the same file on main and in the worktree.
-    // Merge must offer Update from main (not a disabled button + CLI dump).
+    // Merge must offer Resolve in this session (not a disabled button + CLI dump).
     commitFile(workspaceA, 'seed.txt', 'main version\n', 'main edits seed')
     commitFile(wtDir, 'seed.txt', 'worktree version\n', 'worktree edits seed')
     await refreshWorktrees(page)
@@ -371,16 +371,16 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await page.getByText('Merge…').last().click()
     await expect(mergeModal).toBeVisible({ timeout: 10_000 })
     await expect(page.locator('[data-dshx-blocker="conflict"]')).toBeVisible({ timeout: 10_000 })
-    await expect(page.locator('[data-dshx-blocker="conflict"]')).toContainText('Update from main')
+    await expect(page.locator('[data-dshx-blocker="conflict"]')).toContainText('Resolve in this session')
     await expect(page.locator('[data-dshx-blocker="conflict"]')).not.toContainText('git merge')
-    await expect(page.locator('[data-dshx-button="update-from-merge"]')).toHaveText('Update from main…')
+    await expect(page.locator('[data-dshx-button="update-from-merge"]')).toHaveText('Resolve in this session…')
     const shots = join('docs', 'screenshots')
     await mergeModal.locator('.dshx-modal').screenshot({ path: join(shots, 'worktrees-conflict-merge-modal.png') })
     await page.screenshot({ path: join(shots, 'worktrees-conflict-merge-page.png') })
     await page.locator('[data-dshx-button="update-from-merge"]').click()
     await expect(updateModal).toBeVisible({ timeout: 10_000 })
     await expect(updateModal.locator('[data-dshx-update="would-conflict"]')).toBeVisible({ timeout: 10_000 })
-    await expect(page.locator('[data-dshx-button="update"]')).toHaveText('Update from main')
+    await expect(page.locator('[data-dshx-button="update"]')).toHaveText('Resolve in this session')
     await updateModal.locator('.dshx-modal').screenshot({ path: join(shots, 'worktrees-conflict-update-preflight.png') })
     await page.screenshot({ path: join(shots, 'worktrees-conflict-update-preflight-page.png') })
     await page.locator('[data-dshx-button="update"]').click()

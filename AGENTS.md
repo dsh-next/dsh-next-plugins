@@ -81,9 +81,9 @@ mise tasks delegate to it, never re-implement commands.
 - Keep each fact in its owning document. Update documentation when behavior
   changes; put temporary handoffs or validation snapshots in `docs/archive/`.
 - Package READMEs are bilingual English/Chinese pairs (`README.md` +
-  `README.zh.md` + a `README.i18n.yaml` pairing record); the contract and
-  maintenance flow live in `docs/i18n.md`. All other documentation is English
-  only.
+  `README.zh.md` + a `README.i18n.yaml` pairing record). Pairing lives in
+  `docs/i18n.md`; first-run content, screenshots, and install copy live in
+  `docs/AGENTS.md`. All other documentation is English only.
 - Every user-facing string in a plugin's browser half comes from the
   package's locale dictionaries (`src/client/dictionaries/en.ts` key source +
   `zh.ts` Simplified Chinese mirror), translated through the platform `locale`

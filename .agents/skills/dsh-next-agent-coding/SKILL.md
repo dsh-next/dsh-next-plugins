@@ -37,10 +37,12 @@ Read `AGENTS.md` and `docs/plugins.md` first, then follow these steps.
    package's locale dictionaries (`src/client/dictionaries/en.ts` + `zh.ts`,
    wired per `docs/i18n.md`) — add the en key and the zh translation in the
    same change.
-7. Keep the package's bilingual README pair consistent (`docs/i18n.md`): a
+7. Keep the package's bilingual README pair consistent (`docs/i18n.md`)
+   and to the first-run bar in `docs/AGENTS.md` → "Package READMEs": a
    change that alters behavior described in `README.md` must mirror the edit
    into `README.zh.md` in the same change and re-record the pairing hashes
-   with `pnpm docs:write-pair <slug>`. New packages are scaffolded with the
+   with `pnpm docs:write-pair <slug>`. User-visible UI gets screenshots in
+   `media/` (WebP at display size). New packages are scaffolded with the
    full triplet by `pnpm plugin:new`.
 8. Run the full gate before merging: `pnpm typecheck && pnpm test && pnpm build`
    then `pnpm i18n:check` and `bash scripts/e2e-mount.sh`. Confirm **every**

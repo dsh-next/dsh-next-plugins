@@ -11,11 +11,12 @@ Follow `docs/AGENTS.md` and `docs/i18n.md`.
    exception: they are bilingual English/Chinese pairs.
 2. Keep each fact in its owning document; update docs in the same change that
    changes behavior.
-3. Every package keeps the bilingual README triplet from `docs/i18n.md`:
-   `README.md`, `README.zh.md`, and the `README.i18n.yaml` pairing record,
-   covering purpose, install, and development commands. When you edit either
-   side of a pair, mirror the edit into the other language in the same change
-   (same headings, code blocks, tables, and lists), then re-record with
-   `pnpm docs:write-pair <slug>`. On-screen UI strings quoted in a README stay
-   in their shipped (English) form inside inline code.
+3. Every package keeps the bilingual README triplet from `docs/i18n.md`.
+   Content, screenshots, and install copy follow `docs/AGENTS.md` →
+   "Package READMEs" (first-run guide, not a contributor handbook). When you
+   edit either side of a pair, mirror the edit into the other language in
+   the same change (same headings, code blocks, tables, lists, and images),
+   then re-record with `pnpm docs:write-pair <slug>`. On-screen UI strings
+   quoted in a README stay in their shipped (English) form inside inline
+   code.
 4. Run `pnpm docs:check` before merging.

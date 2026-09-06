@@ -3,7 +3,8 @@
 Welcome to `dsh-next-plugins`, the `@dsh-next` DeepSeek Harness plugin family.
 This file is the contributor entry point; the repository's full rules and
 mechanisms live in [AGENTS.md](AGENTS.md) (and its layered instructions), which
-take precedence in case of conflict.
+take precedence in case of conflict. Package README quality (first-run
+guide, screenshots, install copy) lives in [docs/AGENTS.md](docs/AGENTS.md).
 
 ## Branching and merge flow
 

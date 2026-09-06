@@ -62,5 +62,10 @@
     "README.md"
   ],
   "license": "MIT",
-  "author": "Rok Grabnar <sitegroove>"
+  "author": "Rok Grabnar <sitegroove>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dsh-next/dsh-next-plugins.git",
+    "directory": "packages/dsh-next-__NAME__"
+  }
 }

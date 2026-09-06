@@ -2,19 +2,20 @@
 
 English | [中文](README.zh.md)
 
-DeepSeek Harness plugin — scaffolded from `scripts/plugin-template`. Replace
-this with a description of what the plugin does.
+This DeepSeek Harness plugin — scaffolded from `scripts/plugin-template`.
+Replace this paragraph with a first-run description of what it does and
+what the user clicks. See `docs/AGENTS.md` → "Package READMEs".
 
 ## Install
 
 ```sh
-dsh plugin --profile <name> add link:<repo>/packages/dsh-next-__NAME__
+dsh plugin --profile <name> add @dsh-next/dsh-next-__NAME__
 ```
 
-## Development
+`<name>` is your DSH profile (for example `web`). While this package is
+`"private": true`, install from a checkout with
+`link:<repo>/packages/dsh-next-__NAME__` instead.
 
-```sh
-pnpm build
-pnpm typecheck
-pnpm test
-```
+## Good to know
+
+- Contributors: see [CONTRIBUTING.md](https://github.com/dsh-next/dsh-next-plugins/blob/main/CONTRIBUTING.md).

@@ -45,7 +45,7 @@ jobs:
 
             const { data: search } = await github.rest.search.issuesAndPullRequests({
               q: 'repo:' + context.repo.owner + '/' + context.repo.repo +
-                ' is:issue is:open in:title ' + query,
+                ' is:issue is:open in:title "' + query.replace(/"/g, '') + '"',
               per_page: 30,
             });
 

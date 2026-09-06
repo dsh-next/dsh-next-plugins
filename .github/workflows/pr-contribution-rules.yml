@@ -21,6 +21,13 @@ jobs:
         with:
           script: |
             const pr = context.payload.pull_request;
+            const author = pr.user || {};
+            // Changesets "Version Packages" and other bot PRs do not use the
+            // human template. Failing them blocks the release merge.
+            if (author.type === 'Bot' || author.login === 'github-actions[bot]') {
+              console.log('PR #' + pr.number + ': bot author, skipping contribution checklist.');
+              return;
+            }
             const body = pr.body || '';
 
             const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

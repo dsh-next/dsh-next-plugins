@@ -1,5 +1,12 @@
 # @dsh-next/dsh-next-worktrees
 
+## 0.1.1
+
+### Patch Changes
+
+- Merge lists uncommitted files as a warning (naming the branch they sit on) and still lets you Merge. Git will refuse if the main folder's files would be overwritten. Uncommitted worktree files are not included. Update still blocks on a dirty worktree.
+- Clarified in the README when to commit a `.worktreeinclude` file (copy gitignored local files such as `.env` into new worktrees) and when to use setup commands instead.
+
 ## 0.1.0
 
 ### Minor Changes

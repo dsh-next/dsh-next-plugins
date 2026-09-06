@@ -1,5 +1,11 @@
 # @dsh-next/dsh-next-worktrees
 
+## 0.2.0
+
+### Minor Changes
+
+- Added a self-only `reclaim` so a session can hand its worktree claim to a new session in the same folder without dropping the one-writer lock.
+
 ## 0.1.1
 
 ### Patch Changes

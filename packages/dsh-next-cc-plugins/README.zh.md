@@ -244,7 +244,7 @@ cc-plugins:
 ## 安装
 
 ```sh
-dsh plugin --profile <name> add link:<repo>/packages/dsh-next-cc-plugins
+dsh plugin --profile <name> add @dsh-next/dsh-next-cc-plugins
 ```
 
 ## 开发

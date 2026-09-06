@@ -52,16 +52,17 @@ URL so the link works on npm as well as GitHub (see `docs/i18n.md`).
 
 ### Install
 
-Published packages:
+Always the npm package name. Never `link:`, `file:`, or a checkout path —
+those belong in [CONTRIBUTING.md](../CONTRIBUTING.md) and the
+`dsh-next-local-testing` skill, not the package README. A package that is
+still `"private": true` still uses this form; first-run readers install
+from npm.
 
 ```sh
 dsh plugin --profile <name> add @dsh-next/dsh-next-<slug>
 ```
 
-Explain that `<name>` is the DSH profile (for example `web`). A package
-that is still `"private": true` may document `link:<repo>/packages/dsh-next-<slug>`
-until the first publish; switch to the npm name in the same change that
-drops `private`.
+Explain that `<name>` is the DSH profile (for example `web`).
 
 ### Screenshots
 

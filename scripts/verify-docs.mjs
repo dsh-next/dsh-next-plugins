@@ -12,7 +12,8 @@
  *   1. Triplet presence per package.
  *   2. Language switcher lines under the H1 on both sides.
  *   3. Structural signature mirror (headings, fences, tables, lists).
- *   4. Recorded blob hashes match the current content of both sides.
+ *   4. Install copy is the npm package name (never `link:` / checkout path).
+ *   5. Recorded blob hashes match the current content of both sides.
  *
  * Usage:
  *   node scripts/verify-docs.mjs                    # check everything (CI mode)
@@ -159,6 +160,16 @@ function checkPackage(slug) {
         `${label}: structural signature mismatch (${key}) - `
         + `EN [${enSig[key].join(' ')}] vs ZH [${zhSig[key].join(' ')}]`,
       )
+    }
+  }
+
+  const npmInstall = `dsh plugin --profile <name> add @dsh-next/dsh-next-${slug}`
+  for (const [name, text] of [['README.md', en], ['README.zh.md', zh]]) {
+    if (/\blink:/.test(text) || /file:\S*packages\/dsh-next-/.test(text)) {
+      fails.push(`${label}: ${name} must not document a local link:/file: install; use \`${npmInstall}\``)
+    }
+    if (!text.includes(npmInstall)) {
+      fails.push(`${label}: ${name} must document \`${npmInstall}\``)
     }
   }
 

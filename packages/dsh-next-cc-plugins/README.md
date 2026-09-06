@@ -308,7 +308,7 @@ English: they are persisted on install records and quoted in diagnostics.
 ## Install
 
 ```sh
-dsh plugin --profile <name> add link:<repo>/packages/dsh-next-cc-plugins
+dsh plugin --profile <name> add @dsh-next/dsh-next-cc-plugins
 ```
 
 ## Development

@@ -126,7 +126,7 @@ Skills 标签页读取该缓存；安装会把文件复制到全局根目录，�
 ## 安装
 
 ```sh
-dsh plugin --profile <name> add link:<repo>/packages/dsh-next-skills
+dsh plugin --profile <name> add @dsh-next/dsh-next-skills
 ```
 
 ## 开发

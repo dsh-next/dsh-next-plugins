@@ -57,6 +57,12 @@ mise run plugin-new -- <slug>
 # or: pnpm plugin:new <slug>
 ```
 
+Package READMEs document the npm install only
+(`dsh plugin --profile <name> add @dsh-next/dsh-next-<slug>`). To try a
+plugin from this checkout, use `mise run dev <slug>` (see the
+`dsh-next-local-testing` skill) — never put `link:` or `file:` paths in a
+package README.
+
 Run the full pre-push gate and the E2E mount smoke:
 
 ```sh

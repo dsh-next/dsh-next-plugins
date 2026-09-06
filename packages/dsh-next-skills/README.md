@@ -160,7 +160,7 @@ overwritten without a click.
 ## Install
 
 ```sh
-dsh plugin --profile <name> add link:<repo>/packages/dsh-next-skills
+dsh plugin --profile <name> add @dsh-next/dsh-next-skills
 ```
 
 ## Development

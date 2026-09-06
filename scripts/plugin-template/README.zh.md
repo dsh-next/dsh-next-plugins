@@ -12,9 +12,7 @@
 dsh plugin --profile <name> add @dsh-next/dsh-next-__NAME__
 ```
 
-`<name>` 是你的 DSH profile（例如 `web`）。在本包仍为 `"private": true`
-时，请改用检出路径安装：
-`link:<repo>/packages/dsh-next-__NAME__`。
+`<name>` 是你的 DSH profile（例如 `web`）。
 
 ## 使用前须知
 

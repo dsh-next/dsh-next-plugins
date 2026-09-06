@@ -13,7 +13,9 @@ Follow `docs/AGENTS.md` and `docs/i18n.md`.
    changes behavior.
 3. Every package keeps the bilingual README triplet from `docs/i18n.md`.
    Content, screenshots, and install copy follow `docs/AGENTS.md` →
-   "Package READMEs" (first-run guide, not a contributor handbook). When you
+   "Package READMEs" (first-run guide, not a contributor handbook). Install
+   copy is always `dsh plugin --profile <name> add @dsh-next/dsh-next-<slug>`
+   — never `link:`, `file:`, or a checkout path. When you
    edit either side of a pair, mirror the edit into the other language in
    the same change (same headings, code blocks, tables, lists, and images),
    then re-record with `pnpm docs:write-pair <slug>`. On-screen UI strings

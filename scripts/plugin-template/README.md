@@ -12,9 +12,7 @@ what the user clicks. See `docs/AGENTS.md` → "Package READMEs".
 dsh plugin --profile <name> add @dsh-next/dsh-next-__NAME__
 ```
 
-`<name>` is your DSH profile (for example `web`). While this package is
-`"private": true`, install from a checkout with
-`link:<repo>/packages/dsh-next-__NAME__` instead.
+`<name>` is your DSH profile (for example `web`).
 
 ## Good to know
 

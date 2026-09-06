@@ -41,9 +41,11 @@ Read `AGENTS.md` and `docs/plugins.md` first, then follow these steps.
    and to the first-run bar in `docs/AGENTS.md` → "Package READMEs": a
    change that alters behavior described in `README.md` must mirror the edit
    into `README.zh.md` in the same change and re-record the pairing hashes
-   with `pnpm docs:write-pair <slug>`. User-visible UI gets screenshots in
-   `media/` (WebP at display size). New packages are scaffolded with the
-   full triplet by `pnpm plugin:new`.
+   with `pnpm docs:write-pair <slug>`. Install copy is always the npm name
+   (`dsh plugin --profile <name> add @dsh-next/dsh-next-<slug>`), never a
+   `link:` or checkout path. User-visible UI gets screenshots in `media/`
+   (WebP at display size). New packages are scaffolded with the full
+   triplet by `pnpm plugin:new`.
 8. Run the full gate before merging: `pnpm typecheck && pnpm test && pnpm build`
    then `pnpm i18n:check` and `bash scripts/e2e-mount.sh`. Confirm **every**
    existing test still passes and the mount smoke (with the DOM markers) is green.

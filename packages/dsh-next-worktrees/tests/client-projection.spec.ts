@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   decorateSessions,
+  overlaySettingUp,
   projectWorkspaceSidebar,
   type WorkspaceItemLike,
 } from '../src/client/projection.ts'
@@ -222,5 +223,57 @@ describe('decorateSessions', () => {
   it('returns the same map when nothing is decorated', () => {
     const byId = { s1: { id: 's1' } }
     expect(decorateSessions(byId, new Map())).toBe(byId)
+  })
+})
+
+describe('overlaySettingUp', () => {
+  const existing = {
+    kind: 'dsh-next-worktrees' as const,
+    slug: 'swift-01',
+    title: 'login race fix',
+    branch: 'dsh-worktrees/swift-01',
+    baseRef: 'origin/HEAD',
+    primaryBranch: 'main',
+    path: `${REPO}/.dsh/worktrees/swift-01`,
+    workspaceId: 'wt-ws',
+    sessionIds: ['s1'],
+    dirty: false,
+    ahead: 0,
+    merged: false,
+    conflict: false,
+  }
+
+  it('is a no-op when setup is not running', () => {
+    const decorations = new Map([['s1', existing]])
+    expect(overlaySettingUp(decorations, undefined)).toBe(decorations)
+  })
+
+  it('flags an existing decoration as settingUp', () => {
+    const decorations = new Map([['s1', existing]])
+    const next = overlaySettingUp(decorations, {
+      slug: 'swift-01',
+      sessionId: 's1',
+      workspaceId: 'wt-ws',
+      path: existing.path,
+    })
+    expect(next.get('s1')).toEqual({ ...existing, settingUp: true })
+    expect(decorations.get('s1')).toEqual(existing)
+  })
+
+  it('synthesizes a decoration when topology has not caught up', () => {
+    const next = overlaySettingUp(new Map(), {
+      slug: 'swift-01',
+      sessionId: 's1',
+      workspaceId: 'wt-ws',
+      path: `${REPO}/.dsh/worktrees/swift-01`,
+    })
+    expect(next.get('s1')).toMatchObject({
+      kind: 'dsh-next-worktrees',
+      slug: 'swift-01',
+      workspaceId: 'wt-ws',
+      settingUp: true,
+      ahead: 0,
+    })
+    expect(next.get('s1')?.sessionIds).toEqual(['s1'])
   })
 })

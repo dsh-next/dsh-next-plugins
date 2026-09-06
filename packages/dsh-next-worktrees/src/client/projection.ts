@@ -42,6 +42,16 @@ export interface WorktreeRowDecoration {
   readonly ahead: number
   readonly merged: boolean
   readonly conflict: boolean
+  /** True while `.worktrees.json` setup is running after the row exists. */
+  readonly settingUp?: boolean
+}
+
+/** Client facts for the in-flight setup overlay (create flow). */
+export interface SettingUpOverlay {
+  readonly slug: string
+  readonly sessionId: string
+  readonly workspaceId: string
+  readonly path: string
 }
 
 export interface ProjectionInput {
@@ -147,6 +157,38 @@ export function projectWorkspaceSidebar(input: ProjectionInput): ProjectionResul
     decorations,
     hiddenWorkspaceIds: hidden,
   }
+}
+
+/**
+ * Mark (or synthesize) the in-flight setup row so the identity icon can
+ * spin before topology has the new worktree, and after it does.
+ */
+export function overlaySettingUp(
+  decorations: ReadonlyMap<string, WorktreeRowDecoration>,
+  settingUp: SettingUpOverlay | undefined,
+): ReadonlyMap<string, WorktreeRowDecoration> {
+  if (settingUp === undefined) return decorations
+  const next = new Map(decorations)
+  const existing = next.get(settingUp.sessionId)
+  next.set(settingUp.sessionId, existing === undefined
+    ? {
+        kind: 'dsh-next-worktrees',
+        slug: settingUp.slug,
+        title: settingUp.slug,
+        branch: `dsh-worktrees/${settingUp.slug}`,
+        baseRef: '',
+        primaryBranch: '',
+        path: settingUp.path,
+        workspaceId: settingUp.workspaceId,
+        sessionIds: [settingUp.sessionId],
+        dirty: false,
+        ahead: 0,
+        merged: false,
+        conflict: false,
+        settingUp: true,
+      }
+    : { ...existing, settingUp: true })
+  return next
 }
 
 /**

@@ -99,6 +99,11 @@ export interface CreateResult {
   readonly branch: string
   readonly baseRef: string
   readonly relPath: string
+  /**
+   * True when `.worktrees.json` has steps the client should run as a
+   * follow-up `setup` RPC (so the session row can appear first).
+   */
+  readonly setupPending: boolean
 }
 
 /** Status answer for a bound session. */
@@ -318,20 +323,42 @@ export class WorktreesService {
       throw error
     }
     await this.copyWorktreeInclude(placement.primary, placement.relPath, path)
+    const planned = await this.planSetup(placement.primary)
+    if ('error' in planned) {
+      await this.dropCreatedWorktree(placement.primary, registryPath, path, slug)
+      throw new WorktreeFlowError('setup-invalid', planned.error)
+    }
+    return {
+      slug,
+      name,
+      title: displayTitle(name, slug),
+      path,
+      branch,
+      baseRef,
+      relPath: placement.relPath,
+      setupPending: planned.pending,
+    }
+  }
+
+  /**
+   * Run `.worktrees.json` in an already-created worktree. Failed or
+   * invalid setup drops the worktree so the client can roll the session
+   * back and keep the "nothing was changed" error hint.
+   */
+  async setup(input: { cwd: string; slug: string }): Promise<void> {
+    const placement = await this.ports.git.placement(input.cwd).catch(fromGit)
+    const registryPath = `${placement.primary}/.dsh/worktrees/registry.json`
+    const bindings = await this.reconciled(placement.primary)
+    const row = rowsForSlug(bindings, input.slug)[0]
+    if (row === undefined) {
+      throw new WorktreeFlowError('unknown-slug', `no worktree bound to slug ${input.slug}`)
+    }
     try {
-      await this.runWorktreesSetup(placement.primary, path)
+      await this.runWorktreesSetup(placement.primary, row.path)
     } catch (error) {
-      await this.ports.git.removeWorktree({
-        primary: placement.primary,
-        path,
-        force: true,
-      }).catch(() => {})
-      await this.ports.store.mutate(placement.primary, registryPath, (rows) =>
-        rows.filter((row) => row.slug !== slug),
-      ).catch(() => {})
+      await this.dropCreatedWorktree(placement.primary, registryPath, row.path, row.slug)
       throw error
     }
-    return { slug, name, title: displayTitle(name, slug), path, branch, baseRef, relPath: placement.relPath }
   }
 
   /**
@@ -365,10 +392,49 @@ export class WorktreesService {
     }
   }
 
+  private async dropCreatedWorktree(
+    primary: string,
+    registryPath: string,
+    path: string,
+    slug: string,
+  ): Promise<void> {
+    await this.ports.git.removeWorktree({
+      primary,
+      path,
+      force: true,
+    }).catch(() => {})
+    await this.ports.store.mutate(primary, registryPath, (rows) =>
+      rows.filter((row) => row.slug !== slug),
+    ).catch(() => {})
+  }
+
+  /**
+   * Whether create should ask the client to follow up with `setup`.
+   * Invalid JSON fails create (no session row) so the error hint holds.
+   */
+  private async planSetup(primary: string): Promise<{ pending: boolean } | { error: string }> {
+    const readText = this.ports.readText
+    if (readText === undefined) return { pending: false }
+    let raw: string | undefined
+    for (const candidate of worktreesJsonCandidates(primary)) {
+      const text = await readText(candidate)
+      if (text !== null) {
+        raw = text
+        break
+      }
+    }
+    if (raw === undefined) return { pending: false }
+    const parsed = parseWorktreesJson(raw)
+    if ('error' in parsed) return { error: parsed.error }
+    const steps = resolveSetupSteps(parsed, setupPlatform(this.ports.platform ?? 'linux'))
+    if ('error' in steps) return { error: steps.error }
+    return { pending: steps.length > 0 }
+  }
+
   /**
    * Run `.dsh/worktrees.json` (local override) or `.worktrees.json` at the
    * repo root. Missing file → no-op. Invalid file or a failed command
-   * throws; create rolls the worktree back.
+   * throws; the caller rolls the worktree back.
    */
   private async runWorktreesSetup(primary: string, worktreePath: string): Promise<void> {
     const readText = this.ports.readText

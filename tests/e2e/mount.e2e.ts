@@ -336,6 +336,7 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     expect(registry.bindings[0]!.sessionId).not.toBe('')
     let slug = registry.bindings[0]!.slug
     expect(existsSync(worktreeDir(workspaceA, slug))).toBe(true)
+    await waitForCreateIdle(page)
     expect(existsSync(join(worktreeDir(workspaceA, slug), 'setup-ok'))).toBe(true)
     expect(gitOk(workspaceA, ['rev-parse', '--verify', `dsh-worktrees/${slug}`])).toBe(true)
     // Setup wrote an untracked file, so the icon is dirty until we clear it.

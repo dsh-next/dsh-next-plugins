@@ -27,6 +27,13 @@ describe('createHandlers', () => {
     expect(create).toHaveBeenCalledWith({ cwd: '/r', name: 'fix login', baseRef: 'main' })
   })
 
+  it('routes setup with cwd and slug', async () => {
+    const setup = vi.fn().mockResolvedValue(undefined)
+    const handlers = createHandlers(serviceWith({ setup }))
+    await handlers.setup!({ cwd: '/r/.dsh/worktrees/swift-01', slug: 'swift-01' })
+    expect(setup).toHaveBeenCalledWith({ cwd: '/r/.dsh/worktrees/swift-01', slug: 'swift-01' })
+  })
+
   it('routes bind and status with the session id', async () => {
     const bind = vi.fn().mockResolvedValue({})
     const status = vi.fn().mockResolvedValue({})
@@ -93,6 +100,7 @@ describe('createHandlers', () => {
     const handlers = createHandlers(serviceWith({}))
     await expect(handlers.preflight!({})).rejects.toMatchObject({ code: 'bad-request' })
     await expect(handlers.create!({})).rejects.toMatchObject({ code: 'bad-request' })
+    await expect(handlers.setup!({})).rejects.toMatchObject({ code: 'bad-request' })
     await expect(handlers.bind!({})).rejects.toMatchObject({ code: 'bad-request' })
     await expect(handlers.reclaim!({})).rejects.toMatchObject({ code: 'bad-request' })
     await expect(handlers.status!({})).rejects.toMatchObject({ code: 'bad-request' })

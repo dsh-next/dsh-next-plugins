@@ -115,7 +115,7 @@ function handoffOf(sessions: SessionsServiceLike): UpdateHandoff {
 export function ModalHost(props: ModalHostProps): React.ReactElement | null {
   const state = React.useSyncExternalStore(subscribeModal, modalState, modalState)
   const status = state.creating
-    ? <CreatingStatus t={props.t} />
+    ? <CreatingStatus t={props.t} settingUp={state.settingUp !== undefined} />
     : null
   let modal: React.ReactElement | null = null
   if (state.kind === 'create-error' && state.createError !== undefined) {
@@ -148,8 +148,9 @@ export function ModalHost(props: ModalHostProps): React.ReactElement | null {
   )
 }
 
-function CreatingStatus({ t }: {
+function CreatingStatus({ t, settingUp }: {
   readonly t: Translate
+  readonly settingUp: boolean
 }): React.ReactElement {
   return (
     <div
@@ -158,7 +159,7 @@ function CreatingStatus({ t }: {
       className="dshx-srOnly"
       data-dshx-creating-status="true"
     >
-      {t('create.working')}
+      {settingUp ? t('create.settingUp') : t('create.working')}
     </div>
   )
 }

@@ -28,6 +28,7 @@ describe('runCreateFlow', () => {
     workspaces?: {
       create(a: { path: string }): Promise<{ workspaceId: string }>
       delete?(workspaceId: string): Promise<void>
+      archiveSession?(sessionId: string): Promise<void>
     }
     sessions?: { create(a: { workspaceId: string }): Promise<string>; open(id: string): void }
   } = {}) {
@@ -35,10 +36,12 @@ describe('runCreateFlow', () => {
       slug: 'swift-01',
       path: '/repos/wt-repo/.dsh/worktrees/swift-01',
       relPath: '',
+      setupPending: false,
     })
     const workspaces = overrides.workspaces ?? {
       create: vi.fn().mockResolvedValue({ workspaceId: 'ws-1' }),
       delete: vi.fn().mockResolvedValue(undefined),
+      archiveSession: vi.fn().mockResolvedValue(undefined),
     }
     const sessions = overrides.sessions ?? {
       create: vi.fn().mockResolvedValue('session-1'),
@@ -73,8 +76,60 @@ describe('runCreateFlow', () => {
     expect(f.onTopologyRefresh).toHaveBeenCalled()
   })
 
+  it('opens the session first, then runs setup with the identity spinner', async () => {
+    const setup = vi.fn().mockImplementation(async () => {
+      expect(modalState().settingUp).toEqual({
+        slug: 'swift-01',
+        sessionId: 'session-1',
+        workspaceId: 'ws-1',
+        path: '/repos/wt-repo/.dsh/worktrees/swift-01',
+      })
+      expect(document.documentElement.dataset.dshxSettingUp).toBe('swift-01')
+    })
+    const f = faces({
+      create: vi.fn().mockResolvedValue({
+        slug: 'swift-01',
+        path: '/repos/wt-repo/.dsh/worktrees/swift-01',
+        relPath: '',
+        setupPending: true,
+      }),
+    })
+    const rpc = vi.fn((method: string, args?: unknown) => {
+      if (method === 'create') return f.create(args)
+      if (method === 'setup') return setup(args)
+      return Promise.resolve({})
+    })
+    await runCreateFlow({
+      cwd: '/repos/wt-repo',
+      rpc,
+      workspaces: f.workspaces,
+      sessions: f.sessions,
+      onTopologyRefresh: f.onTopologyRefresh,
+    })
+    expect(f.sessions.open).toHaveBeenCalledWith('session-1')
+    expect(setup).toHaveBeenCalledWith({ cwd: '/repos/wt-repo', slug: 'swift-01' })
+    expect(rpc.mock.calls.map((call) => call[0])).toEqual(['create', 'bind', 'setup'])
+    expect(modalState().settingUp).toBeUndefined()
+    expect(document.documentElement.dataset.dshxSettingUp).toBeUndefined()
+    expect(f.onTopologyRefresh).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not call setup when create reports nothing pending', async () => {
+    const f = faces()
+    const rpc = rpcOf(f.create)
+    await runCreateFlow({
+      cwd: '/repos/wt-repo',
+      rpc,
+      workspaces: f.workspaces,
+      sessions: f.sessions,
+      onTopologyRefresh: f.onTopologyRefresh,
+    })
+    expect(rpc.mock.calls.map((call) => call[0])).toEqual(['create', 'bind'])
+  })
+
   it('spins the repo-row create button from the html dataset', () => {
-    expect(WORKTREE_STYLES).toContain('html[data-dshx-creating="true"] [data-dshx-create]')
+    expect(WORKTREE_STYLES).toContain('html[data-dshx-creating="true"]:not([data-dshx-setting-up]) [data-dshx-create]')
+    expect(WORKTREE_STYLES).toContain(".dshx-worktree-identity[data-dshx-state='setting-up']")
     expect(WORKTREE_STYLES).toContain('@keyframes dshx-spin')
     expect(WORKTREE_STYLES).toContain('prefers-reduced-motion')
   })
@@ -188,6 +243,50 @@ describe('runCreateFlow', () => {
     expect(sessions.open).not.toHaveBeenCalled()
     expect(modalState().kind).toBe('create-error')
     expect(modalState().createError).toContain('session store down')
+  })
+
+  it('rolls back the session and worktree when setup fails', async () => {
+    const remove = vi.fn().mockResolvedValue(undefined)
+    const workspaces = {
+      create: vi.fn().mockResolvedValue({ workspaceId: 'ws-1' }),
+      delete: vi.fn().mockResolvedValue(undefined),
+      archiveSession: vi.fn().mockResolvedValue(undefined),
+    }
+    const sessions = {
+      create: vi.fn().mockResolvedValue('session-1'),
+      open: vi.fn(),
+    }
+    const rpc = vi.fn((method: string, args?: unknown) => {
+      if (method === 'create') {
+        return Promise.resolve({
+          slug: 'swift-01',
+          path: '/repos/wt-repo/.dsh/worktrees/swift-01',
+          relPath: '',
+          setupPending: true,
+        })
+      }
+      if (method === 'setup') return Promise.reject(new Error('setup command failed: pnpm install'))
+      if (method === 'remove') return remove(args)
+      return Promise.resolve({})
+    })
+    await runCreateFlow({
+      cwd: '/repos/wt-repo',
+      rpc,
+      workspaces,
+      sessions,
+      onTopologyRefresh: vi.fn(),
+    })
+    expect(sessions.open).toHaveBeenCalledWith('session-1')
+    expect(workspaces.archiveSession).toHaveBeenCalledWith('session-1')
+    expect(remove).toHaveBeenCalledWith({
+      cwd: '/repos/wt-repo/.dsh/worktrees/swift-01',
+      slug: 'swift-01',
+      force: true,
+    })
+    expect(workspaces.delete).toHaveBeenCalledWith('ws-1')
+    expect(modalState().kind).toBe('create-error')
+    expect(modalState().settingUp).toBeUndefined()
+    expect(modalState().createError).toContain('setup command failed')
   })
 })
 

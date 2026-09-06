@@ -26,8 +26,9 @@ have checked out in the main folder. If the branches would conflict, choose
 
 ### Create
 
-One click. The name is generated. The branch icon spins until the session
-opens — git checkout, and any setup commands, can take a few seconds.
+One click. The name is generated. The session appears under the repo; if
+the project has setup commands, that row's branch icon spins until they
+finish.
 
 ![Repository row with the worktree create button](media/create.webp)
 
@@ -116,8 +117,10 @@ it does not run install commands.
 
 Clicking the branch icon to create a worktree already runs setup when
 `.worktrees.json` is at the repo root (or `.dsh/worktrees.json` as a local
-override). You do not click anything else. `$ROOT_WORKTREE_PATH` is the
-main folder. A failed command cancels create and removes the extra folder.
+override). The new session row appears first; setup then runs with that
+row's branch icon spinning. You do not click anything else.
+`$ROOT_WORKTREE_PATH` is the main folder. A failed command cancels create
+and removes the extra folder.
 Gitignored writes (`.env`, `node_modules`) do not count as uncommitted
 changes. A file git can see (not ignored) does: Update waits until you
 commit or delete it; Merge lists it and still runs.

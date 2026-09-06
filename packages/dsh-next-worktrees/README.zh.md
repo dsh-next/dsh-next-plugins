@@ -24,8 +24,8 @@
 
 ### 创建
 
-一键完成。名称自动生成。分支图标会旋转，直到会话打开——git 检出以及任何
-setup 命令可能需要几秒。
+一键完成。名称自动生成。会话会出现在仓库行下；如果项目有 setup 命令，
+该行的分支图标会旋转，直到命令结束。
 
 ![带有创建 worktree 按钮的仓库行](media/create.webp)
 
@@ -107,7 +107,8 @@ worktree 绝不会这样被移除。
 
 单击分支图标创建 worktree 时，若仓库根目录有 `.worktrees.json`（或本机
 `.dsh/worktrees.json`），其中的 `setup-worktree` 会自动在新文件夹里执行。
-不需要再点别的。`$ROOT_WORKTREE_PATH` 是主文件夹。命令失败会取消创建并
+新会话行会先出现；随后 setup 运行，该行的分支图标会旋转。不需要再点别的。
+`$ROOT_WORKTREE_PATH` 是主文件夹。命令失败会取消创建并
 删掉多余的文件夹。被 gitignore 的写入（`.env`、`node_modules`）不算未提交
 改动。git 能看见的文件（未被 ignore）会算：Update 会等到你提交或删掉；
 Merge 会列出它们，但仍可继续。

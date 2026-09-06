@@ -56,6 +56,15 @@ export function createHandlers(service: WorktreesService): Record<string, Handle
         baseRef: str(a.baseRef),
       })
     },
+    setup: async (args) => {
+      const a = asRecord(args)
+      const cwd = str(a.cwd)
+      const slug = str(a.slug)
+      if (cwd === undefined || slug === undefined) {
+        throw new WorktreeFlowError('bad-request', 'setup requires cwd and slug')
+      }
+      return service.setup({ cwd, slug })
+    },
     bind: async (args) => {
       const a = asRecord(args)
       const sessionId = str(a.sessionId)

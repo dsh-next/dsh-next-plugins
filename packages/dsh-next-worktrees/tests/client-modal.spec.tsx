@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ModalHost } from '../src/client/modal-host.tsx'
 import {
   closeModal,
+  modalState,
   openMerge,
   openUpdate,
   resetModalStore,
@@ -83,6 +84,33 @@ describe('create-in-progress status', () => {
     expect(status?.getAttribute('aria-live')).toBe('polite')
     expect(status?.className).toBe('dshx-srOnly')
     expect(status?.textContent).toBe('Creating worktree…')
+  })
+
+  it('announces Setting up worktree once the session row exists', async () => {
+    let finishSetup: () => void = () => {}
+    const setupHang = new Promise<void>((resolve) => { finishSetup = resolve })
+    void runCreateFlow({
+      cwd: '/repos/wt-repo',
+      rpc: async (method) => {
+        if (method === 'create') {
+          return {
+            slug: 'swift-01',
+            path: '/repos/wt-repo/.dsh/worktrees/swift-01',
+            relPath: '',
+            setupPending: true,
+          }
+        }
+        if (method === 'setup') return setupHang
+        return {}
+      },
+      workspaces: { create: async () => ({ workspaceId: 'ws' }) },
+      sessions: { create: async () => 's', open: () => {} },
+      onTopologyRefresh: () => {},
+    })
+    await vi.waitFor(() => { expect(modalState().settingUp?.slug).toBe('swift-01') })
+    const node = await mount()
+    expect(node.querySelector('[data-dshx-creating-status]')?.textContent).toBe('Setting up worktree…')
+    finishSetup()
   })
 
   it('drops the status once create settles', async () => {

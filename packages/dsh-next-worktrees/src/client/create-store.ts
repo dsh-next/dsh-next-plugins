@@ -6,7 +6,9 @@
  * Create has no modal (decision: docs/ideas/dsh-next-worktrees-sidebar-ux.md
  * rev 3): clicking the repo-row button creates the worktree immediately
  * with the host-suggested name. `creating` guards re-entry and writes
- * `html[data-dshx-creating]` so the repo-row icon can spin.
+ * `html[data-dshx-creating]` so the repo-row icon can spin until the
+ * session row exists; `settingUp` then moves the spinner onto that row's
+ * identity icon while `.worktrees.json` runs.
  */
 import type { MergeBlocker, MergeWarning } from '../core/merge.ts'
 import type { UpdateBlocker } from '../core/update.ts'
@@ -76,6 +78,16 @@ export interface ModalState {
   readonly kind: ModalKind
   /** True while the auto-named create flow is in flight. */
   readonly creating: boolean
+  /**
+   * Set once the session row exists and `.worktrees.json` setup is
+   * running. Drives the identity-icon spinner.
+   */
+  readonly settingUp?: {
+    readonly slug: string
+    readonly sessionId: string
+    readonly workspaceId: string
+    readonly path: string
+  }
   /** Why the auto-named create flow failed (modal-free flow, modal error). */
   readonly createError?: string
   readonly merge?: {
@@ -115,6 +127,11 @@ function set(next: ModalState): void {
   state = next
   if (typeof document !== 'undefined') {
     document.documentElement.dataset.dshxCreating = next.creating ? 'true' : 'false'
+    if (next.settingUp !== undefined) {
+      document.documentElement.dataset.dshxSettingUp = next.settingUp.slug
+    } else {
+      delete document.documentElement.dataset.dshxSettingUp
+    }
   }
   emit()
 }
@@ -359,7 +376,8 @@ export function resetModalStore(): void {
  * own suggestion. Order matters: the worktree exists before the workspace
  * is registered (the workspace path must resolve), the session exists
  * before the bind (the bind claims the row for the session), and the open
- * comes last so the user lands in the bound session.
+ * comes last so the user lands in the bound session. Setup commands run
+ * after that, with the row visible and its branch icon spinning.
  *
  * @param input - the repo cwd plus the service/RPC faces.
  */
@@ -369,6 +387,7 @@ export async function runCreateFlow(input: {
   readonly workspaces: {
     create(a: { path: string }): Promise<{ workspaceId: string }>
     delete?(workspaceId: string): Promise<void>
+    archiveSession?(sessionId: string): Promise<void>
   }
   readonly sessions: { create(a: { workspaceId: string }): Promise<string>; open(id: string): void }
   readonly onTopologyRefresh: () => void
@@ -376,8 +395,9 @@ export async function runCreateFlow(input: {
   const { cwd, rpc, workspaces, sessions, onTopologyRefresh } = input
   if (state.creating) return
   setCreating(true)
-  let created: { slug: string; path: string; relPath: string } | undefined
+  let created: { slug: string; path: string; relPath: string; setupPending?: boolean } | undefined
   let workspaceId: string | undefined
+  let sessionId: string | undefined
   try {
     created = await rpc('create', {
       cwd,
@@ -385,21 +405,39 @@ export async function runCreateFlow(input: {
       slug: string
       path: string
       relPath: string
+      setupPending?: boolean
     }
     const workspacePath = created.relPath === ''
       ? created.path
       : `${created.path}/${created.relPath}`
     const workspace = await workspaces.create({ path: workspacePath })
     workspaceId = workspace.workspaceId
-    const sessionId = await sessions.create({ workspaceId: workspace.workspaceId })
+    sessionId = await sessions.create({ workspaceId: workspace.workspaceId })
     await rpc('bind', { sessionId })
     sessions.open(sessionId)
+    if (created.setupPending === true) {
+      set({
+        ...state,
+        creating: true,
+        settingUp: {
+          slug: created.slug,
+          sessionId,
+          workspaceId: workspace.workspaceId,
+          path: created.path,
+        },
+      })
+      onTopologyRefresh()
+      await rpc('setup', { cwd, slug: created.slug })
+    }
     set(INITIAL)
     onTopologyRefresh()
   } catch (error) {
     // Host create is not transactional with workspace/session/bind: if a
     // later step fails, drop the git worktree (and any workspace we did
     // register) so the error modal's "nothing was changed" hint holds.
+    if (sessionId !== undefined && sessionId !== '' && workspaces.archiveSession !== undefined) {
+      await workspaces.archiveSession(sessionId).catch(() => {})
+    }
     if (created !== undefined) {
       await rpc('remove', { cwd: created.path, slug: created.slug, force: true }).catch(() => {})
       if (workspaceId !== undefined && workspaceId !== '' && workspaces.delete !== undefined) {

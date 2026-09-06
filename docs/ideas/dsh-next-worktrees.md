@@ -1,8 +1,8 @@
 # dsh-next-worktrees (idea one-pager)
 
 - date: 2026-09-04
-- status: isolate + nested sidebar + guarded merge shipped (2026-09-05);
-  next milestone is agent-resolved landing, then public 0.1.0 — see
+- status: isolate + nested sidebar + guarded merge + agent-resolved
+  landing shipped; first public 0.1.0 queued — see
   [dsh-next-worktrees-0.1.md](dsh-next-worktrees-0.1.md). M0 probes passed
   2026-09-04 (docs/archive/2026-09-04-worktrees-m0-probe.md).
 - name: `dsh-next-worktrees` (no `git-` qualifier; discovery via package.json
@@ -184,8 +184,8 @@ Cross-cutting:
   animated element (spinner); en/zh dictionaries (`pnpm i18n:check` clean);
   dropdown capped at about five actions with overflow graduating to the
   settings registry.
-- Package stays `"private": true` until v1 is ready to release; keywords
-  as in the header.
+- Public 0.1.0 is isolate → run → conflict-complete merge → cleanup;
+  keywords as in the header.
 - Forward-compat insurance (zero behavior change in v1):
   - The create RPC accepts an optional `baseRef` parameter from day one
     (settings default fills it), keeping the base-ref picker, Ghost

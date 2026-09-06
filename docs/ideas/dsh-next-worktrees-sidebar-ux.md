@@ -2,9 +2,9 @@
 
 - date: 2026-09-05
 - status: implemented through revision 3; commits to strategy B (full nesting).
-  Next milestone is agent-resolved landing (public 0.1.0), not
-  Foreground/Return — see
-  [dsh-next-worktrees-0.1.md](dsh-next-worktrees-0.1.md).
+  Agent-resolved landing is 0.1.0 — see
+  [dsh-next-worktrees-0.1.md](dsh-next-worktrees-0.1.md). Foreground/Return
+  stays parked.
 - supersedes: the M1 composer Isolated toggle and session-header chip (both
   removed), and revision 1's sidebar-foot popover (dropped — the owned
   browser makes it redundant)
@@ -358,7 +358,7 @@ development than salvaged plumbing.
 ## Open questions
 
 Owned-browser forks are decided (see the decisions line in the header).
-Next product milestone is [dsh-next-worktrees-0.1.md](dsh-next-worktrees-0.1.md)
-(agent-resolved landing, then un-private). The remaining open questions
-live there (session-message seam, mid-merge Abort/Continue, un-private
-PR shape).
+Agent-resolved landing is recorded in
+[dsh-next-worktrees-0.1.md](dsh-next-worktrees-0.1.md). Parked follow-ups
+(Foreground/Return, setup-commands, settings card) live in the product
+one-pager.

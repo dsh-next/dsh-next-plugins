@@ -1,8 +1,7 @@
 {
   "name": "@dsh-next/dsh-next-worktrees",
   "description": "DeepSeek Harness plugin: nested git worktrees in the workspace sidebar, with guarded one-click merge.",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.0.0",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

@@ -1,7 +1,8 @@
 # dsh-next-worktrees 0.1.0 — agent-resolved landing
 
 - date: 2026-09-05
-- status: implemented in packages/dsh-next-worktrees (package still private)
+- status: implemented in packages/dsh-next-worktrees; first public 0.1.0
+  (changeset queued)
 - companion: [dsh-next-worktrees.md](dsh-next-worktrees.md) (product
   one-pager; isolate / merge / sidebar already shipped),
   [dsh-next-worktrees-sidebar-ux.md](dsh-next-worktrees-sidebar-ux.md)

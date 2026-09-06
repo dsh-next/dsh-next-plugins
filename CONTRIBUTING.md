@@ -44,6 +44,12 @@ pnpm typecheck
 pnpm test
 ```
 
+A worktree created from this repo by the worktrees plugin runs
+`.worktrees.json` (`pnpm install`) in the new folder. This repo has no
+`.worktreeinclude`: there are no gitignored local files (such as `.env`)
+that every worktree must copy. Tokens stay in `~/.npmrc`. After create,
+still run `mise trust` once in that folder if you use `mise run`.
+
 Create a new plugin scaffold:
 
 ```sh

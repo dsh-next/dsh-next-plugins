@@ -8,12 +8,14 @@
  * - the only writes to the user's checkout are the guarded worktree-add /
  *   worktree-remove pair, the preflighted merge into the primary, and
  *   update-from-main (a merge into the worktree that may stay mid-merge).
- * - one writer per worktree: a session takes over only an unclaimed row.
+ * - one writer per worktree: a session takes over only an unclaimed row
+ *   (`bind`); `reclaim(from, to)` is the one self-steal for reincarnation.
  */
 import { mergeVerdict, parseGitVersion, gitSupportsMergeTree, type MergeBlocker, type MergeWarning } from '../core/merge.ts'
 import { updateVerdict, type UpdateBlocker } from '../core/update.ts'
 import {
   reconcile,
+  rowContainingCwd,
   rowForCwd,
   rowForSession,
   rowsForSlug,
@@ -191,6 +193,17 @@ export interface UpdateExecuteResult {
   readonly conflict: boolean
   readonly sessionId: string
 }
+
+/** Why `reclaim` left the registry row untouched. */
+export type ReclaimSkipReason = 'no-worktree-here' | 'not-owner'
+
+/**
+ * Steal-from-self result: either the row now points at `to`, or the cwd is
+ * not a plugin worktree / is owned by someone else (callers skip).
+ */
+export type ReclaimResult =
+  | { readonly claimed: true; readonly slug: string; readonly title: string; readonly path: string }
+  | { readonly claimed: false; readonly reason: ReclaimSkipReason }
 
 const fromGit = (error: unknown): never => {
   if (error instanceof GitError) {
@@ -424,6 +437,56 @@ export class WorktreesService {
       )
     }
     return { slug: row.slug, title: displayTitle(row.name, row.slug), path: row.path }
+  }
+
+  /**
+   * Retarget a plugin worktree row from `from` onto `to` in one mutate, then
+   * grant `to` danger-full-access. Never unclaims to `''` in between. A cwd
+   * that is not a plugin worktree, or a row owned by some other session,
+   * skips rather than stealing.
+   *
+   * Sandbox-write runs before the mutate so a refused knob leaves the row
+   * on `from` (a caller that then archives `to` does not orphan the claim).
+   */
+  async reclaim(from: string, to: string): Promise<ReclaimResult> {
+    if (from === to) {
+      throw new WorktreeFlowError('bad-request', 'reclaim requires distinct from and to session ids')
+    }
+    const cwd = this.ports.getSessionCwd(to) ?? this.ports.getSessionCwd(from)
+    if (cwd === null) {
+      throw new WorktreeFlowError('unknown-session', 'the session has no cwd yet')
+    }
+    let placement
+    try {
+      placement = await this.ports.git.placement(cwd)
+    } catch (error) {
+      if (error instanceof GitError) return { claimed: false, reason: 'no-worktree-here' }
+      throw error
+    }
+    if (!placement.insideWorktreesRoot) {
+      return { claimed: false, reason: 'no-worktree-here' }
+    }
+    const registryPath = `${placement.primary}/.dsh/worktrees/registry.json`
+    const bindings = await this.reconciled(placement.primary)
+    const row = rowContainingCwd(bindings, cwd)
+    if (row === undefined) {
+      return { claimed: false, reason: 'no-worktree-here' }
+    }
+    if (row.sessionId !== from && row.sessionId !== to) {
+      return { claimed: false, reason: 'not-owner' }
+    }
+    if (!this.ports.applySandboxMode(to, 'danger-full-access')) {
+      throw new WorktreeFlowError(
+        'sandbox-refused',
+        'could not grant the session danger-full-access',
+        'retry reclaim after the session is ready',
+      )
+    }
+    if (row.sessionId !== to) {
+      await this.ports.store.mutate(placement.primary, registryPath, (rows) =>
+        rows.map((b) => b.path === row.path ? { ...b, sessionId: to } : b))
+    }
+    return { claimed: true, slug: row.slug, title: displayTitle(row.name, row.slug), path: row.path }
   }
 
   /** Status facts for a bound session's worktree. */

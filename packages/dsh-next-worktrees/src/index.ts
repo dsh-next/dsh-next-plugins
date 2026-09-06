@@ -24,6 +24,7 @@ import {
 } from './host/service.ts'
 import { registerRpc } from './host/rpc.ts'
 import { runSetupCommand } from './host/setup-exec.ts'
+import { WORKTREES_SERVICE_KEY } from './core/service-key.ts'
 
 export const inject = ['webServer', 'sessions'] as const
 
@@ -83,6 +84,9 @@ export function apply(ctx: Context): void {
     },
     runCommand: runSetupCommand,
     platform: process.platform,
+  })
+  ctx.provide(WORKTREES_SERVICE_KEY, {
+    reclaim: (from: string, to: string) => service.reclaim(from, to),
   })
   registerRpc(ctx, service)
 }

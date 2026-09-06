@@ -499,6 +499,97 @@ describe('bind', () => {
   })
 })
 
+describe('reclaim', () => {
+  it('retargets the row from self onto to in one mutate and grants sandbox', async () => {
+    const h = harness()
+    const binding = seedWorktree(h, { sessionId: 'session-old' })
+    h.sessionCwds.set('session-old', binding.path)
+    h.sessionCwds.set('session-new', binding.path)
+    await expect(h.service.reclaim('session-old', 'session-new')).resolves.toEqual({
+      claimed: true,
+      slug: 'swift-01',
+      title: 'login race fix',
+      path: binding.path,
+    })
+    expect(h.store.files.get(PRIMARY)?.bindings[0]).toMatchObject({ sessionId: 'session-new' })
+    expect(h.knobWrites).toEqual([{ sessionId: 'session-new', mode: 'danger-full-access' }])
+  })
+
+  it('is idempotent when to already owns the row', async () => {
+    const h = harness()
+    const binding = seedWorktree(h, { sessionId: 'session-new' })
+    h.sessionCwds.set('session-old', binding.path)
+    h.sessionCwds.set('session-new', binding.path)
+    await expect(h.service.reclaim('session-old', 'session-new')).resolves.toMatchObject({ claimed: true })
+    expect(h.store.files.get(PRIMARY)?.bindings[0]).toMatchObject({ sessionId: 'session-new' })
+    expect(h.knobWrites).toEqual([{ sessionId: 'session-new', mode: 'danger-full-access' }])
+  })
+
+  it('skips a cwd that is not a plugin worktree', async () => {
+    const h = harness()
+    seedWorktree(h, { sessionId: 'session-old' })
+    h.sessionCwds.set('session-old', PRIMARY)
+    h.sessionCwds.set('session-new', PRIMARY)
+    await expect(h.service.reclaim('session-old', 'session-new')).resolves.toEqual({
+      claimed: false,
+      reason: 'no-worktree-here',
+    })
+    expect(h.store.files.get(PRIMARY)?.bindings[0]).toMatchObject({ sessionId: 'session-old' })
+    expect(h.knobWrites).toEqual([])
+  })
+
+  it('skips a row owned by some other session', async () => {
+    const h = harness()
+    const binding = seedWorktree(h, { sessionId: 'session-other' })
+    h.sessionCwds.set('session-old', binding.path)
+    h.sessionCwds.set('session-new', binding.path)
+    await expect(h.service.reclaim('session-old', 'session-new')).resolves.toEqual({
+      claimed: false,
+      reason: 'not-owner',
+    })
+    expect(h.store.files.get(PRIMARY)?.bindings[0]).toMatchObject({ sessionId: 'session-other' })
+    expect(h.knobWrites).toEqual([])
+  })
+
+  it('skips a non-repository cwd instead of throwing', async () => {
+    const h = harness()
+    h.git.placements.set('/plain', new GitError('not-a-repository', 'outside'))
+    h.sessionCwds.set('session-old', '/plain')
+    h.sessionCwds.set('session-new', '/plain')
+    await expect(h.service.reclaim('session-old', 'session-new')).resolves.toEqual({
+      claimed: false,
+      reason: 'no-worktree-here',
+    })
+  })
+
+  it('refuses identical from and to', async () => {
+    const h = harness()
+    await expect(h.service.reclaim('session-a', 'session-a')).rejects.toMatchObject({ code: 'bad-request' })
+  })
+
+  it('leaves the row on from when the sandbox knob is refused', async () => {
+    const git = new FakeGit()
+    git.placements.set(PRIMARY, placement())
+    git.existingRefs.add('HEAD')
+    const store = new MemoryStore()
+    const sessionCwds = new Map<string, string | null>()
+    const service = new WorktreesService({
+      git,
+      store,
+      getSessionCwd: (id) => sessionCwds.get(id) ?? null,
+      applySandboxMode: () => false,
+      isSessionRunning: () => false,
+      copyFile: async () => {},
+    })
+    const h = { service, git, store, sessionCwds, knobWrites: [], copies: [] }
+    const binding = seedWorktree(h, { sessionId: 'session-old' })
+    sessionCwds.set('session-old', binding.path)
+    sessionCwds.set('session-new', binding.path)
+    await expect(service.reclaim('session-old', 'session-new')).rejects.toMatchObject({ code: 'sandbox-refused' })
+    expect(store.files.get(PRIMARY)?.bindings[0]).toMatchObject({ sessionId: 'session-old' })
+  })
+})
+
 describe('status', () => {
   it('reports dirty, ahead, and merged facts for the bound session', async () => {
     const h = harness()

@@ -94,6 +94,38 @@ describe('sweepAbandonedWorktrees', () => {
     expect(d.removeWorktree).not.toHaveBeenCalled()
   })
 
+  it('keeps a worktree after /reset when the archived sibling is still a non-blank byId row', async () => {
+    const d = deps()
+    configureWorktreeSweeper(d)
+    const swept = await sweepAbandonedWorktrees({
+      workspaces: [ws({ sessionIds: ['old-archived', 'new-blank'] })],
+      sessionsById: {
+        'old-archived': { id: 'old-archived', blank: false },
+        'new-blank': { id: 'new-blank', blank: true },
+        other: { id: 'other', blank: false },
+      },
+      currentSessionId: 'other',
+      creating: false,
+    })
+    expect(swept).toEqual([])
+    expect(d.removeWorktree).not.toHaveBeenCalled()
+  })
+
+  it('sweeps after /reset if archive dropped the old row from byId and the replacement blank is not current', async () => {
+    const d = deps()
+    configureWorktreeSweeper(d)
+    const swept = await sweepAbandonedWorktrees({
+      workspaces: [ws({ sessionIds: ['old-archived', 'new-blank'] })],
+      sessionsById: {
+        'new-blank': { id: 'new-blank', blank: true },
+        other: { id: 'other', blank: false },
+      },
+      currentSessionId: 'other',
+      creating: false,
+    })
+    expect(swept).toEqual(['swift-01'])
+  })
+
   it('never sweeps while a create flow is in flight', async () => {
     const d = deps()
     configureWorktreeSweeper(d)

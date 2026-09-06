@@ -37,6 +37,13 @@ describe('createHandlers', () => {
     expect(status).toHaveBeenCalledWith('s1')
   })
 
+  it('routes reclaim with from and to', async () => {
+    const reclaim = vi.fn().mockResolvedValue({ claimed: true })
+    const handlers = createHandlers(serviceWith({ reclaim }))
+    await handlers.reclaim!({ from: 'old', to: 'next' })
+    expect(reclaim).toHaveBeenCalledWith('old', 'next')
+  })
+
   it('routes remove passing only a literal true as force', async () => {
     const remove = vi.fn().mockResolvedValue(undefined)
     const handlers = createHandlers(serviceWith({ remove }))
@@ -87,6 +94,7 @@ describe('createHandlers', () => {
     await expect(handlers.preflight!({})).rejects.toMatchObject({ code: 'bad-request' })
     await expect(handlers.create!({})).rejects.toMatchObject({ code: 'bad-request' })
     await expect(handlers.bind!({})).rejects.toMatchObject({ code: 'bad-request' })
+    await expect(handlers.reclaim!({})).rejects.toMatchObject({ code: 'bad-request' })
     await expect(handlers.status!({})).rejects.toMatchObject({ code: 'bad-request' })
     await expect(handlers.remove!({})).rejects.toMatchObject({ code: 'bad-request' })
     await expect(handlers['merge/preflight']!({})).rejects.toMatchObject({ code: 'bad-request' })

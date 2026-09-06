@@ -122,6 +122,26 @@ export function rowForSession(
 }
 
 /**
+ * The registry row whose worktree contains `cwd`, ignoring claim ownership.
+ *
+ * {@link rowForCwd} layers the one-writer gate on top of this lookup.
+ *
+ * @param bindings - registry rows.
+ * @param cwd - the session's absolute cwd.
+ * @returns the containing row, or undefined when the cwd is no worktree.
+ */
+export function rowContainingCwd(
+  bindings: readonly WorktreeBinding[],
+  cwd: string,
+): WorktreeBinding | undefined {
+  const cwdPosix = toPosix(cwd)
+  return bindings.find((b) => {
+    const path = toPosix(b.path)
+    return cwdPosix === path || cwdPosix.startsWith(`${path}/`)
+  })
+}
+
+/**
  * The row a new session in `cwd` should claim: the unclaimed or matching
  * row whose worktree contains the cwd, else undefined.
  *
@@ -135,11 +155,7 @@ export function rowForCwd(
   sessionId: string,
   cwd: string,
 ): WorktreeBinding | undefined {
-  const cwdPosix = toPosix(cwd)
-  const inside = bindings.find((b) => {
-    const path = toPosix(b.path)
-    return cwdPosix === path || cwdPosix.startsWith(`${path}/`)
-  })
+  const inside = rowContainingCwd(bindings, cwd)
   if (inside === undefined) return undefined
   // A session already bound to this worktree keeps its row; a different
   // session takes over only an unclaimed one (one writer per tree, the

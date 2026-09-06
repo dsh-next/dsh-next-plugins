@@ -3,6 +3,7 @@ import {
   bindingTitle,
   parseWorktreeList,
   reconcile,
+  rowContainingCwd,
   rowForCwd,
   rowForSession,
   rowsForSlug,
@@ -113,6 +114,12 @@ describe('row lookups', () => {
       'session-a',
       `${claimed.path.replaceAll('/', '\\')}\\packages\\foo`,
     )).toBe(claimed)
+  })
+
+  it('rowContainingCwd ignores claim ownership', () => {
+    expect(rowContainingCwd(bindings, claimed.path)).toBe(claimed)
+    expect(rowContainingCwd(bindings, `${claimed.path}/packages/foo`)).toBe(claimed)
+    expect(rowContainingCwd(bindings, '/repos/wt-plain')).toBeUndefined()
   })
 
   it('rowForCwd lets a session take over only an unclaimed row', () => {

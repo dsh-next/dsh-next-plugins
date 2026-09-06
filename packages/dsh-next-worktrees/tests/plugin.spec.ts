@@ -9,6 +9,7 @@ describe('worktrees host plugin', () => {
   it('registers the RPC route through ctx.effect', () => {
     const off = vi.fn()
     const register = vi.fn().mockReturnValue(off)
+    const provide = vi.fn()
     const effect = vi.fn((setup: () => unknown) => setup())
     const ctx = {
       get: (name: string) => {
@@ -17,8 +18,12 @@ describe('worktrees host plugin', () => {
         return undefined
       },
       effect,
+      provide,
     }
     plugin.apply(ctx as never)
+    expect(provide).toHaveBeenCalledWith('dsh-next-worktrees', expect.objectContaining({
+      reclaim: expect.any(Function),
+    }))
     expect(register).toHaveBeenCalled()
     const setup = effect.mock.calls.find((call) => typeof call[0] === 'function')?.[0] as (() => unknown) | undefined
     expect(setup).toBeTypeOf('function')

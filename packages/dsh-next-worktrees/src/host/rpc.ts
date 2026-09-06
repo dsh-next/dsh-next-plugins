@@ -62,6 +62,15 @@ export function createHandlers(service: WorktreesService): Record<string, Handle
       if (sessionId === undefined) throw new WorktreeFlowError('bad-request', 'bind requires sessionId')
       return service.bind(sessionId)
     },
+    reclaim: async (args) => {
+      const a = asRecord(args)
+      const from = str(a.from)
+      const to = str(a.to)
+      if (from === undefined || to === undefined) {
+        throw new WorktreeFlowError('bad-request', 'reclaim requires from and to')
+      }
+      return service.reclaim(from, to)
+    },
     status: async (args) => {
       const a = asRecord(args)
       const sessionId = str(a.sessionId)

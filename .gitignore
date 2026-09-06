@@ -24,6 +24,7 @@ gui-test-screenshots/
 *.tgz
 playwright-report/
 test-results/
+docs/screenshots/
 
 # Build output (tsdown)
 packages/*/lib/

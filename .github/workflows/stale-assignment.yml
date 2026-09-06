@@ -81,6 +81,33 @@ jobs:
                 continue;
               }
               const number = item.number;
+              // A new PR has no maintainer comments yet. Stale means the
+              // assignment itself is older than `days`, not "no comment
+              // in that window". Fall back to PR created_at when GitHub
+              // omits the assigned event.
+              let assignedAt = item.created_at;
+              try {
+                const events = await github.rest.issues.listEvents({
+                  owner,
+                  repo,
+                  issue_number: number,
+                  per_page: 100,
+                });
+                const lastAssign = [...events.data].reverse().find(
+                  (event) =>
+                    event.event === 'assigned' &&
+                    event.assignee &&
+                    event.assignee.login === login,
+                );
+                if (lastAssign && lastAssign.created_at) {
+                  assignedAt = lastAssign.created_at;
+                }
+              } catch (error) {
+                console.log('assignment-age check failed for #' + number + ': ' + error.message);
+              }
+              if (new Date(assignedAt) >= new Date(since)) {
+                continue;
+              }
 
               let active = false;
               try {

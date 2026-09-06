@@ -7,8 +7,9 @@
   one-pager; isolate / merge / sidebar already shipped),
   [dsh-next-worktrees-sidebar-ux.md](dsh-next-worktrees-sidebar-ux.md)
   (UI contract; this milestone rides the same row menu and merge modal)
-- supersedes: the product one-pager's "M2 — Shuttle" and "v1 includes
-  Foreground/Return". Cursor-style foreground is parked, not cancelled.
+- supersedes: the product one-pager's "M2 — Shuttle". Merge is the
+  landing onto the current branch; we do not switch the primary onto the
+  worktree branch.
 
 ## Problem Statement
 
@@ -22,13 +23,13 @@ fast-forward?
 Spend the next milestone on **agent-resolved landing**, then un-private.
 That is 0.1.0.
 
-Cursor's Foreground exists because Cursor is an IDE: `/apply-worktree`
-switches the winner onto the checkout the editor already has open. DSH
-is a session runtime. The worktree session is already the test surface,
-and Merge already brings a green tree home. The hole is the other half
-of Merge: today a conflict is a disabled button and a copyable
-`git merge` command. That is the moment a first-time installer decides
-the plugin is a demo.
+Cursor's apply-worktree exists because Cursor is an IDE: it switches the
+winner onto the checkout the editor already has open. DSH is a session
+runtime. The worktree session is already the test surface, and Merge
+already brings a green tree home onto the current branch. The hole is
+the other half of Merge: a conflict used to be a disabled button and a
+copyable `git merge` command. That is the moment a first-time installer
+decides the plugin is a demo.
 
 The move is the direction flip the UX spec already named and never
 built. On conflict (and as a row action before conflict), merge the
@@ -41,10 +42,8 @@ One new host write, one new row verb, one new conflict-modal CTA. The
 resolver is an agent, not a three-pane widget. Cursor does not have
 this.
 
-Foreground/Return stays parked. It was the old M2 because the
-2026-09-04 one-pager copied Cursor's apply gesture. Merge replaced that
-landing. Do not build the reservation in `newRequestId()` just because
-it is sitting there.
+The old M2 copied Cursor's apply gesture. Merge replaced that landing.
+Do not build a primary `git switch`.
 
 ## Key Assumptions to Validate
 
@@ -84,9 +83,8 @@ it is sitting there.
 - Execute starts `git merge --no-edit <primary-branch>` inside the
   worktree. Clean result → topology refresh, Merge becomes FF.
   Conflicts → leave the worktree mid-merge, never touch the primary.
-- Row menu: **Update from `<branch>`…** in the slot that was reserved
-  for Foreground (between Refresh and Merge). Same preflight modal
-  grammar as Merge.
+- Row menu: **Update from `<branch>`…** between Refresh and Merge.
+  Same preflight modal grammar as Merge.
 - Merge modal: when the blocker is `conflict`, the primary button is
   **Resolve in this session…** (opens the update modal). The blocker
   copy names that step; there is no CLI dump. A clean catch-up keeps
@@ -100,7 +98,7 @@ it is sitting there.
   otherwise the modal tells the user to send. Plugin never authors
   commit content.
 - README describes this loop. Idea docs stop advertising composer-toggle
-  M1 and shuttle-as-v1.
+  M1.
 - Drop `"private": true` and add a changeset only when the loop above
   is live and the README can stand alone.
 
@@ -110,9 +108,9 @@ picker, setup-commands, push/PR.
 
 ## Not Doing (and Why)
 
-- **Foreground / Return** — Cursor's apply-worktree is an IDE gesture.
-  Merge already lands. Park until live use produces a pull ("I need the
-  winner on my main checkout to run the app").
+- **Switching the primary onto the worktree branch** — Merge already
+  lands commits onto the current branch. We will not `git switch` the
+  main folder.
 - **Always-update on every Merge** — extra git on the happy path for a
   problem that only exists when the tree drifted. The row action is how
   you keep current; Merge stays a land.

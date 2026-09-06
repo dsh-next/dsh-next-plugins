@@ -15,9 +15,9 @@
   a sidebar-first surface; see
   [dsh-next-worktrees-sidebar-ux.md](dsh-next-worktrees-sidebar-ux.md) —
   the design spec that owns the current UI.
-- v1 pivot (2026-09-05): Foreground/Return (old M2) is parked. Public 0.1.0
-  is isolate → run → conflict-complete merge → cleanup, not the Cursor
-  shuttle. Contract in the 0.1 one-pager.
+- v1 pivot (2026-09-05): public 0.1.0 is isolate → run → conflict-complete
+  merge → cleanup. Merge lands onto the current branch; we do not switch
+  the primary onto the worktree branch. Contract in the 0.1 one-pager.
 
 ## Problem Statement
 
@@ -25,29 +25,20 @@ How might we let multiple DSH sessions work on the same repository
 concurrently without colliding — by giving each new session its own git
 worktree — with one-click UX instead of git ceremony?
 
-Isolate is the painkiller. Shuttle is the differentiator. They are two jobs
-on one golden path: M1 ships the first, v1 ships both.
+Isolate is the painkiller. Guarded Merge is the landing.
 
 ## Recommended Direction
 
 Session-per-worktree, Claude-Code-style, organized around one golden path:
 
 ```
-ISOLATE -> RUN IN PARALLEL -> FOREGROUND -> TEST -+-> land (YOU merge/PR) -> CLEAN UP
-                                                  +-> fail -> RETURN TO WORKTREE
-                                                       (inverse shuttle; session
-                                                        iterates with context)
+ISOLATE -> RUN IN PARALLEL -> MERGE (agent-resolved on conflict) -> CLEAN UP
 ```
 
-The "Isolated" toggle on the New Session composer creates the worktree and
-starts the session inside it (opt-in, default off). A session-header chip
-carries status, sibling navigation, and the shuttle. Landing stays plain git
-(merge, rebase, PR). Foreground is Cursor's gesture adapted to DSH: a
-guarded `git switch` of the branch onto the user's main checkout **and**
-focus (or create) of the session whose cwd is that checkout — because DSH
-is not an IDE, and a branch shuttle without an attention shuttle leaves
-TEST with no home. Return is the inverse, available from both ends.
-Cleanup follows the user's merge, never precedes it.
+Creation is a sidebar action (one click on the repo-row branch icon). The
+worktree session is the test surface. Merge lands the worktree branch onto
+the primary checkout's current branch. Cleanup follows that merge, never
+precedes it.
 
 This is the empty slot between the two incumbent DSH plugins
 (clutch-dsh-worktree's environment-manager sidebar; wloops' task-bunker
@@ -88,21 +79,18 @@ Locked decisions:
 
 Invariants:
 
-1. No patch apply, no rebase, no conflict resolution — the plugin never
-   applies deltas and never resolves conflicts. Creating
-   `dsh-worktrees/<slug>` refs and worktrees is in-scope. Writes to the
-   user's checkout are exactly two, both guarded and preflighted: the
-   `git switch` of the shuttle, and (pivot 2026-09-05, UX spec) the
-   one-click Merge — a `git merge --no-edit` of a worktree branch into
-   the primary checkout's current branch, conflict-dry-run via
-   `git merge-tree`, aborting to the manual command on any blocker. The
-   plugin never authors commit content of its own.
+1. No patch apply, no rebase. The plugin never authors commit content.
+   Creating `dsh-worktrees/<slug>` refs and worktrees is in-scope. Writes
+   to the user's trees are the guarded worktree add/remove, the
+   preflighted Merge (`git merge --no-edit` of the worktree branch into
+   the primary's current branch), and Update (merge of the primary branch
+   into the worktree, which may stay mid-merge). Conflict resolution is
+   the bound session's agent, never a plugin-owned editor.
 2. One session per worktree (1:1) — every worktree-icon click creates a
    new worktree session; "new session here" and folder-grammar sub-rows
    are dropped (user decision 2026-09-05). Parallel work means parallel
    trees; a fresh context means a new tree.
-3. Foreground detaches the worktree (the worktree session keeps its cwd);
-   cleanup is offered after landing.
+3. Cleanup is offered after Merge, never before.
 
 ## Key Assumptions to Validate
 
@@ -121,8 +109,8 @@ results (2026-09-04) recorded in
       switches to `danger-full-access` — proven live end to end (denial
       with `enforcement: full` on `index.lock`; knob write via
       `setSandboxMode`; add + commit succeed; approval stays `ask`).
-- [x] The client can focus another session (sibling nav, attention shuttle,
-      "new session here" takeover) — confirmed: `workspaces.create`,
+- [x] The client can focus another session (sibling nav, "new session here"
+      takeover) — confirmed: `workspaces.create`,
       `sessions.create`, `sessions.open(sessionId)` on this client line,
       shipped by the wloops incumbent.
 
@@ -140,12 +128,12 @@ M1 done: two isolated sessions run on one repo without colliding.
 
 v1 ship (superseded 2026-09-05): a user completes one full unaided loop —
 spawn two isolated sessions, run concurrently, land via guarded Merge
-(agent-resolved update-from-main on conflict), clean up. Foreground/Return
-is parked; see [dsh-next-worktrees-0.1.md](dsh-next-worktrees-0.1.md).
+(agent-resolved update-from-main on conflict), clean up. See
+[dsh-next-worktrees-0.1.md](dsh-next-worktrees-0.1.md).
 
 Do not promise the family mount smoke drives that loop.
 `tests/e2e/mount.e2e.ts` asserts the Isolated toggle and the header chip
-mount. Preflight, shuttle, and sweep are host-side git fixture tests. The
+mount. Preflight, merge, and sweep are host-side git fixture tests. The
 golden path is a manual pass on a scratch profile.
 
 Milestones (each independently shippable, ordered by the loop):
@@ -160,13 +148,13 @@ Milestones (each independently shippable, ordered by the loop):
   preflight with copyable setup hints, degraded read-only mode when git is
   unavailable, one-time gitignore hint for `.dsh/`, sandbox knob switched
   on create after confirmation, header chip (title, branch, ahead
-  count, status dot: clean/dirty/foregrounded/error) with dropdown
+  count, status dot: clean/dirty/error) with dropdown
   (worktree facts, sibling list with running/idle dots, "new session here"
   gated on idle, remove with danger grammar stating what survives).
-- M2 — Shuttle: **parked 2026-09-05.** Replaced as the next milestone by
-  agent-resolved landing (update-from-main, then Merge is a fast-forward).
-  Foreground/Return stays a fast-follow if live use produces a pull.
-  Contract: [dsh-next-worktrees-0.1.md](dsh-next-worktrees-0.1.md).
+- M2 — Landing: **replaced 2026-09-05** by agent-resolved Merge (update
+  from the current branch, then Merge is a fast-forward). We do not switch
+  the primary onto the worktree branch. Contract:
+  [dsh-next-worktrees-0.1.md](dsh-next-worktrees-0.1.md).
 - M3 — Hygiene + management: silent startup sweep that removes only
   plugin-marked, fast-forward-merged, clean worktrees (squash-merge will
   not look merged; user-initiated remove is the real hygiene — do not
@@ -201,8 +189,8 @@ Cross-cutting:
 - Agent tools to create/enter worktrees mid-session — user-only creation
   keeps the permission story simple; if ever built, wloops-shaped handoff
   (new session, context carried), never live cwd migration.
-- Auto-stash on shuttle blockers — silent stashes destroy trust; blockers
-  name the fix and the user acts.
+- Auto-stash on Merge/Update blockers — silent stashes destroy trust;
+  blockers name the fix and the user acts.
 - Environment-manager sidebar (clutch-style) — heaviest UI and state
   investment; the chip covers most navigation need at a fraction of the
   cost.
@@ -239,16 +227,15 @@ plus `rename`/`insertBefore` pinning is the entire sanctioned surface.
 - Whether client session creation can bind a cwd below the registered
   workspace root (the relative-path-preservation rule), or whether the
   workspace must be registered at the sub-path itself.
-- Form of the main session's passive "on foregrounded branch" affordance
-  once the chip is gone (UX pivot, 2026-09-05): a popover-row state, a
-  one-line banner, or toast-only. Return must be reachable from main either
-  way; this is only the chrome, and the UX spec owns the decision.
+- Whether Merge should target the original base branch or the primary's
+  current branch (today: current branch).
 
 ## Research Provenance
 
 Direction validated against: Claude Code worktrees (`--worktree`,
 `.worktreeinclude`, cleanup sweeps, one session per worktree), Cursor 3.0 to
-3.2 (Agents Window, empty-state branch selection, one-click foreground,
+3.2 (Agents Window, empty-state branch selection; apply-worktree studied
+and not copied — Merge lands onto the current branch instead;
 `.cursor/worktrees.json`), the two incumbent DSH plugins (seat inventory,
 sidecar lessons, delivery-state-machine caution), clutch's
 `worktree-full-access` preset (`danger-full-access` on worktree sessions

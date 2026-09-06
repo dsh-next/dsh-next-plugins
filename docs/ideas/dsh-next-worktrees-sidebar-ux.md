@@ -3,8 +3,7 @@
 - date: 2026-09-05
 - status: implemented through revision 3; commits to strategy B (full nesting).
   Agent-resolved landing is 0.1.0 — see
-  [dsh-next-worktrees-0.1.md](dsh-next-worktrees-0.1.md). Foreground/Return
-  stays parked.
+  [dsh-next-worktrees-0.1.md](dsh-next-worktrees-0.1.md).
 - supersedes: the M1 composer Isolated toggle and session-header chip (both
   removed), and revision 1's sidebar-foot popover (dropped — the owned
   browser makes it redundant)
@@ -149,9 +148,8 @@ Delete worktree…                         <- danger modal: states what survives
 Decisions: facts block stays in the menu (hover card keeps glance duty);
 the copy items are gone —
 Merge performs the landing for real, and the copyable-command recipe
-retires to the README as the manual fallback. Reserved between Refresh
-and Merge: **Update from `<branch>`…** (0.1.0 agent-resolved landing).
-Foreground/Return is parked.
+retires to the README as the manual fallback. Between Refresh and Merge:
+**Update from `<branch>`…** (0.1.0 agent-resolved landing).
 
 #### The Merge action (guarded one-click landing)
 
@@ -348,10 +346,8 @@ development than salvaged plumbing.
 - Keeping any composer entry (toggle or send-interception) — decided
   against; creation is a sidebar action.
 - Rewriting the host engine — kept deliberately; see the table above.
-- Delivery-state badges, foreground/return — parked (2026-09-05). The
-  reserved row-menu slot between Refresh and Merge is now
-  **Update from `<branch>`…** (agent-resolved landing). Foreground stays
-  off the 0.1.0 board; see
+- Delivery-state badges — not in 0.1.0. The row-menu slot between Refresh
+  and Merge is **Update from `<branch>`…** (agent-resolved landing). See
   [dsh-next-worktrees-0.1.md](dsh-next-worktrees-0.1.md).
 - Settings registry card — remains later (was M3).
 
@@ -359,6 +355,5 @@ development than salvaged plumbing.
 
 Owned-browser forks are decided (see the decisions line in the header).
 Agent-resolved landing is recorded in
-[dsh-next-worktrees-0.1.md](dsh-next-worktrees-0.1.md). Parked follow-ups
-(Foreground/Return, setup-commands, settings card) live in the product
-one-pager.
+[dsh-next-worktrees-0.1.md](dsh-next-worktrees-0.1.md). Follow-ups
+(setup-commands, settings card) live in the product one-pager.

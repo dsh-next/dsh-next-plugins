@@ -76,6 +76,29 @@ describe('GitRunner.placement', () => {
   })
 })
 
+describe('GitRunner.addWorktree', () => {
+  it('enables parallel checkout on git worktree add', async () => {
+    const calls: string[][] = []
+    const git = runner((args) => {
+      calls.push([...args])
+      if (args.includes('rev-parse')) return { code: 1 }
+      return { code: 0 }
+    })
+    await git.addWorktree({
+      primary: '/repos/wt-repo',
+      path: '/repos/wt-repo/.dsh/worktrees/swift-01',
+      branch: 'dsh-worktrees/swift-01',
+      baseRef: 'HEAD',
+    })
+    expect(calls.some((args) =>
+      args[0] === '-c'
+      && args[1] === 'checkout.workers=0'
+      && args[2] === 'worktree'
+      && args[3] === 'add',
+    )).toBe(true)
+  })
+})
+
 describe('GitRunner.mergeAllowConflicts (mocked)', () => {
   it('returns clean on exit 0', async () => {
     const git = runner((args) => {

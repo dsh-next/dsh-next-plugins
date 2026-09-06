@@ -47,6 +47,41 @@ export const WORKTREE_STYLES = `
   color: var(--dsw-alias-state-business-primary);
   font-variant-numeric: tabular-nums;
 }
+/* Create is modal-free: the dataset is written synchronously on click so
+   the official 16px repo-row button can spin without a React re-render. */
+html[data-dshx-creating="true"] [data-dshx-create] {
+  pointer-events: none;
+  position: relative;
+}
+html[data-dshx-creating="true"] [data-dshx-create] svg {
+  visibility: hidden;
+}
+html[data-dshx-creating="true"] [data-dshx-create]::after {
+  content: '';
+  box-sizing: border-box;
+  position: absolute;
+  inset: 2px;
+  border: 2px solid var(--dsw-alias-border-l2);
+  border-top-color: var(--dsw-alias-state-business-primary);
+  border-radius: 50%;
+  animation: dshx-spin 0.8s linear infinite;
+}
+@keyframes dshx-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-dshx-creating="true"] [data-dshx-create]::after {
+    animation: none;
+  }
+}
+.dshx-srOnly {
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  width: 1px;
+  height: 1px;
+  position: absolute;
+  overflow: hidden;
+}
 .dshx-mask {
   position: fixed;
   inset: 0;

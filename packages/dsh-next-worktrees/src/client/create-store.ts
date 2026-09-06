@@ -5,7 +5,8 @@
  *
  * Create has no modal (decision: docs/ideas/dsh-next-worktrees-sidebar-ux.md
  * rev 3): clicking the repo-row button creates the worktree immediately
- * with the host-suggested name; `creating` only guards re-entry.
+ * with the host-suggested name. `creating` guards re-entry and writes
+ * `html[data-dshx-creating]` so the repo-row icon can spin.
  */
 import type { MergeBlocker, MergeWarning } from '../core/merge.ts'
 import type { UpdateBlocker } from '../core/update.ts'

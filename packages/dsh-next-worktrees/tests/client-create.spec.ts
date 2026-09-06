@@ -16,6 +16,7 @@ import {
   subscribeModal,
 } from '../src/client/create-store.ts'
 import { installBridge, updateBridgeFacts } from '../src/client/bridge.ts'
+import { WORKTREE_STYLES } from '../src/client/styles.ts'
 
 beforeEach(() => {
   resetModalStore()
@@ -70,6 +71,12 @@ describe('runCreateFlow', () => {
     expect(modalState().kind).toBe('closed')
     expect(modalState().creating).toBe(false)
     expect(f.onTopologyRefresh).toHaveBeenCalled()
+  })
+
+  it('spins the repo-row create button from the html dataset', () => {
+    expect(WORKTREE_STYLES).toContain('html[data-dshx-creating="true"] [data-dshx-create]')
+    expect(WORKTREE_STYLES).toContain('@keyframes dshx-spin')
+    expect(WORKTREE_STYLES).toContain('prefers-reduced-motion')
   })
 
   it('guards re-entry while the flow is in flight', async () => {

@@ -222,8 +222,11 @@ export class GitRunner implements GitPorts {
     if (await this.refExists(input.primary, input.branch)) {
       throw new GitError('branch-exists', `branch ${input.branch} already exists`)
     }
+    // Parallel checkout (git >= 2.29; unknown -c keys are ignored):
+    // `git worktree add` copies every tracked file, which dominates
+    // create latency on large trees. workers=0 = one per logical CPU.
     const result = await this.run(
-      ['worktree', 'add', '-b', input.branch, input.path, input.baseRef],
+      ['-c', 'checkout.workers=0', 'worktree', 'add', '-b', input.branch, input.path, input.baseRef],
       input.primary,
     )
     if (result.code !== 0) {

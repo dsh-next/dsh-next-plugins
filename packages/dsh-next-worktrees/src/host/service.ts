@@ -261,8 +261,13 @@ export class WorktreesService {
       throw new WorktreeFlowError('already-in-worktree',
         'worktrees never nest inside another worktree')
     }
-    const baseRef = input.baseRef ?? await this.ports.git.defaultBaseRef(input.cwd)
-    const hasCommits = await this.ports.git.refExists(input.cwd, 'HEAD')
+    const [baseRef, hasCommits, bindings] = await Promise.all([
+      input.baseRef === undefined
+        ? this.ports.git.defaultBaseRef(input.cwd)
+        : Promise.resolve(input.baseRef),
+      this.ports.git.refExists(input.cwd, 'HEAD'),
+      this.reconciled(placement.primary),
+    ])
     if (!hasCommits) {
       throw new WorktreeFlowError('no-commits', 'the repository has no commits to branch from')
     }
@@ -273,7 +278,6 @@ export class WorktreesService {
       throw new WorktreeFlowError('no-commits', 'the repository has no commits to branch from')
     }
     const registryPath = `${placement.primary}/.dsh/worktrees/registry.json`
-    const bindings = await this.reconciled(placement.primary)
     const taken = [
       ...bindings.map((b) => b.slug),
     ]

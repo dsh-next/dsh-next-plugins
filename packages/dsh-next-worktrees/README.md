@@ -26,7 +26,8 @@ have checked out in the main folder. If the branches would conflict, choose
 
 ### Create
 
-One click. The name is generated. A session opens in the new checkout.
+One click. The name is generated. The branch icon spins until the session
+opens — git checkout, and any setup commands, can take a few seconds.
 
 ![Repository row with the worktree create button](media/create.webp)
 

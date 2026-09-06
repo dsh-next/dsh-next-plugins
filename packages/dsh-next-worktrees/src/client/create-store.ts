@@ -7,7 +7,7 @@
  * rev 3): clicking the repo-row button creates the worktree immediately
  * with the host-suggested name; `creating` only guards re-entry.
  */
-import type { MergeBlocker } from '../core/merge.ts'
+import type { MergeBlocker, MergeWarning } from '../core/merge.ts'
 import type { UpdateBlocker } from '../core/update.ts'
 
 export type ModalKind = 'closed' | 'create-error' | 'merge' | 'delete' | 'update'
@@ -41,12 +41,15 @@ export interface HostCleanup {
 
 export interface MergePreflightFacts {
   readonly blockers: readonly MergeBlocker[]
+  readonly warnings?: readonly MergeWarning[]
   readonly green: boolean
   readonly target?: string
   readonly source?: string
   readonly fastForward: boolean
   readonly aheadCount: number
   readonly manualCommand?: string
+  readonly dirtyPrimary?: readonly string[]
+  readonly dirtyWorktree?: readonly string[]
 }
 
 export interface UpdatePreflightFacts {
@@ -59,6 +62,7 @@ export interface UpdatePreflightFacts {
   readonly inProgress: boolean
   readonly sessionId?: string
   readonly manualCommand?: string
+  readonly dirtyWorktree?: readonly string[]
 }
 
 /** Optional session handoff after a conflicting update starts. */

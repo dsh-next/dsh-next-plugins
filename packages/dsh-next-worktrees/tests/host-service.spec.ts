@@ -33,6 +33,7 @@ class FakeGit implements GitPorts {
   removeCalls: { primary: string; path: string; force: boolean }[] = []
   removeImpl: ((input: { primary: string; path: string; force: boolean }) => Promise<void>) | undefined
   dirtyCounts = new Map<string, number>()
+  dirtyFiles = new Map<string, readonly string[]>()
   aheadCounts = new Map<string, number>()
   ancestors = new Set<string>()
   branches = new Map<string, string | undefined>()
@@ -84,7 +85,14 @@ class FakeGit implements GitPorts {
   }
 
   async dirtyCount(cwd: string): Promise<number> {
-    return this.dirtyCounts.get(cwd) ?? 0
+    return (await this.dirtyPaths(cwd)).length
+  }
+
+  async dirtyPaths(cwd: string): Promise<readonly string[]> {
+    const listed = this.dirtyFiles.get(cwd)
+    if (listed !== undefined) return listed
+    const n = this.dirtyCounts.get(cwd) ?? 0
+    return n === 0 ? [] : Array.from({ length: n }, (_, i) => `uncommitted-${i + 1}`)
   }
 
   lastAheadCwd: string | undefined
@@ -659,21 +667,36 @@ describe('mergePreflight', () => {
       fastForward: true,
       aheadCount: 2,
       manualCommand: 'git merge dsh-worktrees/swift-01',
+      warnings: [],
+      dirtyPrimary: [],
+      dirtyWorktree: [],
     })
   })
 
-  it('blocks a dirty primary', async () => {
+  it('warns a dirty primary without blocking Merge', async () => {
     const h = mergeHarness()
-    h.git.dirtyCounts.set(PRIMARY, 1)
+    h.git.dirtyFiles.set(PRIMARY, ['docs/screenshots/foo.png'])
     await expect(h.service.mergePreflight({ cwd: PRIMARY, slug: 'swift-01' }))
-      .resolves.toMatchObject({ green: false, blockers: ['dirty-primary'] })
+      .resolves.toMatchObject({
+        green: true,
+        blockers: [],
+        warnings: ['dirty-primary'],
+        dirtyPrimary: ['docs/screenshots/foo.png'],
+        dirtyWorktree: [],
+      })
   })
 
-  it('blocks a dirty worktree', async () => {
+  it('warns a dirty worktree without blocking Merge', async () => {
     const h = mergeHarness()
-    h.git.dirtyCounts.set(`${PRIMARY}/.dsh/worktrees/swift-01`, 2)
+    h.git.dirtyFiles.set(`${PRIMARY}/.dsh/worktrees/swift-01`, ['scratch.txt', 'tmp.log'])
     await expect(h.service.mergePreflight({ cwd: PRIMARY, slug: 'swift-01' }))
-      .resolves.toMatchObject({ green: false, blockers: ['dirty-worktree'] })
+      .resolves.toMatchObject({
+        green: true,
+        blockers: [],
+        warnings: ['dirty-worktree'],
+        dirtyPrimary: [],
+        dirtyWorktree: ['scratch.txt', 'tmp.log'],
+      })
   })
 
   it('blocks conflicts from the dry run', async () => {
@@ -731,12 +754,26 @@ describe('mergeExecute', () => {
     expect(h.git.mergeCalls).toEqual([{ cwd: PRIMARY, source: 'dsh-worktrees/swift-01' }])
   })
 
-  it('refuses to execute when the preflight is not green', async () => {
+  it('executes Merge even when the primary is dirty', async () => {
     const h = harness()
     seedWorktree(h)
     h.git.branches.set(PRIMARY, 'main')
     h.git.ancestors.add(`${PRIMARY}|main|dsh-worktrees/swift-01`)
     h.git.dirtyCounts.set(PRIMARY, 5)
+    await expect(h.service.mergeExecute({ cwd: PRIMARY, slug: 'swift-01' })).resolves.toEqual({
+      target: 'main',
+      source: 'dsh-worktrees/swift-01',
+      fastForward: true,
+    })
+    expect(h.git.mergeCalls).toEqual([{ cwd: PRIMARY, source: 'dsh-worktrees/swift-01' }])
+  })
+
+  it('refuses to execute when the preflight is not green', async () => {
+    const h = harness()
+    seedWorktree(h)
+    h.git.branches.set(PRIMARY, 'main')
+    h.git.ancestors.add(`${PRIMARY}|main|dsh-worktrees/swift-01`)
+    h.git.mergeTreeResults.set('main..dsh-worktrees/swift-01', false)
     await expect(h.service.mergeExecute({ cwd: PRIMARY, slug: 'swift-01' }))
       .rejects.toMatchObject({ code: 'merge-blocked' })
     expect(h.git.mergeCalls).toEqual([])
@@ -766,6 +803,7 @@ describe('updatePreflight', () => {
       inProgress: false,
       sessionId: 'session-a',
       manualCommand: 'git merge main',
+      dirtyWorktree: [],
     })
   })
 
@@ -778,9 +816,13 @@ describe('updatePreflight', () => {
 
   it('blocks a dirty worktree', async () => {
     const h = updateHarness()
-    h.git.dirtyCounts.set(`${PRIMARY}/.dsh/worktrees/swift-01`, 2)
+    h.git.dirtyFiles.set(`${PRIMARY}/.dsh/worktrees/swift-01`, ['scratch.txt'])
     await expect(h.service.updatePreflight({ cwd: PRIMARY, slug: 'swift-01' }))
-      .resolves.toMatchObject({ green: false, blockers: ['dirty-worktree'] })
+      .resolves.toMatchObject({
+        green: false,
+        blockers: ['dirty-worktree'],
+        dirtyWorktree: ['scratch.txt'],
+      })
   })
 
   it('blocks a missing bound session', async () => {

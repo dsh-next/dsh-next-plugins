@@ -54,8 +54,10 @@ Hover a worktree session for its title, branch, and status.
 
 ### Merge and conflicts
 
-`Merge…` checks that both sides are committed and that the merge would
-succeed, then lands the worktree on your current branch. If it would
+`Merge…` checks that the merge would succeed, then lands the worktree on
+your current branch. Uncommitted files are listed; you can still Merge.
+Git will refuse if the main folder's files would be overwritten.
+Uncommitted worktree files are not included. If the branches would
 conflict, the next step is `Resolve in this session`: the plugin merges
 the main branch *into the worktree* (never the other way), this session
 fixes the files, and you Merge as a fast-forward. While a merge is in
@@ -116,8 +118,8 @@ Clicking the branch icon to create a worktree already runs setup when
 override). You do not click anything else. `$ROOT_WORKTREE_PATH` is the
 main folder. A failed command cancels create and removes the extra folder.
 Gitignored writes (`.env`, `node_modules`) do not count as uncommitted
-changes. A file git can see (not ignored) does, and then Merge and Update
-wait until you commit or delete it.
+changes. A file git can see (not ignored) does: Update waits until you
+commit or delete it; Merge lists it and still runs.
 
 Use this for commands (`pnpm install`). Use `.worktreeinclude` to copy
 local files such as `.env`.

@@ -23,7 +23,7 @@ function facts(overrides: Partial<MergeFactsInput> = {}): MergeFactsInput {
 
 describe('mergeVerdict', () => {
   it('is green when every gate passes', () => {
-    expect(mergeVerdict(facts())).toEqual({ blockers: [], green: true })
+    expect(mergeVerdict(facts())).toEqual({ blockers: [], warnings: [], green: true })
   })
 
   it('blocks an unknown slug', () => {
@@ -36,12 +36,18 @@ describe('mergeVerdict', () => {
     expect(mergeVerdict(facts({ gitModern: false })).blockers).toContain('old-git')
   })
 
-  it('blocks a dirty primary', () => {
-    expect(mergeVerdict(facts({ primaryClean: false })).blockers).toContain('dirty-primary')
+  it('warns on a dirty primary without blocking Merge', () => {
+    const verdict = mergeVerdict(facts({ primaryClean: false }))
+    expect(verdict.warnings).toContain('dirty-primary')
+    expect(verdict.blockers).not.toContain('dirty-primary')
+    expect(verdict.green).toBe(true)
   })
 
-  it('blocks a dirty worktree', () => {
-    expect(mergeVerdict(facts({ worktreeClean: false })).blockers).toContain('dirty-worktree')
+  it('warns on a dirty worktree without blocking Merge', () => {
+    const verdict = mergeVerdict(facts({ worktreeClean: false }))
+    expect(verdict.warnings).toContain('dirty-worktree')
+    expect(verdict.blockers).not.toContain('dirty-worktree')
+    expect(verdict.green).toBe(true)
   })
 
   it('blocks conflicts only when the dry run actually ran', () => {
@@ -73,6 +79,8 @@ describe('mergeVerdict', () => {
       primaryClean: false,
     }))
     expect(verdict.blockers[0]).toBe('unknown-slug')
+    expect(verdict.warnings).toContain('dirty-primary')
+    expect(verdict.green).toBe(false)
   })
 })
 

@@ -104,6 +104,36 @@ describe('MergeModal', () => {
     })
     expect(node.querySelector('[data-dshx-button="merge"]')?.textContent).toBe('Merge')
   })
+
+  it('lists dirty primary files and keeps Merge enabled', async () => {
+    const files = Array.from({ length: 12 }, (_, i) => `docs/screenshots/file-${i}.png`)
+    const rpc = vi.fn().mockResolvedValue({
+      blockers: [],
+      warnings: ['dirty-primary'],
+      green: true,
+      source: 'dsh-worktrees/swift-01',
+      target: 'main',
+      fastForward: true,
+      aheadCount: 1,
+      dirtyPrimary: files,
+      dirtyWorktree: [],
+    })
+    openMerge(target, rpc)
+    const node = await mount()
+    await vi.waitFor(() => {
+      expect(node.querySelector('[data-dshx-warning="dirty-primary"]')).not.toBeNull()
+    })
+    expect(node.querySelector('[data-dshx-warning="dirty-primary"]')?.textContent).toContain('main')
+    const list = node.querySelector('[data-dshx-dirty-files="dirty-primary"]')
+    expect(list).not.toBeNull()
+    expect(list?.getAttribute('tabindex')).toBe('0')
+    expect(list?.textContent).toContain('docs/screenshots/file-0.png')
+    expect(list?.textContent).toContain('docs/screenshots/file-11.png')
+    expect(list?.querySelectorAll('.dshx-dirtyFile')).toHaveLength(12)
+    const merge = node.querySelector('[data-dshx-button="merge"]')
+    expect(merge).not.toBeNull()
+    expect(merge).toHaveProperty('disabled', false)
+  })
 })
 
 describe('UpdateModal', () => {
@@ -171,5 +201,29 @@ describe('UpdateModal', () => {
     expect(node.querySelector('.dshx-modalTitle')?.textContent).toBe('Merge in progress')
     expect(node.querySelector('[data-dshx-button="continue-update"]')?.textContent).toBe('Resolve in this session')
     expect(node.querySelector('[data-dshx-update="handoff"]')?.textContent).toMatch(/Closing this dialog/)
+  })
+
+  it('lists dirty worktree files without making a short list tabbable', async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      blockers: ['dirty-worktree'],
+      green: false,
+      source: 'main',
+      target: 'dsh-worktrees/swift-01',
+      fastForward: true,
+      wouldConflict: false,
+      inProgress: false,
+      sessionId: 'wt-session-1',
+      dirtyWorktree: ['scratch.txt'],
+    })
+    openUpdate(target, rpc)
+    const node = await mount()
+    await vi.waitFor(() => {
+      expect(node.querySelector('[data-dshx-blocker="dirty-worktree"]')).not.toBeNull()
+    })
+    const list = node.querySelector('[data-dshx-dirty-files="dirty-worktree"]')
+    expect(list?.textContent).toContain('scratch.txt')
+    expect(list?.getAttribute('tabindex')).toBeNull()
+    expect(node.querySelector('[data-dshx-blocker="dirty-worktree"]')?.textContent)
+      .toContain('dsh-worktrees/swift-01')
   })
 })

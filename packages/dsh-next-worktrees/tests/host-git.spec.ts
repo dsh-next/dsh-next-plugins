@@ -25,6 +25,7 @@ describe('GitRunner.dirtyCount', () => {
       ].join('\n'),
     }))
     await expect(git.dirtyCount('/repos/wt-repo')).resolves.toBe(1)
+    await expect(git.dirtyPaths('/repos/wt-repo')).resolves.toEqual(['src/index.ts'])
   })
 
   it('throws when git status fails instead of reporting clean', async () => {

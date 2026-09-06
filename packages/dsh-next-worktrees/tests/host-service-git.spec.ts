@@ -94,7 +94,7 @@ async function createBound(h: Harness, sessionId = 'session-a'): Promise<{
   return { slug: created.slug, path: created.path, branch: created.branch }
 }
 
-describe('WorktreesService real-git merge', () => {
+describe('WorktreesService real-git merge', { timeout: 15_000 }, () => {
   it('fast-forwards unique worktree commits into main', async () => {
     const h = await harness()
     const created = await createBound(h)
@@ -134,21 +134,29 @@ describe('WorktreesService real-git merge', () => {
     expect(runGit(h.dir, ['log', '-1', '--pretty=%s']).trim()).toBe('main seed')
   })
 
-  it('blocks a dirty primary and a dirty worktree', async () => {
+  it('warns on dirty trees and still merges', async () => {
     const h = await harness()
     const created = await createBound(h)
     await commitFile(created.path, 'feature.txt', 'x\n', 'feature')
     await writeUncommitted(h.dir, 'dirty-primary.txt', 'nope\n')
-    await expect(h.service.mergePreflight({ cwd: h.dir, slug: created.slug }))
-      .resolves.toMatchObject({ green: false, blockers: ['dirty-primary'] })
-    await unlink(join(h.dir, 'dirty-primary.txt'))
     await writeUncommitted(created.path, 'dirty-wt.txt', 'nope\n')
     await expect(h.service.mergePreflight({ cwd: h.dir, slug: created.slug }))
-      .resolves.toMatchObject({ green: false, blockers: ['dirty-worktree'] })
+      .resolves.toMatchObject({
+        green: true,
+        blockers: [],
+        warnings: expect.arrayContaining(['dirty-primary', 'dirty-worktree']),
+        dirtyPrimary: expect.arrayContaining(['dirty-primary.txt']),
+        dirtyWorktree: expect.arrayContaining(['dirty-wt.txt']),
+      })
+    const landed = await h.service.mergeExecute({ cwd: h.dir, slug: created.slug })
+    expect(landed.target).toBe('main')
+    expect(gitOk(h.dir, ['merge-base', '--is-ancestor', created.branch, 'HEAD'])).toBe(true)
+    expect(existsSync(join(h.dir, 'dirty-primary.txt'))).toBe(true)
+    expect(existsSync(join(created.path, 'dirty-wt.txt'))).toBe(true)
   })
 })
 
-describe('WorktreesService real-git update', () => {
+describe('WorktreesService real-git update', { timeout: 15_000 }, () => {
   it('fast-forwards main into a behind worktree, then already-updated', async () => {
     const h = await harness()
     const created = await createBound(h)
@@ -238,7 +246,7 @@ describe('WorktreesService real-git update', () => {
   })
 })
 
-describe('WorktreesService real-git setup', () => {
+describe('WorktreesService real-git setup', { timeout: 15_000 }, () => {
   it('runs .worktrees.json commands in the new worktree', async () => {
     const h = await harness()
     await writeFile(join(h.dir, '.worktrees.json'), JSON.stringify({

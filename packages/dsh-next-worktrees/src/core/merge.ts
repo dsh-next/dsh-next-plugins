@@ -12,11 +12,17 @@
 export type MergeBlocker =
   | 'unknown-slug'
   | 'old-git'
-  | 'dirty-primary'
-  | 'dirty-worktree'
   | 'conflict'
   | 'already-merged'
   | 'no-target-branch'
+
+/**
+ * Dirty trees are warnings on Merge, not hard stops: the write is
+ * `git merge` of the branch ref into the primary, so uncommitted worktree
+ * files are not included, and git itself refuses a dirty primary when
+ * those files would be overwritten.
+ */
+export type MergeWarning = 'dirty-primary' | 'dirty-worktree'
 
 export interface MergeFactsInput {
   /** A registry row exists for the slug and its worktree is live. */
@@ -41,9 +47,11 @@ export interface MergeFactsInput {
 }
 
 export interface MergeVerdict {
-  /** Blockers in display priority order. */
+  /** Hard stops in display priority order. Merge stays disabled. */
   readonly blockers: readonly MergeBlocker[]
-  /** True when every gate passed and Merge may execute. */
+  /** Dirty-tree notices; Merge stays enabled. */
+  readonly warnings: readonly MergeWarning[]
+  /** True when every hard gate passed and Merge may execute. */
   readonly green: boolean
 }
 
@@ -59,16 +67,17 @@ export interface MergeVerdict {
  */
 export function mergeVerdict(input: MergeFactsInput): MergeVerdict {
   const blockers: MergeBlocker[] = []
+  const warnings: MergeWarning[] = []
   if (!input.slugKnown) blockers.push('unknown-slug')
   if (input.targetBranch === undefined || input.targetBranch === '') {
     blockers.push('no-target-branch')
   }
   if (!input.gitModern) blockers.push('old-git')
-  if (!input.primaryClean) blockers.push('dirty-primary')
-  if (!input.worktreeClean) blockers.push('dirty-worktree')
+  if (!input.primaryClean) warnings.push('dirty-primary')
+  if (!input.worktreeClean) warnings.push('dirty-worktree')
   if (input.alreadyMerged) blockers.push('already-merged')
   else if (input.dryRunRan && !input.dryRunClean) blockers.push('conflict')
-  return { blockers, green: blockers.length === 0 }
+  return { blockers, warnings, green: blockers.length === 0 }
 }
 
 /** Parse `git version x.y.z` output into a comparable [major, minor]. */

@@ -187,6 +187,29 @@ export const WORKTREE_STYLES = `
   flex-direction: column;
   gap: 4px;
 }
+.dshx-blocker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dshx-dirtyList {
+  max-height: 108px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.dshx-dirtyList:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 1px;
+}
+.dshx-dirtyFile {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+  word-break: break-all;
+}
 .dshx-buttonDanger {
   height: 34px;
   padding: 0 14px;

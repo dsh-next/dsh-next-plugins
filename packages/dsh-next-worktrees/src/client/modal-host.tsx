@@ -28,7 +28,7 @@ import {
   type UpdatePreflightFacts,
   type WorktreeModalTarget,
 } from './create-store.ts'
-import type { MergeBlocker } from '../core/merge.ts'
+import type { MergeBlocker, MergeWarning } from '../core/merge.ts'
 import type { UpdateBlocker } from '../core/update.ts'
 import { rpc, requestTopologyRefresh } from './rpc.ts'
 import type {
@@ -56,10 +56,14 @@ export const BLOCKER_KEYS: Readonly<Record<MergeBlocker, string>> = {
   'unknown-slug': 'merge.blocker.unknownSlug',
   'no-target-branch': 'merge.blocker.noTarget',
   'old-git': 'merge.blocker.oldGit',
-  'dirty-primary': 'merge.blocker.dirtyPrimary',
-  'dirty-worktree': 'merge.blocker.dirtyWorktree',
   conflict: 'merge.blocker.conflict',
   'already-merged': 'merge.blocker.alreadyMerged',
+}
+
+/** Locale key for Merge dirty-tree warnings (Merge stays enabled). */
+export const WARNING_KEYS: Readonly<Record<MergeWarning, string>> = {
+  'dirty-primary': 'merge.blocker.dirtyPrimary',
+  'dirty-worktree': 'merge.blocker.dirtyWorktree',
 }
 
 /** Locale key for every update-preflight blocker the host can emit. */
@@ -71,6 +75,29 @@ export const UPDATE_BLOCKER_KEYS: Readonly<Record<UpdateBlocker, string>> = {
   'in-progress': 'update.blocker.inProgress',
   'dirty-worktree': 'update.blocker.dirtyWorktree',
   'already-updated': 'update.blocker.alreadyUpdated',
+}
+
+/** Visible caption lines in `.dshx-dirtyList` before it scrolls. */
+const DIRTY_LIST_VISIBLE = 6
+
+function DirtyFiles({ t, files, kind }: {
+  readonly t: Translate
+  readonly files: readonly string[]
+  readonly kind: 'dirty-primary' | 'dirty-worktree'
+}): React.ReactElement | null {
+  if (files.length === 0) return null
+  return (
+    <ul
+      className="dshx-dirtyList"
+      data-dshx-dirty-files={kind}
+      aria-label={t('blocker.dirtyFiles')}
+      tabIndex={files.length > DIRTY_LIST_VISIBLE ? 0 : undefined}
+    >
+      {files.map((file, index) => (
+        <li key={`${index}:${file}`} className="dshx-dirtyFile" title={file}>{file}</li>
+      ))}
+    </ul>
+  )
 }
 
 function handoffOf(sessions: SessionsServiceLike): UpdateHandoff {
@@ -193,13 +220,36 @@ function MergeModal({ t, merge, host }: {
                 {t(preflight.fastForward ? 'merge.ff' : 'merge.commit')}
               </div>
             )}
+            {preflight !== undefined && (preflight.warnings ?? []).length > 0 && (
+              <div className="dshx-blockers" data-dshx-merge="warnings">
+                {(preflight.warnings ?? []).map((code) => (
+                  <div key={code} className="dshx-blocker">
+                    <div className="dshx-warn" data-dshx-warning={code}>
+                      {t(WARNING_KEYS[code], {
+                        branch: code === 'dirty-primary'
+                          ? (preflight.target ?? '')
+                          : (preflight.source ?? ''),
+                      })}
+                    </div>
+                    {code === 'dirty-primary' && (
+                      <DirtyFiles t={t} kind={code} files={preflight.dirtyPrimary ?? []} />
+                    )}
+                    {code === 'dirty-worktree' && (
+                      <DirtyFiles t={t} kind={code} files={preflight.dirtyWorktree ?? []} />
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
             {preflight !== undefined && !preflight.green && (
               <div className="dshx-blockers" data-dshx-merge="blockers">
                 {preflight.blockers.map((code) => (
-                  <div key={code} className="dshx-error" data-dshx-blocker={code}>
-                    {t(BLOCKER_KEYS[code], code === 'old-git'
-                      ? { command: preflight.manualCommand ?? '' }
-                      : undefined)}
+                  <div key={code} className="dshx-blocker">
+                    <div className="dshx-error" data-dshx-blocker={code}>
+                      {t(BLOCKER_KEYS[code], code === 'old-git'
+                        ? { command: preflight.manualCommand ?? '' }
+                        : undefined)}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -316,8 +366,15 @@ function UpdateModal({ t, update, sessions }: {
           {!cleanDone && !inFlight && preflight !== undefined && !preflight.green && (
             <div className="dshx-blockers" data-dshx-update="blockers">
               {preflight.blockers.map((code) => (
-                <div key={code} className="dshx-error" data-dshx-blocker={code}>
-                  {t(UPDATE_BLOCKER_KEYS[code])}
+                <div key={code} className="dshx-blocker">
+                  <div className="dshx-error" data-dshx-blocker={code}>
+                    {t(UPDATE_BLOCKER_KEYS[code], code === 'dirty-worktree'
+                      ? { branch: preflight.target ?? '' }
+                      : undefined)}
+                  </div>
+                  {code === 'dirty-worktree' && (
+                    <DirtyFiles t={t} kind={code} files={preflight.dirtyWorktree ?? []} />
+                  )}
                 </div>
               ))}
             </div>

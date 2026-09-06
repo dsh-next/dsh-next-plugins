@@ -55,6 +55,26 @@ export function worktreeStatus(input: WorktreeStatusInput): WorktreeStatus {
   }
 }
 
+/**
+ * Paths from `git status --porcelain` that count as dirt. Drops empty
+ * lines and the plugin sidecar (`.dsh/`), which worktree add creates and
+ * which must not block Merge.
+ *
+ * @param stdout - raw porcelain stdout.
+ * @returns relative paths in porcelain order.
+ */
+export function porcelainDirtyPaths(stdout: string): readonly string[] {
+  const paths: string[] = []
+  for (const line of stdout.split('\n')) {
+    if (line.trim() === '') continue
+    // Porcelain is "XY <path>" (or "XY orig -> dest" for renames).
+    const path = line.slice(3).replace(/\\/g, '/').replace(/^"/, '').replace(/"$/, '')
+    if (path === '.dsh' || path.startsWith('.dsh/')) continue
+    paths.push(path)
+  }
+  return paths
+}
+
 /** One-line summary for tooltips and the menu facts block. */
 export function statusLine(status: WorktreeStatus): string {
   const parts: string[] = []

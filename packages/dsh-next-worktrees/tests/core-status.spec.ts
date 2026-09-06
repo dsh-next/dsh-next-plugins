@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { statusLine, worktreeStatus } from '../src/core/status.ts'
+import { porcelainDirtyPaths, statusLine, worktreeStatus } from '../src/core/status.ts'
 
 describe('worktreeStatus', () => {
   it('derives clean from a zero porcelain count', () => {
@@ -47,6 +47,28 @@ describe('worktreeStatus', () => {
       mergedIntoTarget: true,
       tipEqualsBase: false,
     })).toEqual({ clean: true, dirty: false, ahead: 0, merged: true, conflict: false })
+  })
+})
+
+describe('porcelainDirtyPaths', () => {
+  it('drops empty lines and the plugin sidecar', () => {
+    expect(porcelainDirtyPaths([
+      '?? .dsh',
+      '?? .dsh/worktrees/registry.json',
+      '?? ".dsh/quoted"',
+      ' M src/index.ts',
+      '?? docs/screenshots/foo.png',
+      '',
+    ].join('\n'))).toEqual(['src/index.ts', 'docs/screenshots/foo.png'])
+  })
+
+  it('returns empty for a clean tree', () => {
+    expect(porcelainDirtyPaths('')).toEqual([])
+    expect(porcelainDirtyPaths('\n')).toEqual([])
+  })
+
+  it('keeps rename lines as git reports them', () => {
+    expect(porcelainDirtyPaths('R  old.txt -> new.txt\n')).toEqual(['old.txt -> new.txt'])
   })
 })
 

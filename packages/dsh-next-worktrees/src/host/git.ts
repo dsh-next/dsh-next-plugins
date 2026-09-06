@@ -8,6 +8,7 @@
 import { execFile } from 'node:child_process'
 import { computePlacement, type RepoPlacement } from '../core/placement.ts'
 import { parseWorktreeList, type WorktreeListEntry } from '../core/registry.ts'
+import { porcelainDirtyPaths } from '../core/status.ts'
 
 /** Machine-readable git failure codes surfaced to the client. */
 export type GitErrorCode =
@@ -99,6 +100,11 @@ export interface GitPorts {
   }): Promise<void>
   /** Porcelain line count at a directory (0 = clean). */
   dirtyCount(cwd: string): Promise<number>
+  /**
+   * Relative paths that count as dirt at a directory (sidecar `.dsh/`
+   * omitted). Empty when clean.
+   */
+  dirtyPaths(cwd: string): Promise<readonly string[]>
   /** `rev-list --count <base>..<branch>` at cwd (the primary, so symbolic bases resolve); 0 when the range is empty. */
   aheadCount(cwd: string, base: string, branch: string): Promise<number>
   /** Whether `merge-base --is-ancestor a b` holds. */
@@ -250,19 +256,15 @@ export class GitRunner implements GitPorts {
   }
 
   async dirtyCount(cwd: string): Promise<number> {
+    return (await this.dirtyPaths(cwd)).length
+  }
+
+  async dirtyPaths(cwd: string): Promise<readonly string[]> {
     const result = await this.run(['status', '--porcelain'], cwd)
     if (result.code !== 0) {
       throw new GitError('git-failed', `git status failed: ${result.stderr.trim()}`)
     }
-    const lines = result.stdout.split('\n').filter((line) => {
-      if (line.trim() === '') return false
-      // Porcelain is "XY <path>". The plugin's own sidecar (.dsh/) must
-      // not count as dirt: it is created by worktree add and would
-      // otherwise block every merge in a repo that does not gitignore it.
-      const path = line.slice(3).replace(/\\/g, '/').replace(/^"/, '').replace(/"$/, '')
-      return path !== '.dsh' && !path.startsWith('.dsh/')
-    })
-    return lines.length
+    return porcelainDirtyPaths(result.stdout)
   }
 
   async aheadCount(cwd: string, base: string, branch: string): Promise<number> {

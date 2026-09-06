@@ -10,7 +10,7 @@
  *   update-from-main (a merge into the worktree that may stay mid-merge).
  * - one writer per worktree: a session takes over only an unclaimed row.
  */
-import { mergeVerdict, parseGitVersion, gitSupportsMergeTree, type MergeBlocker } from '../core/merge.ts'
+import { mergeVerdict, parseGitVersion, gitSupportsMergeTree, type MergeBlocker, type MergeWarning } from '../core/merge.ts'
 import { updateVerdict, type UpdateBlocker } from '../core/update.ts'
 import {
   reconcile,
@@ -148,12 +148,17 @@ export interface TopologyResult {
 /** Merge preflight answer for the modal. */
 export interface MergePreflightResult {
   readonly blockers: readonly MergeBlocker[]
+  readonly warnings: readonly MergeWarning[]
   readonly green: boolean
   readonly target?: string
   readonly source?: string
   readonly fastForward: boolean
   readonly aheadCount: number
   readonly manualCommand?: string
+  /** Uncommitted paths in the primary checkout (empty when clean). */
+  readonly dirtyPrimary: readonly string[]
+  /** Uncommitted paths in the worktree (empty when clean). */
+  readonly dirtyWorktree: readonly string[]
 }
 
 export interface MergeExecuteResult {
@@ -175,6 +180,8 @@ export interface UpdatePreflightResult {
   readonly inProgress: boolean
   readonly sessionId?: string
   readonly manualCommand?: string
+  /** Uncommitted paths in the worktree (empty when clean). */
+  readonly dirtyWorktree: readonly string[]
 }
 
 export interface UpdateExecuteResult {
@@ -528,11 +535,12 @@ export class WorktreesService {
     const bindings = await this.reconciled(placement.primary)
     const row = rowsForSlug(bindings, input.slug)[0]
     const slugKnown = row !== undefined
-    const [target, versionStdout, primaryDirty, worktreeDirty, branchTip, baseTip] = await Promise.all([
+    const none: readonly string[] = []
+    const [target, versionStdout, dirtyPrimary, dirtyWorktree, branchTip, baseTip] = await Promise.all([
       this.ports.git.currentBranch(placement.primary),
       this.ports.git.versionStdout(),
-      slugKnown ? this.ports.git.dirtyCount(placement.primary) : Promise.resolve(0),
-      slugKnown ? this.ports.git.dirtyCount(row!.path) : Promise.resolve(0),
+      slugKnown ? this.ports.git.dirtyPaths(placement.primary) : Promise.resolve(none),
+      slugKnown ? this.ports.git.dirtyPaths(row!.path) : Promise.resolve(none),
       slugKnown
         ? this.ports.git.revParse(row!.path, row!.branch).catch(() => undefined)
         : Promise.resolve(undefined),
@@ -541,8 +549,8 @@ export class WorktreesService {
     const gitModern = gitSupportsMergeTree(parseGitVersion(versionStdout))
     // Unknown slug: the remaining facts are noise, not blockers — the
     // modal says "refresh" and nothing else.
-    const primaryClean = !slugKnown || primaryDirty === 0
-    const worktreeClean = !slugKnown || worktreeDirty === 0
+    const primaryClean = !slugKnown || dirtyPrimary.length === 0
+    const worktreeClean = !slugKnown || dirtyWorktree.length === 0
     // A fresh branch (tip == base) is trivially an ancestor; that is
     // "no unique work yet", not "already merged".
     const alreadyMerged = slugKnown && target !== undefined
@@ -567,12 +575,15 @@ export class WorktreesService {
     const source = row?.branch
     return {
       blockers: verdict.blockers,
+      warnings: verdict.warnings,
       green: verdict.green,
       target,
       source,
       fastForward,
       aheadCount,
       manualCommand: source === undefined ? undefined : `git merge ${source}`,
+      dirtyPrimary: slugKnown ? dirtyPrimary : none,
+      dirtyWorktree: slugKnown ? dirtyWorktree : none,
     }
   }
 
@@ -598,16 +609,17 @@ export class WorktreesService {
     const row = rowsForSlug(bindings, input.slug)[0]
     const slugKnown = row !== undefined
     const sessionId = row !== undefined && row.sessionId !== '' ? row.sessionId : undefined
-    const [source, worktreeDirty, inProgress] = await Promise.all([
+    const none: readonly string[] = []
+    const [source, dirtyWorktree, inProgress] = await Promise.all([
       this.ports.git.currentBranch(placement.primary),
-      slugKnown ? this.ports.git.dirtyCount(row!.path) : Promise.resolve(0),
+      slugKnown ? this.ports.git.dirtyPaths(row!.path) : Promise.resolve(none),
       slugKnown ? this.ports.git.merging(row!.path) : Promise.resolve(false),
     ])
     const boundSession = sessionId !== undefined
     const sessionRunning = boundSession && this.ports.isSessionRunning(sessionId)
     const alreadyUpdated = slugKnown && source !== undefined && !inProgress
       && await this.ports.git.isAncestor(placement.primary, source, row!.branch)
-    const worktreeClean = !slugKnown || worktreeDirty === 0
+    const worktreeClean = !slugKnown || dirtyWorktree.length === 0
     const verdict = updateVerdict({
       slugKnown,
       sourceBranch: source,
@@ -637,6 +649,7 @@ export class WorktreesService {
       inProgress,
       sessionId,
       manualCommand: source === undefined ? undefined : `git merge ${source}`,
+      dirtyWorktree: slugKnown ? dirtyWorktree : none,
     }
   }
 

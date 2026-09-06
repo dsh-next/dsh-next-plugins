@@ -51,8 +51,10 @@
 
 ### 合并与冲突
 
-`Merge…` 会先确认两侧都已提交、合并能够成功，再把 worktree 合入当前分支。
-若会冲突，下一步是 `Resolve in this session`：插件把主分支合并 *进
+`Merge…` 会先确认合并能够成功，再把 worktree 合入当前分支。未提交的文件
+会列出来；你仍可以合并。若主文件夹里的文件会被覆盖，git 会拒绝。
+工作树里未提交的更改不会被合入。若分支会冲突，下一步是
+`Resolve in this session`：插件把主分支合并 *进
 worktree*（绝不会反向），由本会话修好文件，再快进合并。合并进行中时对话框
 提供 `Abort merge`。关掉对话框不会中止；主文件夹始终不被留在合并中途。
 
@@ -106,8 +108,8 @@ worktree 绝不会这样被移除。
 `.dsh/worktrees.json`），其中的 `setup-worktree` 会自动在新文件夹里执行。
 不需要再点别的。`$ROOT_WORKTREE_PATH` 是主文件夹。命令失败会取消创建并
 删掉多余的文件夹。被 gitignore 的写入（`.env`、`node_modules`）不算未提交
-改动。git 能看见的文件（未被 ignore）会算，此时要先提交或删掉才能 Merge
-或 Update。
+改动。git 能看见的文件（未被 ignore）会算：Update 会等到你提交或删掉；
+Merge 会列出它们，但仍可继续。
 
 命令放这里（例如 `pnpm install`）。复制 `.env` 这类本地文件请用
 `.worktreeinclude`。

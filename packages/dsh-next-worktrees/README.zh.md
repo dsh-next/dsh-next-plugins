@@ -72,10 +72,31 @@ worktree 绝不会这样被移除。
 
 ## 可选的本地文件
 
-`.worktreeinclude` 是可选的。若你在仓库根目录提交了该文件（每行一个相对
-路径），列出的文件会在每次**新建** worktree 时从主文件夹复制进去。用来带上
-git 不跟踪的本地文件，例如 `.env`。源文件不存在则跳过。它只复制文件，
-不会运行安装命令。
+新的 worktree 是一次干净的 git 检出。git 不跟踪的文件仍留在主文件夹里 —
+`.env`、`.env.local` 以及其他本地密钥。新会话一开始会没有这些文件。
+
+若这些文件必须出现在每个新建的 worktree 里，就在仓库根目录提交
+`.worktreeinclude`。每行一个相对路径（`#` 开头为注释）。创建时，插件会把
+列出的每个文件从主文件夹复制到新文件夹。
+
+```
+.env
+.env.local
+```
+
+适合使用的情况：
+
+- 应用或会话需要 git 忽略的本地文件（常见：`.env`）
+- 每个新 worktree 都应从主文件夹拿到同一份副本
+- 你可以提交路径列表（而不是密钥文件本身）
+
+不必使用的情况：
+
+- 没有被 gitignore 的本地文件需要复制
+- 缺的是安装或生成的内容（`node_modules`、`lib/`）— 那属于创建后的命令
+- 每个 worktree 应有一份你手工创建的文件
+
+源文件不存在则跳过。它只复制文件，不复制整个文件夹，也不会运行安装命令。
 
 ![.worktreeinclude 示例，列出 .env 与 .env.local](media/worktreeinclude.webp)
 
@@ -88,11 +109,13 @@ git 不跟踪的本地文件，例如 `.env`。源文件不存在则跳过。它
 改动。git 能看见的文件（未被 ignore）会算，此时要先提交或删掉才能 Merge
 或 Update。
 
+命令放这里（例如 `pnpm install`）。复制 `.env` 这类本地文件请用
+`.worktreeinclude`。
+
 ```json
 {
   "setup-worktree": [
-    "pnpm install",
-    "cp \"$ROOT_WORKTREE_PATH/.env\" .env"
+    "pnpm install"
   ]
 }
 ```

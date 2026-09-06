@@ -78,11 +78,34 @@ session. A worktree with uncommitted changes is never removed this way.
 
 ## Optional local files
 
-A `.worktreeinclude` file is optional. If you commit one (one relative path
-per line) at the repo root, each listed file is copied from your main
-folder into **new** worktrees. Use it for local files git does not track,
-such as `.env`. Missing files are skipped. It only copies files; it does
-not run install commands.
+A new worktree is a clean git checkout. Files git does not track stay in
+the main folder — `.env`, `.env.local`, and other local secrets. The new
+session would otherwise start without them.
+
+Commit a `.worktreeinclude` at the repo root when those files must exist
+in every new worktree. One relative path per line (`#` starts a comment).
+On create, each listed file is copied from the main folder into the new
+folder.
+
+```
+.env
+.env.local
+```
+
+Use it when:
+
+- The app or the session needs a local file git ignores (typical: `.env`)
+- Every new worktree should get the same copy from the main folder
+- You can commit the list of paths (not the secret files)
+
+Skip it when:
+
+- You have no gitignored local files
+- What is missing is installed or generated (`node_modules`, `lib/`) — that belongs in setup commands
+- Each worktree should get its own file that you create by hand
+
+Missing sources are skipped. It only copies files, not whole folders, and
+it does not run install commands.
 
 ![Example .worktreeinclude listing .env and .env.local](media/worktreeinclude.webp)
 
@@ -96,11 +119,13 @@ Gitignored writes (`.env`, `node_modules`) do not count as uncommitted
 changes. A file git can see (not ignored) does, and then Merge and Update
 wait until you commit or delete it.
 
+Use this for commands (`pnpm install`). Use `.worktreeinclude` to copy
+local files such as `.env`.
+
 ```json
 {
   "setup-worktree": [
-    "pnpm install",
-    "cp \"$ROOT_WORKTREE_PATH/.env\" .env"
+    "pnpm install"
   ]
 }
 ```

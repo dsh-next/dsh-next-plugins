@@ -2,13 +2,15 @@
  * WorktreesService against a real git repo — every merge/update execute
  * path and blocker the FakeGit suite cannot prove.
  */
-import { copyFile, mkdir, unlink } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { copyFile, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { GitRunner } from '../src/host/git.ts'
 import type { GitPorts } from '../src/host/git.ts'
 import { RegistryStore } from '../src/host/registry-store.ts'
 import { WorktreesService } from '../src/host/service.ts'
+import { runSetupCommand } from '../src/host/setup-exec.ts'
 import {
   commitFile,
   completeConflictedMerge,
@@ -58,6 +60,15 @@ async function harness(git: GitPorts = new GitRunner()): Promise<Harness> {
         // Best-effort, same as the host entry.
       }
     },
+    readText: async (path) => {
+      try {
+        return await readFile(path, 'utf8')
+      } catch {
+        return null
+      }
+    },
+    runCommand: runSetupCommand,
+    platform: process.platform,
     seed: 1,
   })
   const h: Harness = {
@@ -224,5 +235,28 @@ describe('WorktreesService real-git update', () => {
     const unbound = await h.service.updatePreflight({ cwd: h.dir, slug: created2.slug })
     expect(unbound.green).toBe(false)
     expect(unbound.blockers).toContain('no-bound-session')
+  })
+})
+
+describe('WorktreesService real-git setup', () => {
+  it('runs .worktrees.json commands in the new worktree', async () => {
+    const h = await harness()
+    await writeFile(join(h.dir, '.worktrees.json'), JSON.stringify({
+      'setup-worktree': ['printf done > setup-ok'],
+    }))
+    const created = await h.service.create({ cwd: h.dir })
+    expect(existsSync(join(created.path, 'setup-ok'))).toBe(true)
+  })
+
+  it('does not leave a worktree when setup fails', async () => {
+    const h = await harness()
+    await writeFile(join(h.dir, '.worktrees.json'), JSON.stringify({
+      'setup-worktree': ['false'],
+    }))
+    await expect(h.service.create({ cwd: h.dir })).rejects.toMatchObject({
+      code: 'setup-failed',
+    })
+    const listing = runGit(h.dir, ['worktree', 'list', '--porcelain'])
+    expect(listing.split('\n').filter((line) => line.startsWith('worktree '))).toHaveLength(1)
   })
 })

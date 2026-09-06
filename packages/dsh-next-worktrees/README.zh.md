@@ -79,6 +79,29 @@ git 不跟踪的本地文件，例如 `.env`。源文件不存在则跳过。它
 
 ![.worktreeinclude 示例，列出 .env 与 .env.local](media/worktreeinclude.webp)
 
+## 创建后的命令（可选）
+
+单击分支图标创建 worktree 时，若仓库根目录有 `.worktrees.json`（或本机
+`.dsh/worktrees.json`），其中的 `setup-worktree` 会自动在新文件夹里执行。
+不需要再点别的。`$ROOT_WORKTREE_PATH` 是主文件夹。命令失败会取消创建并
+删掉多余的文件夹。被 gitignore 的写入（`.env`、`node_modules`）不算未提交
+改动。git 能看见的文件（未被 ignore）会算，此时要先提交或删掉才能 Merge
+或 Update。
+
+```json
+{
+  "setup-worktree": [
+    "pnpm install",
+    "cp \"$ROOT_WORKTREE_PATH/.env\" .env"
+  ]
+}
+```
+
+一般只用 `setup-worktree` 即可。`setup-worktree-unix` 和
+`setup-worktree-windows` 是可选的，仅当各系统命令不同时才需要。字符串值
+表示相对于该 JSON 文件的脚本路径。两个文件都存在时，`.dsh/worktrees.json`
+优先。
+
 ## 安装
 
 ```sh

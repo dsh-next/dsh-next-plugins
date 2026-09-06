@@ -8,7 +8,7 @@
  * inside a linked worktree (proven in
  * docs/archive/2026-09-04-worktrees-m0-probe.md).
  */
-import { copyFile, mkdir } from 'node:fs/promises'
+import { copyFile, mkdir, readFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 // Merges the host-side `sessions` service declaration (ctx.sessions).
@@ -23,6 +23,7 @@ import {
   type IsSessionRunning,
 } from './host/service.ts'
 import { registerRpc } from './host/rpc.ts'
+import { runSetupCommand } from './host/setup-exec.ts'
 
 export const inject = ['webServer', 'sessions'] as const
 
@@ -73,6 +74,15 @@ export function apply(ctx: Context): void {
         // Best-effort convention: a missing source copies nothing.
       }
     },
+    readText: async (path) => {
+      try {
+        return await readFile(path, 'utf8')
+      } catch {
+        return null
+      }
+    },
+    runCommand: runSetupCommand,
+    platform: process.platform,
   })
   registerRpc(ctx, service)
 }

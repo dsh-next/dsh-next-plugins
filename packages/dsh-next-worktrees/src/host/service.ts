@@ -20,6 +20,13 @@ import {
   type WorktreeBinding,
 } from '../core/registry.ts'
 import { nextSlug, normalizeName, suggestName, displayTitle } from '../core/slug.ts'
+import {
+  parseWorktreesJson,
+  resolveSetupSteps,
+  setupPlatform,
+  worktreesJsonCandidates,
+  SETUP_ENV_ROOT,
+} from '../core/setup.ts'
 import { worktreeStatus, type WorktreeStatus } from '../core/status.ts'
 import { GitError } from './git.ts'
 import type { GitPorts } from './git.ts'
@@ -53,6 +60,20 @@ export interface ServicePorts {
    * source is missing (best-effort convention).
    */
   readonly copyFile: (from: string, to: string) => Promise<void>
+  /**
+   * Read a setup file from disk. Missing file → null. Absent in tests
+   * that do not exercise `.worktrees.json`.
+   */
+  readonly readText?: (path: string) => Promise<string | null>
+  /** Run one setup command or script in the new worktree. */
+  readonly runCommand?: (input: {
+    readonly command?: string
+    readonly script?: string
+    readonly cwd: string
+    readonly env: Readonly<Record<string, string>>
+  }) => Promise<{ code: number; stdout: string; stderr: string }>
+  /** `process.platform`; tests inject `win32` / `darwin`. */
+  readonly platform?: string
   /** Seed for deterministic slug/name generation in tests. */
   readonly seed?: number
 }
@@ -273,6 +294,19 @@ export class WorktreesService {
       throw error
     }
     await this.copyWorktreeInclude(placement.primary, placement.relPath, path)
+    try {
+      await this.runWorktreesSetup(placement.primary, path)
+    } catch (error) {
+      await this.ports.git.removeWorktree({
+        primary: placement.primary,
+        path,
+        force: true,
+      }).catch(() => {})
+      await this.ports.store.mutate(placement.primary, registryPath, (rows) =>
+        rows.filter((row) => row.slug !== slug),
+      ).catch(() => {})
+      throw error
+    }
     return { slug, name, title: displayTitle(name, slug), path, branch, baseRef, relPath: placement.relPath }
   }
 
@@ -304,6 +338,51 @@ export class WorktreesService {
       const from = join(primary, relPath, entry)
       const to = join(worktreePath, relPath, entry)
       await this.ports.copyFile(from, to)
+    }
+  }
+
+  /**
+   * Run `.dsh/worktrees.json` (local override) or `.worktrees.json` at the
+   * repo root. Missing file → no-op. Invalid file or a failed command
+   * throws; create rolls the worktree back.
+   */
+  private async runWorktreesSetup(primary: string, worktreePath: string): Promise<void> {
+    const readText = this.ports.readText
+    const runCommand = this.ports.runCommand
+    if (readText === undefined || runCommand === undefined) return
+    let jsonPath: string | undefined
+    let raw: string | undefined
+    for (const candidate of worktreesJsonCandidates(primary)) {
+      const text = await readText(candidate)
+      if (text !== null) {
+        jsonPath = candidate
+        raw = text
+        break
+      }
+    }
+    if (jsonPath === undefined || raw === undefined) return
+    const parsed = parseWorktreesJson(raw)
+    if ('error' in parsed) {
+      throw new WorktreeFlowError('setup-invalid', parsed.error)
+    }
+    const steps = resolveSetupSteps(parsed, setupPlatform(this.ports.platform ?? 'linux'))
+    if ('error' in steps) {
+      throw new WorktreeFlowError('setup-invalid', steps.error)
+    }
+    const jsonDir = parentDir(jsonPath)
+    const env = { [SETUP_ENV_ROOT]: primary }
+    for (const step of steps) {
+      const result = step.kind === 'command'
+        ? await runCommand({ command: step.command, cwd: worktreePath, env })
+        : await runCommand({ script: `${jsonDir}/${step.path}`, cwd: worktreePath, env })
+      if (result.code !== 0) {
+        const label = step.kind === 'command' ? step.command : step.path
+        throw new WorktreeFlowError(
+          'setup-failed',
+          `setup command failed: ${label}`,
+          (result.stderr || result.stdout).trim() || undefined,
+        )
+      }
     }
   }
 
@@ -664,6 +743,12 @@ function isUnsafeInclude(entry: string): boolean {
   const posix = entry.replace(/\\/g, '/')
   if (posix.startsWith('/') || /^[a-zA-Z]:/.test(posix)) return true
   return posix.split('/').includes('..')
+}
+
+function parentDir(path: string): string {
+  const posix = path.replace(/\\/g, '/')
+  const at = posix.lastIndexOf('/')
+  return at <= 0 ? posix : posix.slice(0, at)
 }
 
 /** Name suggestion for the create modal prefill. */

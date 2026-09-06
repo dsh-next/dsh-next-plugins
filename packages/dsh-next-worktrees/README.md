@@ -86,6 +86,30 @@ not run install commands.
 
 ![Example .worktreeinclude listing .env and .env.local](media/worktreeinclude.webp)
 
+## Setup commands (optional)
+
+Clicking the branch icon to create a worktree already runs setup when
+`.worktrees.json` is at the repo root (or `.dsh/worktrees.json` as a local
+override). You do not click anything else. `$ROOT_WORKTREE_PATH` is the
+main folder. A failed command cancels create and removes the extra folder.
+Gitignored writes (`.env`, `node_modules`) do not count as uncommitted
+changes. A file git can see (not ignored) does, and then Merge and Update
+wait until you commit or delete it.
+
+```json
+{
+  "setup-worktree": [
+    "pnpm install",
+    "cp \"$ROOT_WORKTREE_PATH/.env\" .env"
+  ]
+}
+```
+
+That `setup-worktree` list is enough. `setup-worktree-unix` and
+`setup-worktree-windows` are optional, only when the commands differ by OS.
+A string value is a script path relative to the JSON file. `.dsh/worktrees.json`
+wins when both files exist.
+
 ## Install
 
 ```sh

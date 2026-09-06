@@ -208,6 +208,11 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     }
     initGitRepo(workspaceA)
     commitFile(workspaceA, 'seed.txt', 'seed\n', 'seed')
+    // Disk-read: create runs these automatically when the branch icon is
+    // clicked. Unlinked after the first success so later creates stay plain.
+    writeFileSync(join(workspaceA, '.worktrees.json'), `${JSON.stringify({
+      'setup-worktree': ['printf done > setup-ok'],
+    })}\n`)
 
     await dismissOnboarding(page)
 
@@ -265,7 +270,13 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     expect(registry.bindings[0]!.sessionId).not.toBe('')
     let slug = registry.bindings[0]!.slug
     expect(existsSync(worktreeDir(workspaceA, slug))).toBe(true)
+    expect(existsSync(join(worktreeDir(workspaceA, slug), 'setup-ok'))).toBe(true)
     expect(gitOk(workspaceA, ['rev-parse', '--verify', `dsh-worktrees/${slug}`])).toBe(true)
+    // Setup wrote an untracked file, so the icon is dirty until we clear it.
+    await expect(nested.first()).toHaveAttribute('data-dshx-state', 'dirty')
+    unlinkSync(join(worktreeDir(workspaceA, slug), 'setup-ok'))
+    unlinkSync(join(workspaceA, '.worktrees.json'))
+    await refreshWorktrees(page)
 
     // Fresh worktree: tip == base, so the icon state is neutral "clean" —
     // never the (fixed) false "merged" the ancestor check alone produced.
@@ -299,6 +310,22 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     expect(existsSync(worktreeDir(workspaceA, registry2.bindings[0]!.slug))).toBe(true)
     // The surviving worktree is whatever the second create left bound.
     slug = registry2.bindings[0]!.slug
+
+    // A failing setup command must cancel create and leave the live
+    // worktree alone (host rolls the new folder back).
+    writeFileSync(join(workspaceA, '.worktrees.json'), `${JSON.stringify({
+      'setup-worktree': ['false'],
+    })}\n`)
+    await repoRow.hover()
+    await createButton.click({ force: true })
+    const setupError = page.locator('[data-dshx-modal="create-error"]')
+    await expect(setupError).toBeVisible({ timeout: 20_000 })
+    await expect(setupError.locator('[data-dshx-error]')).toContainText('setup command failed')
+    await setupError.locator('[data-dshx-button="create-error-ok"]').click()
+    await expect(setupError).toHaveCount(0, { timeout: 10_000 })
+    expect(readRegistry(workspaceA).bindings).toHaveLength(1)
+    expect(readRegistry(workspaceA).bindings[0]!.slug).toBe(slug)
+    unlinkSync(join(workspaceA, '.worktrees.json'))
 
     // Visual evidence for the owned-browser redesign (light + dark ride the
     // same tokens; this shot pins the nested-identity chrome).

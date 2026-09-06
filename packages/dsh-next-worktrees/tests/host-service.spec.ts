@@ -174,6 +174,9 @@ interface Harness {
   readonly sessionCwds: Map<string, string | null>
   readonly knobWrites: { sessionId: string; mode: 'danger-full-access' }[]
   readonly copies: { from: string; to: string }[]
+  readonly files: Map<string, string>
+  readonly commands: { command?: string; script?: string; cwd: string; env: Readonly<Record<string, string>> }[]
+  commandImpl?: (input: { command?: string; script?: string }) => { code: number; stdout: string; stderr: string }
 }
 
 function harness(seed = 7): Harness {
@@ -185,6 +188,9 @@ function harness(seed = 7): Harness {
   const sessionCwds = new Map<string, string | null>()
   const knobWrites: { sessionId: string; mode: 'danger-full-access' }[] = []
   const copies: { from: string; to: string }[] = []
+  const files = new Map<string, string>()
+  const commands: Harness['commands'] = []
+  const box: Pick<Harness, 'commandImpl'> = {}
   const service = new WorktreesService({
     git,
     store,
@@ -197,13 +203,19 @@ function harness(seed = 7): Harness {
     copyFile: async (from, to) => {
       copies.push({ from, to })
     },
+    readText: async (path) => files.get(path) ?? null,
+    runCommand: async (input) => {
+      commands.push(input)
+      return box.commandImpl?.(input) ?? { code: 0, stdout: '', stderr: '' }
+    },
+    platform: 'darwin',
     seed,
   })
-  return { service, git, store, sessionCwds, knobWrites, copies }
+  return { service, git, store, sessionCwds, knobWrites, copies, files, commands, get commandImpl() { return box.commandImpl }, set commandImpl(value) { box.commandImpl = value } }
 }
 
 /** Register a live worktree row in the fake + store, as create would. */
-function seedWorktree(h: Harness, overrides: Partial<WorktreeBinding> = {}): WorktreeBinding {
+function seedWorktree(h: { git: FakeGit; store: MemoryStore }, overrides: Partial<WorktreeBinding> = {}): WorktreeBinding {
   const slug = overrides.slug ?? 'swift-01'
   const path = overrides.path ?? `${PRIMARY}/.dsh/worktrees/${slug}`
   const binding: WorktreeBinding = {
@@ -369,6 +381,51 @@ describe('create', () => {
     expect(h.copies).toEqual([
       { from: `${PRIMARY}/.env`, to: expect.stringContaining('/.env') },
     ])
+  })
+
+  it('runs setup-worktree commands from .worktrees.json in the new tree', async () => {
+    const h = harness()
+    h.files.set(`${PRIMARY}/.worktrees.json`, JSON.stringify({
+      'setup-worktree': ['pnpm install', 'cp "$ROOT_WORKTREE_PATH/.env" .env'],
+    }))
+    await h.service.create({ cwd: PRIMARY })
+    expect(h.commands).toEqual([
+      expect.objectContaining({
+        command: 'pnpm install',
+        cwd: expect.stringContaining('/.dsh/worktrees/'),
+        env: { ROOT_WORKTREE_PATH: PRIMARY },
+      }),
+      expect.objectContaining({ command: 'cp "$ROOT_WORKTREE_PATH/.env" .env' }),
+    ])
+  })
+
+  it('prefers .dsh/worktrees.json over the project-root file', async () => {
+    const h = harness()
+    h.files.set(`${PRIMARY}/.worktrees.json`, JSON.stringify({ 'setup-worktree': ['root'] }))
+    h.files.set(`${PRIMARY}/.dsh/worktrees.json`, JSON.stringify({ 'setup-worktree': ['local'] }))
+    await h.service.create({ cwd: PRIMARY })
+    expect(h.commands.map((c) => c.command)).toEqual(['local'])
+  })
+
+  it('rolls back the worktree when a setup command fails', async () => {
+    const h = harness()
+    h.files.set(`${PRIMARY}/.worktrees.json`, JSON.stringify({ 'setup-worktree': ['false'] }))
+    h.commandImpl = () => ({ code: 1, stdout: '', stderr: 'nope' })
+    await expect(h.service.create({ cwd: PRIMARY })).rejects.toMatchObject({
+      code: 'setup-failed',
+    })
+    expect(h.git.removeCalls).toEqual([expect.objectContaining({ force: true })])
+    expect(h.store.files.get(PRIMARY)?.bindings).toEqual([])
+  })
+
+  it('rejects invalid setup JSON without adding a worktree row', async () => {
+    const h = harness()
+    h.files.set(`${PRIMARY}/.worktrees.json`, '{')
+    await expect(h.service.create({ cwd: PRIMARY })).rejects.toMatchObject({
+      code: 'setup-invalid',
+    })
+    expect(h.git.removeCalls.length).toBeGreaterThan(0)
+    expect(h.store.files.get(PRIMARY)?.bindings).toEqual([])
   })
 })
 

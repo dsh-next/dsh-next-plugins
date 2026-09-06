@@ -9,7 +9,7 @@ export default defineConfig({
   // One test drives every plugin marker; the cc-plugins marker walks several
   // install/refresh flows through the real GUI, which needs well over the
   // 30s default.
-  timeout: 180_000,
+  timeout: 300_000,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
   use: {

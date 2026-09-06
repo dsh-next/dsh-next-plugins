@@ -2,63 +2,94 @@
 
 [English](README.md) | 中文
 
-在 DeepSeek Harness 侧边栏中嵌套展示 git worktree，并提供带预检的一键合并。
-在同一个仓库上并行运行多个 agent 会话而不互相冲突：每个 worktree 拥有独立
-的检出与分支，侧边栏把每个 worktree 会话显示在其所属仓库的分组内，而不是
-一个独立的工作区。
+这是一个 DeepSeek Harness 插件：让两个 agent 在同一个 git 仓库上工作，而不
+互相覆盖。每个会话拥有独立的文件夹与分支。工作就绪后，用 `Merge…` 把这些
+提交合入主文件夹当前检出的分支。若分支会冲突，选择
+`Resolve in this session`，由本会话中的 agent 先修好文件。
+
+![创建 worktree、在该会话中工作、合并、然后清理](media/loop.webp)
+
+## 怎么用
+
+1. 在侧边栏里，你的 git 仓库那一行，单击分支图标（`+` 旁边）。新的
+   worktree 会作为会话嵌套在该仓库之下打开。
+2. 只在该会话里改代码。主文件夹仍留在自己的分支上。
+3. 准备好后打开 `Merge…`。插件会先检查。若分支会冲突，选择
+   `Resolve in this session` — 由本会话解决冲突并提交。之后再合并就是快进。
+4. 保留 worktree 或删掉它。分支和会话记录都会留下。
+
+![嵌套在 harbor 仓库下的 worktree 会话](media/sidebar.webp)
 
 ## 功能
 
-- **从仓库行创建。** 单击仓库行 `+` 旁的分支图标按钮，即以自动生成的名称
-  创建 worktree、在其中打开会话，并绑定会话沙箱，使 git 在 linked
-  worktree 中可用。全程无弹窗：名称自动生成，详情见悬停卡片。
-- **嵌套行。** worktree 会话渲染在其仓库分组之下，比仓库自身的会话行多
-  一层缩进。分支图标即状态：绿色已合并、琥珀色有未提交改动、蓝色领先基线
-  （附计数）、中性无改动 —— 全新的 worktree 绝不会显示为已合并。插件启用
-  期间，原本独立的工作区行被隐藏。
-- **行菜单。** 会话行的 `...` 菜单新增刷新、从 `<branch>` 更新…、合并…、
-  删除工作树…。删除会说明什么会保留（分支与会话记录保留；工作副本删除），
-  脏工作树需要额外确认。
-- **不留孤儿工作树。** 从未开始的会话会在下一个会话开始时被平台替换；
-  其背后的 worktree 会被自动清理（工作副本、注册表行与工作区一并移除）。
-  有未提交改动的 worktree 绝不会被自动移除。
-- **带预检的合并。** 合并… 在执行前完成全部预检：主检出干净、worktree 已
-  全部提交、以及冲突试算（`git merge-tree`，git 2.38+）。
-  任何阻碍都会给出修复指引。预检全绿的合并就是一次 `git merge --no-edit`；
-  完成后弹窗提供移除已合并 worktree 的选项。未跟踪的 `.dsh/` 侧车文件
-  （插件自己的注册表）不计为未提交更改。
-- **由 agent 解决冲突。** 合并到主检出若会冲突，合并不会把你丢到命令行。
-  阻碍文案会指出下一步是“在此会话中解决”；该操作打开从 `<branch>` 更新
-  （插件把主分支合并 *进 worktree*，若有冲突则让合并停在工作树中——红色
-  图标——并聚焦已绑定的会话，由其中的 agent 解决冲突并提交）。干净的追平
-  仍使用“从 `<branch>` 更新”。之后再合并到主检出即为快进。合并进行中
-  弹窗标题为“合并进行中”，并提供中止（在 worktree 中执行
-  `git merge --abort`）和“在此会话中解决”；关闭对话框不会中止合并。
-  插件从不生成提交内容，也从不把主检出留在合并中途。
+### 创建
 
-## 兼容性约定
+一键完成。名称自动生成。会话在新的检出中打开。
 
-- 需要 DSH `0.1.2-rc.1`。本插件在构建时从该精确版本的官方 client 派生工作区
-  浏览器（版本 + SHA-256 双重校验）并在启用期间替换官方工作区 UI：DSH 的
-  每次发布都需要本插件发布对应的重新派生版本。
-- 与其他同样替换工作区浏览器的插件（例如 `dsh-git-worktree`）不兼容：两者
-  修改同一个加载器条目。
-- 本插件从不生成提交内容、从不 rebase、也从不自行解决冲突（由绑定会话中的
-  agent 解决）。它对检出的写入仅限 worktree 的增删、带预检的合并到当前分支，
-  以及从主分支更新（合并进 worktree，可能保持进行中直到你中止或 agent 提交）。
+![带有创建 worktree 按钮的仓库行](media/create.webp)
+
+### 状态
+
+分支图标即状态：干净时为灰色，有未提交改动为琥珀色，领先基线为蓝色
+（附提交计数），已合并为绿色，合并进行中为红色。
+
+![五种 worktree 行：干净、未提交、领先、已合并、冲突](media/status.webp)
+
+### 行菜单
+
+会话的 `...` 菜单会加上 `Refresh`（重新读取 git 状态）、
+`Update from <branch>…`（把该分支合入这个 worktree）、
+`Merge…` 和 `Delete worktree…`。
+
+![含 Refresh、Update from main、Merge、Delete worktree 的会话菜单](media/menu.webp)
+
+### 悬停详情
+
+将指针移到 worktree 会话上，可看到标题、分支和状态。
+
+![显示分支与领先状态的悬停卡片](media/hover.webp)
+
+### 合并与冲突
+
+`Merge…` 会先确认两侧都已提交、合并能够成功，再把 worktree 合入当前分支。
+若会冲突，下一步是 `Resolve in this session`：插件把主分支合并 *进
+worktree*（绝不会反向），由本会话修好文件，再快进合并。合并进行中时对话框
+提供 `Abort merge`。关掉对话框不会中止；主文件夹始终不被留在合并中途。
+
+![冲突、解决、进行中、已合入 四个合并对话框](media/merge-flow.webp)
+
+### 删除
+
+删掉多余的文件夹。分支和会话记录保留。有未提交改动的 worktree 需要第二次
+确认（`Remove anyway`）。
+
+![提示有未提交改动的删除 worktree 对话框](media/delete.webp)
+
+### 未使用的 worktree
+
+从未开始过的 worktree 会在你切到另一个会话时被移除。有未提交改动的
+worktree 绝不会这样被移除。
+
+## 可选的本地文件
+
+`.worktreeinclude` 是可选的。若你在仓库根目录提交了该文件（每行一个相对
+路径），列出的文件会在每次**新建** worktree 时从主文件夹复制进去。用来带上
+git 不跟踪的本地文件，例如 `.env`。源文件不存在则跳过。它只复制文件，
+不会运行安装命令。
+
+![.worktreeinclude 示例，列出 .env 与 .env.local](media/worktreeinclude.webp)
 
 ## 安装
 
 ```sh
-dsh plugin --profile <name> add link:<repo>/packages/dsh-next-worktrees
+dsh plugin --profile <name> add @dsh-next/dsh-next-worktrees
 ```
 
-## 开发
+`<name>` 是你的 DSH profile（例如 `web`）。
 
-```sh
-pnpm build        # 派生浏览器、类型产出、打包两个半区
-pnpm test         # 单元与契约测试
-pnpm check:browser  # 复核派生校验门
-```
+## 使用前须知
 
-设计规格：`docs/ideas/dsh-next-worktrees-sidebar-ux.md`。
+- 需要 DeepSeek Harness `0.1.2-rc.1` 或更新版本。
+- 不要与其他会替换侧边栏的插件一起安装。
+- 插件从不撰写提交说明。由本会话中的 agent 提交。
+- 贡献者请看 [CONTRIBUTING.md](https://github.com/dsh-next/dsh-next-plugins/blob/main/CONTRIBUTING.md)。

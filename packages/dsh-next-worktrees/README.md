@@ -2,79 +2,101 @@
 
 English | [中文](README.zh.md)
 
-Nested git worktrees in the DeepSeek Harness sidebar, with a guarded
-one-click merge. Run parallel agent sessions on one repository without
-collisions: each worktree is its own checkout and branch, and the sidebar
-shows every worktree session inside its repository's group instead of as
-a separate workspace.
+This DeepSeek Harness plugin lets two agents work on the same git repository
+without overwriting each other. Each session gets its own folder and branch.
+When the work is ready, `Merge…` copies those commits onto the branch you
+have checked out in the main folder. If the branches would conflict, choose
+`Resolve in this session` so this session's agent can fix the files first.
 
-## What you get
+![Create a worktree, work in that session, merge, then clean up](media/loop.webp)
 
-- **Create from the repo row.** One click on the branch-icon button
-  beside the row's `+` creates the worktree with a generated name, opens
-  a session inside it, and binds the session's sandbox so git works in
-  the linked worktree. No prompt: the name is generated, and the hover
-  card carries the details.
-- **Nested rows.** Worktree sessions render under their repository's
-  sidebar group, one indent deeper than the repo's own sessions. The
-  branch icon IS the status: green merged, amber uncommitted changes,
-  blue ahead of base (with the count), neutral clean — and a fresh
-  worktree never reads as merged. The separate workspace row is hidden
-  while the plugin is enabled.
-- **Row menu.** The session row's `...` menu gains Refresh, Update from
-  `<branch>`…, Merge…, and Delete worktree…. Delete states what survives
-  (the branch and session logs stay; the working copy goes) and demands
-  an extra confirm for dirty worktrees.
-- **No orphan worktrees.** A never-started session is replaced by the
-  platform when the next one begins; the worktree behind it is removed
-  automatically (checkout, registry row, and workspace together). A
-  worktree with uncommitted changes is never auto-removed.
-- **Guarded merge.** Merge… preflights everything before it can run: a
-  clean main checkout, a fully committed worktree, and a conflict
-  dry-run (`git merge-tree`, git 2.38+). Any blocker names its fix. A
-  green merge is a single `git merge --no-edit`; afterwards the modal
-  offers to remove the merged worktree. Untracked `.dsh/` sidecar files
-  (the plugin's own registry) do not count as uncommitted changes.
-- **Agent-resolved conflicts.** When merging into the main checkout
-  would conflict, Merge does not dump you to the CLI. The blocker names
-  Resolve in this session as the next step; that action opens Update
-  from `<branch>` (the plugin merges the main branch *into the
-  worktree*, leaves a mid-merge there if needed — red icon — and focuses
-  the bound session so the agent can resolve and commit). A clean
-  catch-up keeps the Update from `<branch>` label. After that, Merge is
-  a fast-forward. While the merge is in flight the modal is titled Merge
-  in progress and offers Abort (`git merge --abort` in the worktree) and
-  Resolve in this session; closing the dialog leaves the merge in
-  progress. The plugin never authors commit
-  content and never leaves the main checkout mid-merge.
+## How it works
 
-## Compatibility contract
+1. In the sidebar, on the row for your git repo, click the branch icon
+   (next to `+`). A new worktree opens as a session under that repo.
+2. Do the work in that session. The main folder stays on its own branch.
+3. When you are ready, open `Merge…`. The plugin checks first. If the
+   branches would conflict, choose `Resolve in this session` — this session
+   resolves the files and commits. Then Merge is a fast-forward.
+4. Keep the worktree or remove it. The branch and the chat stay either way.
 
-- Requires DSH `0.1.2-rc.1`. The plugin derives the workspace browser
-  from that exact official client build (version + SHA-256 gated at
-  build time) and replaces the stock workspace UI while enabled: any DSH
-  release needs a matching re-derivation release of this plugin.
-- Incompatible with any other plugin that also replaces the workspace
-  browser (for example `dsh-git-worktree`): both patch the same loader
-  row.
-- The plugin never authors commit content, never rebases, and never
-  resolves conflicts (the bound session's agent does). Its only writes
-  to your checkout are worktree add/remove, the preflighted merge into
-  the current branch, and update-from-main (a merge into the worktree
-  that may stay mid-merge until you abort or the agent commits).
+![Worktree sessions nested under the harbor repository](media/sidebar.webp)
+
+## Features
+
+### Create
+
+One click. The name is generated. A session opens in the new checkout.
+
+![Repository row with the worktree create button](media/create.webp)
+
+### Status
+
+The branch icon is the status: gray when clean, amber with uncommitted
+changes, blue when this branch is ahead (with the commit count), green
+when already merged, red when a merge is in progress.
+
+![Five worktree rows showing clean, uncommitted, ahead, merged, and conflict icons](media/status.webp)
+
+### Row menu
+
+The session `...` menu adds `Refresh` (re-read git status),
+`Update from <branch>…` (bring that branch into this worktree),
+`Merge…`, and `Delete worktree…`.
+
+![Session menu with Refresh, Update from main, Merge, and Delete worktree](media/menu.webp)
+
+### Hover details
+
+Hover a worktree session for its title, branch, and status.
+
+![Hover card with branch and ahead status](media/hover.webp)
+
+### Merge and conflicts
+
+`Merge…` checks that both sides are committed and that the merge would
+succeed, then lands the worktree on your current branch. If it would
+conflict, the next step is `Resolve in this session`: the plugin merges
+the main branch *into the worktree* (never the other way), this session
+fixes the files, and you Merge as a fast-forward. While a merge is in
+progress the dialog offers `Abort merge`. Closing it leaves the merge in
+the worktree; the main folder is untouched.
+
+![Conflict, resolve, in-progress, and landed merge dialogs](media/merge-flow.webp)
+
+### Delete
+
+Removes the extra folder. The branch and session log stay. A worktree
+with uncommitted changes needs a second confirm (`Remove anyway`).
+
+![Delete worktree dialog warning about uncommitted changes](media/delete.webp)
+
+### Unused worktrees
+
+A worktree you never started is removed when you switch to another
+session. A worktree with uncommitted changes is never removed this way.
+
+## Optional local files
+
+A `.worktreeinclude` file is optional. If you commit one (one relative path
+per line) at the repo root, each listed file is copied from your main
+folder into **new** worktrees. Use it for local files git does not track,
+such as `.env`. Missing files are skipped. It only copies files; it does
+not run install commands.
+
+![Example .worktreeinclude listing .env and .env.local](media/worktreeinclude.webp)
 
 ## Install
 
 ```sh
-dsh plugin --profile <name> add link:<repo>/packages/dsh-next-worktrees
+dsh plugin --profile <name> add @dsh-next/dsh-next-worktrees
 ```
 
-## Development
+`<name>` is your DSH profile (for example `web`).
 
-```sh
-pnpm build        # derives the browser, type-emits, bundles both halves
-pnpm test         # unit + contract suites
-pnpm check:browser  # re-verify the derivation gate
-```
+## Good to know
 
-Design spec: `docs/ideas/dsh-next-worktrees-sidebar-ux.md`.
+- Needs DeepSeek Harness `0.1.2-rc.1` or newer.
+- Do not install alongside another plugin that replaces the sidebar.
+- The plugin never writes commit messages. This session's agent does.
+- Contributors: see [CONTRIBUTING.md](https://github.com/dsh-next/dsh-next-plugins/blob/main/CONTRIBUTING.md).

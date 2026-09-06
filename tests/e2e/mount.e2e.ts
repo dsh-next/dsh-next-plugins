@@ -26,6 +26,7 @@ import { test, expect, type Page } from '@playwright/test'
 import {
   commitFile,
   completeConflictedMerge,
+  git,
   gitOk,
   hasMergeHead,
   initGitRepo,
@@ -33,6 +34,7 @@ import {
   readRegistry,
   refreshWorktrees,
   registryPath,
+  runSlashCommand,
   unblankCurrentSession,
   waitForCreateIdle,
   waitForTurnIdle,
@@ -140,6 +142,29 @@ async function openSkillsSection(page: Page): Promise<void> {
 // Navigate to the Claude marketplace bridge's settings section
 // (Settings -> Claude Plugins), dismissing onboarding first. Returns once the
 // section's tab bar is visible.
+async function closeOpenDialogs(page: Page): Promise<void> {
+  for (let round = 0; round < 3; round++) {
+    const dialog = page.locator('[role="dialog"]')
+    if (await dialog.count() === 0) break
+    const close = dialog.getByRole('button', { name: 'Close' }).first()
+    if (await close.isVisible().catch(() => false)) {
+      await close.click({ force: true })
+    } else {
+      await page.keyboard.press('Escape')
+    }
+    await page.waitForTimeout(400)
+  }
+}
+
+interface WorkspaceStorageDoc {
+  readonly global: { readonly archivedSessionIds?: readonly string[] }
+  readonly tables: { readonly workspaces: Record<string, { path: string; sessionIds: readonly string[] }> }
+}
+
+function readWorkspaceStorage(dshHome: string): WorkspaceStorageDoc {
+  return JSON.parse(readFileSync(join(dshHome, 'storages', 'workspace.json'), 'utf8')) as WorkspaceStorageDoc
+}
+
 async function openCcSection(page: Page): Promise<void> {
   for (let attempt = 0; attempt < 5; attempt++) {
     await dismissOnboarding(page)
@@ -165,6 +190,46 @@ async function openCcSection(page: Page): Promise<void> {
 // only when the plugin is in DSH_E2E_PLUGINS. Skipped markers make the smoke
 // pass trivially, so only add one for a plugin whose UI is genuinely rendered.
 const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
+  // Slash command, no settings card. Drives /reset in an ordinary folder
+  // (workspace-b) so the reincarnation handshake is proven on a real mount:
+  // polluted transcript vanishes, the workspace keeps both session ids, and
+  // the old id is archived.
+  'dsh-next-reset': async (page) => {
+    const workspaceB = process.env.DSH_E2E_WORKSPACE_B
+    const dshHome = process.env.DSH_HOME
+    if (!workspaceB) {
+      throw new Error('DSH_E2E_WORKSPACE_B is not set — run through scripts/e2e-mount.sh')
+    }
+    await dismissOnboarding(page)
+    await closeOpenDialogs(page)
+    const plainRow = page.locator('[role="treeitem"]').filter({ hasText: 'workspace-b' }).first()
+    await expect(plainRow).toBeVisible({ timeout: 15_000 })
+    await plainRow.hover()
+    await plainRow.locator('button[aria-label*="New session in workspace-b"]').click({ force: true })
+    const pollution = `reset-e2e-${Date.now()}`
+    await unblankCurrentSession(page, pollution)
+    await waitForTurnIdle(page)
+    await expect(page.getByText(pollution).first()).toBeVisible({ timeout: 15_000 })
+    const archivedBefore = dshHome === undefined
+      ? 0
+      : (readWorkspaceStorage(dshHome).global.archivedSessionIds ?? []).length
+    await runSlashCommand(page, 'reset')
+    await expect(page.getByText(pollution)).toHaveCount(0, { timeout: 20_000 })
+    await expect(page.locator('[contenteditable="true"]').first()).toBeVisible({ timeout: 10_000 })
+    await page.screenshot({ path: join('test-results', 'reset-after.png') })
+    if (dshHome !== undefined) {
+      await expect.poll(() => (readWorkspaceStorage(dshHome).global.archivedSessionIds ?? []).length, {
+        timeout: 15_000,
+      }).toBeGreaterThan(archivedBefore)
+      const doc = readWorkspaceStorage(dshHome)
+      const row = Object.values(doc.tables.workspaces).find((workspace) => workspace.path === workspaceB)
+      expect(row, 'workspace-b should still be registered').toBeDefined()
+      expect(row!.sessionIds.length).toBeGreaterThanOrEqual(2)
+      const archived = new Set(doc.global.archivedSessionIds ?? [])
+      expect(row!.sessionIds.some((id) => archived.has(id))).toBe(true)
+    }
+  },
+
   // The notifier's settings card lives under Settings -> Plugins; opening it
   // must reveal the settings body (the regression this guards: a Host RPC that
   // returned raw config instead of the card's envelope, so the header toggled
@@ -549,6 +614,40 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await expect.poll(() => existsSync(worktreeDir(workspaceA, slug))).toBe(false)
     expect(gitOk(workspaceA, ['rev-parse', '--verify', `dsh-worktrees/${slug}`])).toBe(true)
     await expect.poll(() => readRegistry(workspaceA).bindings.length).toBe(0)
+
+    // /reset on a bound worktree: reclaim the registry row onto the new
+    // session, then switch away. The archived sibling is utilized, so the
+    // sweeper must not delete the checkout (the live byId proof).
+    await repoRow.hover()
+    await createButton.click({ force: true })
+    await expect.poll(() => readRegistry(workspaceA).bindings.length, { timeout: 20_000 }).toBe(1)
+    await waitForCreateIdle(page)
+    const resetBinding = readRegistry(workspaceA).bindings[0]!
+    const resetSlug = resetBinding.slug
+    const resetOldId = resetBinding.sessionId
+    expect(resetOldId).not.toBe('')
+    await unblankCurrentSession(page, 'keep this worktree through reset')
+    await waitForTurnIdle(page)
+    await runSlashCommand(page, 'reset')
+    await expect.poll(() => readRegistry(workspaceA).bindings[0]?.sessionId ?? '', {
+      timeout: 20_000,
+    }).not.toBe(resetOldId)
+    expect(readRegistry(workspaceA).bindings[0]!.sessionId).not.toBe('')
+    expect(existsSync(worktreeDir(workspaceA, resetSlug))).toBe(true)
+    const switchRow = page.locator('[role="treeitem"]').filter({ hasText: 'workspace-b' }).first()
+    await switchRow.hover()
+    await switchRow.locator('button[aria-label*="New session in workspace-b"]').click({ force: true })
+    await page.waitForTimeout(2_500)
+    expect(readRegistry(workspaceA).bindings).toHaveLength(1)
+    expect(existsSync(worktreeDir(workspaceA, resetSlug))).toBe(true)
+
+    // A manual `git worktree add` checkout is not a plugin worktree: it
+    // must not gain or lose a registry row.
+    const cliWt = join(workspaceA, '..', 'cli-worktree')
+    const bindingsBeforeCli = JSON.stringify(readRegistry(workspaceA))
+    git(workspaceA, ['worktree', 'add', '-q', '-b', 'cli-e2e', cliWt])
+    expect(JSON.stringify(readRegistry(workspaceA))).toBe(bindingsBeforeCli)
+    expect(existsSync(cliWt)).toBe(true)
   },
 
   // nav level as General/Models/Plugins) with Skills and Providers tabs over
@@ -838,7 +937,7 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
 }
 
 test('plugin family mounts the dsh-next plugins without crash markers', async ({ page }) => {
-  test.setTimeout(LIVE ? 360_000 : 300_000)
+  test.setTimeout(LIVE ? 420_000 : 360_000)
   const pageErrors: string[] = []
   const pluginConsoleErrors: string[] = []
   page.on('pageerror', (error) => { pageErrors.push(error.message) })

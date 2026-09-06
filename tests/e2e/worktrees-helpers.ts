@@ -102,6 +102,14 @@ export async function unblankCurrentSession(page: Page, text: string): Promise<v
   await composer.press('Enter')
 }
 
+/** Submit a slash command (name without the leading slash). */
+export async function runSlashCommand(page: Page, name: string): Promise<void> {
+  const composer = page.locator('[contenteditable="true"]').first()
+  await composer.click({ timeout: 15_000 })
+  await composer.fill(`/${name}`)
+  await composer.press('Enter')
+}
+
 /**
  * Wait until a generation that started after send is no longer running.
  * Live-model lanes need this before Update (running-session is a blocker).

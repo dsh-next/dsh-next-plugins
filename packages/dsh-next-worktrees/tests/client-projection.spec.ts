@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   decorateSessions,
+  ensureSettingUpSession,
   overlaySettingUp,
   projectWorkspaceSidebar,
   type WorkspaceItemLike,
@@ -224,6 +225,27 @@ describe('decorateSessions', () => {
     const byId = { s1: { id: 's1' } }
     expect(decorateSessions(byId, new Map())).toBe(byId)
   })
+
+  it('injects a stub summary for a setting-up session the store has not caught', () => {
+    const decoration = {
+      kind: 'dsh-next-worktrees' as const,
+      slug: 'swift-01',
+      title: 'swift-01',
+      branch: 'dsh-worktrees/swift-01',
+      baseRef: '',
+      primaryBranch: '',
+      path: `${REPO}/.dsh/worktrees/swift-01`,
+      workspaceId: 'wt-ws',
+      sessionIds: ['s-new'],
+      dirty: false,
+      ahead: 0,
+      merged: false,
+      conflict: false,
+      settingUp: true,
+    }
+    const decorated = decorateSessions({ s1: { id: 's1' } }, new Map([['s-new', decoration]]))
+    expect(decorated['s-new']).toMatchObject({ id: 's-new', __dshNextWorktrees: decoration })
+  })
 })
 
 describe('overlaySettingUp', () => {
@@ -260,6 +282,19 @@ describe('overlaySettingUp', () => {
     expect(decorations.get('s1')).toEqual(existing)
   })
 
+  it('flags every decoration that shares the setup slug', () => {
+    const other = { ...existing, sessionIds: ['s2'] as const }
+    const decorations = new Map([['s-other', other]])
+    const next = overlaySettingUp(decorations, {
+      slug: 'swift-01',
+      sessionId: 's1',
+      workspaceId: 'wt-ws',
+      path: existing.path,
+    })
+    expect(next.get('s-other')?.settingUp).toBe(true)
+    expect(next.get('s1')?.settingUp).toBe(true)
+  })
+
   it('synthesizes a decoration when topology has not caught up', () => {
     const next = overlaySettingUp(new Map(), {
       slug: 'swift-01',
@@ -275,5 +310,26 @@ describe('overlaySettingUp', () => {
       ahead: 0,
     })
     expect(next.get('s1')?.sessionIds).toEqual(['s1'])
+  })
+})
+
+describe('ensureSettingUpSession', () => {
+  it('appends the in-flight session onto the repo group', () => {
+    const next = ensureSettingUpSession(
+      [ws(), ws({ workspaceId: 'wt-ws', path: `${REPO}/.dsh/worktrees/swift-01`, sessionIds: [] })],
+      {
+        slug: 'swift-01',
+        sessionId: 's1',
+        workspaceId: 'wt-ws',
+        path: `${REPO}/.dsh/worktrees/swift-01`,
+      },
+    )
+    expect(next[0]!.sessionIds).toContain('s1')
+    expect(next[0]!.sessionIds).toContain('repo-session')
+  })
+
+  it('is a no-op when setup is not running', () => {
+    const workspaces = [ws()]
+    expect(ensureSettingUpSession(workspaces, undefined)).toBe(workspaces)
   })
 })

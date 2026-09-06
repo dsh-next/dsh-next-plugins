@@ -14,6 +14,7 @@
 import * as React from 'react'
 import {
   decorateSessions,
+  ensureSettingUpSession,
   overlaySettingUp,
   projectWorkspaceSidebar,
   type WorkspaceItemLike,
@@ -155,14 +156,17 @@ export function WorktreeBrowser(
   )
 
   const projectedWorkspaces = React.useMemo(
-    () => workspaceState.items
-      .filter((w) => !projection.hiddenWorkspaceIds.has(w.workspaceId))
-      .map((w) => {
-        const merged = projection.workspaces.find((p) => p.workspaceId === w.workspaceId)
-        return merged === undefined ? w : { ...w, sessionIds: merged.sessionIds }
-      }),
+    () => ensureSettingUpSession(
+      workspaceState.items
+        .filter((w) => !projection.hiddenWorkspaceIds.has(w.workspaceId))
+        .map((w) => {
+          const merged = projection.workspaces.find((p) => p.workspaceId === w.workspaceId)
+          return merged === undefined ? w : { ...w, sessionIds: merged.sessionIds }
+        }),
+      settingUp,
+    ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [workspaceState, projection],
+    [workspaceState, projection, settingUp],
   )
 
   const decorations = React.useMemo(
@@ -176,10 +180,15 @@ export function WorktreeBrowser(
     [sessionState, decorations],
   )
 
+  const projectedSessionIds = settingUp !== undefined
+    && !sessionState.ids.includes(settingUp.sessionId)
+    ? [...sessionState.ids, settingUp.sessionId]
+    : sessionState.ids
+
   const useProjectedWorkspaces = ((selector: (state: unknown) => unknown): unknown =>
     selector({ ...workspaceState, items: projectedWorkspaces })) as OfficialPropsLike['useWorkspaces']
   const useProjectedSessions = ((selector: (state: unknown) => unknown): unknown =>
-    selector({ ...sessionState, byId: projectedSessions })) as OfficialPropsLike['useSessions']
+    selector({ ...sessionState, ids: projectedSessionIds, byId: projectedSessions })) as OfficialPropsLike['useSessions']
 
   const guardedProps: Record<string, unknown> = {
     ...(officialProps as object),

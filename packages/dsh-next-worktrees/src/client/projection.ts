@@ -169,6 +169,9 @@ export function overlaySettingUp(
 ): ReadonlyMap<string, WorktreeRowDecoration> {
   if (settingUp === undefined) return decorations
   const next = new Map(decorations)
+  for (const [sessionId, decoration] of next) {
+    if (decoration.slug === settingUp.slug) next.set(sessionId, { ...decoration, settingUp: true })
+  }
   const existing = next.get(settingUp.sessionId)
   next.set(settingUp.sessionId, existing === undefined
     ? {
@@ -192,6 +195,28 @@ export function overlaySettingUp(
 }
 
 /**
+ * Pin the in-flight setup session onto its repo group so the nested row
+ * exists before the workspace store has caught up.
+ */
+export function ensureSettingUpSession(
+  workspaces: readonly WorkspaceItemLike[],
+  settingUp: SettingUpOverlay | undefined,
+): readonly WorkspaceItemLike[] {
+  if (settingUp === undefined) return workspaces
+  const parsed = parseWorktreeWorkspacePath(settingUp.path)
+  if (parsed === undefined) return workspaces
+  let attached = false
+  const next = workspaces.map((workspace) => {
+    if (isWorktreePath(workspace.path)) return workspace
+    if (!isInside(parsed.primary, workspace.path)) return workspace
+    attached = true
+    if (workspace.sessionIds.includes(settingUp.sessionId)) return workspace
+    return { ...workspace, sessionIds: [...workspace.sessionIds, settingUp.sessionId] }
+  })
+  return attached ? next : workspaces
+}
+
+/**
  * Apply decorations to session summaries: returns a new byId map where
  * re-parented sessions carry `__dshNextWorktrees` for the renderer seams.
  *
@@ -207,7 +232,10 @@ export function decorateSessions<S extends SessionSummaryLike>(
   const byId: Record<string, (S & { __dshNextWorktrees?: WorktreeRowDecoration }) | undefined> = { ...sessionsById }
   for (const [sessionId, decoration] of decorations) {
     const summary = byId[sessionId]
-    if (summary !== undefined) byId[sessionId] = { ...summary, __dshNextWorktrees: decoration }
+    byId[sessionId] = {
+      ...(summary ?? { id: sessionId } as S),
+      __dshNextWorktrees: decoration,
+    }
   }
   return byId
 }

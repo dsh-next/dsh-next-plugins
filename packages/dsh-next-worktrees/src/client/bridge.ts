@@ -41,6 +41,8 @@ export interface WorktreesBridge {
   worktreeFacts(decoration: MenuDecoration): readonly string[]
   /** A worktree menu action fired on a session row. */
   requestMenu(action: string, decoration: MenuDecoration, sessionId: string): void
+  /** Whether this slug's identity icon should spin (setup in flight). */
+  isSettingUp(slug: string): boolean
 }
 
 declare global {
@@ -72,6 +74,7 @@ export function installBridge(handlers: {
     menuLabel: handlers.menuLabel,
     worktreeFacts: handlers.worktreeFacts,
     requestMenu: handlers.requestMenu,
+    isSettingUp: (slug) => document.documentElement.dataset.dshxSettingUp === slug,
   }
   return () => {
     delete window.__dshNextWorktreesBridge

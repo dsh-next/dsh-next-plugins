@@ -275,9 +275,10 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     initGitRepo(workspaceA)
     commitFile(workspaceA, 'seed.txt', 'seed\n', 'seed')
     // Disk-read: create runs these automatically when the branch icon is
-    // clicked. Unlinked after the first success so later creates stay plain.
+    // clicked. Sleep so Playwright can observe the row-icon spinner before
+    // setup finishes. Unlinked after the first success so later creates stay plain.
     writeFileSync(join(workspaceA, '.worktrees.json'), `${JSON.stringify({
-      'setup-worktree': ['printf done > setup-ok'],
+      'setup-worktree': ['sleep 2', 'printf done > setup-ok'],
     })}\n`)
 
     await dismissOnboarding(page)
@@ -315,8 +316,11 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     // workspace -> session -> bind -> open immediately.
     const rowBaseline = await page.locator('[role="treeitem"]').count()
     await createButton.click({ force: true })
+    await expect(page.locator('html')).toHaveAttribute('data-dshx-creating', 'true')
     await expect(page.locator('[data-dshx-modal="create"]')).toHaveCount(0)
-    await expect(page.locator('[data-dshx-modal]')).toHaveCount(0, { timeout: 20_000 })
+    await expect(page.locator('html')).toHaveAttribute('data-dshx-setting-up', /.+/, { timeout: 15_000 })
+    await expect(page.locator('[data-dshx-creating-status]')).toHaveText('Setting up worktree…')
+    await expect(page.locator('[data-dshx-worktree][data-dshx-state="setting-up"]')).toBeVisible({ timeout: 15_000 })
 
     // The nested row: a worktree session re-parented under the repo group,
     // rendered with the colored branch icon (no worktree title text).
@@ -378,6 +382,9 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     // The surviving worktree is whatever the second create left bound.
     slug = registry2.bindings[0]!.slug
     await waitForCreateIdle(page)
+    // Record a turn so the sweeper will not reap this worktree when the
+    // next (failing) create opens a different session.
+    await unblankCurrentSession(page, 'keep this worktree')
 
     // A failing setup command must cancel create and leave the live
     // worktree alone (host rolls the new folder back).
@@ -394,6 +401,9 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     expect(readRegistry(workspaceA).bindings).toHaveLength(1)
     expect(readRegistry(workspaceA).bindings[0]!.slug).toBe(slug)
     unlinkSync(join(workspaceA, '.worktrees.json'))
+    // Failed create opened then archived a session; re-select the surviving
+    // worktree so the composer is back for the rest of the marker.
+    await nested.first().click({ force: true })
 
     // Visual evidence for the owned-browser redesign (light + dark ride the
     // same tokens; this shot pins the nested-identity chrome).

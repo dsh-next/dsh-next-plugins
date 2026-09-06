@@ -375,9 +375,9 @@ export function resetModalStore(): void {
  * No modal (rev 3 decision): the name is omitted so the host applies its
  * own suggestion. Order matters: the worktree exists before the workspace
  * is registered (the workspace path must resolve), the session exists
- * before the bind (the bind claims the row for the session), and the open
- * comes last so the user lands in the bound session. Setup commands run
- * after that, with the row visible and its branch icon spinning.
+ * before the bind (the bind claims the row for the session). Open comes
+ * next so the nested row exists, then setup runs with that row's branch
+ * icon spinning.
  *
  * @param input - the repo cwd plus the service/RPC faces.
  */

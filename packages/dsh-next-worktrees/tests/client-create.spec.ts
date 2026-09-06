@@ -76,16 +76,7 @@ describe('runCreateFlow', () => {
     expect(f.onTopologyRefresh).toHaveBeenCalled()
   })
 
-  it('opens the session first, then runs setup with the identity spinner', async () => {
-    const setup = vi.fn().mockImplementation(async () => {
-      expect(modalState().settingUp).toEqual({
-        slug: 'swift-01',
-        sessionId: 'session-1',
-        workspaceId: 'ws-1',
-        path: '/repos/wt-repo/.dsh/worktrees/swift-01',
-      })
-      expect(document.documentElement.dataset.dshxSettingUp).toBe('swift-01')
-    })
+  it('runs setup with the identity spinner, then opens the session', async () => {
     const f = faces({
       create: vi.fn().mockResolvedValue({
         slug: 'swift-01',
@@ -93,6 +84,16 @@ describe('runCreateFlow', () => {
         relPath: '',
         setupPending: true,
       }),
+    })
+    const setup = vi.fn().mockImplementation(async () => {
+      expect(f.sessions.open).toHaveBeenCalledWith('session-1')
+      expect(modalState().settingUp).toEqual({
+        slug: 'swift-01',
+        sessionId: 'session-1',
+        workspaceId: 'ws-1',
+        path: '/repos/wt-repo/.dsh/worktrees/swift-01',
+      })
+      expect(document.documentElement.dataset.dshxSettingUp).toBe('swift-01')
     })
     const rpc = vi.fn((method: string, args?: unknown) => {
       if (method === 'create') return f.create(args)
@@ -308,6 +309,10 @@ describe('bridge', () => {
     expect(bridge?.canCreate('/repos/wt-repo')).toBe(true)
     expect(bridge?.canCreate('/repos/plain')).toBe(false)
     expect(bridge?.canCreate(undefined)).toBe(false)
+    expect(bridge?.isSettingUp('swift-01')).toBe(false)
+    document.documentElement.dataset.dshxSettingUp = 'swift-01'
+    expect(bridge?.isSettingUp('swift-01')).toBe(true)
+    delete document.documentElement.dataset.dshxSettingUp
     expect(bridge?.createLabel('wt-repo')).toBe('New worktree in wt-repo')
     uninstall()
     expect(window.__dshNextWorktreesBridge).toBeUndefined()

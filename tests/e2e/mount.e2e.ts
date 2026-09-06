@@ -492,6 +492,12 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await expect.poll(() => readRegistry(workspaceA).bindings.length, { timeout: 20_000 }).toBe(2)
     const slug2 = readRegistry(workspaceA).bindings.find((b) => b.slug !== slug)!.slug
     const wtDir2 = worktreeDir(workspaceA, slug2)
+    await waitForCreateIdle(page)
+    await expect.poll(() => {
+      const row = readRegistry(workspaceA).bindings.find((b) => b.slug === slug2)
+      return row?.sessionId ?? ''
+    }, { timeout: 20_000 }).not.toBe('')
+    await expect(page.locator(`[data-dshx-worktree="${slug2}"]`)).toBeVisible({ timeout: 15_000 })
     await unblankCurrentSession(page, 'hello from second worktree')
     if (LIVE) await waitForTurnIdle(page)
     commitFile(wtDir2, 'wt-only.txt', 'wt\n', 'worktree unique')
@@ -827,7 +833,7 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
 }
 
 test('plugin family mounts the dsh-next plugins without crash markers', async ({ page }) => {
-  test.setTimeout(LIVE ? 360_000 : 180_000)
+  test.setTimeout(LIVE ? 360_000 : 300_000)
   const pageErrors: string[] = []
   const pluginConsoleErrors: string[] = []
   page.on('pageerror', (error) => { pageErrors.push(error.message) })

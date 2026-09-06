@@ -87,12 +87,12 @@ export async function waitForCreateIdle(page: Page): Promise<void> {
 }
 
 export async function openWorktreeMenu(page: Page, slug: string): Promise<void> {
-  const nestedRow = page.locator('[role="treeitem"]').filter({
-    has: page.locator(`[data-dshx-worktree="${slug}"]`),
-  })
-  await nestedRow.hover()
-  await expect(nestedRow.locator('button').first()).toBeVisible({ timeout: 20_000 })
-  await nestedRow.locator('button').last().click({ force: true })
+  const icon = page.locator(`[data-dshx-worktree="${slug}"]`)
+  await expect(icon).toBeVisible({ timeout: 20_000 })
+  const nestedRow = page.locator('[role="treeitem"]').filter({ has: icon })
+  await nestedRow.scrollIntoViewIfNeeded()
+  await nestedRow.hover({ force: true })
+  await nestedRow.locator('button').last().click({ force: true, timeout: 20_000 })
 }
 
 export async function unblankCurrentSession(page: Page, text: string): Promise<void> {

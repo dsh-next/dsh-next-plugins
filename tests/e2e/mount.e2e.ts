@@ -34,6 +34,7 @@ import {
   refreshWorktrees,
   registryPath,
   unblankCurrentSession,
+  waitForCreateIdle,
   waitForTurnIdle,
   worktreeDir,
 } from './worktrees-helpers.ts'
@@ -310,11 +311,12 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     expect(existsSync(worktreeDir(workspaceA, registry2.bindings[0]!.slug))).toBe(true)
     // The surviving worktree is whatever the second create left bound.
     slug = registry2.bindings[0]!.slug
+    await waitForCreateIdle(page)
 
     // A failing setup command must cancel create and leave the live
     // worktree alone (host rolls the new folder back).
     writeFileSync(join(workspaceA, '.worktrees.json'), `${JSON.stringify({
-      'setup-worktree': ['false'],
+      'setup-worktree': ['exit 1'],
     })}\n`)
     await repoRow.hover()
     await createButton.click({ force: true })

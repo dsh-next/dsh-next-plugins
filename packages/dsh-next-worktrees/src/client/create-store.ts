@@ -108,6 +108,9 @@ function emit(): void {
 
 function set(next: ModalState): void {
   state = next
+  if (typeof document !== 'undefined') {
+    document.documentElement.dataset.dshxCreating = next.creating ? 'true' : 'false'
+  }
   emit()
 }
 

@@ -79,6 +79,13 @@ export async function refreshWorktrees(page: Page): Promise<void> {
   await page.evaluate(() => { window.dispatchEvent(new Event('dsh-next-worktrees:refresh')) })
 }
 
+/** Wait until the auto-named create flow is idle (re-entry guard is off). */
+export async function waitForCreateIdle(page: Page): Promise<void> {
+  await expect(page.locator('html')).toHaveAttribute('data-dshx-creating', 'false', {
+    timeout: 20_000,
+  })
+}
+
 export async function openWorktreeMenu(page: Page, slug: string): Promise<void> {
   const nestedRow = page.locator('[role="treeitem"]').filter({
     has: page.locator(`[data-dshx-worktree="${slug}"]`),

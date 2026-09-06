@@ -84,6 +84,7 @@ describe('runCreateFlow', () => {
       onTopologyRefresh: () => {},
     })
     await vi.waitFor(() => { expect(modalState().creating).toBe(true) })
+    expect(document.documentElement.dataset.dshxCreating).toBe('true')
     await runCreateFlow({
       cwd: '/r',
       rpc: rpcOf(f.create),

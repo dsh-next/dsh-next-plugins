@@ -66,6 +66,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
+      # Install uses --ignore-scripts, so lib/ and the gitignored derived
+      # workspace browser are missing. npm publish runs `prepare`; worktrees
+      # prepare is the full build. Building here too keeps the other packages
+      # consistent and fails the job before publish if derive/tsdown breaks.
+      - name: Build packages
+        run: pnpm build
+
       - name: Configure npm auth for @dsh-next
         run: |
           printf '//registry.npmjs.org/:_authToken=%s\n' "${NPM_TOKEN}" > ~/.npmrc

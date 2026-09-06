@@ -52,7 +52,7 @@
     "build": "node scripts/derive-workspace-browser.mjs && tsc -p tsconfig.build.json && tsdown",
     "derive": "node scripts/derive-workspace-browser.mjs",
     "check:browser": "node scripts/check-workspace-browser.mjs",
-    "prepare": "tsdown",
+    "prepare": "node scripts/derive-workspace-browser.mjs && tsc -p tsconfig.build.json && tsdown",
     "watch": "tsdown --watch",
     "test": "vitest run",
     "typecheck": "node scripts/derive-workspace-browser.mjs && tsc --noEmit"

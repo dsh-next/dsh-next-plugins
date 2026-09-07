@@ -10,6 +10,10 @@ export default defineConfig({
   // install/refresh flows through the real GUI, which needs well over the
   // 30s default.
   timeout: 300_000,
+  // One DSH server is shared across the e2e files (e2e-mount.sh). Parallel
+  // workers would race sessions and the workspace fixtures.
+  workers: 1,
+  fullyParallel: false,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
   use: {

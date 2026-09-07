@@ -934,6 +934,18 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await settings.getByRole('button', { name: 'Close' }).click({ force: true })
     await page.waitForTimeout(300)
   },
+
+  // Tab is registered. Full inspect/rewind coverage lives in
+  // tests/e2e/checkpoints.e2e.ts so this marker does not create sessions or git
+  // repos that the worktrees fixture depends on staying clean.
+  'dsh-next-checkpoints': async (page) => {
+    await dismissOnboarding(page)
+    const tab = page.getByRole('tab', { name: 'Checkpoints' })
+    if (await tab.isVisible().catch(() => false)) {
+      await tab.click({ force: true })
+      await expect(page.getByTestId('dsh-next-checkpoints')).toBeVisible({ timeout: 15_000 })
+    }
+  },
 }
 
 test('plugin family mounts the dsh-next plugins without crash markers', async ({ page }) => {
@@ -974,7 +986,13 @@ test('plugin family mounts the dsh-next plugins without crash markers', async ({
   expect(pluginConsoleErrors, 'plugin console errors').toEqual([])
 
   // Per-plugin DOM markers: drive to each plugin's UI and assert it works.
-  for (const pkg of pluginIds) {
+  // Checkpoints mutates the current session cwd (git + files); run it last so
+  // worktrees can still assert workspace-b is not a repo.
+  const markerPkgs = [
+    ...pluginIds.filter((pkg) => bareId(pkg) !== 'dsh-next-checkpoints'),
+    ...pluginIds.filter((pkg) => bareId(pkg) === 'dsh-next-checkpoints'),
+  ]
+  for (const pkg of markerPkgs) {
     const marker = pluginMarkers[bareId(pkg)]
     if (marker) await marker(page)
   }

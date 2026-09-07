@@ -230,6 +230,9 @@ say "booting dsh --profile smoke (port=$PORT)"
 # (DEEPSEEK_API_KEY), so a model provider is "ready" and no API-key onboarding
 # modal blocks the lane.
 export DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY:-fake-e2e-key}"
+# Checkpoints `capture` RPC is harness-only (no live model). Production
+# profiles leave it disabled.
+export DSH_NEXT_CHECKPOINTS_CAPTURE=1
 # shellcheck disable=SC2086
 $DSH_CMD --profile smoke --no-open --port "$PORT" > "$WEB_LOG" 2>&1 &
 SERVER_PID=$!
@@ -249,10 +252,12 @@ done
 [ -n "$URL" ] || { echo "=== no dsh web URL after 150s; log tail ===" >&2; tail -40 "$WEB_LOG" >&2 || true; exit 1; }
 say "dsh web ready at $URL (pid $SERVER_PID)"
 
-# Run the headless render lane.
-say "running Playwright headless mount smoke"
+# Run the headless render lane. Default is the family mount smoke; set
+# E2E_SPECS to a spec path (e.g. tests/e2e/checkpoints.e2e.ts) for a
+# dedicated plugin lane on the same boot recipe.
+say "running Playwright headless ${E2E_SPECS:-tests/e2e/mount.e2e.ts}"
 DSH_E2E_URL="$URL" DSH_E2E_PLUGINS="$PLUGIN_IDS" DSH_E2E_LIVE="${DSH_E2E_LIVE:-}" \
   DSH_HOME="$DSH_HOME" DSH_AGENTS_HOME="$DSH_AGENTS_HOME" \
-  pnpm exec playwright test
+  pnpm exec playwright test ${E2E_SPECS:-tests/e2e/mount.e2e.ts}
 
 say "pass: plugin family mounted into a real DSH with no crash markers"

@@ -16,6 +16,7 @@ import {
   subscribeModal,
 } from '../src/client/create-store.ts'
 import { installBridge, updateBridgeFacts } from '../src/client/bridge.ts'
+import { WorktreesRpcError } from '../src/client/rpc.ts'
 import { WORKTREE_STYLES } from '../src/client/styles.ts'
 
 beforeEach(() => {
@@ -190,6 +191,7 @@ describe('runCreateFlow', () => {
       onTopologyRefresh: () => {},
     })
     expect(modalState().kind).toBe('create-error')
+    expect(modalState().createErrorKind).toBe('create')
     expect(modalState().createError).toContain('cannot lock ref')
     expect(modalState().creating).toBe(false)
     expect(f.workspaces.create).not.toHaveBeenCalled()
@@ -243,10 +245,11 @@ describe('runCreateFlow', () => {
     expect(workspaces.delete).toHaveBeenCalledWith('ws-1')
     expect(sessions.open).not.toHaveBeenCalled()
     expect(modalState().kind).toBe('create-error')
+    expect(modalState().createErrorKind).toBe('create')
     expect(modalState().createError).toContain('session store down')
   })
 
-  it('rolls back the session and worktree when setup fails', async () => {
+  it('keeps the session and worktree when setup fails', async () => {
     const remove = vi.fn().mockResolvedValue(undefined)
     const workspaces = {
       create: vi.fn().mockResolvedValue({ workspaceId: 'ws-1' }),
@@ -266,28 +269,34 @@ describe('runCreateFlow', () => {
           setupPending: true,
         })
       }
-      if (method === 'setup') return Promise.reject(new Error('setup command failed: pnpm install'))
+      if (method === 'setup') {
+        return Promise.reject(new WorktreesRpcError(
+          'setup-failed',
+          'setup command failed: pnpm install',
+          'ERR_PNPM_LOCKED: Waiting for the other process to finish',
+        ))
+      }
       if (method === 'remove') return remove(args)
       return Promise.resolve({})
     })
+    const onTopologyRefresh = vi.fn()
     await runCreateFlow({
       cwd: '/repos/wt-repo',
       rpc,
       workspaces,
       sessions,
-      onTopologyRefresh: vi.fn(),
+      onTopologyRefresh,
     })
     expect(sessions.open).toHaveBeenCalledWith('session-1')
-    expect(workspaces.archiveSession).toHaveBeenCalledWith('session-1')
-    expect(remove).toHaveBeenCalledWith({
-      cwd: '/repos/wt-repo/.dsh/worktrees/swift-01',
-      slug: 'swift-01',
-      force: true,
-    })
-    expect(workspaces.delete).toHaveBeenCalledWith('ws-1')
+    expect(onTopologyRefresh).toHaveBeenCalled()
+    expect(workspaces.archiveSession).not.toHaveBeenCalled()
+    expect(remove).not.toHaveBeenCalled()
+    expect(workspaces.delete).not.toHaveBeenCalled()
     expect(modalState().kind).toBe('create-error')
+    expect(modalState().createErrorKind).toBe('setup')
     expect(modalState().settingUp).toBeUndefined()
-    expect(modalState().createError).toContain('setup command failed')
+    expect(modalState().createError).toContain('setup command failed: pnpm install')
+    expect(modalState().createError).toContain('ERR_PNPM_LOCKED')
   })
 })
 

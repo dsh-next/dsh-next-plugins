@@ -15,6 +15,7 @@ import {
   type WorktreeModalTarget,
 } from '../src/client/create-store.ts'
 import { englishTranslate, type MessageKey } from '../src/client/dictionaries.ts'
+import { WorktreesRpcError } from '../src/client/rpc.ts'
 import type { SessionsServiceLike, Translate, WorkspacesServiceLike } from '../src/client/types.ts'
 
 const target: WorktreeModalTarget = {
@@ -125,6 +126,45 @@ describe('create-in-progress status', () => {
     })
     const node = await mount()
     expect(node.querySelector('[data-dshx-creating-status]')).toBeNull()
+  })
+
+  it('shows the setup command output on a create-error', async () => {
+    await runCreateFlow({
+      cwd: '/repos/wt-repo',
+      rpc: async (method) => {
+        if (method === 'create') {
+          return {
+            slug: 'swift-01',
+            path: '/repos/wt-repo/.dsh/worktrees/swift-01',
+            relPath: '',
+            setupPending: true,
+          }
+        }
+        if (method === 'setup') {
+          throw new WorktreesRpcError(
+            'setup-failed',
+            'setup command failed: pnpm install',
+            'ERR_PNPM_LOCKED: Waiting for the other process to finish',
+          )
+        }
+        return {}
+      },
+      workspaces: {
+        create: async () => ({ workspaceId: 'ws' }),
+        delete: async () => {},
+        archiveSession: async () => {},
+      },
+      sessions: { create: async () => 's', open: () => {} },
+      onTopologyRefresh: () => {},
+    })
+    const node = await mount()
+    const modal = node.querySelector('[data-dshx-modal="create-error"]')
+    expect(modal?.getAttribute('data-dshx-create-error')).toBe('setup')
+    expect(node.querySelector('.dshx-modalTitle')?.textContent).toBe('Worktree created, but setup failed')
+    expect(node.querySelector('.dshx-fieldHint')?.textContent).toContain('worktree and session are ready')
+    const body = node.querySelector('[data-dshx-error]')?.textContent ?? ''
+    expect(body).toContain('setup command failed: pnpm install')
+    expect(body).toContain('ERR_PNPM_LOCKED')
   })
 })
 

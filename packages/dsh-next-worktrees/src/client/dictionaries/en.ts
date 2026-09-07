@@ -73,6 +73,8 @@ export const en = {
   'create.settingUp': 'Setting up worktree…',
   'create.error.title': 'Could not create the worktree',
   'create.error.hint': 'Nothing was changed; resolve the issue above and click again.',
+  'create.setupFailed.title': 'Worktree created, but setup failed',
+  'create.setupFailed.hint': 'The worktree and session are ready. Run the setup command in this session, or delete the worktree.',
   'create.error.ok': 'OK',
   'create.cancel': 'Cancel',
 }

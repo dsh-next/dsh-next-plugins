@@ -21,7 +21,7 @@ import {
   rowsForSlug,
   type WorktreeBinding,
 } from '../core/registry.ts'
-import { nextSlug, normalizeName, suggestName, displayTitle } from '../core/slug.ts'
+import { nextSlug, normalizeName, suggestName, displayTitle, slugFromPluginRef } from '../core/slug.ts'
 import {
   parseWorktreesJson,
   resolveSetupSteps,
@@ -78,6 +78,8 @@ export interface ServicePorts {
   readonly platform?: string
   /** Seed for deterministic slug/name generation in tests. */
   readonly seed?: number
+  /** Clock for the UTC slug stamp; tests pin this, production uses Date.now(). */
+  readonly now?: number
 }
 
 /** Preflight answer for a workspace cwd. */
@@ -266,12 +268,13 @@ export class WorktreesService {
       throw new WorktreeFlowError('already-in-worktree',
         'worktrees never nest inside another worktree')
     }
-    const [baseRef, hasCommits, bindings] = await Promise.all([
+    const [baseRef, hasCommits, bindings, pluginBranches] = await Promise.all([
       input.baseRef === undefined
         ? this.ports.git.defaultBaseRef(input.cwd)
         : Promise.resolve(input.baseRef),
       this.ports.git.refExists(input.cwd, 'HEAD'),
       this.reconciled(placement.primary),
+      this.ports.git.listPluginBranches(placement.primary),
     ])
     if (!hasCommits) {
       throw new WorktreeFlowError('no-commits', 'the repository has no commits to branch from')
@@ -283,10 +286,15 @@ export class WorktreesService {
       throw new WorktreeFlowError('no-commits', 'the repository has no commits to branch from')
     }
     const registryPath = `${placement.primary}/.dsh/worktrees/registry.json`
+    const now = this.ports.now ?? Date.now()
     const taken = [
       ...bindings.map((b) => b.slug),
+      ...pluginBranches.flatMap((ref) => {
+        const slug = slugFromPluginRef(ref)
+        return slug === undefined ? [] : [slug]
+      }),
     ]
-    const slug = nextSlug({ takenSlugs: taken, seed: this.ports.seed })
+    const slug = nextSlug({ takenSlugs: taken, seed: this.ports.seed ?? now, now })
     const name = normalizeName(input.name ?? '')
     const path = `${placement.worktreesRoot}/${slug}`
     const branch = `dsh-worktrees/${slug}`
@@ -341,24 +349,18 @@ export class WorktreesService {
   }
 
   /**
-   * Run `.worktrees.json` in an already-created worktree. Failed or
-   * invalid setup drops the worktree so the client can roll the session
-   * back and keep the "nothing was changed" error hint.
+   * Run `.worktrees.json` in an already-created worktree. A failed command
+   * throws and leaves the worktree (the session is already open; the user
+   * can finish setup by hand or delete the row).
    */
   async setup(input: { cwd: string; slug: string }): Promise<void> {
     const placement = await this.ports.git.placement(input.cwd).catch(fromGit)
-    const registryPath = `${placement.primary}/.dsh/worktrees/registry.json`
     const bindings = await this.reconciled(placement.primary)
     const row = rowsForSlug(bindings, input.slug)[0]
     if (row === undefined) {
       throw new WorktreeFlowError('unknown-slug', `no worktree bound to slug ${input.slug}`)
     }
-    try {
-      await this.runWorktreesSetup(placement.primary, row.path)
-    } catch (error) {
-      await this.dropCreatedWorktree(placement.primary, registryPath, row.path, row.slug)
-      throw error
-    }
+    await this.runWorktreesSetup(placement.primary, row.path)
   }
 
   /**
@@ -434,7 +436,7 @@ export class WorktreesService {
   /**
    * Run `.dsh/worktrees.json` (local override) or `.worktrees.json` at the
    * repo root. Missing file → no-op. Invalid file or a failed command
-   * throws; the caller rolls the worktree back.
+   * throws; the worktree stays so the user can retry or delete.
    */
   private async runWorktreesSetup(primary: string, worktreePath: string): Promise<void> {
     const readText = this.ports.readText
@@ -470,7 +472,7 @@ export class WorktreesService {
         throw new WorktreeFlowError(
           'setup-failed',
           `setup command failed: ${label}`,
-          (result.stderr || result.stdout).trim() || undefined,
+          clipSetupOutput(result.stderr || result.stdout),
         )
       }
     }
@@ -895,6 +897,15 @@ function parentDir(path: string): string {
   const posix = path.replace(/\\/g, '/')
   const at = posix.lastIndexOf('/')
   return at <= 0 ? posix : posix.slice(0, at)
+}
+
+const SETUP_OUTPUT_MAX = 4_000
+
+/** Tail of a failed setup command, if anything was printed. */
+function clipSetupOutput(raw: string): string | undefined {
+  const trimmed = raw.trim()
+  if (trimmed === '') return undefined
+  return trimmed.length <= SETUP_OUTPUT_MAX ? trimmed : trimmed.slice(-SETUP_OUTPUT_MAX)
 }
 
 /** Name suggestion for the create modal prefill. */

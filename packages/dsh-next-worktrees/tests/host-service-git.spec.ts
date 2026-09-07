@@ -259,7 +259,7 @@ describe('WorktreesService real-git setup', { timeout: 15_000 }, () => {
     expect(existsSync(join(created.path, 'setup-ok'))).toBe(true)
   })
 
-  it('does not leave a worktree when setup fails', async () => {
+  it('leaves the worktree when setup fails', async () => {
     const h = await harness()
     await writeFile(join(h.dir, '.worktrees.json'), JSON.stringify({
       'setup-worktree': ['false'],
@@ -269,6 +269,7 @@ describe('WorktreesService real-git setup', { timeout: 15_000 }, () => {
       code: 'setup-failed',
     })
     const listing = runGit(h.dir, ['worktree', 'list', '--porcelain'])
-    expect(listing.split('\n').filter((line) => line.startsWith('worktree '))).toHaveLength(1)
+    expect(listing.split('\n').filter((line) => line.startsWith('worktree '))).toHaveLength(2)
+    expect(existsSync(created.path)).toBe(true)
   })
 })

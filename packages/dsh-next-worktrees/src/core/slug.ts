@@ -1,11 +1,18 @@
 /**
  * Pure slug and name generation.
  *
- * Locked rules: the slug is generated (`[a-z]+-\d{2}`) and is the only
- * thing that ever reaches a branch name; the user-typed Name is a display
- * title only — user text never becomes a ref (PII the moment someone
- * pushes). Branches read `dsh-worktrees/<slug>`.
+ * Locked rules: the slug is generated (`[a-z]+-YYYYMMDDHHmm` UTC) and is
+ * the only thing that ever reaches a branch name; the user-typed Name is a
+ * display title only — user text never becomes a ref (PII the moment
+ * someone pushes). Branches read `dsh-worktrees/<slug>`.
+ *
+ * Legacy rows may still use `[a-z]+-\d{2}` (`sable-01`). New creates never
+ * reuse that shape, so a leftover branch from Delete cannot collide with
+ * the next click.
  */
+
+/** Plugin-owned branch prefix. The slug is everything after this. */
+export const PLUGIN_REF_PREFIX = 'dsh-worktrees/'
 
 /** Slug words: short, lowercase, branch-safe, collision-resistant by pair. */
 const SLUG_WORDS = [
@@ -25,6 +32,9 @@ const NAME_NOUNS = [
   'pebble', 'cinder', 'juniper',
 ] as const
 
+const MINUTE_MS = 60_000
+const MAX_MINUTE_SHIFTS = 24 * 60
+
 /** Deterministic picker so tests (and retry paths) stay reproducible. */
 function pick<T>(list: readonly T[], seed: number): T {
   return list[seed % list.length] as T
@@ -33,29 +43,67 @@ function pick<T>(list: readonly T[], seed: number): T {
 export interface SlugInput {
   /** Existing slugs in this repo (registry rows and live branches alike). */
   readonly takenSlugs: readonly string[]
-  /** Caller-supplied entropy; defaults to time so production runs vary. */
+  /** Caller-supplied entropy; defaults to `now` so production runs vary. */
   readonly seed?: number
+  /** Clock for the UTC stamp; defaults to `Date.now()`. */
+  readonly now?: number
 }
 
 /**
- * Generate the next `[a-z]+-\d{2}` slug that is free in this repo.
+ * UTC `YYYYMMDDHHmm` stamp used in generated slugs.
  *
- * @param input - taken slugs plus entropy.
+ * @param ms - epoch milliseconds.
+ * @returns twelve digits, zero-padded.
+ */
+export function formatSlugStamp(ms: number): string {
+  const date = new Date(ms)
+  const year = String(date.getUTCFullYear()).padStart(4, '0')
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(date.getUTCDate()).padStart(2, '0')
+  const hour = String(date.getUTCHours()).padStart(2, '0')
+  const minute = String(date.getUTCMinutes()).padStart(2, '0')
+  return `${year}${month}${day}${hour}${minute}`
+}
+
+/**
+ * The slug encoded in a plugin branch ref, if this is one of ours.
+ *
+ * Accepts `dsh-worktrees/<slug>` and `refs/heads/dsh-worktrees/<slug>`.
+ *
+ * @param ref - a branch name or fully-qualified ref.
+ * @returns the slug, or undefined when the ref is not plugin-owned.
+ */
+export function slugFromPluginRef(ref: string): string | undefined {
+  const short = ref.startsWith('refs/heads/') ? ref.slice('refs/heads/'.length) : ref
+  if (!short.startsWith(PLUGIN_REF_PREFIX)) return undefined
+  const slug = short.slice(PLUGIN_REF_PREFIX.length)
+  return slug === '' ? undefined : slug
+}
+
+/**
+ * Generate the next `[a-z]+-YYYYMMDDHHmm` slug that is free in this repo.
+ *
+ * The word is picked from the table; the stamp is UTC to the minute. When
+ * that pair is taken, other words at the same minute are tried, then the
+ * stamp steps forward one minute at a time.
+ *
+ * @param input - taken slugs plus entropy and clock.
  * @returns a slug not present in `takenSlugs`.
  */
 export function nextSlug(input: SlugInput): string {
-  const seed = input.seed ?? Date.now()
+  const now = input.now ?? Date.now()
+  const seed = input.seed ?? now
   const taken = new Set(input.takenSlugs)
-  for (let attempt = 0; attempt < SLUG_WORDS.length * 40; attempt += 1) {
-    const word = pick(SLUG_WORDS, seed + attempt * 7)
-    for (let index = 1; index <= 40; index += 1) {
-      const slug = `${word}-${String(index).padStart(2, '0')}`
+  for (let minute = 0; minute < MAX_MINUTE_SHIFTS; minute += 1) {
+    const stamp = formatSlugStamp(now + minute * MINUTE_MS)
+    for (let attempt = 0; attempt < SLUG_WORDS.length; attempt += 1) {
+      const word = pick(SLUG_WORDS, seed + attempt * 7)
+      const slug = `${word}-${stamp}`
       if (!taken.has(slug)) return slug
     }
   }
-  // Exhausted the table: fall back to a time-derived suffix. Unreachable in
-  // practice (880 combinations per repo), but generation must never throw.
-  return `wt-${String(seed % 9973).padStart(4, '0')}`
+  // Exhausted a day's worth of minute/word pairs: still must not throw.
+  return `wt-${formatSlugStamp(now)}-${String(seed % 9973).padStart(4, '0')}`
 }
 
 /**

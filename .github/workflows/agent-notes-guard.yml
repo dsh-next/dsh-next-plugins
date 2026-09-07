@@ -18,6 +18,7 @@ jobs:
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
+          SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
         run: |
           files="$(gh api "repos/$REPO/pulls/$PR_NUMBER/files" --paginate --jq '.[].filename' | grep '^\.agents/notes/' || true)"
           if [ -z "$files" ]; then
@@ -25,6 +26,12 @@ jobs:
             exit 0
           fi
           printf 'This PR modifies the protected Agent Notes path:\n%s\n' "$files"
+          # Same-repo branches already require write access. Actions often
+          # reports private org members as CONTRIBUTOR, which is not MEMBER.
+          if [ "$SAME_REPO" = "true" ]; then
+            echo "Same-repository PR (association '$AUTHOR_ASSOCIATION') may modify .agents/notes; guard passed."
+            exit 0
+          fi
           case "$AUTHOR_ASSOCIATION" in
             OWNER|COLLABORATOR|MEMBER)
               echo "Author association '$AUTHOR_ASSOCIATION' may modify .agents/notes; guard passed."

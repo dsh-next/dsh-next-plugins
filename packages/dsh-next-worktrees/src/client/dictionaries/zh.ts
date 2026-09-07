@@ -65,6 +65,8 @@ export const zh: Record<MessageKey, string> = {
   'delete.confirm.force': '仍要移除',
   'delete.confirm.cancel': '取消',
   'create.title': '在 {repo} 中新建工作树',
+  'create.working': '正在创建工作树…',
+  'create.settingUp': '正在设置工作树…',
   'create.error.title': '无法创建工作树',
   'create.error.hint': '未做任何更改；请先解决上述问题，然后重试。',
   'create.error.ok': '好',

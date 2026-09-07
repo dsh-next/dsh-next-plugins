@@ -69,6 +69,8 @@ export const en = {
   'delete.confirm.force': 'Remove anyway',
   'delete.confirm.cancel': 'Cancel',
   'create.title': 'New worktree in {repo}',
+  'create.working': 'Creating worktree…',
+  'create.settingUp': 'Setting up worktree…',
   'create.error.title': 'Could not create the worktree',
   'create.error.hint': 'Nothing was changed; resolve the issue above and click again.',
   'create.error.ok': 'OK',

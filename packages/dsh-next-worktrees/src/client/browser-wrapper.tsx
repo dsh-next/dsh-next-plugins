@@ -14,11 +14,13 @@
 import * as React from 'react'
 import {
   decorateSessions,
+  ensureSettingUpSession,
+  overlaySettingUp,
   projectWorkspaceSidebar,
   type WorkspaceItemLike,
 } from './projection.ts'
 import { updateBridgeFacts } from './bridge.ts'
-import { modalState } from './create-store.ts'
+import { modalState, subscribeModal } from './create-store.ts'
 import { rpc, REFRESH_EVENT, requestTopologyRefresh, type WorktreeTopology } from './rpc.ts'
 import { sweepAbandonedWorktrees } from './sweeper.ts'
 
@@ -77,6 +79,11 @@ export function WorktreeBrowser(
     ? officialProps.useSessions((state: SessionStateLike) => state) as SessionStateLike
     : { ids: [], byId: {} }
 
+  const settingUp = React.useSyncExternalStore(
+    subscribeModal,
+    () => modalState().settingUp,
+    () => undefined,
+  )
   const [topology, setTopology] = React.useState<WorktreeTopology>(EMPTY_TOPOLOGY)
   const workspaceKey = workspaceState.items
     .map((w) => `${w.workspaceId}:${w.sessionIds.join(',')}`)
@@ -149,33 +156,46 @@ export function WorktreeBrowser(
   )
 
   const projectedWorkspaces = React.useMemo(
-    () => workspaceState.items
-      .filter((w) => !projection.hiddenWorkspaceIds.has(w.workspaceId))
-      .map((w) => {
-        const merged = projection.workspaces.find((p) => p.workspaceId === w.workspaceId)
-        return merged === undefined ? w : { ...w, sessionIds: merged.sessionIds }
-      }),
+    () => ensureSettingUpSession(
+      workspaceState.items
+        .filter((w) => !projection.hiddenWorkspaceIds.has(w.workspaceId))
+        .map((w) => {
+          const merged = projection.workspaces.find((p) => p.workspaceId === w.workspaceId)
+          return merged === undefined ? w : { ...w, sessionIds: merged.sessionIds }
+        }),
+      settingUp,
+    ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [workspaceState, projection],
+    [workspaceState, projection, settingUp],
+  )
+
+  const decorations = React.useMemo(
+    () => overlaySettingUp(projection.decorations, settingUp),
+    [projection, settingUp],
   )
 
   const projectedSessions = React.useMemo(
-    () => decorateSessions(sessionState.byId, projection.decorations),
+    () => decorateSessions(sessionState.byId, decorations),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sessionState, projection],
+    [sessionState, decorations],
   )
+
+  const projectedSessionIds = settingUp !== undefined
+    && !sessionState.ids.includes(settingUp.sessionId)
+    ? [...sessionState.ids, settingUp.sessionId]
+    : sessionState.ids
 
   const useProjectedWorkspaces = ((selector: (state: unknown) => unknown): unknown =>
     selector({ ...workspaceState, items: projectedWorkspaces })) as OfficialPropsLike['useWorkspaces']
   const useProjectedSessions = ((selector: (state: unknown) => unknown): unknown =>
-    selector({ ...sessionState, byId: projectedSessions })) as OfficialPropsLike['useSessions']
+    selector({ ...sessionState, ids: projectedSessionIds, byId: projectedSessions })) as OfficialPropsLike['useSessions']
 
   const guardedProps: Record<string, unknown> = {
     ...(officialProps as object),
     useWorkspaces: useProjectedWorkspaces,
     useSessions: useProjectedSessions,
     forkSession: (sessionId: string): void | Promise<void> => {
-      if (projection.decorations.has(sessionId)) return
+      if (decorations.has(sessionId)) return
       return officialProps.forkSession?.(sessionId)
     },
     insertSessionBefore: (
@@ -183,8 +203,8 @@ export function WorktreeBrowser(
       sessionId: string,
       beforeSessionId?: string,
     ): void | Promise<void> => {
-      if (projection.decorations.has(sessionId)) return
-      if (beforeSessionId !== undefined && projection.decorations.has(beforeSessionId)) return
+      if (decorations.has(sessionId)) return
+      if (beforeSessionId !== undefined && decorations.has(beforeSessionId)) return
       if (projection.hiddenWorkspaceIds.has(workspaceId)) return
       return officialProps.insertSessionBefore?.(workspaceId, sessionId, beforeSessionId)
     },

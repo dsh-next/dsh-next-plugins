@@ -76,11 +76,13 @@ class FakeGit implements GitPorts {
 
   async addWorktree(input: { primary: string; path: string; branch: string; baseRef: string }): Promise<void> {
     this.addCalls.push(input)
+    this.worktrees = [...this.worktrees, { path: input.path, branch: input.branch }]
     await this.addImpl?.(input)
   }
 
   async removeWorktree(input: { primary: string; path: string; force: boolean }): Promise<void> {
     this.removeCalls.push(input)
+    this.worktrees = this.worktrees.filter((entry) => entry.path !== input.path)
     await this.removeImpl?.(input)
   }
 
@@ -304,6 +306,7 @@ describe('create', () => {
       branch: `dsh-worktrees/${expectedSlug}`,
       baseRef: 'origin/HEAD',
       relPath: '',
+      setupPending: false,
     })
     expect(h.git.addCalls).toEqual([{
       primary: PRIMARY,
@@ -391,12 +394,15 @@ describe('create', () => {
     ])
   })
 
-  it('runs setup-worktree commands from .worktrees.json in the new tree', async () => {
+  it('defers setup-worktree commands until setup() so the session row can appear', async () => {
     const h = harness()
     h.files.set(`${PRIMARY}/.worktrees.json`, JSON.stringify({
       'setup-worktree': ['pnpm install', 'cp "$ROOT_WORKTREE_PATH/.env" .env'],
     }))
-    await h.service.create({ cwd: PRIMARY })
+    const created = await h.service.create({ cwd: PRIMARY })
+    expect(created.setupPending).toBe(true)
+    expect(h.commands).toEqual([])
+    await h.service.setup({ cwd: PRIMARY, slug: created.slug })
     expect(h.commands).toEqual([
       expect.objectContaining({
         command: 'pnpm install',
@@ -411,7 +417,8 @@ describe('create', () => {
     const h = harness()
     h.files.set(`${PRIMARY}/.worktrees.json`, JSON.stringify({ 'setup-worktree': ['root'] }))
     h.files.set(`${PRIMARY}/.dsh/worktrees.json`, JSON.stringify({ 'setup-worktree': ['local'] }))
-    await h.service.create({ cwd: PRIMARY })
+    const created = await h.service.create({ cwd: PRIMARY })
+    await h.service.setup({ cwd: PRIMARY, slug: created.slug })
     expect(h.commands.map((c) => c.command)).toEqual(['local'])
   })
 
@@ -419,7 +426,9 @@ describe('create', () => {
     const h = harness()
     h.files.set(`${PRIMARY}/.worktrees.json`, JSON.stringify({ 'setup-worktree': ['false'] }))
     h.commandImpl = () => ({ code: 1, stdout: '', stderr: 'nope' })
-    await expect(h.service.create({ cwd: PRIMARY })).rejects.toMatchObject({
+    const created = await h.service.create({ cwd: PRIMARY })
+    expect(created.setupPending).toBe(true)
+    await expect(h.service.setup({ cwd: PRIMARY, slug: created.slug })).rejects.toMatchObject({
       code: 'setup-failed',
     })
     expect(h.git.removeCalls).toEqual([expect.objectContaining({ force: true })])

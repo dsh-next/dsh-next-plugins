@@ -253,6 +253,9 @@ describe('WorktreesService real-git setup', { timeout: 15_000 }, () => {
       'setup-worktree': ['printf done > setup-ok'],
     }))
     const created = await h.service.create({ cwd: h.dir })
+    expect(created.setupPending).toBe(true)
+    expect(existsSync(join(created.path, 'setup-ok'))).toBe(false)
+    await h.service.setup({ cwd: created.path, slug: created.slug })
     expect(existsSync(join(created.path, 'setup-ok'))).toBe(true)
   })
 
@@ -261,7 +264,8 @@ describe('WorktreesService real-git setup', { timeout: 15_000 }, () => {
     await writeFile(join(h.dir, '.worktrees.json'), JSON.stringify({
       'setup-worktree': ['false'],
     }))
-    await expect(h.service.create({ cwd: h.dir })).rejects.toMatchObject({
+    const created = await h.service.create({ cwd: h.dir })
+    await expect(h.service.setup({ cwd: created.path, slug: created.slug })).rejects.toMatchObject({
       code: 'setup-failed',
     })
     const listing = runGit(h.dir, ['worktree', 'list', '--porcelain'])

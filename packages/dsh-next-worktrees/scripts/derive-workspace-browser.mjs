@@ -110,6 +110,8 @@ export const SEAMS = [
       '\t\t\treturn value;',
       '\t\t}',
       '\t\tfunction dshNextWorktreesState(decoration) {',
+      '\t\t\tif (decoration.settingUp) return "setting-up";',
+      '\t\t\tif (window.__dshNextWorktreesBridge !== void 0 && window.__dshNextWorktreesBridge.isSettingUp(decoration.slug)) return "setting-up";',
       '\t\t\tif (decoration.conflict) return "conflict";',
       '\t\t\tif (decoration.merged) return "merged";',
       '\t\t\tif (decoration.dirty) return "dirty";',

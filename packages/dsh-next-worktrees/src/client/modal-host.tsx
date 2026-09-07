@@ -1,9 +1,10 @@
 /**
  * The plugin's modal surface: a body-level React root owning the merge
- * and delete modals (create is modal-free since rev 3 — the repo-row
- * button runs the auto-named flow directly). Rendered outside the
- * official browser's tree on purpose — the conversation and the sidebar
- * stay pure harness; our overlays live in our own root.
+ * and delete modals, plus a visually-hidden live region while create is
+ * in flight (create is modal-free since rev 3 — the repo-row button runs
+ * the auto-named flow directly; the branch icon spins via CSS). Rendered
+ * outside the official browser's tree on purpose — the conversation and
+ * the sidebar stay pure harness; our overlays live in our own root.
  *
  * Chrome follows the harness modal grammar (docs/agents design law):
  * elevation shadow with no border, radius 12, 15/1.4-600 titles, 13/20
@@ -113,30 +114,54 @@ function handoffOf(sessions: SessionsServiceLike): UpdateHandoff {
 /** The root: renders the active modal, or nothing. */
 export function ModalHost(props: ModalHostProps): React.ReactElement | null {
   const state = React.useSyncExternalStore(subscribeModal, modalState, modalState)
+  const status = state.creating
+    ? <CreatingStatus t={props.t} settingUp={state.settingUp !== undefined} />
+    : null
+  let modal: React.ReactElement | null = null
   if (state.kind === 'create-error' && state.createError !== undefined) {
-    return <CreateErrorModal t={props.t} message={state.createError} />
+    modal = <CreateErrorModal t={props.t} message={state.createError} />
+  } else if (props.workspaces !== undefined) {
+    const host = hostCleanup(props.workspaces)
+    if (state.kind === 'merge' && state.merge !== undefined) {
+      modal = <MergeModal t={props.t} merge={state.merge} host={host} />
+    } else if (state.kind === 'update' && state.update !== undefined) {
+      modal = <UpdateModal t={props.t} update={state.update} sessions={props.sessions} />
+    } else if (state.kind === 'delete' && state.delete !== undefined) {
+      modal = (
+        <DeleteModal
+          t={props.t}
+          target={state.delete.target}
+          armed={state.delete.armed}
+          busy={state.delete.busy}
+          error={state.delete.error}
+          host={host}
+        />
+      )
+    }
   }
-  if (props.workspaces === undefined) return null
-  const host = hostCleanup(props.workspaces)
-  if (state.kind === 'merge' && state.merge !== undefined) {
-    return <MergeModal t={props.t} merge={state.merge} host={host} />
-  }
-  if (state.kind === 'update' && state.update !== undefined) {
-    return <UpdateModal t={props.t} update={state.update} sessions={props.sessions} />
-  }
-  if (state.kind === 'delete' && state.delete !== undefined) {
-    return (
-      <DeleteModal
-        t={props.t}
-        target={state.delete.target}
-        armed={state.delete.armed}
-        busy={state.delete.busy}
-        error={state.delete.error}
-        host={host}
-      />
-    )
-  }
-  return null
+  if (status === null && modal === null) return null
+  return (
+    <>
+      {status}
+      {modal}
+    </>
+  )
+}
+
+function CreatingStatus({ t, settingUp }: {
+  readonly t: Translate
+  readonly settingUp: boolean
+}): React.ReactElement {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="dshx-srOnly"
+      data-dshx-creating-status="true"
+    >
+      {settingUp ? t('create.settingUp') : t('create.working')}
+    </div>
+  )
 }
 
 function CreateErrorModal({ t, message }: {

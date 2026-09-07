@@ -16,12 +16,11 @@
 #
 # Fresh homes are seeded automatically so plugin sessions start clean: the
 # first-run "Internal Testing Notice" and "Add an API key" dialogs are
-# suppressed (welcome-notice acknowledged in settings.yaml; a placeholder
-# DEEPSEEK_API_KEY, exported only when the environment has none, makes the
-# official route credentialed — which also keeps the composer editable and
-# prevents the late API-key nudge after failed sends). Opt out with
-# DSH_DEV_KEEP_ONBOARDING=1. Register workspace directories through
-# scripts/e2e-seed-workspaces.sh.
+# suppressed (welcome-notice acknowledged in settings.yaml). DEEPSEEK_API_KEY
+# is taken from the environment, then from interactive zsh (~/.zshrc); only
+# if neither has a key is a placeholder exported so the composer stays
+# editable. Opt out with DSH_DEV_KEEP_ONBOARDING=1. Register workspace
+# directories through scripts/e2e-seed-workspaces.sh.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -80,10 +79,25 @@ ui-onboarding:
 EOF
   say "seeded $DSH_HOME/settings.yaml (first-run dialogs suppressed)"
 fi
-# The official DeepSeek route reads DEEPSEEK_API_KEY; a placeholder keeps the
-# route credentialed (no API-key modal or late nudge, composer stays
-# editable) without touching a real key already in the environment.
-if [ "${DSH_DEV_KEEP_ONBOARDING:-}" != "1" ] && [ -z "${DEEPSEEK_API_KEY:-}" ]; then
+# The official DeepSeek route reads DEEPSEEK_API_KEY. Prefer a real key
+# already in this process, then one exported from interactive zsh
+# (~/.zshrc). Never print the value. A placeholder is last resort so the
+# composer stays editable (sends then fail at API auth).
+if [ -z "${DEEPSEEK_API_KEY:-}" ] && command -v zsh >/dev/null 2>&1; then
+  _from_zsh="$(zsh -ic 'print -r -- "$DEEPSEEK_API_KEY"' 2>/dev/null | tail -1 || true)"
+  if [ -n "${_from_zsh:-}" ]; then
+    export DEEPSEEK_API_KEY="$_from_zsh"
+    say "using DEEPSEEK_API_KEY from interactive zsh"
+  fi
+  unset _from_zsh
+fi
+if [ -n "${DEEPSEEK_API_KEY:-}" ]; then
+  if [ "$DEEPSEEK_API_KEY" = "dev-placeholder-key" ]; then
+    say "DEEPSEEK_API_KEY is the dev placeholder (sends fail at API auth)"
+  else
+    say "using DEEPSEEK_API_KEY"
+  fi
+elif [ "${DSH_DEV_KEEP_ONBOARDING:-}" != "1" ]; then
   export DEEPSEEK_API_KEY="dev-placeholder-key"
   say "exported placeholder DEEPSEEK_API_KEY (sends fail at API auth; set a real key for live model calls)"
 fi

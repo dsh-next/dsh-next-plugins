@@ -42,6 +42,7 @@ describe('checkpoints host plugin', () => {
     expect(on).toHaveBeenCalledWith('fs/write-intent', expect.any(Function), { global: true })
     expect(on).toHaveBeenCalledWith('fs/edit-intent', expect.any(Function), { global: true })
     expect(on).toHaveBeenCalledWith('tools/execute', expect.any(Function), { global: true })
+    expect(on).toHaveBeenCalledWith('agent/status', expect.any(Function), { global: true })
   })
 
   it('awaits noteIntent before next() on fs write/edit intent', async () => {

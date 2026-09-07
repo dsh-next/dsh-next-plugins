@@ -78,6 +78,7 @@ test('live chat Write is captured, listed, and undone by Session start rewind', 
     const liveFile = page.getByTestId('dsh-next-checkpoints-file').filter({ hasText: FILE })
     await expect(liveFile).toBeVisible({ timeout: 15_000 })
     await expect(page.getByTestId('dsh-next-checkpoints-file-kind')).toHaveText('Created')
+    await expect(page.getByTestId('dsh-next-checkpoints-file-kind')).toHaveAttribute('data-status', 'create')
     await expect(page.getByTestId('dsh-next-checkpoints-diff')).toHaveCount(0)
     await liveFile.click()
     await expect(page.getByTestId('dsh-next-checkpoints-preview')).toBeVisible()

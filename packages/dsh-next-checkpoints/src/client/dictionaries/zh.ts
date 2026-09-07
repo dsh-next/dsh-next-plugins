@@ -17,12 +17,14 @@ export const zh: Record<MessageKey, string> = {
   'row.rewindAriaStart': '回退到会话开始',
   'row.iconAria': '第 {turn} 轮',
   'row.iconAriaStart': '会话开始',
+  'row.inProgress': '进行中',
+  'row.inProgressAria': '第 {turn} 轮进行中',
   'rail.resize': '调整检查点栏宽度',
 
   'files.label': '文件',
   'files.empty': '到此检查点没有文件变更。',
   'files.closePreview': '关闭',
-  'files.stat': '+{added} -{removed}',
+  'files.statAria': '新增 {added} 行，删除 {removed} 行',
   'files.added': '+{count}',
   'files.removed': '-{count}',
 
@@ -34,6 +36,7 @@ export const zh: Record<MessageKey, string> = {
   'file.timeout': 'Diff 超时，已跳过正文。',
   'file.deleted': '已删除',
   'file.created': '新建',
+  'file.modified': '已修改',
 
   'banner': '已回退到此检查点。之后的消息不会再发给模型。',
 

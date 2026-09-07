@@ -91,6 +91,10 @@ export interface CheckpointListItem {
   readonly head: HeadInfo | null
   readonly promptPreview: string | null
   readonly promptTooltip: string | null
+  /** True while this turn is still running (not a rewind target). */
+  readonly live: boolean
+  readonly added: number
+  readonly removed: number
 }
 
 /** One line inside a unified hunk (`context` is unchanged). */
@@ -141,7 +145,6 @@ export interface RewindPreview {
   readonly filesWritten: readonly string[]
   readonly filesDeleted: readonly string[]
   readonly turnsShadowed: number
-  readonly worktree: boolean
   readonly dirtyNonAgent: readonly string[]
   readonly headMoved: boolean
   readonly currentHead: HeadInfo | null

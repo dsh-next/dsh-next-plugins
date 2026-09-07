@@ -13,12 +13,14 @@ import type {
   RewindPreview,
   RewindResult,
 } from '../core/types.ts'
-import { englishTranslate, type MessageKey } from './dictionaries.ts'
+import { DiffStat } from './DiffStat.tsx'
+import { englishTranslate, type MessageKey, type Translate } from './dictionaries.ts'
 import { clampRailWidth, RAIL_COLLAPSED, RAIL_DEFAULT, RAIL_NARROW } from './rail.ts'
 import { CheckpointsRpcError, rpc } from './rpc.ts'
+import { sumDiffs } from '../core/diffstat.ts'
 import styles from './changes.module.css'
 
-export type Translate = (key: MessageKey, params?: Record<string, string | number>) => string
+export type { Translate }
 
 export interface ChangesViewProps {
   readonly sessionId?: string
@@ -44,10 +46,25 @@ function kindMessage(kind: FileRow['kind'], t: Translate): string | null {
   return null
 }
 
-function fileKindLabel(kind: FileRow['kind'], t: Translate): string | null {
-  if (kind === 'create') return t('file.created')
-  if (kind === 'delete') return t('file.deleted')
+type FileStatus = 'create' | 'delete' | 'modify'
+
+function fileStatus(kind: FileRow['kind']): FileStatus | null {
+  if (kind === 'create') return 'create'
+  if (kind === 'delete') return 'delete'
+  if (kind === 'diff') return 'modify'
   return null
+}
+
+function fileStatusKey(status: FileStatus): MessageKey {
+  if (status === 'create') return 'file.created'
+  if (status === 'delete') return 'file.deleted'
+  return 'file.modified'
+}
+
+function rowCaption(item: CheckpointListItem, t: Translate): string {
+  if (item.live) return item.promptPreview || t('row.inProgress')
+  if (item.turn === 0) return t('row.sessionStart')
+  return item.promptPreview || t('row.turn', { turn: item.turn })
 }
 
 export function ChangesView(props: ChangesViewProps): React.ReactElement {
@@ -105,14 +122,27 @@ export function ChangesView(props: ChangesViewProps): React.ReactElement {
     return () => { observer.disconnect() }
   }, [])
 
+  const live = list?.checkpoints.find((item) => item.live)
+  const liveId = live?.id
+  const liveTick = live?.time ?? 0
+  const liveSeen = React.useRef<string | undefined>(undefined)
+
   React.useEffect(() => {
     refresh()
+    const ms = list?.openTurn === true ? 500 : 2500
     const timer = window.setInterval(() => {
       if (modal !== null) return
       refresh()
-    }, 2500)
+    }, ms)
     return () => { window.clearInterval(timer) }
-  }, [refresh, modal])
+  }, [refresh, modal, list?.openTurn])
+
+  React.useEffect(() => {
+    if (liveId !== undefined && liveSeen.current !== liveId) {
+      setSelectedId(liveId)
+    }
+    liveSeen.current = liveId
+  }, [liveId])
 
   React.useEffect(() => {
     if (list === null || list.checkpoints.length === 0) return
@@ -132,7 +162,7 @@ export function ChangesView(props: ChangesViewProps): React.ReactElement {
       if (!cancelled) setDiffs({ checkpointId: selectedId, files: [] })
     })
     return () => { cancelled = true }
-  }, [sessionId, selectedId])
+  }, [sessionId, selectedId, liveTick])
 
   React.useEffect(() => {
     setFileKey(null)
@@ -215,6 +245,7 @@ export function ChangesView(props: ChangesViewProps): React.ReactElement {
 
   const checkpoints = list?.checkpoints ?? []
   const selected = diffs?.files ?? []
+  const totals = sumDiffs(selected)
   const activeFile = selected.find((file) => file.targetKey === fileKey)
   const hunks = activeFile !== undefined ? validateHunks(activeFile.hunks) : []
   const note = activeFile !== undefined ? kindMessage(activeFile.kind, t) : null
@@ -262,6 +293,7 @@ export function ChangesView(props: ChangesViewProps): React.ReactElement {
                 data-testid="dsh-next-checkpoints-row"
                 data-turn={String(item.turn)}
                 data-checkpoint-id={item.id}
+                data-live={item.live ? 'true' : undefined}
                 onClick={() => { setSelectedId(item.id) }}
               >
                 <span
@@ -270,41 +302,70 @@ export function ChangesView(props: ChangesViewProps): React.ReactElement {
                 >
                   {item.turn}
                 </span>
-                <button
-                  type="button"
-                  className={styles.rewindBtn}
-                  title={t('row.rewind')}
-                  aria-label={item.turn === 0 ? t('row.rewindAriaStart') : t('row.rewindAria', { turn: item.turn })}
-                  data-testid="dsh-next-checkpoints-rewind"
-                  onClick={(event) => { openRewind(item, event) }}
-                >
-                  <span className={styles.rewindMark} aria-hidden="true" />
-                </button>
+                {item.live ? (
+                  <span
+                    className={styles.rewindBtn}
+                    title={t('row.inProgress')}
+                    aria-label={t('row.inProgressAria', { turn: item.turn })}
+                    data-testid="dsh-next-checkpoints-live"
+                  >
+                    <span className={styles.spinner} aria-hidden="true" />
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    className={styles.rewindBtn}
+                    title={t('row.rewind')}
+                    aria-label={item.turn === 0 ? t('row.rewindAriaStart') : t('row.rewindAria', { turn: item.turn })}
+                    data-testid="dsh-next-checkpoints-rewind"
+                    onClick={(event) => { openRewind(item, event) }}
+                  >
+                    <span className={styles.rewindMark} aria-hidden="true" />
+                  </button>
+                )}
                 <button type="button" className={styles.rowMeta}>
-                  <span className={styles.rowTime}>{formatTime(item.time)}</span>
+                  <span className={styles.rowHead}>
+                    <span className={styles.rowTime}>{formatTime(item.time)}</span>
+                    {item.live && (
+                      <DiffStat added={item.added} removed={item.removed} t={t} />
+                    )}
+                  </span>
                   <span
                     className={styles.rowTurn}
                     data-testid="dsh-next-checkpoints-prompt"
                     title={item.promptTooltip ?? undefined}
                   >
-                    {item.turn === 0
-                      ? t('row.sessionStart')
-                      : (item.promptPreview !== null && item.promptPreview !== ''
-                        ? item.promptPreview
-                        : t('row.turn', { turn: item.turn }))}
+                    {rowCaption(item, t)}
                   </span>
                 </button>
               </div>
             ))}
           </nav>
           <section className={styles.pane}>
-            <div className={styles.filesLabel}>{t('files.label')}</div>
+            <div className={styles.filesHead}>
+              <div className={styles.filesLabel}>{t('files.label')}</div>
+              <DiffStat
+                added={totals.added}
+                removed={totals.removed}
+                t={t}
+                testId="dsh-next-checkpoints-files-total"
+                addedTestId="dsh-next-checkpoints-files-total-added"
+                removedTestId="dsh-next-checkpoints-files-total-removed"
+              />
+            </div>
             {selected.length === 0 ? (
               <p className={styles.kindNote}>{t('files.empty')}</p>
             ) : (
               <div className={styles.fileList}>
                 {selected.map((file) => {
-                  const kindLabel = fileKindLabel(file.kind, t)
+                  const status = fileStatus(file.kind)
+                  const statusClass = status === null
+                    ? undefined
+                    : {
+                      create: styles.statusCreate,
+                      delete: styles.statusDelete,
+                      modify: styles.statusModify,
+                    }[status]
                   return (
                     <button
                       key={file.targetKey}
@@ -317,27 +378,27 @@ export function ChangesView(props: ChangesViewProps): React.ReactElement {
                         setFileKey((current) => current === file.targetKey ? null : file.targetKey)
                       }}
                     >
-                      <span className={styles.filePath}>{file.displayPath}</span>
+                      {status !== null && (
+                        <span
+                          className={`${styles.status} ${statusClass}`}
+                          data-testid="dsh-next-checkpoints-file-kind"
+                          data-status={status}
+                        >
+                          {t(fileStatusKey(status))}
+                        </span>
+                      )}
+                      <span
+                        className={styles.filePath}
+                        data-deleted={file.kind === 'delete' ? 'true' : undefined}
+                      >
+                        {file.displayPath}
+                      </span>
                       {file.changedAt !== null && (
                         <span className={styles.fileTime} data-testid="dsh-next-checkpoints-file-time">
                           {formatTime(file.changedAt)}
                         </span>
                       )}
-                      {kindLabel !== null && (
-                        <span className={styles.kindBadge} data-testid="dsh-next-checkpoints-file-kind">
-                          {kindLabel}
-                        </span>
-                      )}
-                      {file.added > 0 && (
-                        <span className={styles.added} data-testid="dsh-next-checkpoints-file-added">
-                          {t('files.added', { count: file.added })}
-                        </span>
-                      )}
-                      {file.removed > 0 && (
-                        <span className={styles.removed} data-testid="dsh-next-checkpoints-file-removed">
-                          {t('files.removed', { count: file.removed })}
-                        </span>
-                      )}
+                      <DiffStat added={file.added} removed={file.removed} t={t} />
                     </button>
                   )
                 })}
@@ -361,9 +422,24 @@ export function ChangesView(props: ChangesViewProps): React.ReactElement {
           >
             <div className={styles.previewHead}>
               <div className={styles.previewTitle}>{activeFile.displayPath}</div>
-              <button type="button" className={styles.ghost} onClick={closePreview}>
-                {t('files.closePreview')}
-              </button>
+              <div className={styles.previewMeta}>
+                {activeFile.changedAt !== null && (
+                  <span className={styles.fileTime} data-testid="dsh-next-checkpoints-preview-time">
+                    {formatTime(activeFile.changedAt)}
+                  </span>
+                )}
+                <DiffStat
+                  added={activeFile.added}
+                  removed={activeFile.removed}
+                  t={t}
+                  testId="dsh-next-checkpoints-preview-diffstat"
+                  addedTestId="dsh-next-checkpoints-preview-added"
+                  removedTestId="dsh-next-checkpoints-preview-removed"
+                />
+                <button type="button" className={styles.ghost} onClick={closePreview}>
+                  {t('files.closePreview')}
+                </button>
+              </div>
             </div>
             {note !== null && (
               <p className={styles.kindNote} data-testid="dsh-next-checkpoints-kind">{note}</p>
@@ -389,7 +465,7 @@ export function ChangesView(props: ChangesViewProps): React.ReactElement {
             <div className={styles.modalTitle}>{t('modal.title')}</div>
             <p className={styles.modalBody}>{t('modal.body')}</p>
             <p className={styles.warn}>{t('modal.lost')}</p>
-            {modal.preview !== undefined && modal.preview !== null && (
+            {modal.preview !== null && (
               <>
                 {modal.preview.filesDeleted.length > 0 && (
                   <div>

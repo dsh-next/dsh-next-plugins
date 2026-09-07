@@ -50,6 +50,16 @@ function cleanupFiles(...names: string[]): void {
   for (const name of names) rmSync(abs(name), { force: true })
 }
 
+function restoreTracked(...names: string[]): void {
+  for (const name of names) {
+    try {
+      git(workspaceA, ['checkout', '-q', '--', name])
+    } catch {
+      cleanupFiles(name)
+    }
+  }
+}
+
 function readUtf(name: string): string {
   return readFileSync(abs(name), 'utf8')
 }
@@ -84,10 +94,13 @@ function ensureRepo(): void {
 
 test('deleted files show Deleted; switching files updates the diff', async ({ page }) => {
   test.setTimeout(180_000)
-  const cleanup = (): void => { cleanupFiles(GONE, PAIR_A, PAIR_B) }
+  const cleanup = (): void => {
+    restoreTracked(GONE)
+    cleanupFiles(PAIR_A, PAIR_B)
+  }
   try {
     ensureRepo()
-    writeUtf(GONE, 'doomed\n')
+    commitFile(workspaceA, GONE, 'doomed\n', 'checkpoints e2e gone')
     const sessionId = await startChangesSession(page)
     rmSync(abs(GONE), { force: true })
     const deleted = await captureCheckpoint(page, sessionId)
@@ -104,6 +117,8 @@ test('deleted files show Deleted; switching files updates the diff', async ({ pa
     await goneRow.click()
     await expect(goneRow).toHaveAttribute('data-kind', 'delete')
     await expect(goneRow.getByTestId('dsh-next-checkpoints-file-kind')).toHaveText('Deleted')
+    await expect(goneRow.getByTestId('dsh-next-checkpoints-file-kind')).toHaveAttribute('data-status', 'delete')
+    await expect(goneRow.locator('[data-deleted="true"]')).toHaveText(new RegExp(GONE))
     await expect(page.getByTestId('dsh-next-checkpoints-preview')).toBeVisible()
     await expect(page.getByTestId('dsh-next-checkpoints-diff')).toContainText('doomed')
     await page.keyboard.press('Escape')
@@ -129,7 +144,10 @@ test('deleted files show Deleted; switching files updates the diff', async ({ pa
 
 test('inspects a checkpoint, refuses silent restore, and rewind restores files', async ({ page }) => {
   test.setTimeout(180_000)
-  const cleanup = (): void => { cleanupFiles(ALPHA, BETA, ZETA) }
+  const cleanup = (): void => {
+    restoreTracked(ALPHA)
+    cleanupFiles(BETA, ZETA)
+  }
   try {
     ensureRepo()
     const headBefore = git(workspaceA, ['rev-parse', 'HEAD']).trim()
@@ -140,10 +158,13 @@ test('inspects a checkpoint, refuses silent restore, and rewind restores files',
     const first = await captureCheckpoint(page, sessionId)
     await expect(row(page, first.turn)).toBeVisible({ timeout: 15_000 })
     await row(page, first.turn).click()
-    await expect(page.getByTestId('dsh-next-checkpoints-file')).toContainText(ALPHA)
-    await expect(page.getByTestId('dsh-next-checkpoints-file-kind')).toHaveText('Created')
+    const alphaRow = page.getByTestId('dsh-next-checkpoints-file').filter({ hasText: ALPHA })
+    await expect(alphaRow).toBeVisible({ timeout: 15_000 })
+    await expect(alphaRow.getByTestId('dsh-next-checkpoints-file-kind')).toHaveText('Created')
+    await expect(alphaRow.getByTestId('dsh-next-checkpoints-file-kind')).toHaveAttribute('data-status', 'create')
+    await expect(page.getByTestId('dsh-next-checkpoints-files-total-added')).toHaveText('+1')
     await expect(page.getByTestId('dsh-next-checkpoints-diff')).toHaveCount(0)
-    await page.getByTestId('dsh-next-checkpoints-file').filter({ hasText: ALPHA }).click()
+    await alphaRow.click()
     await expect(page.getByTestId('dsh-next-checkpoints-preview')).toBeVisible()
     await expect(page.getByTestId('dsh-next-checkpoints-diff')).toBeVisible()
     await expect(page.getByTestId('dsh-next-checkpoints-diff')).toContainText('v1')
@@ -213,7 +234,10 @@ test('inspects a checkpoint, refuses silent restore, and rewind restores files',
 
 test('binary rows, multi-file inspect, and CRLF-identical tracked files', async ({ page }) => {
   test.setTimeout(180_000)
-  const cleanup = (): void => { cleanupFiles(DELTA, EPSILON, `${EPSILON}.b`) }
+  const cleanup = (): void => {
+    restoreTracked(KEEP)
+    cleanupFiles(DELTA, EPSILON, `${EPSILON}.b`)
+  }
   try {
     ensureRepo()
     const sessionId = await startChangesSession(page)
@@ -246,6 +270,13 @@ test('binary rows, multi-file inspect, and CRLF-identical tracked files', async 
     const crlf = await captureCheckpoint(page, sessionId)
     await row(page, crlf.turn).click()
     await expect(page.getByTestId('dsh-next-checkpoints-file').filter({ hasText: KEEP })).toHaveCount(0)
+    writeUtf(KEEP, 'keep-mod\n')
+    const modified = await captureCheckpoint(page, sessionId)
+    await row(page, modified.turn).click()
+    const keepRow = page.getByTestId('dsh-next-checkpoints-file').filter({ hasText: KEEP })
+    await expect(keepRow).toBeVisible()
+    await expect(keepRow.getByTestId('dsh-next-checkpoints-file-kind')).toHaveText('Modified')
+    await expect(keepRow.getByTestId('dsh-next-checkpoints-file-kind')).toHaveAttribute('data-status', 'modify')
     writeUtf(KEEP, 'keep\n')
   } finally {
     cleanup()
@@ -275,7 +306,7 @@ test('Cancel leaves files on disk', async ({ page }) => {
   }
 })
 
-test('confirm modal lists writes, deletes, later turns, dirty paths, and primary checkout', async ({ page }) => {
+test('confirm modal lists deletes and later turns, not writes or primary checkout', async ({ page }) => {
   test.setTimeout(180_000)
   const cleanup = (): void => { cleanupFiles(MODAL_A, MODAL_B) }
   try {
@@ -293,19 +324,17 @@ test('confirm modal lists writes, deletes, later turns, dirty paths, and primary
       filesWritten: string[]
       filesDeleted: string[]
       turnsShadowed: number
-      worktree: boolean
       dirtyNonAgent: string[]
       headMoved: boolean
       blockers: string[]
       openTurn: boolean
     }>(page, 'preview', { sessionId, checkpointId: first.checkpointId })
-    expect(preview.worktree).toBe(false)
     expect(preview.blockers).toEqual([])
     expect(preview.openTurn).toBe(false)
     expect(preview.filesWritten.some((path) => path.includes(MODAL_A))).toBe(true)
     expect(preview.filesDeleted.some((path) => path.includes(MODAL_B))).toBe(true)
     expect(preview.turnsShadowed).toBeGreaterThan(0)
-    expect(preview.dirtyNonAgent.some((path) => path.includes(MODAL_A) || path.includes(MODAL_B))).toBe(true)
+    expect(preview.dirtyNonAgent).toEqual([])
 
     await row(page, first.turn).getByTestId('dsh-next-checkpoints-rewind').click()
     const modal = page.getByTestId('dsh-next-checkpoints-modal')
@@ -317,7 +346,7 @@ test('confirm modal lists writes, deletes, later turns, dirty paths, and primary
     await expect(modal).toContainText('Files that will be deleted')
     await expect(modal).toContainText(MODAL_B)
     await expect(modal).toContainText('will no longer be sent to the model')
-    await expect(modal).toContainText('Non-agent dirty paths')
+    await expect(modal).not.toContainText('Non-agent dirty paths')
     await page.keyboard.press('Escape')
     expect(readUtf(MODAL_A)).toBe('m2\n')
     expect(readUtf(MODAL_B)).toBe('gone-later\n')

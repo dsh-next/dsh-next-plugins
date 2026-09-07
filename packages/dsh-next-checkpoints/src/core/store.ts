@@ -28,6 +28,15 @@ export function checkpointId(sessionId: string, turn: number, seq: number): stri
   return `${sessionId}:${turn}:${seq}`
 }
 
+/** Stable id for the in-progress turn; does not land in the persisted fold. */
+export function liveCheckpointId(sessionId: string, turn: number): string {
+  return `${sessionId}:live:${turn}`
+}
+
+export function isLiveCheckpointId(id: string): boolean {
+  return /:live:\d+$/.test(id)
+}
+
 /** Empty in-memory session fold. */
 export function emptyState(sessionId: string, cwd: string): SessionState {
   return {
@@ -138,20 +147,29 @@ export function findCheckpoint(state: SessionState, id: string): Checkpoint | un
   return state.checkpoints.find((item) => item.id === id)
 }
 
-/** Rail projection: one row per checkpoint, caller decides sort. */
-export function listItems(state: SessionState): CheckpointListItem[] {
-  return state.checkpoints.map((item) => ({
+/** One rail row from a checkpoint. */
+export function toListItem(
+  item: Checkpoint,
+  extras: { readonly live?: boolean; readonly added?: number; readonly removed?: number } = {},
+): CheckpointListItem {
+  return {
     id: item.id,
     turn: item.turn,
     seq: item.seq,
     time: item.time,
     fileCount: item.tree.length,
     head: item.head,
-    promptPreview: item.promptPreview === undefined || item.promptPreview === null
-      ? null
-      : capPrompt(item.promptPreview),
+    promptPreview: item.promptPreview == null ? null : capPrompt(item.promptPreview),
     promptTooltip: promptTooltip(item.promptPreview ?? null),
-  }))
+    live: extras.live === true,
+    added: extras.added ?? 0,
+    removed: extras.removed ?? 0,
+  }
+}
+
+/** Rail projection: one row per checkpoint, caller decides sort. */
+export function listItems(state: SessionState): CheckpointListItem[] {
+  return state.checkpoints.map((item) => toListItem(item))
 }
 
 /**
@@ -178,4 +196,10 @@ export function rewindDeletes(state: SessionState, checkpointId: string): string
     }
   }
   return [...extra]
+}
+
+/** Later committed rows after `index`; unknown/live indexes shadow nothing. */
+export function turnsShadowedAfter(checkpointCount: number, index: number): number {
+  if (index < 0 || index >= checkpointCount) return 0
+  return checkpointCount - index - 1
 }

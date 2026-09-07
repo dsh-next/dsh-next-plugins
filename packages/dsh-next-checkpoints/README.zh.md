@@ -24,9 +24,12 @@
 
 ### Checkpoints 标签
 
-检查点轨道，加上带 `+A -R` 标记的文件列表。单击文件打开 GitHub 风格的
-unified 预览（行号、hunk 头、语言高亮）。二进制、过大、无效 UTF-8、符号链接
-和目录显示为行，不会伪装成新建。
+检查点轨道，加上文件列表。每行显示 `Created`、`Deleted` 或 `Modified` 状态
+胶囊、GitHub 风格的 `+N`/`-N` 计数和五格条，已删除路径带删除线。`Files` 标题
+显示该检查点的合计，格式相同。一轮进行中时，最新一行用转圈替换 `Rewind`，
+文件列表和行数会实时更新。单击文件打开 GitHub 风格的 unified 预览（行号、
+hunk 头、语言高亮）；预览标题在 `Close` 左侧重复文件时间和 `+N`/`-N` 条。
+二进制、过大、无效 UTF-8、符号链接和目录显示为行（没有状态胶囊），不会伪装成新建。
 
 ### 一个检查点，文件和历史一起
 
@@ -37,8 +40,7 @@ unified 预览（行号、hunk 头、语言高亮）。二进制、过大、无�
 
 ### 如实警告
 
-确认框会在会话位于主工作副本（不是 worktree）、非 Agent 脏路径将被覆盖、
-以及自该检查点以来 HEAD 已移动时发出警告。
+确认框会在非 Agent 脏路径将被覆盖、以及自该检查点以来 HEAD 已移动时发出警告。
 
 ## 安装
 
@@ -51,7 +53,9 @@ dsh plugin --profile <name> add @dsh-next/dsh-next-checkpoints
 ## 使用前须知
 
 - 需要 DeepSeek Harness `0.1.2-rc.1` 或更新版本。
-- 检查点不是 git。回退之后，`git status` 可能看起来像是之后的提交被撤销成
-  未暂存变更 — 这是如实状态，不是故障。
+- 检查点不是 git。文件列表是本会话碰过的路径（write/edit 工具），不是
+  `git status`。本会话创建的文件被 bash `mv` 之后，会按内容哈希跟到新路径。
+  同一文件夹里其他会话改的文件不会出现。回退之后，`git status` 可能看起来
+  像是之后的提交被撤销成未暂存变更 — 这是如实状态，不是故障。
 - 一轮仍在进行时会拒绝回退。
 - 贡献者请看 [CONTRIBUTING.md](https://github.com/dsh-next/dsh-next-plugins/blob/main/CONTRIBUTING.md)。

@@ -27,10 +27,15 @@ row never restores.
 
 ### Checkpoints tab
 
-A checkpoint rail plus a file list with `+A -R` badges. Click a file to open
-a GitHub-style unified preview (line numbers, hunk headers, language
-highlighting). Binary, too-large, invalid UTF-8, symlink, and directory
-paths get a row, not a fake create.
+A checkpoint rail plus a file list. Each row shows a `Created`, `Deleted`, or
+`Modified` pill, GitHub-style `+N`/`-N` counts with a five-block bar, and a
+struck-through path for deletes. The `Files` header shows the checkpoint total
+in the same format. While a turn is running, the latest row replaces `Rewind`
+with a spinner and the file list plus line counts update live. Click a file to
+open a GitHub-style unified preview (line numbers, hunk headers, language
+highlighting); the preview header repeats the file time and `+N`/`-N` bar next
+to `Close`. Binary, too-large, invalid UTF-8, symlink, and directory paths get
+a row without a status pill, not a fake create.
 
 ### One checkpoint, files and history
 
@@ -43,9 +48,8 @@ session.
 
 ### Honest warnings
 
-The confirm modal warns when the session is on the primary checkout (not a
-worktree), when non-agent dirty paths would be overwritten, and when HEAD has
-moved since the checkpoint.
+The confirm modal warns when non-agent dirty paths would be overwritten, and
+when HEAD has moved since the checkpoint.
 
 ## Install
 
@@ -59,7 +63,11 @@ adding the plugin.
 ## Good to know
 
 - Needs DeepSeek Harness `0.1.2-rc.1` or newer.
-- Checkpoints are not git. After rewind, `git status` may look like later
-  commits were undone as unstaged changes — that is the honest state.
+- Checkpoints are not git. The file list is this session's touched paths
+  (write/edit tools), not `git status`. A bash `mv` of a file this session
+  created is followed by content hash, so it still shows at the new path.
+  Files another session changes in the same folder are not listed. After
+  rewind, `git status` may look like later commits were undone as unstaged
+  changes — that is the honest state.
 - Refuse rewind while a turn is still running.
 - Contributors: see [CONTRIBUTING.md](https://github.com/dsh-next/dsh-next-plugins/blob/main/CONTRIBUTING.md).

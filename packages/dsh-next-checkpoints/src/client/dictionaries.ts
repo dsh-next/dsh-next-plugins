@@ -13,6 +13,8 @@ import { zh } from './dictionaries/zh.ts'
 export { en, NS, type MessageKey } from './dictionaries/en.ts'
 export { zh } from './dictionaries/zh.ts'
 
+export type Translate = (key: MessageKey, params?: Record<string, string | number>) => string
+
 /** `{name}` substitution with the platform's semantics: unknown names stay. */
 export function interpolate(template: string, params?: Record<string, string | number>): string {
   if (params === undefined) return template

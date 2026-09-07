@@ -68,7 +68,6 @@ describe('ChangesView', () => {
           filesWritten: ['src/a.ts'],
           filesDeleted: [],
           turnsShadowed: 1,
-          worktree: false,
           dirtyNonAgent: [],
           headMoved: true,
           currentHead: { sha: 'b', short: 'b', branch: 'main' },
@@ -119,7 +118,7 @@ describe('ChangesView', () => {
     })
   })
 
-  it('labels create and delete rows without dropping the DiffBlock', async () => {
+  it('labels create, delete, and modified rows without dropping the DiffBlock', async () => {
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body ?? '{}')) as { method: string }
       if (body.method === 'list') return json(listPayload)
@@ -155,6 +154,24 @@ describe('ChangesView', () => {
             lines: [{ kind: 'del', text: 'bye' }],
           }],
           changedAt: Date.UTC(2026, 0, 1, 13, 58),
+        }, {
+          targetKey: '/repo/edit.ts',
+          displayPath: 'src/edit.ts',
+          kind: 'diff',
+          added: 2,
+          removed: 1,
+          hunks: [{
+            path: 'src/edit.ts',
+            oldText: 'a',
+            newText: 'b',
+            oldStart: 1,
+            newStart: 1,
+            lines: [
+              { kind: 'del', text: 'a' },
+              { kind: 'add', text: 'b' },
+            ],
+          }],
+          changedAt: Date.UTC(2026, 0, 1, 13, 58),
         }],
       })
     }))
@@ -166,6 +183,13 @@ describe('ChangesView', () => {
     await vi.waitFor(() => {
       expect(container.querySelector('[data-testid="dsh-next-checkpoints-file-kind"]')?.textContent).toBe('Created')
     })
+    const kinds = [...container.querySelectorAll('[data-testid="dsh-next-checkpoints-file-kind"]')]
+    expect(kinds.map((el) => el.textContent)).toEqual(['Created', 'Deleted', 'Modified'])
+    expect(kinds.map((el) => el.getAttribute('data-status'))).toEqual(['create', 'delete', 'modify'])
+    const fileRows = container.querySelectorAll('[data-testid="dsh-next-checkpoints-file"]')
+    expect(fileRows[0]?.querySelector('[data-deleted="true"]')).toBeNull()
+    expect(fileRows[1]?.querySelector('[data-deleted="true"]')?.textContent).toBe('src/old.ts')
+    expect(fileRows[2]?.querySelector('[data-deleted="true"]')).toBeNull()
     expect(container.querySelector('[data-testid="dsh-next-checkpoints-diff"]')).toBeNull()
     expect(container.textContent).not.toContain('Select a file to preview its diff.')
     expect(container.textContent).toContain('Improve the header design now!...')
@@ -175,15 +199,25 @@ describe('ChangesView', () => {
     const rows = container.querySelectorAll('[data-testid="dsh-next-checkpoints-file"]')
     expect(container.querySelector('[data-testid="dsh-next-checkpoints-file-added"]')?.textContent).toBe('+1')
     expect(container.querySelector('[data-testid="dsh-next-checkpoints-file-removed"]')?.textContent).toBe('-1')
+    expect(fileRows[2]?.querySelector('[data-testid="dsh-next-checkpoints-file-added"]')?.textContent).toBe('+2')
+    expect(fileRows[2]?.querySelector('[data-testid="dsh-next-checkpoints-file-removed"]')?.textContent).toBe('-1')
+    expect(container.querySelector('[data-testid="dsh-next-checkpoints-files-total-added"]')?.textContent).toBe('+3')
+    expect(container.querySelector('[data-testid="dsh-next-checkpoints-files-total-removed"]')?.textContent).toBe('-2')
     await act(async () => { (rows[0] as HTMLElement).click() })
     await vi.waitFor(() => {
       expect(container.querySelector('[data-testid="dsh-next-checkpoints-preview"]')).not.toBeNull()
       expect(container.querySelector('[data-testid="dsh-next-checkpoints-diff"]')).not.toBeNull()
     })
+    const previewTime = new Date(Date.UTC(2026, 0, 1, 13, 58))
+    const hh = String(previewTime.getHours()).padStart(2, '0')
+    const mm = String(previewTime.getMinutes()).padStart(2, '0')
+    expect(container.querySelector('[data-testid="dsh-next-checkpoints-preview-time"]')?.textContent).toBe(`${hh}:${mm}`)
+    expect(container.querySelector('[data-testid="dsh-next-checkpoints-preview-added"]')?.textContent).toBe('+1')
+    expect(container.querySelector('[data-testid="dsh-next-checkpoints-preview-removed"]')).toBeNull()
     await act(async () => { (rows[1] as HTMLElement).click() })
     await vi.waitFor(() => {
       const labels = [...container.querySelectorAll('[data-testid="dsh-next-checkpoints-file-kind"]')].map((el) => el.textContent)
-      expect(labels).toEqual(['Created', 'Deleted'])
+      expect(labels).toEqual(['Created', 'Deleted', 'Modified'])
     })
   })
 
@@ -219,7 +253,6 @@ describe('ChangesView', () => {
           filesWritten: ['a.ts'],
           filesDeleted: ['b.ts'],
           turnsShadowed: 1,
-          worktree: true,
           dirtyNonAgent: ['notes.md'],
           headMoved: false,
           currentHead: null,
@@ -281,7 +314,6 @@ describe('ChangesView', () => {
           filesWritten: [],
           filesDeleted: [],
           turnsShadowed: 0,
-          worktree: true,
           dirtyNonAgent: [],
           headMoved: false,
           currentHead: null,
@@ -301,6 +333,7 @@ describe('ChangesView', () => {
     await vi.waitFor(() => {
       expect(container.querySelector('[data-testid="dsh-next-checkpoints-file"]')).not.toBeNull()
     })
+    expect(container.querySelector('[data-testid="dsh-next-checkpoints-file-kind"]')).toBeNull()
     await act(async () => {
       (container.querySelector('[data-testid="dsh-next-checkpoints-file"]') as HTMLElement).click()
     })
@@ -317,6 +350,63 @@ describe('ChangesView', () => {
     const confirm = container.querySelector('[data-testid="dsh-next-checkpoints-confirm"]') as HTMLButtonElement
     expect(confirm.disabled).toBe(true)
     expect(container.textContent).toContain('A turn is still running')
+  })
+
+  it('replaces rewind with a spinner on the live row and shows live line counts', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as { method: string; args?: { checkpointId?: string } }
+      if (body.method === 'list') {
+        return json({
+          ...listPayload,
+          openTurn: true,
+          checkpoints: [
+            ...listPayload.checkpoints,
+            {
+              id: 's1:live:3',
+              turn: 3,
+              seq: 12,
+              time: Date.UTC(2026, 0, 1, 14, 2),
+              fileCount: 1,
+              head: null,
+              promptPreview: null,
+              promptTooltip: null,
+              live: true,
+              added: 4,
+              removed: 1,
+            },
+          ],
+        })
+      }
+      return json({
+        checkpointId: body.args?.checkpointId ?? 's1:live:3',
+        files: [{
+          targetKey: '/repo/a.ts',
+          displayPath: 'src/a.ts',
+          kind: 'diff',
+          added: 4,
+          removed: 1,
+          hunks: [],
+          changedAt: Date.UTC(2026, 0, 1, 14, 2),
+        }],
+      })
+    }))
+    document.body.appendChild(container)
+    root = createRoot(container)
+    await act(async () => {
+      root!.render(React.createElement(ChangesView, { sessionId: 's1', t: englishTranslate }))
+    })
+    await vi.waitFor(() => {
+      expect(container.querySelector('[data-testid="dsh-next-checkpoints-live"]')).not.toBeNull()
+    })
+    const liveRow = container.querySelector('[data-live="true"]')
+    expect(liveRow?.querySelector('[data-testid="dsh-next-checkpoints-rewind"]')).toBeNull()
+    expect(liveRow?.textContent).toContain('In progress')
+    expect(liveRow?.textContent).toContain('+4')
+    expect(liveRow?.textContent).toContain('-1')
+    await vi.waitFor(() => {
+      expect(container.querySelector('[data-testid="dsh-next-checkpoints-files-total-added"]')?.textContent).toBe('+4')
+    })
+    expect(container.querySelector('[data-testid="dsh-next-checkpoints-file"]')?.textContent).toContain('src/a.ts')
   })
 
   it('shows the rewind banner for the restored checkpoint', async () => {

@@ -1,5 +1,12 @@
 # @dsh-next/dsh-next-worktrees
 
+## 0.3.0
+
+### Minor Changes
+
+- When a setup command such as `pnpm install` fails, the worktree and session stay. The error shows the command output so you can finish setup yourself or delete the worktree. ([@sitegroove](https://github.com/sitegroove))
+- New worktrees now use a timestamped branch name (`willow-202606140222`, UTC). Creating after Delete no longer fails because the old branch is still there. ([@sitegroove](https://github.com/sitegroove))
+
 ## 0.2.1
 
 ### Patch Changes

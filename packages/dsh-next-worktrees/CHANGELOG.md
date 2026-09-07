@@ -1,5 +1,12 @@
 # @dsh-next/dsh-next-worktrees
 
+## 0.2.1
+
+### Patch Changes
+
+- The branch icon now spins while a new worktree session is being created, so a slow git checkout or setup command is visible instead of looking stuck.
+- A new worktree session now appears in the sidebar immediately. Setup commands from `.worktrees.json` run afterward, with the row's branch icon spinning until they finish.
+
 ## 0.2.0
 
 ### Minor Changes

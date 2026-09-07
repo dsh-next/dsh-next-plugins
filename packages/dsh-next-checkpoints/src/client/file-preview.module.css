@@ -1,0 +1,104 @@
+.wrap {
+  min-width: 0;
+  overflow: auto;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.gutter {
+  width: 1%;
+  min-width: 40px;
+  padding: 0 8px;
+  text-align: right;
+  color: var(--dsw-alias-label-tertiary);
+  user-select: none;
+  vertical-align: top;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  border-right: 0.5px solid var(--dsw-alias-border-l4);
+}
+
+.sign {
+  width: 1%;
+  padding: 0 6px;
+  text-align: center;
+  user-select: none;
+  vertical-align: top;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.code {
+  padding: 0 10px 0 4px;
+  white-space: pre;
+  vertical-align: top;
+}
+
+.add {
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 16%, transparent);
+}
+
+.add .sign {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.del {
+  background: color-mix(in srgb, var(--dsw-alias-label-error) 16%, transparent);
+}
+
+.del .sign {
+  color: var(--dsw-alias-label-error);
+}
+
+.ctx {
+  background: transparent;
+}
+
+.hunk td {
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 10%, transparent);
+  color: var(--dsw-alias-label-tertiary);
+  white-space: pre-wrap;
+}
+
+.code :global(.hljs-comment),
+.code :global(.hljs-quote) {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.code :global(.hljs-keyword),
+.code :global(.hljs-selector-tag),
+.code :global(.hljs-type) {
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.code :global(.hljs-string),
+.code :global(.hljs-addition) {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.code :global(.hljs-number),
+.code :global(.hljs-literal),
+.code :global(.hljs-symbol) {
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+.code :global(.hljs-title),
+.code :global(.hljs-section),
+.code :global(.hljs-name) {
+  color: var(--dsw-alias-label-primary);
+  font-weight: 600;
+}
+
+.code :global(.hljs-deletion),
+.code :global(.hljs-variable) {
+  color: var(--dsw-alias-label-error);
+}

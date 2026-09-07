@@ -23,7 +23,7 @@ describe('forkSeed', () => {
 describe('createAgentFork', () => {
   it('creates a seeded Agent with parent cwd and model', async () => {
     const child: SessionLike = { id: 'session-child', header: { cwd: '/repo' } }
-    const create = vi.fn(async () => ({ agent: { session: child } }))
+    const create = vi.fn(async (_opts: Record<string, unknown>) => ({ agent: { session: child } }))
     const source: SessionLike = {
       id: 's1',
       header: { cwd: '/repo', agentPreset: 'web' },
@@ -51,6 +51,7 @@ describe('createAgentFork', () => {
         agentPreset: 'web',
       }),
     }))
-    expect((create.mock.calls[0]![0] as { seed: { seq: number }[] }).seed.map((event) => event.seq)).toEqual([1, 4])
+    const payload = create.mock.calls[0][0] as { seed: { seq: number }[] }
+    expect(payload.seed.map((event) => event.seq)).toEqual([1, 4])
   })
 })

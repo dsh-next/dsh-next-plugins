@@ -64,7 +64,8 @@ worktree*（绝不会反向），由本会话修好文件，再快进合并。�
 ### 删除
 
 删掉多余的文件夹。分支和会话记录保留。有未提交改动的 worktree 需要第二次
-确认（`Remove anyway`）。
+确认（`Remove anyway`）。下一次 Create 会使用带 UTC 时间戳的新分支名
+（`willow-202606140222`），因此不会因为旧分支还在而失败。
 
 ![提示有未提交改动的删除 worktree 对话框](media/delete.webp)
 
@@ -108,8 +109,8 @@ worktree 绝不会这样被移除。
 单击分支图标创建 worktree 时，若仓库根目录有 `.worktrees.json`（或本机
 `.dsh/worktrees.json`），其中的 `setup-worktree` 会自动在新文件夹里执行。
 新会话行会先出现；随后 setup 运行，该行的分支图标会旋转。不需要再点别的。
-`$ROOT_WORKTREE_PATH` 是主文件夹。命令失败会取消创建并
-删掉多余的文件夹。被 gitignore 的写入（`.env`、`node_modules`）不算未提交
+`$ROOT_WORKTREE_PATH` 是主文件夹。命令失败时工作树和会话会保留；错误里会
+显示命令输出，你可以自行再跑 setup，或删除该工作树。被 gitignore 的写入（`.env`、`node_modules`）不算未提交
 改动。git 能看见的文件（未被 ignore）会算：Update 会等到你提交或删掉；
 Merge 会列出它们，但仍可继续。
 

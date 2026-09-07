@@ -1,0 +1,41 @@
+.root {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.added {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.removed {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.blocks {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.block {
+  box-sizing: border-box;
+  width: 8px;
+  height: 8px;
+  /* 2px (not the chrome 4px) so 8px cells stay squares; 4px would circle them. */
+  border-radius: 2px;
+  background: var(--dsw-alias-bg-module-platform);
+}
+
+.block[data-kind='add'] {
+  background: var(--dsw-alias-state-success-primary);
+}
+
+.block[data-kind='del'] {
+  background: var(--dsw-alias-state-error-primary);
+}

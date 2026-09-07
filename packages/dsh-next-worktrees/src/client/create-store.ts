@@ -12,6 +12,7 @@
  */
 import type { MergeBlocker, MergeWarning } from '../core/merge.ts'
 import type { UpdateBlocker } from '../core/update.ts'
+import { WorktreesRpcError } from './rpc.ts'
 
 export type ModalKind = 'closed' | 'create-error' | 'merge' | 'delete' | 'update'
 
@@ -90,6 +91,11 @@ export interface ModalState {
   }
   /** Why the auto-named create flow failed (modal-free flow, modal error). */
   readonly createError?: string
+  /**
+   * `setup` when the worktree and session already exist (command failed
+   * after open). `create` when the flow rolled back so nothing remains.
+   */
+  readonly createErrorKind?: 'create' | 'setup'
   readonly merge?: {
     readonly target: WorktreeModalTarget
     readonly preflight?: MergePreflightFacts
@@ -377,7 +383,8 @@ export function resetModalStore(): void {
  * is registered (the workspace path must resolve), the session exists
  * before the bind (the bind claims the row for the session). Open comes
  * next so the nested row exists, then setup runs with that row's branch
- * icon spinning.
+ * icon spinning. A failed setup command keeps the worktree and session
+ * (the user can finish setup or delete); earlier failures still roll back.
  *
  * @param input - the repo cwd plus the service/RPC faces.
  */
@@ -398,6 +405,7 @@ export async function runCreateFlow(input: {
   let created: { slug: string; path: string; relPath: string; setupPending?: boolean } | undefined
   let workspaceId: string | undefined
   let sessionId: string | undefined
+  let keepOnFailure = false
   try {
     created = await rpc('create', {
       cwd,
@@ -415,6 +423,8 @@ export async function runCreateFlow(input: {
     sessionId = await sessions.create({ workspaceId: workspace.workspaceId })
     await rpc('bind', { sessionId })
     sessions.open(sessionId)
+    // Session and worktree exist; setup is optional convenience after this.
+    keepOnFailure = true
     if (created.setupPending === true) {
       set({
         ...state,
@@ -432,9 +442,19 @@ export async function runCreateFlow(input: {
     set(INITIAL)
     onTopologyRefresh()
   } catch (error) {
+    if (keepOnFailure) {
+      set({
+        ...INITIAL,
+        kind: 'create-error',
+        createError: formatCreateError(error),
+        createErrorKind: 'setup',
+      })
+      onTopologyRefresh()
+      return
+    }
     // Host create is not transactional with workspace/session/bind: if a
-    // later step fails, drop the git worktree (and any workspace we did
-    // register) so the error modal's "nothing was changed" hint holds.
+    // later step fails before the session opens, drop the git worktree
+    // (and any workspace we did register) so "nothing was changed" holds.
     if (sessionId !== undefined && sessionId !== '' && workspaces.archiveSession !== undefined) {
       await workspaces.archiveSession(sessionId).catch(() => {})
     }
@@ -447,7 +467,17 @@ export async function runCreateFlow(input: {
     set({
       ...INITIAL,
       kind: 'create-error',
-      createError: error instanceof Error ? error.message : String(error),
+      createError: formatCreateError(error),
+      createErrorKind: 'create',
     })
   }
+}
+
+/** Message plus host hint (setup stderr) so the modal is actionable. */
+function formatCreateError(error: unknown): string {
+  if (error instanceof WorktreesRpcError) {
+    const hint = error.hint?.trim() ?? ''
+    return hint === '' ? error.message : `${error.message}\n${hint}`
+  }
+  return error instanceof Error ? error.message : String(error)
 }

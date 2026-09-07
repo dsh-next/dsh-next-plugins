@@ -19,12 +19,14 @@ export const en = {
   'row.rewindAriaStart': 'Rewind to session start',
   'row.iconAria': 'Turn {turn}',
   'row.iconAriaStart': 'Session start',
+  'row.inProgress': 'In progress',
+  'row.inProgressAria': 'Turn {turn} in progress',
   'rail.resize': 'Resize checkpoints',
 
   'files.label': 'Files',
   'files.empty': 'No file changes up to this checkpoint.',
   'files.closePreview': 'Close',
-  'files.stat': '+{added} -{removed}',
+  'files.statAria': '{added} added, {removed} removed',
   'files.added': '+{count}',
   'files.removed': '-{count}',
 
@@ -36,6 +38,7 @@ export const en = {
   'file.directory': 'Directory — not shown as a diff.',
   'file.deleted': 'Deleted',
   'file.created': 'Created',
+  'file.modified': 'Modified',
 
   'banner': 'Rewound to this checkpoint. Later messages are not sent to the model.',
 

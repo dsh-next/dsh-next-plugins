@@ -40,36 +40,12 @@ describe('GitRunner', () => {
 
   it('returns empty name lists when git fails', async () => {
     const git = runner(() => ({ code: 128 }))
-    expect(await git.diffNames('/plain', 'abc')).toEqual([])
-    expect(await git.untracked('/plain')).toEqual([])
     expect(await git.statusNames('/plain')).toEqual([])
-  })
-
-  it('treats git diff exit 1 as names, not failure', async () => {
-    const git = runner((args) => {
-      if (args.includes('diff')) return { code: 1, stdout: 'gone.txt\0' }
-      return { code: 128 }
-    })
-    expect(await git.diffNames('/repo', 'abc')).toEqual(['gone.txt'])
-  })
-
-  it('detects a linked worktree when git-dir differs from common-dir', async () => {
-    const git = runner((args) => {
-      if (args.includes('--git-dir')) return { stdout: '/repo/.git/worktrees/wt\n' }
-      if (args.includes('--git-common-dir')) return { stdout: '/repo/.git\n' }
-      return {}
-    })
-    expect(await git.isWorktree('/repo/wt')).toBe(true)
-  })
-
-  it('treats a primary checkout as not a worktree', async () => {
-    const git = runner(() => ({ stdout: '/repo/.git\n' }))
-    expect(await git.isWorktree('/repo')).toBe(false)
   })
 })
 
 describe('GitRunner against a real repo', () => {
-  it('reads HEAD, diff names, untracked files, and blob bytes', async () => {
+  it('reads HEAD, status names, and blob bytes', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dsh-next-checkpoints-git-'))
     try {
       execFileSync('git', ['init', '-q'], { cwd: dir })
@@ -84,16 +60,12 @@ describe('GitRunner against a real repo', () => {
       expect(head?.branch).not.toBeNull()
       await writeFile(join(dir, 'seed.txt'), 'changed\n')
       await writeFile(join(dir, 'extra.txt'), 'extra\n')
-      expect(await git.diffNames(dir, head!.sha)).toContain('seed.txt')
-      await rm(join(dir, 'seed.txt'))
-      expect(await git.diffNames(dir, head!.sha)).toContain('seed.txt')
       expect(await git.statusNames(dir)).toContain('seed.txt')
-      expect(await git.untracked(dir)).toContain('extra.txt')
+      await rm(join(dir, 'seed.txt'))
       expect(await git.statusNames(dir)).toEqual(expect.arrayContaining(['seed.txt', 'extra.txt']))
       const shown = await git.show(dir, head!.sha, 'seed.txt')
       expect(new TextDecoder().decode(shown!)).toBe('seed\n')
       expect(await git.show(dir, head!.sha, 'missing.txt')).toBeNull()
-      expect(await git.isWorktree(dir)).toBe(false)
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

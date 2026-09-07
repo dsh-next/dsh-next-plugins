@@ -119,7 +119,13 @@ export function ModalHost(props: ModalHostProps): React.ReactElement | null {
     : null
   let modal: React.ReactElement | null = null
   if (state.kind === 'create-error' && state.createError !== undefined) {
-    modal = <CreateErrorModal t={props.t} message={state.createError} />
+    modal = (
+      <CreateErrorModal
+        t={props.t}
+        message={state.createError}
+        kind={state.createErrorKind === 'setup' ? 'setup' : 'create'}
+      />
+    )
   } else if (props.workspaces !== undefined) {
     const host = hostCleanup(props.workspaces)
     if (state.kind === 'merge' && state.merge !== undefined) {
@@ -164,22 +170,26 @@ function CreatingStatus({ t, settingUp }: {
   )
 }
 
-function CreateErrorModal({ t, message }: {
+function CreateErrorModal({ t, message, kind }: {
   readonly t: Translate
   readonly message: string
+  readonly kind: 'create' | 'setup'
 }): React.ReactElement {
   useEscapeClose()
+  const title = kind === 'setup' ? t('create.setupFailed.title') : t('create.error.title')
+  const hint = kind === 'setup' ? t('create.setupFailed.hint') : t('create.error.hint')
   return (
     <div
       className="dshx-mask"
       onMouseDown={(event) => { if (event.target === event.currentTarget) closeModal() }}
       data-dshx-modal="create-error"
+      data-dshx-create-error={kind}
     >
-      <div className="dshx-modal" role="dialog" aria-modal="true" aria-label={t('create.error.title')}>
-        <div className="dshx-modalTitle">{t('create.error.title')}</div>
+      <div className="dshx-modal" role="dialog" aria-modal="true" aria-label={title}>
+        <div className="dshx-modalTitle">{title}</div>
         <div className="dshx-modalBody">
           <div className="dshx-error" data-dshx-error>{message}</div>
-          <div className="dshx-fieldHint">{t('create.error.hint')}</div>
+          <div className="dshx-fieldHint">{hint}</div>
         </div>
         <div className="dshx-modalActions">
           <button

@@ -85,6 +85,11 @@ export interface GitPorts {
   defaultBaseRef(cwd: string): Promise<string>
   /** Whether a ref already exists (`git rev-parse --verify`). */
   refExists(cwd: string, ref: string): Promise<boolean>
+  /**
+   * Local `dsh-worktrees/*` branch names (`git for-each-ref` short names).
+   * Empty when none exist or the listing fails.
+   */
+  listPluginBranches(cwd: string): Promise<string[]>
   /** Create the worktree plus its branch; returns the worktree path. */
   addWorktree(input: {
     primary: string
@@ -211,6 +216,18 @@ export class GitRunner implements GitPorts {
       cwd,
     )
     return result.code === 0
+  }
+
+  async listPluginBranches(cwd: string): Promise<string[]> {
+    const result = await this.run(
+      ['for-each-ref', '--format=%(refname:short)', 'refs/heads/dsh-worktrees/'],
+      cwd,
+    )
+    if (result.code !== 0) return []
+    return result.stdout
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line !== '')
   }
 
   async addWorktree(input: {

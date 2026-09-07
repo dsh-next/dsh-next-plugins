@@ -9,6 +9,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-tools'
 import type { FsTarget } from '@deepseek-ai/dsh-fs'
@@ -91,6 +92,11 @@ export function apply(ctx: Context): void {
       ctx.on('session/event', (session, event) => {
         service.onEvent(session as SessionLike, event as { type: string; seq: number; data?: { turn?: number } })
       }, { global: true }),
+      ctx.on('agent/status', (payload) => {
+        if (payload.status !== 'idle') return
+        const session = (payload.agent as { session?: SessionLike }).session
+        if (session !== undefined) service.onAgentIdle(session)
+      }, { global: true }),
       ctx.on('fs/write-intent', async (target, actor, next) => {
         const session = actorSession(actor)
         if (session !== undefined) await noteTarget(session, target)
@@ -112,7 +118,6 @@ export function apply(ctx: Context): void {
               await service.noteIntent(session, abs, rel, abs)
             }
           }
-          service.noteTool(session, exec.name)
         }
         return await next()
       }, { global: true }),

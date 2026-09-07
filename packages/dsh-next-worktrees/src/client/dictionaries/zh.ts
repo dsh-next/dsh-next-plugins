@@ -69,6 +69,8 @@ export const zh: Record<MessageKey, string> = {
   'create.settingUp': '正在设置工作树…',
   'create.error.title': '无法创建工作树',
   'create.error.hint': '未做任何更改；请先解决上述问题，然后重试。',
+  'create.setupFailed.title': '工作树已创建，但 setup 失败',
+  'create.setupFailed.hint': '工作树和会话已就绪。你可以在此会话中自行运行 setup 命令，或删除该工作树。',
   'create.error.ok': '好',
   'create.cancel': '取消',
 }

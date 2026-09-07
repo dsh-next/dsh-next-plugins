@@ -52,11 +52,11 @@
 }
 
 .del {
-  background: color-mix(in srgb, var(--dsw-alias-label-error) 16%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 16%, transparent);
 }
 
 .del .sign {
-  color: var(--dsw-alias-label-error);
+  color: var(--dsw-alias-state-error-primary);
 }
 
 .ctx {
@@ -100,5 +100,5 @@
 
 .code :global(.hljs-deletion),
 .code :global(.hljs-variable) {
-  color: var(--dsw-alias-label-error);
+  color: var(--dsw-alias-state-error-primary);
 }

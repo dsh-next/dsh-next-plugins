@@ -12,6 +12,8 @@ import { WorktreesService } from '../src/host/service.ts'
 import { nextSlug } from '../src/core/slug.ts'
 
 const PRIMARY = '/repos/wt-repo'
+/** Pinned UTC clock so slug stamps stay `…-202606140222` in this file. */
+const NOW = Date.UTC(2026, 5, 14, 2, 22)
 
 function placement(overrides: Partial<RepoPlacement> = {}): RepoPlacement {
   return {
@@ -28,6 +30,7 @@ class FakeGit implements GitPorts {
   worktrees: WorktreeListEntry[] = [{ path: PRIMARY }]
   baseRefs = new Map<string, string>()
   existingRefs = new Set<string>()
+  pluginBranches: string[] = []
   addCalls: { primary: string; path: string; branch: string; baseRef: string }[] = []
   addImpl: ((input: { primary: string; path: string; branch: string; baseRef: string }) => Promise<void>) | undefined
   removeCalls: { primary: string; path: string; force: boolean }[] = []
@@ -72,6 +75,10 @@ class FakeGit implements GitPorts {
 
   async refExists(_cwd: string, ref: string): Promise<boolean> {
     return this.existingRefs.has(ref)
+  }
+
+  async listPluginBranches(): Promise<string[]> {
+    return this.pluginBranches
   }
 
   async addWorktree(input: { primary: string; path: string; branch: string; baseRef: string }): Promise<void> {
@@ -220,6 +227,7 @@ function harness(seed = 7): Harness {
     },
     platform: 'darwin',
     seed,
+    now: NOW,
   })
   return { service, git, store, sessionCwds, knobWrites, copies, files, commands, get commandImpl() { return box.commandImpl }, set commandImpl(value) { box.commandImpl = value } }
 }
@@ -296,7 +304,7 @@ describe('preflight', () => {
 describe('create', () => {
   it('creates the worktree, the registry row, and the title', async () => {
     const h = harness()
-    const expectedSlug = nextSlug({ takenSlugs: [], seed: 7 })
+    const expectedSlug = nextSlug({ takenSlugs: [], seed: 7, now: NOW })
     const result = await h.service.create({ cwd: PRIMARY, name: '  login   race fix ' })
     expect(result).toEqual({
       slug: expectedSlug,
@@ -353,6 +361,23 @@ describe('create', () => {
     const h = harness()
     h.git.addImpl = () => Promise.reject(new GitError('branch-exists', 'branch taken'))
     await expect(h.service.create({ cwd: PRIMARY })).rejects.toMatchObject({ code: 'branch-exists' })
+  })
+
+  it('skips leftover plugin branches when choosing a slug', async () => {
+    const h = harness()
+    const colliding = nextSlug({ takenSlugs: [], seed: 7, now: NOW })
+    h.git.pluginBranches = [`dsh-worktrees/${colliding}`]
+    const result = await h.service.create({ cwd: PRIMARY })
+    expect(result.slug).not.toBe(colliding)
+    expect(result.slug).toMatch(/^[a-z]+-\d{12}$/)
+    expect(h.git.addCalls[0]?.branch).toBe(`dsh-worktrees/${result.slug}`)
+  })
+
+  it('does not treat a legacy word-NN leftover as the same slug', async () => {
+    const h = harness()
+    h.git.pluginBranches = ['dsh-worktrees/harbor-01']
+    const result = await h.service.create({ cwd: PRIMARY })
+    expect(result.slug).toBe('harbor-202606140222')
   })
 
   it('removes the git worktree when the registry write fails after add', async () => {
@@ -422,7 +447,7 @@ describe('create', () => {
     expect(h.commands.map((c) => c.command)).toEqual(['local'])
   })
 
-  it('rolls back the worktree when a setup command fails', async () => {
+  it('keeps the worktree when a setup command fails', async () => {
     const h = harness()
     h.files.set(`${PRIMARY}/.worktrees.json`, JSON.stringify({ 'setup-worktree': ['false'] }))
     h.commandImpl = () => ({ code: 1, stdout: '', stderr: 'nope' })
@@ -430,9 +455,24 @@ describe('create', () => {
     expect(created.setupPending).toBe(true)
     await expect(h.service.setup({ cwd: PRIMARY, slug: created.slug })).rejects.toMatchObject({
       code: 'setup-failed',
+      message: 'setup command failed: false',
+      hint: 'nope',
     })
-    expect(h.git.removeCalls).toEqual([expect.objectContaining({ force: true })])
-    expect(h.store.files.get(PRIMARY)?.bindings).toEqual([])
+    expect(h.git.removeCalls).toEqual([])
+    expect(h.store.files.get(PRIMARY)?.bindings).toEqual([
+      expect.objectContaining({ slug: created.slug, path: created.path }),
+    ])
+  })
+
+  it('clips a long setup failure hint to the tail', async () => {
+    const h = harness()
+    h.files.set(`${PRIMARY}/.worktrees.json`, JSON.stringify({ 'setup-worktree': ['pnpm install'] }))
+    h.commandImpl = () => ({ code: 1, stdout: '', stderr: `head\n${'x'.repeat(5000)}` })
+    const created = await h.service.create({ cwd: PRIMARY })
+    const error = await h.service.setup({ cwd: PRIMARY, slug: created.slug }).catch((e: unknown) => e)
+    expect(error).toMatchObject({ code: 'setup-failed', message: 'setup command failed: pnpm install' })
+    expect((error as { hint: string }).hint).toHaveLength(4000)
+    expect((error as { hint: string }).hint.startsWith('head')).toBe(false)
   })
 
   it('rejects invalid setup JSON without adding a worktree row', async () => {

@@ -5,6 +5,8 @@ import {
   emptyState,
   findCheckpoint,
   ensureOriginCheckpoint,
+  isLiveCheckpointId,
+  liveCheckpointId,
   listItems,
   overlayTree,
   rewindDeletes,
@@ -14,6 +16,7 @@ import {
   setOpenTurn,
   setSessionStartHead,
   truncateAfter,
+  turnsShadowedAfter,
 } from '../src/core/store.ts'
 import type { Checkpoint, SnapshotEntry } from '../src/core/types.ts'
 
@@ -107,6 +110,7 @@ describe('store', () => {
     )
     expect(listItems(state)[0]?.fileCount).toBe(2)
     expect(listItems(state)[0]?.promptTooltip).toBeNull()
+    expect(listItems(state)[0]?.live).toBe(false)
     expect(findCheckpoint(state, checkpointId('s', 1, 1))?.turn).toBe(1)
     expect(findCheckpoint(state, 'nope')).toBeUndefined()
   })
@@ -119,6 +123,19 @@ describe('store', () => {
     const item = listItems(state)[0]
     expect(item?.promptPreview).toBe(`${'a'.repeat(30)}...`)
     expect(item?.promptTooltip).toBe('a'.repeat(60))
+  })
+
+  it('shadows later rows only for a known committed index', () => {
+    expect(turnsShadowedAfter(3, 0)).toBe(2)
+    expect(turnsShadowedAfter(3, 2)).toBe(0)
+    expect(turnsShadowedAfter(3, -1)).toBe(0)
+    expect(turnsShadowedAfter(3, 9)).toBe(0)
+  })
+
+  it('names a stable live id that is not a committed checkpoint id', () => {
+    expect(liveCheckpointId('s1', 2)).toBe('s1:live:2')
+    expect(isLiveCheckpointId('s1:live:2')).toBe(true)
+    expect(isLiveCheckpointId(checkpointId('s1', 2, 9))).toBe(false)
   })
 
   it('keeps the first session-start HEAD and records an open turn', () => {

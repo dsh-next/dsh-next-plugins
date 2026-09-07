@@ -6,18 +6,18 @@ import { mkdir, unlink, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionSeq } from '@deepseek-ai/dsh-session/types'
-import { containsNul, decodeUtf8, lfNormalize } from '../core/hunks.ts'
-import { absFromCwd, confineToCwd, headMoved, relativeToCwd } from '../core/paths.ts'
-import { projectRows, type BlobText } from '../core/project.ts'
-import { promptPreviewFromEvents } from '../core/prompt.ts'
+import { confineToCwd, headMoved, relativeToCwd } from '../core/paths.ts'
+import { sumDiffs } from '../core/diffstat.ts'
 import { replaceRange } from '../core/rewind-range.ts'
 import {
   appendCheckpoint,
-  checkpointId,
   ensureOriginCheckpoint,
   findCheckpoint,
+  isLiveCheckpointId,
+  liveCheckpointId,
   listItems,
   overlayTree,
+  toListItem,
   rehomeState,
   rewindDeletes,
   rememberBaseline,
@@ -25,24 +25,24 @@ import {
   setOpenTurn,
   setSessionStartHead,
   truncateAfter,
+  turnsShadowedAfter,
 } from '../core/store.ts'
 import {
-  DIFF_MAX_BYTES,
   PLUGIN_ID,
-  type BaselineEntry,
   type Checkpoint,
   type CheckpointDiffs,
   type CheckpointList,
-  type FileKind,
+  type FileRow,
   type RewindBlocker,
   type RewindPreview,
   type RewindResult,
   type SessionState,
-  type SnapshotEntry,
 } from '../core/types.ts'
+import { buildSnapshot, entryFromInspect, projectCheckpoint } from './snapshot.ts'
 import type { BlobStore } from './blobs.ts'
 import type { GitPorts } from './git.ts'
 import { inspectPath, type InspectFn } from './inspect.ts'
+import { listFilesUnder } from './walk.ts'
 import { loadState, saveState } from './persist.ts'
 
 /** Structured flow error crossing the RPC boundary as `{ error: { code } }`. */
@@ -75,6 +75,8 @@ export interface DiskPorts {
   inspect: InspectFn
   writeFile: (absPath: string, bytes: Uint8Array) => Promise<void>
   deleteFile: (absPath: string) => Promise<void>
+  /** Absolute file paths under cwd; used to follow a moved session-touched blob. */
+  listFiles: (cwd: string) => Promise<readonly string[]>
 }
 
 export interface ServicePorts {
@@ -120,36 +122,22 @@ export const defaultDisk: DiskPorts = {
   inspect: inspectPath,
   writeFile: writeBytes,
   deleteFile: deleteBytes,
+  listFiles: listFilesUnder,
 }
 
-function entryFromInspect(
-  targetKey: string,
-  displayPath: string,
-  inspected: { kind: FileKind; bytes: Uint8Array | null; mtimeMs?: number | null },
-  hash: string | null,
-): SnapshotEntry {
-  return {
-    targetKey,
-    displayPath,
-    kind: inspected.kind,
-    blobHash: hash,
-    mtimeMs: inspected.mtimeMs ?? null,
-  }
+/** Reuse a live snapshot if it is newer than this many ms. */
+const LIVE_MIN_MS = 400
+
+interface LiveFrame {
+  readonly checkpoint: Checkpoint
+  readonly files: readonly FileRow[]
+  readonly at: number
 }
 
-function classifyBytes(bytes: Uint8Array): FileKind {
-  if (bytes.length > DIFF_MAX_BYTES) return 'too-large'
-  if (containsNul(bytes)) return 'binary'
-  if (decodeUtf8(bytes) === undefined) return 'invalid-utf8'
-  return 'text'
-}
-
-/**
- * Checkpoints service. One instance per plugin apply.
- */
 export class CheckpointsService {
   private readonly states = new Map<string, SessionState>()
   private readonly inflight = new Map<string, Promise<void>>()
+  private readonly liveFrames = new Map<string, LiveFrame>()
 
   constructor(private readonly ports: ServicePorts) {}
 
@@ -222,8 +210,10 @@ export class CheckpointsService {
   }
 
   /**
-   * Record session-start HEAD and first-seen disk bytes of already-dirty
-   * paths so pre-session dirt is not attributed to the first checkpoint.
+   * Record session-start HEAD for the moved-HEAD warning. Pre-session dirty
+   * files stay out of the ledger so another session's dirt is not attributed
+   * here; fs-tool intents capture first-seen bytes when this session touches
+   * a path.
    */
   private async prepareSession(session: SessionLike, state: SessionState): Promise<SessionState> {
     const cwd = cwdOf(session)
@@ -233,44 +223,49 @@ export class CheckpointsService {
       const head = await this.ports.git.head(cwd)
       state = setSessionStartHead(state, head)
     }
-    const names = new Set<string>()
-    if (state.sessionStartHead !== null) {
-      for (const name of await this.ports.git.diffNames(cwd, state.sessionStartHead.sha)) names.add(name)
-    }
-    for (const name of await this.ports.git.untracked(cwd)) names.add(name)
-    for (const name of await this.ports.git.statusNames(cwd)) names.add(name)
-    for (const name of names) {
-      const abs = confineToCwd(cwd, name)
-      if (abs === null) continue
-      if (state.baseline[abs] !== undefined) continue
-      const display = relativeToCwd(cwd, abs)
-      const inspected = await this.ports.disk.inspect(abs)
-      const hash = inspected.bytes !== null ? await this.ports.blobs.put(inspected.bytes) : null
-      state = rememberBaseline(state, {
-        targetKey: abs,
-        displayPath: display,
-        kind: inspected.kind,
-        blobHash: hash,
-      })
-    }
     return state
   }
 
   onEvent(session: SessionLike, event: { type: string; seq: number; data?: { turn?: number } }): void {
     const id = sessionIdOf(session)
     this.enqueue(id, async () => {
-      let state = await this.hydrate(session)
+      const state = await this.hydrate(session)
       if (event.type === 'turn/start' && typeof event.data?.turn === 'number') {
-        state = setOpenTurn(state, event.data.turn)
-        await this.persist(state)
+        this.liveFrames.delete(id)
+        await this.persist(setOpenTurn(state, event.data.turn))
         return
       }
-      if (event.type === 'turn/end' && typeof event.data?.turn === 'number') {
-        state = setOpenTurn(state, null)
-        state = await this.snapshotTurn(session, state, event.data.turn, event.seq)
-        await this.persist(state)
+      if (event.type === 'turn/end') {
+        const turn = typeof event.data?.turn === 'number' ? event.data.turn : state.openTurn
+        if (turn === null) return
+        await this.finishTurn(session, state, turn, event.seq)
       }
     })
+  }
+
+  /** Stop / cancel converges here: no driver remains, even if `turn/end` is late. */
+  onAgentIdle(session: SessionLike): void {
+    const id = sessionIdOf(session)
+    this.enqueue(id, async () => {
+      const state = await this.hydrate(session)
+      if (state.openTurn === null) return
+      const seq = typeof session.seq === 'number' ? session.seq : state.seqCursor
+      await this.finishTurn(session, state, state.openTurn, seq)
+    })
+  }
+
+  private async finishTurn(
+    session: SessionLike,
+    state: SessionState,
+    turn: number,
+    seq: number,
+  ): Promise<void> {
+    this.liveFrames.delete(sessionIdOf(session))
+    let next = setOpenTurn(state, null)
+    if (!state.checkpoints.some((item) => item.turn === turn)) {
+      next = await this.snapshotTurn(session, next, turn, seq)
+    }
+    await this.persist(next)
   }
 
   /**
@@ -290,15 +285,21 @@ export class CheckpointsService {
         const display = cwd !== '' ? relativeToCwd(cwd, confined) : displayPath
         state = rememberBaseline(state, entryFromInspect(targetKey, display, inspected, hash))
       }
+      this.liveFrames.delete(sessionIdOf(session))
       await this.persist(state)
     })
   }
 
-  noteTool(session: SessionLike, name: string): void {
-    if (!/^(bash|shell|exec)$/i.test(name)) return
-    // Git discovery at turn/end covers bash-touched tracked files. Nothing
-    // to snapshot mid-call: the mutation may not have finished.
-    void session
+  private snapshotIo() {
+    return {
+      inspect: (absPath: string) => this.ports.disk.inspect(absPath),
+      listFiles: (cwd: string) => this.ports.disk.listFiles(cwd),
+      put: (bytes: Uint8Array) => this.ports.blobs.put(bytes),
+      get: (hash: string) => this.ports.blobs.get(hash),
+      head: (cwd: string) => this.ports.git.head(cwd),
+      show: (cwd: string, sha: string, path: string) => this.ports.git.show(cwd, sha, path),
+      now: this.ports.now,
+    }
   }
 
   private async snapshotTurn(
@@ -307,79 +308,70 @@ export class CheckpointsService {
     turn: number,
     seq: number,
   ): Promise<SessionState> {
-    const cwd = state.cwd !== '' ? state.cwd : cwdOf(session)
-    if (cwd === '') return state
-    if (state.sessionStartHead === null) {
-      state = setSessionStartHead(state, await this.ports.git.head(cwd))
-    }
-    const names = new Set<string>(state.intentKeys)
-    if (state.sessionStartHead !== null) {
-      for (const name of await this.ports.git.diffNames(cwd, state.sessionStartHead.sha)) names.add(name)
-    }
-    for (const name of await this.ports.git.untracked(cwd)) names.add(name)
-    for (const name of await this.ports.git.statusNames(cwd)) names.add(name)
-
-    const tree: SnapshotEntry[] = []
-    const seen = new Set<string>()
-
-    const consider = async (targetKey: string, displayPath: string, absPath: string): Promise<void> => {
-      if (seen.has(targetKey)) return
-      seen.add(targetKey)
-      if (state.baseline[targetKey] === undefined) {
-        let baseline: BaselineEntry
-        const head = state.sessionStartHead
-        const fromGit = head !== null ? await this.ports.git.show(cwd, head.sha, displayPath) : null
-        if (fromGit !== null) {
-          const kind = classifyBytes(fromGit)
-          const hash = kind === 'too-large' ? null : await this.ports.blobs.put(fromGit)
-          baseline = { targetKey, displayPath, kind, blobHash: hash }
-        } else {
-          baseline = { targetKey, displayPath, kind: 'missing', blobHash: null }
-        }
-        state = rememberBaseline(state, baseline)
-      }
-      const inspected = await this.ports.disk.inspect(absPath)
-      const hash = inspected.bytes !== null ? await this.ports.blobs.put(inspected.bytes) : null
-      tree.push(entryFromInspect(targetKey, displayPath, inspected, hash))
-    }
-
-    const previous = state.checkpoints[state.checkpoints.length - 1]
-    for (const entry of overlayTree(state.baseline, previous?.tree ?? [])) {
-      const abs = this.resolveSnapshot(cwd, entry)
-      if (abs === null) continue
-      await consider(entry.targetKey, relativeToCwd(cwd, abs), abs)
-    }
-    for (const key of state.intentKeys) {
-      const base = state.baseline[key]
-      const display = base?.displayPath ?? key
-      const abs = this.resolveAbs(cwd, display.startsWith('/') ? display : absFromCwd(cwd, display))
-      if (abs === null) continue
-      await consider(key, relativeToCwd(cwd, abs), abs)
-    }
-    for (const name of names) {
-      const abs = this.resolveAbs(cwd, name)
-      if (abs === null) continue
-      const display = relativeToCwd(cwd, abs)
-      await consider(abs, display, abs)
-    }
-
-    tree.sort((a, b) => a.displayPath.localeCompare(b.displayPath))
-    const promptPreview = promptPreviewFromEvents(
-      session.snapshotEvents?.() ?? [],
-      previous?.seq ?? -1,
-      seq,
-    )
-    const checkpoint: Checkpoint = {
-      id: checkpointId(state.sessionId, turn, seq),
-      sessionId: state.sessionId,
+    const built = await buildSnapshot({
+      sessionId: sessionIdOf(session),
+      cwd: state.cwd !== '' ? state.cwd : cwdOf(session),
+      events: session.snapshotEvents?.() ?? [],
+      state,
       turn,
       seq,
-      time: this.ports.now(),
-      tree,
-      head: await this.ports.git.head(cwd),
-      promptPreview,
+      io: this.snapshotIo(),
+    })
+    if (built.checkpoint === null) return built.state
+    return appendCheckpoint(built.state, built.checkpoint)
+  }
+
+  private async refreshLive(session: SessionLike, state: SessionState): Promise<LiveFrame | null> {
+    const turn = state.openTurn
+    if (turn === null) return null
+    const id = sessionIdOf(session)
+    const cached = this.liveFrames.get(id)
+    const now = this.ports.now()
+    if (cached !== undefined && cached.checkpoint.turn === turn && now - cached.at < LIVE_MIN_MS) {
+      return cached
     }
-    return appendCheckpoint(state, checkpoint)
+    const liveSeq = typeof session.seq === 'number' ? session.seq : 0
+    const seq = Math.max(liveSeq, state.seqCursor)
+    const built = await buildSnapshot({
+      sessionId: sessionIdOf(session),
+      cwd: state.cwd !== '' ? state.cwd : cwdOf(session),
+      events: session.snapshotEvents?.() ?? [],
+      state,
+      turn,
+      seq,
+      io: this.snapshotIo(),
+    })
+    if (built.checkpoint === null) return null
+    if (built.state !== state) await this.persist(built.state)
+    const checkpoint: Checkpoint = {
+      ...built.checkpoint,
+      id: liveCheckpointId(built.state.sessionId, turn),
+    }
+    const files = await projectCheckpoint(built.state, checkpoint, this.snapshotIo())
+    const frame: LiveFrame = { checkpoint, files, at: now }
+    this.liveFrames.set(id, frame)
+    return frame
+  }
+
+  private async resolveCheckpoint(
+    sessionId: string,
+    checkpointId: string,
+  ): Promise<{ state: SessionState; checkpoint: Checkpoint; files?: readonly FileRow[] }> {
+    const state = this.requireState(sessionId)
+    const committed = findCheckpoint(state, checkpointId)
+    if (committed !== undefined) return { state, checkpoint: committed }
+    if (!isLiveCheckpointId(checkpointId) || state.openTurn === null) {
+      throw new CheckpointsError('checkpoint-not-found', `unknown checkpoint ${checkpointId}`)
+    }
+    const session = this.ports.getSession(sessionId)
+    if (session === undefined) {
+      throw new CheckpointsError('checkpoint-not-found', `unknown checkpoint ${checkpointId}`)
+    }
+    const frame = await this.refreshLive(session, this.requireState(sessionId))
+    if (frame === null || frame.checkpoint.id !== checkpointId) {
+      throw new CheckpointsError('checkpoint-not-found', `unknown checkpoint ${checkpointId}`)
+    }
+    return { state: this.requireState(sessionId), checkpoint: frame.checkpoint, files: frame.files }
   }
 
   async list(sessionId: string): Promise<CheckpointList> {
@@ -399,9 +391,21 @@ export class CheckpointsService {
         cwd: session !== undefined ? cwdOf(session) : null,
       }
     }
+    const items = [...listItems(state)]
+    if (state.openTurn !== null && session !== undefined) {
+      const frame = await this.refreshLive(session, this.requireState(sessionId))
+      if (frame !== null) {
+        const totals = sumDiffs(frame.files)
+        items.push(toListItem(frame.checkpoint, {
+          live: true,
+          added: totals.added,
+          removed: totals.removed,
+        }))
+      }
+    }
     return {
       sessionId,
-      checkpoints: listItems(state),
+      checkpoints: items,
       rewoundTo: state.rewoundTo,
       openTurn: state.openTurn !== null,
       cwd: state.cwd,
@@ -426,6 +430,14 @@ export class CheckpointsService {
     if (state.openTurn !== null) {
       throw new CheckpointsError('turn-open', 'Refuse capture while a turn is open')
     }
+    const cwd = state.cwd !== '' ? state.cwd : cwdOf(session)
+    if (cwd !== '') {
+      for (const name of await this.ports.git.statusNames(cwd)) {
+        const abs = confineToCwd(cwd, name)
+        if (abs === null) continue
+        state = rememberIntent(state, abs)
+      }
+    }
     const last = state.checkpoints[state.checkpoints.length - 1]
     const turn = (last?.turn ?? 0) + 1
     const liveSeq = typeof session.seq === 'number' ? session.seq : 0
@@ -444,41 +456,9 @@ export class CheckpointsService {
   }
 
   private async diffsNow(sessionId: string, checkpointId: string): Promise<CheckpointDiffs> {
-    const state = this.requireState(sessionId)
-    const checkpoint = findCheckpoint(state, checkpointId)
-    if (checkpoint === undefined) {
-      throw new CheckpointsError('checkpoint-not-found', `unknown checkpoint ${checkpointId}`)
-    }
-    const hashes = new Set<string>()
-    for (const entry of Object.values(state.baseline)) {
-      if (entry.blobHash !== null) hashes.add(entry.blobHash)
-    }
-    for (const entry of checkpoint.tree) {
-      if (entry.blobHash !== null) hashes.add(entry.blobHash)
-    }
-    const blobs: Record<string, BlobText> = {}
-    for (const hash of hashes) {
-      const bytes = await this.ports.blobs.get(hash)
-      if (bytes === null) continue
-      const kind = classifyBytes(bytes)
-      const decoded = kind === 'text' ? decodeUtf8(bytes) : undefined
-      blobs[hash] = {
-        kind,
-        text: decoded !== undefined ? lfNormalize(decoded) : null,
-      }
-    }
-    return {
-      checkpointId,
-      files: projectRows({
-        baseline: state.baseline,
-        tree: checkpoint.tree,
-        blobs,
-        cwd: state.cwd,
-      }).map((row) => ({
-        ...row,
-        changedAt: row.changedAt ?? checkpoint.time,
-      })),
-    }
+    const resolved = await this.resolveCheckpoint(sessionId, checkpointId)
+    const files = resolved.files ?? await projectCheckpoint(resolved.state, resolved.checkpoint, this.snapshotIo())
+    return { checkpointId, files }
   }
 
   async preview(sessionId: string, checkpointId: string): Promise<RewindPreview> {
@@ -486,11 +466,9 @@ export class CheckpointsService {
   }
 
   private async previewNow(sessionId: string, checkpointId: string): Promise<RewindPreview> {
-    const state = this.requireState(sessionId)
-    const checkpoint = findCheckpoint(state, checkpointId)
-    if (checkpoint === undefined) {
-      throw new CheckpointsError('checkpoint-not-found', `unknown checkpoint ${checkpointId}`)
-    }
+    const resolved = await this.resolveCheckpoint(sessionId, checkpointId)
+    const state = resolved.state
+    const checkpoint = resolved.checkpoint
     const index = state.checkpoints.findIndex((item) => item.id === checkpointId)
     const later = rewindDeletes(state, checkpointId)
     const effective = overlayTree(state.baseline, checkpoint.tree)
@@ -506,7 +484,6 @@ export class CheckpointsService {
     }
     const filesDeleted = later.map((key) => labels.get(key) ?? relativeToCwd(state.cwd, key))
     const currentHead = state.cwd !== '' ? await this.ports.git.head(state.cwd) : null
-    const worktree = state.cwd !== '' ? await this.ports.git.isWorktree(state.cwd) : false
     const status = state.cwd !== '' ? await this.ports.git.statusNames(state.cwd) : []
     const intent = new Set(state.intentKeys)
     const restoreKeys = new Set([
@@ -550,8 +527,7 @@ export class CheckpointsService {
       checkpointId,
       filesWritten,
       filesDeleted: [...new Set(filesDeleted)],
-      turnsShadowed: Math.max(0, state.checkpoints.length - index - 1),
-      worktree,
+      turnsShadowed: turnsShadowedAfter(state.checkpoints.length, index),
       dirtyNonAgent,
       headMoved: headMoved(currentHead, checkpoint.head),
       currentHead,

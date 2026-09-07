@@ -386,8 +386,8 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     // next (failing) create opens a different session.
     await unblankCurrentSession(page, 'keep this worktree')
 
-    // A failing setup command must cancel create and leave the live
-    // worktree alone (host rolls the new folder back).
+    // A failing setup command keeps the new worktree and session; the
+    // dialog is not "nothing was changed".
     writeFileSync(join(workspaceA, '.worktrees.json'), `${JSON.stringify({
       'setup-worktree': ['exit 1'],
     })}\n`)
@@ -395,15 +395,21 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await createButton.click({ force: true })
     const setupError = page.locator('[data-dshx-modal="create-error"]')
     await expect(setupError).toBeVisible({ timeout: 20_000 })
+    await expect(setupError).toHaveAttribute('data-dshx-create-error', 'setup')
     await expect(setupError.locator('[data-dshx-error]')).toContainText('setup command failed')
+    await expect(setupError.locator('.dshx-fieldHint')).toContainText('worktree and session are ready')
     await setupError.locator('[data-dshx-button="create-error-ok"]').click()
     await expect(setupError).toHaveCount(0, { timeout: 10_000 })
-    expect(readRegistry(workspaceA).bindings).toHaveLength(1)
-    expect(readRegistry(workspaceA).bindings[0]!.slug).toBe(slug)
+    expect(readRegistry(workspaceA).bindings).toHaveLength(2)
+    const failedSlug = readRegistry(workspaceA).bindings.find((row) => row.slug !== slug)?.slug
+    expect(failedSlug).toEqual(expect.any(String))
+    expect(existsSync(worktreeDir(workspaceA, failedSlug!))).toBe(true)
     unlinkSync(join(workspaceA, '.worktrees.json'))
-    // Failed create opened then archived a session; re-select the surviving
-    // worktree so the composer is back for the rest of the marker.
-    await nested.first().click({ force: true })
+    // Switch back to the recorded session; the unused failed-setup row is
+    // swept so the rest of the marker still has one worktree.
+    await page.locator(`[data-dshx-worktree="${slug}"]`).click({ force: true })
+    await expect.poll(() => readRegistry(workspaceA).bindings.length, { timeout: 20_000 }).toBe(1)
+    expect(readRegistry(workspaceA).bindings[0]!.slug).toBe(slug)
 
     // Visual evidence for the owned-browser redesign (light + dark ride the
     // same tokens; this shot pins the nested-identity chrome).

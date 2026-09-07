@@ -171,6 +171,10 @@ html[data-dshx-creating="true"]:not([data-dshx-setting-up]) [data-dshx-create]::
   font-size: 13px;
   line-height: 20px;
   color: var(--dsw-alias-state-error-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 240px;
+  overflow: auto;
 }
 .dshx-warn {
   font-size: 13px;

@@ -76,6 +76,44 @@ describe('GitRunner.placement', () => {
   })
 })
 
+describe('GitRunner.listPluginBranches', () => {
+  it('returns short names from for-each-ref', async () => {
+    const calls: string[][] = []
+    const git = runner((args) => {
+      calls.push([...args])
+      if (args[0] === 'for-each-ref') {
+        return { stdout: 'dsh-worktrees/sable-01\ndsh-worktrees/willow-202606140222\n' }
+      }
+      return {}
+    })
+    await expect(git.listPluginBranches('/repos/wt-repo')).resolves.toEqual([
+      'dsh-worktrees/sable-01',
+      'dsh-worktrees/willow-202606140222',
+    ])
+    expect(calls[0]).toEqual([
+      'for-each-ref',
+      '--format=%(refname:short)',
+      'refs/heads/dsh-worktrees/',
+    ])
+  })
+
+  it('returns empty when the listing fails', async () => {
+    const git = runner(() => ({ code: 128, stderr: 'index.lock' }))
+    await expect(git.listPluginBranches('/repos/wt-repo')).resolves.toEqual([])
+  })
+
+  it('lists leftover plugin branches in a real repo', async () => {
+    const { dir, cleanup } = await makeTempRepo()
+    try {
+      runGit(dir, ['branch', 'dsh-worktrees/sable-01'])
+      const git = new GitRunner()
+      await expect(git.listPluginBranches(dir)).resolves.toEqual(['dsh-worktrees/sable-01'])
+    } finally {
+      await cleanup()
+    }
+  })
+})
+
 describe('GitRunner.addWorktree', () => {
   it('enables parallel checkout on git worktree add', async () => {
     const calls: string[][] = []

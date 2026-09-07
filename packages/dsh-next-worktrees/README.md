@@ -72,6 +72,8 @@ the worktree; the main folder is untouched.
 
 Removes the extra folder. The branch and session log stay. A worktree
 with uncommitted changes needs a second confirm (`Remove anyway`).
+The next Create uses a new timestamped branch (`willow-202606140222`,
+UTC), so it does not fail because the old branch is still there.
 
 ![Delete worktree dialog warning about uncommitted changes](media/delete.webp)
 
@@ -119,8 +121,9 @@ Clicking the branch icon to create a worktree already runs setup when
 `.worktrees.json` is at the repo root (or `.dsh/worktrees.json` as a local
 override). The new session row appears first; setup then runs with that
 row's branch icon spinning. You do not click anything else.
-`$ROOT_WORKTREE_PATH` is the main folder. A failed command cancels create
-and removes the extra folder.
+`$ROOT_WORKTREE_PATH` is the main folder. A failed command leaves the
+worktree and session; the error shows the command output so you can run
+setup yourself or delete the worktree.
 Gitignored writes (`.env`, `node_modules`) do not count as uncommitted
 changes. A file git can see (not ignored) does: Update waits until you
 commit or delete it; Merge lists it and still runs.

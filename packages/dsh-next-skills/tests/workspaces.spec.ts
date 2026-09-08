@@ -19,6 +19,15 @@ describe('extractWorkspaces', () => {
   it('falls back to the path as title and id', () => {
     expect(extractWorkspaces(ws([{ path: '/ok' }]))).toEqual([{ id: '/ok', title: '/ok', path: '/ok' }])
   })
+  it('hides plugin worktree workspaces from the checklist', () => {
+    expect(extractWorkspaces(ws([
+      { workspaceId: 'harbor', path: '/Users/x/Projects/dsh-next-plugins', title: 'dsh-next-plugins' },
+      { workspaceId: 'wt', path: '/Users/x/Projects/dsh-next-plugins/.dsh/worktrees/willow-01', title: 'auth-refresh' },
+    ]))).toEqual([
+      { id: 'harbor', title: 'dsh-next-plugins', path: '/Users/x/Projects/dsh-next-plugins' },
+    ])
+  })
+
   it('drops entries without a path', () => {
     expect(extractWorkspaces(ws([{ workspaceId: 'x', title: 'No path' }, { path: '/ok' }]))).toEqual([{ id: '/ok', title: '/ok', path: '/ok' }])
   })

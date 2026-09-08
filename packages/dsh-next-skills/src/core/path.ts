@@ -27,6 +27,31 @@ export function basenamePath(p: string): string {
   return p
 }
 
+/** Marker every plugin-created worktree workspace carries in its path. */
+export const WORKTREES_MARKER = '/.dsh/worktrees/'
+
+/** Normalize separators so Windows and POSIX paths compare equal. */
+export function toPosixPath(path: string): string {
+  return path.split('\\').join('/')
+}
+
+/** Whether a workspace path sits at or under a plugin worktree. */
+export function isWorktreeWorkspacePath(path: string): boolean {
+  return toPosixPath(path).includes(WORKTREES_MARKER)
+}
+
+/**
+ * Directory name used for skill-scope matching: a worktree cwd inherits
+ * the harbor repo's basename so a skill scoped to `dsh-next-plugins`
+ * still applies inside `/.dsh/worktrees/<slug>`.
+ */
+export function harborBasename(path: string): string {
+  const posix = toPosixPath(path)
+  const at = posix.lastIndexOf(WORKTREES_MARKER)
+  if (at > 0) return basenamePath(posix.slice(0, at))
+  return basenamePath(posix)
+}
+
 /**
  * Whether a path is a safe relative sub-path (no leading slash, no empty/`.`/`..`
  * segments). Used to reject path traversal in registry-provided file paths.

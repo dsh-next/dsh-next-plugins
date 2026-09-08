@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dirnamePath, isSafeRelativePath, joinPath } from '../src/core/path.ts'
+import { dirnamePath, harborBasename, isSafeRelativePath, isWorktreeWorkspacePath, joinPath } from '../src/core/path.ts'
 
 describe('joinPath', () => {
   it('joins segments with single slashes', () => {
@@ -48,5 +48,16 @@ describe('isSafeRelativePath', () => {
     expect(isSafeRelativePath('.')).toBe(false)
     expect(isSafeRelativePath('a//b')).toBe(false)
     expect(isSafeRelativePath('./a')).toBe(false)
+  })
+})
+
+describe('harborBasename', () => {
+  it('is the path basename for an ordinary workspace', () => {
+    expect(harborBasename('/Users/x/Projects/dsh-next-plugins')).toBe('dsh-next-plugins')
+  })
+  it('maps a worktree cwd to the harbor basename', () => {
+    expect(harborBasename('/Users/x/Projects/dsh-next-plugins/.dsh/worktrees/willow-01')).toBe('dsh-next-plugins')
+    expect(isWorktreeWorkspacePath('/Users/x/Projects/dsh-next-plugins/.dsh/worktrees/willow-01')).toBe(true)
+    expect(isWorktreeWorkspacePath('/Users/x/Projects/dsh-next-plugins')).toBe(false)
   })
 })

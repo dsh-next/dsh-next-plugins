@@ -47,6 +47,10 @@ describe('isScopeEnabled', () => {
     expect(isScopeEnabled(scope, '/home/dev/api/')).toBe(true)
     expect(isScopeEnabled(scope, '/Users/x/Projects/other')).toBe(false)
   })
+  it('matches a worktree cwd against the harbor basename', () => {
+    expect(isScopeEnabled(['web'], '/Users/x/Projects/web/.dsh/worktrees/willow-01')).toBe(true)
+    expect(isScopeEnabled(['web'], '/Users/x/Projects/other/.dsh/worktrees/willow-01')).toBe(false)
+  })
   it('a name matches regardless of where the checkout lives (portability)', () => {
     const scope = ['web']
     expect(isScopeEnabled(scope, '/Users/rok/Projects/web')).toBe(true)

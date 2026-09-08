@@ -5,6 +5,7 @@
  * the pure {@link WorkspaceRow} shape.
  */
 import type { IWorkspaces } from '@deepseek-ai/dsh-client-runtime/client'
+import { isWorktreeWorkspacePath } from '../core/path.ts'
 import type { WorkspaceRow } from '../core/types.ts'
 
 interface WorkspaceViewLike {
@@ -19,7 +20,8 @@ export function extractWorkspaces(workspaces: IWorkspaces | undefined): Workspac
     const snapshot = workspaces.list.getSnapshot()
     const items = (snapshot?.items ?? []) as readonly WorkspaceViewLike[]
     return items
-      .filter((w): w is WorkspaceViewLike & { path: string } => typeof w?.path === 'string' && w.path !== '')
+      .filter((w): w is WorkspaceViewLike & { path: string } =>
+        typeof w?.path === 'string' && w.path !== '' && !isWorktreeWorkspacePath(w.path))
       .map((w) => ({
         id: typeof w.workspaceId === 'string' ? w.workspaceId : String(w.workspaceId ?? w.path),
         title: typeof w.title === 'string' && w.title !== '' ? w.title : w.path,

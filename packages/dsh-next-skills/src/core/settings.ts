@@ -1,4 +1,4 @@
-import { basenamePath } from './path.ts'
+import { basenamePath, harborBasename } from './path.ts'
 
 /**
  * The `dsh-next-skills` settings section: the shareable configuration the
@@ -128,8 +128,8 @@ export function parseProviderRecord(raw: unknown): ProviderRecord | undefined {
 export function isScopeEnabled(scope: SkillScopeSetting | undefined, cwd: string | undefined): boolean {
   if (scope === undefined) return true
   if (cwd === undefined || cwd === '') return false
-  // basenamePath ignores trailing slashes and empty segments on its own.
-  return scope.includes(basenamePath(cwd))
+  // Harbor basename so a worktree cwd inherits the repo's enablement.
+  return scope.includes(harborBasename(cwd))
 }
 
 /** Read the stored scope for a skill name (undefined = unset = everywhere). */

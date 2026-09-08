@@ -11,11 +11,14 @@
 
 ## 怎么用
 
-1. 在侧边栏里，你的 git 仓库那一行，单击分支图标（`+` 旁边）。新的
-   worktree 会作为会话嵌套在该仓库之下打开。
-2. 只在该会话里改代码。主文件夹仍留在自己的分支上。
-3. 准备好后打开 `Merge…`。插件会先检查。若分支会冲突，选择
-   `Resolve in this session` — 由本会话解决冲突并提交。之后再合并就是快进。
+1. 在侧边栏里，你的 git 仓库那一行，单击分支图标（`+` 旁边）。给文件夹
+   起个名字。新的 worktree 会作为嵌套的集群出现在该仓库之下，里面有一个
+   会话。
+2. 只在该会话里改代码。集群上的 `+` 会在同一份文件上再开一个聊天。主
+   文件夹仍留在自己的分支上。
+3. 准备好后，在集群的 `...` 菜单里打开 `Merge…`。插件会先检查。若分支会
+   冲突，选择 `Resolve in this session` — 由本会话解决冲突并提交。之后再
+   合并就是快进。
 4. 保留 worktree 或删掉它。分支和会话记录都会留下。
 
 ![嵌套在 harbor 仓库下的 worktree 会话](media/sidebar.webp)
@@ -24,10 +27,18 @@
 
 ### 创建
 
-一键完成。名称自动生成。会话会出现在仓库行下；如果项目有 setup 命令，
+分支图标会打开一个名称字段（已填好建议）。请使用小写字母、数字和连字符
+（`update-plugin`）。该名称同时是侧边栏标题和磁盘上的文件夹名。名称合
+法之前，创建按钮不可用。集群会出现在仓库行下；如果项目有 setup 命令，
 该行的分支图标会旋转，直到命令结束。
 
 ![带有创建 worktree 按钮的仓库行](media/create.webp)
+
+### 查找会话
+
+使用侧边栏的 `Search sessions` 并选择一个结果。搜索会关闭，并滚动到该
+会话。如果是 worktree 会话，其仓库和集群会自动展开，包括折叠列表中
+隐藏的会话。在 `In one list` 视图中也可使用此功能。
 
 ### 状态
 
@@ -36,17 +47,20 @@
 
 ![五种 worktree 行：干净、未提交、领先、已合并、冲突](media/status.webp)
 
-### 行菜单
+### 集群菜单
 
-会话的 `...` 菜单会加上 `Refresh`（重新读取 git 状态）、
-`Update from <branch>…`（把该分支合入这个 worktree）、
-`Merge…` 和 `Delete worktree…`。
+文件夹的 `...` 菜单保留系统自带的 `Rename`，然后加上 `Refresh`（重新读取
+git 状态）、`Update from <branch>…`（把该分支合入这个 worktree）、
+`Merge…` 和 `Delete worktree…`（用来替代系统自带的 `Delete workspace`）。
+会话的 `...` 菜单仍是系统自带的（`Rename` / `Fork` / `Archive`）。文件夹
+上的 `+` 会在同一个 worktree 里再开一个会话。
 
 ![含 Refresh、Update from main、Merge、Delete worktree 的会话菜单](media/menu.webp)
 
 ### 悬停详情
 
-将指针移到 worktree 会话上，可看到标题、分支和状态。
+将指针移到集群上，可看到标题、分支、状态，以及
+`N sessions, same files`。
 
 ![显示分支与领先状态的悬停卡片](media/hover.webp)
 
@@ -64,15 +78,17 @@ worktree*（绝不会反向），由本会话修好文件，再快进合并。�
 ### 删除
 
 删掉多余的文件夹。分支和会话记录保留。有未提交改动的 worktree 需要第二次
-确认（`Remove anyway`）。下一次 Create 会使用带 UTC 时间戳的新分支名
-（`willow-202606140222`），因此不会因为旧分支还在而失败。
+确认（`Remove anyway`）。下一次 Create 会建议一个可用名称，必要时加上
+数字（`nimble-falcon-2`）。建议名称会避开现有文件夹和保留的 worktree
+分支。自己输入的名称也必须尚未被占用。
 
 ![提示有未提交改动的删除 worktree 对话框](media/delete.webp)
 
 ### 未使用的 worktree
 
 从未开始过的 worktree 会在你切到另一个会话时被移除。有未提交改动的
-worktree 绝不会这样被移除。
+worktree 绝不会这样被移除。如果把命名集群里的会话全部归档，文件夹会
+留下来，可以用 `+` 再开一个会话。
 
 ## 可选的本地文件
 
@@ -114,8 +130,9 @@ worktree 绝不会这样被移除。
 改动。git 能看见的文件（未被 ignore）会算：Update 会等到你提交或删掉；
 Merge 会列出它们，但仍可继续。
 
-命令放这里（例如 `pnpm install`）。复制 `.env` 这类本地文件请用
-`.worktreeinclude`。
+命令放这里（例如 `pnpm install`）。setup 在新文件夹里运行，并去掉主仓
+npm/pnpm workspace 的环境变量，这样嵌套 worktree 不会被当成缺失的
+workspace 包。复制 `.env` 这类本地文件请用 `.worktreeinclude`。
 
 ```json
 {

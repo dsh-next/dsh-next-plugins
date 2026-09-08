@@ -2,7 +2,7 @@
  * WorktreesService against a real git repo — every merge/update execute
  * path and blocker the FakeGit suite cannot prove.
  */
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { copyFile, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -93,6 +93,26 @@ async function createBound(h: Harness, sessionId = 'session-a'): Promise<{
   await h.service.bind(sessionId)
   return { slug: created.slug, path: created.path, branch: created.branch }
 }
+
+describe('WorktreesService real-git suggestions', { timeout: 15_000 }, () => {
+  it('creates repeated suggestions and avoids a branch retained after removal', async () => {
+    const h = await harness()
+    const firstName = await h.service.suggestName(h.dir)
+    const first = await h.service.create({ cwd: h.dir, name: firstName })
+    const secondName = await h.service.suggestName(h.dir)
+    expect(secondName).not.toBe(firstName)
+    const second = await h.service.create({ cwd: h.dir, name: secondName })
+    await h.service.remove({ cwd: h.dir, slug: first.slug, force: false })
+    expect(existsSync(first.path)).toBe(false)
+    expect(gitOk(h.dir, ['show-ref', '--verify', `refs/heads/${first.branch}`])).toBe(true)
+    const thirdName = await h.service.suggestName(h.dir)
+    expect([firstName, secondName]).not.toContain(thirdName)
+    const third = await h.service.create({ cwd: h.dir, name: thirdName })
+    expect(existsSync(second.path)).toBe(true)
+    expect(existsSync(third.path)).toBe(true)
+    await expect(h.service.create({ cwd: h.dir, name: firstName })).rejects.toMatchObject({ code: 'name-taken' })
+  })
+})
 
 describe('WorktreesService real-git merge', { timeout: 15_000 }, () => {
   it('fast-forwards unique worktree commits into main', async () => {
@@ -254,9 +274,18 @@ describe('WorktreesService real-git setup', { timeout: 15_000 }, () => {
     }))
     const created = await h.service.create({ cwd: h.dir })
     expect(created.setupPending).toBe(true)
-    expect(existsSync(join(created.path, 'setup-ok'))).toBe(false)
     await h.service.setup({ cwd: created.path, slug: created.slug })
     expect(existsSync(join(created.path, 'setup-ok'))).toBe(true)
+  })
+
+  it('pins NPM_CONFIG_WORKSPACE_DIR to the worktree', async () => {
+    const h = await harness()
+    await writeFile(join(h.dir, '.worktrees.json'), JSON.stringify({
+      'setup-worktree': ['printf %s "$NPM_CONFIG_WORKSPACE_DIR" > setup-cwd'],
+    }))
+    const created = await h.service.create({ cwd: h.dir })
+    await h.service.setup({ cwd: created.path, slug: created.slug })
+    expect(readFileSync(join(created.path, 'setup-cwd'), 'utf8')).toBe(created.path)
   })
 
   it('leaves the worktree when setup fails', async () => {

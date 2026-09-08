@@ -9,7 +9,7 @@ import {
 } from '../src/core/registry.ts'
 import type { RegistryStorePorts } from '../src/host/registry-store.ts'
 import { WorktreesService } from '../src/host/service.ts'
-import { nextSlug } from '../src/core/slug.ts'
+import { nextSlug, suggestName } from '../src/core/slug.ts'
 
 const PRIMARY = '/repos/wt-repo'
 /** Pinned UTC clock so slug stamps stay `…-202606140222` in this file. */
@@ -193,7 +193,10 @@ interface Harness {
   readonly copies: { from: string; to: string }[]
   readonly files: Map<string, string>
   readonly commands: { command?: string; script?: string; cwd: string; env: Readonly<Record<string, string>> }[]
-  commandImpl?: (input: { command?: string; script?: string }) => { code: number; stdout: string; stderr: string }
+  commandImpl?: (input: { command?: string; script?: string }) =>
+    { code: number; stdout: string; stderr: string }
+    | Promise<{ code: number; stdout: string; stderr: string }>
+  existsImpl?: (path: string) => Promise<boolean>
 }
 
 function harness(seed = 7): Harness {
@@ -207,7 +210,7 @@ function harness(seed = 7): Harness {
   const copies: { from: string; to: string }[] = []
   const files = new Map<string, string>()
   const commands: Harness['commands'] = []
-  const box: Pick<Harness, 'commandImpl'> = {}
+  const box: Pick<Harness, 'commandImpl' | 'existsImpl'> = {}
   const service = new WorktreesService({
     git,
     store,
@@ -221,15 +224,22 @@ function harness(seed = 7): Harness {
       copies.push({ from, to })
     },
     readText: async (path) => files.get(path) ?? null,
+    exists: async (path) => box.existsImpl === undefined ? true : box.existsImpl(path),
     runCommand: async (input) => {
       commands.push(input)
-      return box.commandImpl?.(input) ?? { code: 0, stdout: '', stderr: '' }
+      return await (box.commandImpl?.(input) ?? { code: 0, stdout: '', stderr: '' })
     },
     platform: 'darwin',
     seed,
     now: NOW,
   })
-  return { service, git, store, sessionCwds, knobWrites, copies, files, commands, get commandImpl() { return box.commandImpl }, set commandImpl(value) { box.commandImpl = value } }
+  return {
+    service, git, store, sessionCwds, knobWrites, copies, files, commands,
+    get commandImpl() { return box.commandImpl },
+    set commandImpl(value) { box.commandImpl = value },
+    get existsImpl() { return box.existsImpl },
+    set existsImpl(value) { box.existsImpl = value },
+  }
 }
 
 /** Register a live worktree row in the fake + store, as create would. */
@@ -301,36 +311,119 @@ describe('preflight', () => {
   })
 })
 
+describe('suggestName', () => {
+  function suggestionHarness() {
+    const h = harness(8)
+    h.existsImpl = async () => false
+    return h
+  }
+
+  it('uses the primary repo for subdirectory requests and skips registry slugs and folder basenames', async () => {
+    const h = suggestionHarness()
+    const base = suggestName(8)
+    seedWorktree(h, { slug: base })
+    seedWorktree(h, { slug: 'legacy-01', path: `${PRIMARY}/.dsh/worktrees/${base}-2` })
+    await expect(h.service.suggestName(`${PRIMARY}/packages/foo`)).resolves.toBe(`${base}-3`)
+    expect(h.git.addCalls).toHaveLength(0)
+  })
+
+  it('skips retained short and fully-qualified plugin refs but not unrelated branches', async () => {
+    const h = suggestionHarness()
+    const base = suggestName(8)
+    h.git.pluginBranches = [`dsh-worktrees/${base}`, `refs/heads/dsh-worktrees/${base}-2`, `${base}-3`]
+    await expect(h.service.suggestName(PRIMARY)).resolves.toBe(`${base}-3`)
+  })
+
+  it('skips occupied disk paths not represented by registry rows or branches', async () => {
+    const h = suggestionHarness()
+    const base = suggestName(8)
+    const occupied = new Set([`${PRIMARY}/.dsh/worktrees/${base}`, `${PRIMARY}/.dsh/worktrees/${base}-2`])
+    h.existsImpl = async (path) => occupied.has(path)
+    await expect(h.service.suggestName(PRIMARY)).resolves.toBe(`${base}-3`)
+  })
+
+  it('releases stale registry names when no checkout or branch remains', async () => {
+    const h = suggestionHarness()
+    const base = suggestName(8)
+    seedWorktree(h, { slug: base })
+    h.git.worktrees = [{ path: PRIMARY }]
+    await expect(h.service.suggestName(PRIMARY)).resolves.toBe(base)
+    expect(h.store.files.get(PRIMARY)?.bindings).toEqual([])
+  })
+
+  it('still rejects an explicit suggestion claimed after the modal opened', async () => {
+    const h = suggestionHarness()
+    const name = await h.service.suggestName(PRIMARY)
+    h.git.pluginBranches = [`dsh-worktrees/${name}`]
+    await expect(h.service.create({ cwd: PRIMARY, name })).rejects.toMatchObject({ code: 'name-taken' })
+    expect(h.git.addCalls).toHaveLength(0)
+    await expect(h.service.suggestName(PRIMARY)).resolves.toBe(`${name}-2`)
+  })
+
+  it('translates placement errors and propagates occupancy read failures', async () => {
+    const h = suggestionHarness()
+    await expect(h.service.suggestName('/missing')).rejects.toMatchObject({ name: 'WorktreeFlowError', code: 'not-a-repository' })
+    h.git.listError = new Error('cannot list worktrees')
+    await expect(h.service.suggestName(PRIMARY)).rejects.toThrow('cannot list worktrees')
+    h.git.listError = undefined
+    h.existsImpl = async () => { throw new Error('cannot inspect path') }
+    await expect(h.service.suggestName(PRIMARY)).rejects.toThrow('cannot inspect path')
+  })
+
+  it('works without an optional disk probe and defaults entropy to the injected clock', async () => {
+    const h = suggestionHarness()
+    const service = new WorktreesService({
+      git: h.git, store: h.store, getSessionCwd: () => null,
+      applySandboxMode: () => true, isSessionRunning: () => false,
+      copyFile: async () => {}, now: NOW,
+    })
+    await expect(service.suggestName(PRIMARY)).resolves.toBe(suggestName(NOW))
+  })
+})
+
 describe('create', () => {
   it('creates the worktree, the registry row, and the title', async () => {
     const h = harness()
-    const expectedSlug = nextSlug({ takenSlugs: [], seed: 7, now: NOW })
-    const result = await h.service.create({ cwd: PRIMARY, name: '  login   race fix ' })
+    const result = await h.service.create({ cwd: PRIMARY, name: 'update-plugin' })
     expect(result).toEqual({
-      slug: expectedSlug,
-      name: 'login race fix',
-      title: 'login race fix',
-      path: `${PRIMARY}/.dsh/worktrees/${expectedSlug}`,
-      branch: `dsh-worktrees/${expectedSlug}`,
+      slug: 'update-plugin',
+      name: 'update-plugin',
+      title: 'update-plugin',
+      path: `${PRIMARY}/.dsh/worktrees/update-plugin`,
+      branch: 'dsh-worktrees/update-plugin',
       baseRef: 'origin/HEAD',
       relPath: '',
       setupPending: false,
     })
     expect(h.git.addCalls).toEqual([{
       primary: PRIMARY,
-      path: `${PRIMARY}/.dsh/worktrees/${expectedSlug}`,
-      branch: `dsh-worktrees/${expectedSlug}`,
+      path: `${PRIMARY}/.dsh/worktrees/update-plugin`,
+      branch: 'dsh-worktrees/update-plugin',
       baseRef: 'origin/HEAD',
     }])
     const saved = h.store.files.get(PRIMARY)
     expect(saved?.bindings).toHaveLength(1)
     expect(saved?.bindings[0]).toMatchObject({
       sessionId: '',
-      slug: expectedSlug,
-      name: 'login race fix',
+      slug: 'update-plugin',
+      name: 'update-plugin',
       role: 'owner',
       baseSha: `tip-${PRIMARY}/origin/HEAD`,
     })
+  })
+
+  it('rejects a name that is not a legal folder', async () => {
+    const h = harness()
+    await expect(h.service.create({ cwd: PRIMARY, name: '  login   race fix ' }))
+      .rejects.toMatchObject({ code: 'bad-name' })
+    expect(h.git.addCalls).toHaveLength(0)
+  })
+
+  it('rejects a folder name that is already taken', async () => {
+    const h = harness()
+    await h.service.create({ cwd: PRIMARY, name: 'update-plugin' })
+    await expect(h.service.create({ cwd: PRIMARY, name: 'update-plugin' }))
+      .rejects.toMatchObject({ code: 'name-taken' })
   })
 
   it('falls back to the slug title for an empty name', async () => {
@@ -419,14 +512,13 @@ describe('create', () => {
     ])
   })
 
-  it('defers setup-worktree commands until setup() so the session row can appear', async () => {
+  it('starts setup after create and setup() joins that job once', async () => {
     const h = harness()
     h.files.set(`${PRIMARY}/.worktrees.json`, JSON.stringify({
       'setup-worktree': ['pnpm install', 'cp "$ROOT_WORKTREE_PATH/.env" .env'],
     }))
     const created = await h.service.create({ cwd: PRIMARY })
     expect(created.setupPending).toBe(true)
-    expect(h.commands).toEqual([])
     await h.service.setup({ cwd: PRIMARY, slug: created.slug })
     expect(h.commands).toEqual([
       expect.objectContaining({
@@ -436,6 +528,27 @@ describe('create', () => {
       }),
       expect.objectContaining({ command: 'cp "$ROOT_WORKTREE_PATH/.env" .env' }),
     ])
+    await h.service.setup({ cwd: PRIMARY, slug: created.slug })
+    expect(h.commands).toHaveLength(2)
+  })
+
+  it('refuses remove while setup is running', async () => {
+    const h = harness()
+    h.files.set(`${PRIMARY}/.worktrees.json`, JSON.stringify({
+      'setup-worktree': ['pnpm install'],
+    }))
+    let release!: () => void
+    h.commandImpl = () => new Promise((resolve) => {
+      release = () => resolve({ code: 0, stdout: '', stderr: '' })
+    })
+    const created = await h.service.create({ cwd: PRIMARY })
+    await expect(h.service.remove({ cwd: PRIMARY, slug: created.slug, force: true }))
+      .rejects.toMatchObject({ code: 'setup-running' })
+    expect(h.git.removeCalls).toEqual([])
+    release()
+    await h.service.setup({ cwd: PRIMARY, slug: created.slug })
+    await h.service.remove({ cwd: PRIMARY, slug: created.slug, force: true })
+    expect(h.git.removeCalls).toHaveLength(1)
   })
 
   it('prefers .dsh/worktrees.json over the project-root file', async () => {
@@ -445,6 +558,19 @@ describe('create', () => {
     const created = await h.service.create({ cwd: PRIMARY })
     await h.service.setup({ cwd: PRIMARY, slug: created.slug })
     expect(h.commands.map((c) => c.command)).toEqual(['local'])
+  })
+
+  it('refuses setup when the worktree folder is missing', async () => {
+    const h = harness()
+    h.files.set(`${PRIMARY}/.worktrees.json`, JSON.stringify({ 'setup-worktree': ['pnpm install'] }))
+    h.existsImpl = async () => false
+    const created = await h.service.create({ cwd: PRIMARY })
+    await expect(h.service.setup({ cwd: PRIMARY, slug: created.slug })).rejects.toMatchObject({
+      code: 'setup-failed',
+      message: 'setup command failed: worktree folder is missing',
+      hint: created.path,
+    })
+    expect(h.commands).toEqual([])
   })
 
   it('keeps the worktree when a setup command fails', async () => {
@@ -486,6 +612,96 @@ describe('create', () => {
   })
 })
 
+describe('setup file selection', () => {
+  it.each(['readText', 'runCommand'])('skips execution without the %s port', async (missing) => {
+    const h = harness()
+    const row = seedWorktree(h)
+    const unexpected = async (): Promise<never> => { throw new Error('unexpected setup I/O') }
+    const service = new WorktreesService({
+      git: h.git,
+      store: h.store,
+      getSessionCwd: () => null,
+      applySandboxMode: () => true,
+      isSessionRunning: () => false,
+      copyFile: async () => {},
+      readText: missing === 'readText' ? undefined : unexpected,
+      runCommand: missing === 'runCommand' ? undefined : unexpected,
+    })
+    await expect(service.setup({ cwd: PRIMARY, slug: row.slug })).resolves.toBeUndefined()
+  })
+
+  it.each(['create', 'setup'] as const)('propagates setup file read failures from %s', async (method) => {
+    const h = harness()
+    const row = seedWorktree(h)
+    const error = new Error('read denied')
+    const service = new WorktreesService({
+      git: h.git,
+      store: h.store,
+      getSessionCwd: () => null,
+      applySandboxMode: () => true,
+      isSessionRunning: () => false,
+      copyFile: async () => {},
+      readText: async () => { throw error },
+      runCommand: async () => { throw new Error('unexpected command') },
+    })
+    await expect(service[method]({ cwd: PRIMARY, slug: row.slug })).rejects.toBe(error)
+  })
+
+  it.each([
+    ['invalid JSON', '{', '.worktrees.json is not valid JSON'],
+    ['invalid steps', '{"setup-worktree":[1]}', 'setup-worktree commands must be strings'],
+  ])('does not fall back from a local override with %s', async (_label, raw, message) => {
+    const h = harness()
+    h.files.set(`${PRIMARY}/.worktrees.json`, '{"setup-worktree":["root"]}')
+    h.files.set(`${PRIMARY}/.dsh/worktrees.json`, raw)
+    await expect(h.service.create({ cwd: PRIMARY })).rejects.toMatchObject({
+      code: 'setup-invalid', message,
+    })
+    expect(h.store.files.get(PRIMARY)?.bindings).toEqual([])
+    const row = seedWorktree(h)
+    await expect(h.service.setup({ cwd: PRIMARY, slug: row.slug })).rejects.toMatchObject({
+      code: 'setup-invalid', message,
+    })
+    expect(h.commands).toEqual([])
+  })
+
+  it('lets an empty local override disable root commands', async () => {
+    const h = harness()
+    h.files.set(`${PRIMARY}/.worktrees.json`, '{"setup-worktree":["root"]}')
+    h.files.set(`${PRIMARY}/.dsh/worktrees.json`, '{}')
+    const created = await h.service.create({ cwd: PRIMARY })
+    expect(created.setupPending).toBe(false)
+    await h.service.setup({ cwd: PRIMARY, slug: created.slug })
+    expect(h.commands).toEqual([])
+  })
+
+  it('skips setup when both files are missing', async () => {
+    const h = harness()
+    const row = seedWorktree(h)
+    await expect(h.service.setup({ cwd: PRIMARY, slug: row.slug })).resolves.toBeUndefined()
+    expect(h.commands).toEqual([])
+  })
+
+  it.each(['.worktrees.json', '.dsh/worktrees.json'])(
+    'resolves the platform-specific script relative to %s', async (file) => {
+      const h = harness()
+      h.files.set(`${PRIMARY}/${file}`, JSON.stringify({
+        'setup-worktree': ['generic'],
+        'setup-worktree-unix': 'scripts/setup.sh',
+      }))
+      const created = await h.service.create({ cwd: PRIMARY })
+      expect(created.setupPending).toBe(true)
+      await h.service.setup({ cwd: PRIMARY, slug: created.slug })
+      const directory = file === '.worktrees.json' ? PRIMARY : `${PRIMARY}/.dsh`
+      expect(h.commands).toEqual([{
+        script: `${directory}/scripts/setup.sh`,
+        cwd: created.path,
+        env: { ROOT_WORKTREE_PATH: PRIMARY },
+      }])
+    },
+  )
+})
+
 describe('bind', () => {
   it('claims an unclaimed row and switches the sandbox knob', async () => {
     const h = harness()
@@ -508,11 +724,16 @@ describe('bind', () => {
     expect(h.store.files.get(PRIMARY)?.bindings[0]).toMatchObject({ sessionId: 'session-a' })
   })
 
-  it('refuses a takeover of a row claimed by another session', async () => {
+  it('grants sandbox to an extra session without stealing the claim', async () => {
     const h = harness()
     const binding = seedWorktree(h, { sessionId: 'session-a' })
     h.sessionCwds.set('session-b', binding.path)
-    await expect(h.service.bind('session-b')).rejects.toMatchObject({ code: 'no-worktree-here' })
+    await expect(h.service.bind('session-b')).resolves.toMatchObject({
+      slug: 'swift-01',
+      path: binding.path,
+    })
+    expect(h.store.files.get(PRIMARY)?.bindings[0]).toMatchObject({ sessionId: 'session-a' })
+    expect(h.knobWrites).toEqual([{ sessionId: 'session-b', mode: 'danger-full-access' }])
   })
 
   it('refuses a session whose cwd is no worktree', async () => {
@@ -878,6 +1099,15 @@ describe('mergePreflight', () => {
     await expect(h.service.mergePreflight({ cwd: PRIMARY, slug: 'nope-99' }))
       .resolves.toMatchObject({ green: false, blockers: ['unknown-slug'] })
   })
+
+  it('blocks merge when any cluster session is running', async () => {
+    const h = mergeHarness()
+    await expect(h.service.mergePreflight({
+      cwd: PRIMARY,
+      slug: 'swift-01',
+      sessionIds: ['running-session'],
+    })).resolves.toMatchObject({ green: false, blockers: ['running-session'] })
+  })
 })
 
 describe('mergeExecute', () => {
@@ -979,6 +1209,15 @@ describe('updatePreflight', () => {
     h.store.files.set(PRIMARY, { version: 1, bindings: rows })
     await expect(h.service.updatePreflight({ cwd: PRIMARY, slug: 'swift-01' }))
       .resolves.toMatchObject({ green: false, blockers: ['running-session'] })
+  })
+
+  it('blocks update when any extra cluster session is running', async () => {
+    const h = updateHarness()
+    await expect(h.service.updatePreflight({
+      cwd: PRIMARY,
+      slug: 'swift-01',
+      sessionIds: ['session-a', 'running-session'],
+    })).resolves.toMatchObject({ green: false, blockers: ['running-session'] })
   })
 
   it('blocks an in-progress merge instead of dirty', async () => {

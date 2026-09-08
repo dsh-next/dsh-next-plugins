@@ -43,13 +43,18 @@ export const EMPTY_REGISTRY: RegistryFile = { version: 1, bindings: [] }
 /** One `git worktree list --porcelain` entry (subset this plugin needs). */
 export interface WorktreeListEntry {
   readonly path: string
+  /** Named branch, when Git reports one. */
   readonly branch?: string
+  /** Git explicitly reported this worktree as detached. */
+  readonly detached?: boolean
   readonly head?: string
 }
 
 export interface ReconcileResult {
   readonly kept: readonly WorktreeBinding[]
   readonly dropped: readonly WorktreeBinding[]
+  /** Live Git reported a different branch for a kept worktree. */
+  readonly changed: boolean
 }
 
 /**
@@ -64,7 +69,11 @@ export function parseWorktreeList(stdout: string): WorktreeListEntry[] {
   let branch: string | undefined
   let head: string | undefined
   const flush = (): void => {
-    if (path !== '') entries.push({ path, branch, head })
+    if (path !== '') entries.push({
+      path,
+      ...(branch === undefined ? { detached: true } : { branch }),
+      head,
+    })
     path = ''
     branch = undefined
     head = undefined
@@ -88,21 +97,35 @@ export function parseWorktreeList(stdout: string): WorktreeListEntry[] {
  *
  * @param bindings - registry rows as loaded.
  * @param worktrees - live `git worktree list` entries.
- * @returns kept and dropped sets; callers persist only when dropped is
- * non-empty.
+ * @returns kept/dropped sets plus whether live branch state changed.
  */
 export function reconcile(
   bindings: readonly WorktreeBinding[],
   worktrees: readonly WorktreeListEntry[],
 ): ReconcileResult {
-  const live = new Set(worktrees.map((w) => toPosix(w.path)))
+  const live = new Map(worktrees.map((worktree) => [toPosix(worktree.path), worktree]))
   const kept: WorktreeBinding[] = []
   const dropped: WorktreeBinding[] = []
+  let changed = false
   for (const binding of bindings) {
-    if (live.has(toPosix(binding.path))) kept.push(binding)
-    else dropped.push(binding)
+    const worktree = live.get(toPosix(binding.path))
+    if (worktree === undefined) {
+      dropped.push(binding)
+      continue
+    }
+    // Porcelain omits `branch` for a detached HEAD. Persist an empty live
+    // branch rather than retaining a historical ref that merge could target.
+    // Hand-written test/integration ports may omit both fields, which means
+    // branch state is unknown rather than explicitly detached.
+    const branch = worktree.detached === true ? '' : worktree.branch ?? binding.branch
+    if (branch !== binding.branch) {
+      kept.push({ ...binding, branch })
+      changed = true
+    } else {
+      kept.push(binding)
+    }
   }
-  return { kept, dropped }
+  return { kept, dropped, changed }
 }
 
 /** Registry rows for one slug, in creation order. */

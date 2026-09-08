@@ -6,6 +6,7 @@ import {
   normalizeName,
   slugFromPluginRef,
   suggestName,
+  validateFolderName,
 } from '../src/core/slug.ts'
 
 const NOW = Date.UTC(2026, 5, 14, 2, 22)
@@ -73,8 +74,9 @@ describe('nextSlug', () => {
 })
 
 describe('suggestName', () => {
-  it('is a two-word label', () => {
-    expect(suggestName(5).split(' ')).toHaveLength(2)
+  it('is a kebab-case folder name', () => {
+    expect(suggestName(5)).toMatch(/^[a-z]+-[a-z]+$/)
+    expect(validateFolderName(suggestName(5)).ok).toBe(true)
   })
 
   it('is deterministic for a seed', () => {
@@ -85,10 +87,51 @@ describe('suggestName', () => {
     const names = new Set(Array.from({ length: 20 }, (_, i) => suggestName(i)))
     expect(names.size).toBeGreaterThan(1)
   })
+
+  it('keeps a free pair and skips occupied suffixes without mutating input', () => {
+    const base = suggestName(8)
+    expect(suggestName(8, ['unrelated', `${base}-2`])).toBe(base)
+    const taken = [base, base, `${base}-2`, `${base}-4`]
+    expect(suggestName(8, taken)).toBe(`${base}-3`)
+    expect(taken).toEqual([base, base, `${base}-2`, `${base}-4`])
+  })
+
+  it('stays free and valid after the word pairs and many suffixes are occupied', () => {
+    const taken = Array.from({ length: 10 }, (_, seed) => suggestName(seed))
+    for (let i = 0; i < 150; i += 1) {
+      const name = suggestName(8, taken)
+      expect(taken).not.toContain(name)
+      expect(validateFolderName(name)).toEqual({ ok: true, folder: name })
+      taken.push(name)
+    }
+    expect(taken.at(-1)).toBe(`${suggestName(8)}-151`)
+  })
+})
+
+describe('validateFolderName', () => {
+  it('accepts kebab-case names', () => {
+    expect(validateFolderName('update-plugin')).toEqual({ ok: true, folder: 'update-plugin' })
+    expect(validateFolderName('a')).toEqual({ ok: true, folder: 'a' })
+    expect(validateFolderName(' auth-refresh-2 ')).toEqual({ ok: true, folder: 'auth-refresh-2' })
+  })
+  it('rejects empty, long, spaced, uppercase, and reserved names', () => {
+    expect(validateFolderName('')).toEqual({ ok: false, reason: 'empty' })
+    expect(validateFolderName('   ')).toEqual({ ok: false, reason: 'empty' })
+    expect(validateFolderName('x'.repeat(61))).toEqual({ ok: false, reason: 'too-long' })
+    expect(validateFolderName('Update Plugin')).toEqual({ ok: false, reason: 'format' })
+    expect(validateFolderName('update_plugin')).toEqual({ ok: false, reason: 'format' })
+    expect(validateFolderName('-update')).toEqual({ ok: false, reason: 'format' })
+    expect(validateFolderName('update-')).toEqual({ ok: false, reason: 'format' })
+    expect(validateFolderName('update--plugin')).toEqual({ ok: false, reason: 'format' })
+    expect(validateFolderName('con')).toEqual({ ok: false, reason: 'reserved' })
+  })
 })
 
 describe('normalizeName', () => {
-  it('collapses whitespace and trims', () => {
+  it('keeps a valid folder name', () => {
+    expect(normalizeName('  update-plugin ')).toBe('update-plugin')
+  })
+  it('collapses whitespace and trims invalid names for a label only', () => {
     expect(normalizeName('  login   race \n fix ')).toBe('login race fix')
   })
 

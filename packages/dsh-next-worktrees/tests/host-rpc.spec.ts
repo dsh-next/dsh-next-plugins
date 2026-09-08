@@ -73,8 +73,8 @@ describe('createHandlers', () => {
     const handlers = createHandlers(serviceWith({ mergePreflight, mergeExecute }))
     await handlers['merge/preflight']!({ cwd: '/r', slug: 'swift-01' })
     await handlers['merge/execute']!({ cwd: '/r', slug: 'swift-01' })
-    expect(mergePreflight).toHaveBeenCalledWith({ cwd: '/r', slug: 'swift-01' })
-    expect(mergeExecute).toHaveBeenCalledWith({ cwd: '/r', slug: 'swift-01' })
+    expect(mergePreflight).toHaveBeenCalledWith({ cwd: '/r', slug: 'swift-01', sessionIds: [] })
+    expect(mergeExecute).toHaveBeenCalledWith({ cwd: '/r', slug: 'swift-01', sessionIds: [] })
   })
 
   it('routes update preflight, execute, and abort with cwd and slug', async () => {
@@ -85,16 +85,26 @@ describe('createHandlers', () => {
     await handlers['update/preflight']!({ cwd: '/r', slug: 'swift-01' })
     await handlers['update/execute']!({ cwd: '/r', slug: 'swift-01' })
     await handlers['update/abort']!({ cwd: '/r', slug: 'swift-01' })
-    expect(updatePreflight).toHaveBeenCalledWith({ cwd: '/r', slug: 'swift-01' })
-    expect(updateExecute).toHaveBeenCalledWith({ cwd: '/r', slug: 'swift-01' })
+    expect(updatePreflight).toHaveBeenCalledWith({ cwd: '/r', slug: 'swift-01', sessionIds: [] })
+    expect(updateExecute).toHaveBeenCalledWith({ cwd: '/r', slug: 'swift-01', sessionIds: [] })
     expect(updateAbort).toHaveBeenCalledWith({ cwd: '/r', slug: 'swift-01' })
   })
 
-  it('answers suggestName with a two-word string', async () => {
-    const handlers = createHandlers(serviceWith({}))
-    const value = await handlers.suggestName!(null) as string
-    expect(value.split(' ')).toHaveLength(2)
+  it('routes suggestName with cwd and returns the suggestion string directly', async () => {
+    const suggestName = vi.fn().mockResolvedValue('nimble-falcon-2')
+    const handlers = createHandlers(serviceWith({ suggestName }))
+    await expect(handlers.suggestName!({ cwd: '/r/subdir' })).resolves.toBe('nimble-falcon-2')
+    expect(suggestName).toHaveBeenCalledWith('/r/subdir')
   })
+
+  it.each([undefined, null, 'string', {}, { cwd: '' }, { cwd: 42 }])(
+    'rejects suggestName without a valid cwd: %j', async (args) => {
+      const suggestName = vi.fn()
+      const handlers = createHandlers(serviceWith({ suggestName }))
+      await expect(handlers.suggestName!(args)).rejects.toMatchObject({ code: 'bad-request' })
+      expect(suggestName).not.toHaveBeenCalled()
+    },
+  )
 
   it('rejects missing required fields as bad-request', async () => {
     const handlers = createHandlers(serviceWith({}))

@@ -13,12 +13,15 @@ have checked out in the main folder. If the branches would conflict, choose
 ## How it works
 
 1. In the sidebar, on the row for your git repo, click the branch icon
-   (next to `+`). A new worktree opens as a session under that repo.
-2. Do the work in that session. The main folder stays on its own branch.
-3. When you are ready, open `Merge…`. The plugin checks first. If the
-   branches would conflict, choose `Resolve in this session` — this session
-   resolves the files and commits. Then Merge is a fast-forward.
-4. Keep the worktree or remove it. The branch and the chat stay either way.
+   (next to `+`). Name the folder. A worktree opens as a nested cluster
+   under that repo, with one session inside it.
+2. Do the work in that session. The cluster `+` starts another chat on
+   the same files. The main folder stays on its own branch.
+3. When you are ready, open `Merge…` on the cluster `...` menu. The plugin
+   checks first. If the branches would conflict, choose
+   `Resolve in this session` — this session resolves the files and commits.
+   Then Merge is a fast-forward.
+4. Keep the worktree or remove it. The branch and the chats stay either way.
 
 ![Worktree sessions nested under the harbor repository](media/sidebar.webp)
 
@@ -26,11 +29,20 @@ have checked out in the main folder. If the branches would conflict, choose
 
 ### Create
 
-One click. The name is generated. The session appears under the repo; if
-the project has setup commands, that row's branch icon spins until they
-finish.
+The branch icon opens a name field (a suggestion is filled in). Use
+lowercase letters, numbers, and hyphens (`update-plugin`). That name is
+the sidebar title and the folder on disk. Create stays off until the
+name is valid. The cluster appears under the repo; if the project has
+setup commands, that row's branch icon spins until they finish.
 
 ![Repository row with the worktree create button](media/create.webp)
+
+### Find a session
+
+Use `Search sessions` in the sidebar and select a result. Search closes and
+scrolls to that session. For a worktree session, its repository and cluster
+open automatically, including sessions hidden by the collapsed list. This
+also works in the `In one list` view.
 
 ### Status
 
@@ -40,17 +52,21 @@ when already merged, red when a merge is in progress.
 
 ![Five worktree rows showing clean, uncommitted, ahead, merged, and conflict icons](media/status.webp)
 
-### Row menu
+### Cluster menu
 
-The session `...` menu adds `Refresh` (re-read git status),
-`Update from <branch>…` (bring that branch into this worktree),
-`Merge…`, and `Delete worktree…`.
+The folder `...` menu keeps stock `Rename`, then adds `Refresh` (re-read
+git status), `Update from <branch>…` (bring that branch into this
+worktree), `Merge…`, and `Delete worktree…` (this replaces stock
+`Delete workspace`). Session `...` menus stay stock
+(`Rename` / `Fork` / `Archive`). The folder `+` starts another session
+in the same worktree.
 
 ![Session menu with Refresh, Update from main, Merge, and Delete worktree](media/menu.webp)
 
 ### Hover details
 
-Hover a worktree session for its title, branch, and status.
+Hover the cluster for its title, branch, status, and
+`N sessions, same files`.
 
 ![Hover card with branch and ahead status](media/hover.webp)
 
@@ -72,8 +88,9 @@ the worktree; the main folder is untouched.
 
 Removes the extra folder. The branch and session log stay. A worktree
 with uncommitted changes needs a second confirm (`Remove anyway`).
-The next Create uses a new timestamped branch (`willow-202606140222`,
-UTC), so it does not fail because the old branch is still there.
+The next Create suggests an available name, adding a number when needed
+(`nimble-falcon-2`). Suggestions avoid existing folders and retained
+worktree branches. A name you type yourself must still be available.
 
 ![Delete worktree dialog warning about uncommitted changes](media/delete.webp)
 
@@ -81,6 +98,8 @@ UTC), so it does not fail because the old branch is still there.
 
 A worktree you never started is removed when you switch to another
 session. A worktree with uncommitted changes is never removed this way.
+If you archive every chat in a named cluster, the folder stays so you
+can open another session with `+`.
 
 ## Optional local files
 
@@ -128,8 +147,10 @@ Gitignored writes (`.env`, `node_modules`) do not count as uncommitted
 changes. A file git can see (not ignored) does: Update waits until you
 commit or delete it; Merge lists it and still runs.
 
-Use this for commands (`pnpm install`). Use `.worktreeinclude` to copy
-local files such as `.env`.
+Use this for commands (`pnpm install`). Setup runs in the new folder
+with the harbor's npm/pnpm workspace env stripped, so a nested worktree
+is not treated as a missing workspace package. Use `.worktreeinclude` to
+copy local files such as `.env`.
 
 ```json
 {

@@ -1,12 +1,15 @@
 /**
- * Pure sidebar projection: the strategy-B nesting math.
+ * Pure sidebar projection: the strategy-B cluster math.
  *
  * The Host truth stays untouched — worktree workspaces exist, own their
  * sessions, and keep their cwds. This function derives what the official
- * Browser should SEE: worktree workspace groups vanish, their sessions
- * re-parent under the repo's group, and every re-parented session carries
- * the decoration metadata the derived renderer seams turn into a branch
- * badge, an indent, and suppressed unsafe mutations (fork, drag-reorder).
+ * Browser should SEE after `deriveGroups`: worktree groups vanish from the
+ * top-level list and reappear as nested cluster rows under the harbor,
+ * carrying decoration metadata the derived renderer turns into a branch
+ * icon, git folder menu, and extra-session `+`.
+ *
+ * Sessions stay in their worktree workspace. That is what makes folder `+`
+ * (`startSession`) and stock session menus free.
  *
  * Structural, dependency-free shapes so the math tests need no SDK.
  */
@@ -18,6 +21,8 @@ export interface WorkspaceItemLike {
   readonly workspaceId: string
   readonly path: string
   readonly sessionIds: readonly string[]
+  /** Host display title after `workspaces.rename`; optional in tests. */
+  readonly title?: string
 }
 
 /** Session summary facts the projection needs. */
@@ -25,7 +30,7 @@ export interface SessionSummaryLike {
   readonly id: string
 }
 
-/** Decoration riding a re-parented session summary (consumed by seams). */
+/** Decoration riding a nested cluster group (consumed by seams). */
 export interface WorktreeRowDecoration {
   readonly kind: 'dsh-next-worktrees'
   readonly slug: string
@@ -36,6 +41,8 @@ export interface WorktreeRowDecoration {
   readonly path: string
   /** The host workspace registered for this worktree (delete cleanup). */
   readonly workspaceId: string
+  /** Harbor workspace this cluster nests under. */
+  readonly harborWorkspaceId: string
   /** Sessions living in the worktree workspace (delete cleanup). */
   readonly sessionIds: readonly string[]
   readonly dirty: boolean
@@ -61,12 +68,23 @@ export interface ProjectionInput {
 }
 
 export interface ProjectionResult {
-  /** Workspaces the Browser should list (worktree groups removed). */
+  /** Workspaces the Browser should list (worktree groups stay; nesting is later). */
   readonly workspaces: readonly WorkspaceItemLike[]
-  /** Decorations by session id (empty for un-reparented sessions). */
-  readonly decorations: ReadonlyMap<string, WorktreeRowDecoration>
-  /** Workspace ids dropped because they are worktree workspaces. */
-  readonly hiddenWorkspaceIds: ReadonlySet<string>
+  /** Cluster decorations by worktree workspace id. */
+  readonly clusters: ReadonlyMap<string, WorktreeRowDecoration>
+  /** Workspace ids that nest under a harbor (not hidden from the store). */
+  readonly nestedWorkspaceIds: ReadonlySet<string>
+}
+
+/** Group shape `deriveGroups` yields; the nest step only needs these fields. */
+export interface GroupNodeLike {
+  readonly key: string
+  readonly workspaceId?: string
+  readonly containsCurrent: boolean
+  readonly expanded: boolean
+  readonly sessions: readonly unknown[]
+  readonly children?: readonly GroupNodeLike[]
+  readonly __dshNextWorktrees?: WorktreeRowDecoration
 }
 
 function isInside(parent: string, child: string): boolean {
@@ -79,25 +97,46 @@ function isWorktreePath(path: string): boolean {
   return parseWorktreeWorkspacePath(path) !== undefined
 }
 
+function decorationFrom(
+  workspace: WorkspaceItemLike,
+  harborWorkspaceId: string,
+  worktree: WorktreeTopology['repos'][number]['worktrees'][number] | undefined,
+  parsed: { slug: string; root: string },
+): WorktreeRowDecoration {
+  return {
+    kind: 'dsh-next-worktrees',
+    slug: worktree?.slug ?? parsed.slug,
+    title: (workspace.title !== undefined && workspace.title !== ''
+      ? workspace.title
+      : worktree?.title) || parsed.slug,
+    branch: worktree?.branch ?? `dsh-worktrees/${parsed.slug}`,
+    baseRef: worktree?.baseRef ?? '',
+    primaryBranch: worktree?.primaryBranch ?? '',
+    path: worktree?.path ?? parsed.root,
+    workspaceId: workspace.workspaceId,
+    harborWorkspaceId,
+    sessionIds: [...workspace.sessionIds],
+    dirty: worktree?.status.dirty ?? false,
+    ahead: worktree?.status.ahead ?? 0,
+    merged: worktree?.status.merged ?? false,
+    conflict: worktree?.status.conflict ?? false,
+  }
+}
+
 /**
- * Derive the projected sidebar state.
+ * Derive cluster decorations for worktree workspaces that have a harbor.
  *
- * Structural hiding: any workspace whose path sits under a
- * `/.dsh/worktrees/` root is a worktree workspace by construction and is
- * hidden + re-parented as soon as a repo workspace for its primary
- * exists — this must not wait for a topology answer, or freshly created
- * worktrees flash as separate workspace folders (and stay there on a
- * topology miss). The topology pull only enriches the rows: when it has
- * the matching worktree, sessions carry the full identity decoration;
- * until then they render as ordinary nested rows.
+ * Worktree workspaces stay in the list so `deriveGroups` builds real groups
+ * (sessions, `+`, Rename, expansion). The nest step pulls those groups under
+ * the harbor. When no harbor exists, the worktree group stays top-level —
+ * sessions must never vanish from the sidebar.
  *
- * When no repo workspace exists for the primary, the worktree group is
- * kept as an ordinary group — sessions must never vanish from the
- * sidebar.
+ * Topology only enriches identity: a path-marker workspace is a cluster as
+ * soon as a harbor exists, even before git status arrives.
  *
  * @param input - host workspace/session snapshots plus the topology RPC's
  * answer.
- * @returns the projected state for the wrapped Browser.
+ * @returns decorations keyed by worktree workspace id.
  */
 export function projectWorkspaceSidebar(input: ProjectionInput): ProjectionResult {
   const { workspaces, topology } = input
@@ -108,134 +147,122 @@ export function projectWorkspaceSidebar(input: ProjectionInput): ProjectionResul
     }
   }
 
-  const hidden = new Set<string>()
-  const decorations = new Map<string, WorktreeRowDecoration>()
-  const projected: WorkspaceItemLike[] = workspaces.map((w) => ({ ...w, sessionIds: [...w.sessionIds] }))
+  const clusters = new Map<string, WorktreeRowDecoration>()
+  const nested = new Set<string>()
 
-  projected.forEach((workspace, index) => {
+  workspaces.forEach((workspace, index) => {
     const parsed = parseWorktreeWorkspacePath(workspace.path)
     if (parsed === undefined) return
-    // Merge into the first non-worktree workspace at or under the primary.
-    const target = projected.findIndex((candidate, candidateIndex) =>
+    const harbor = workspaces.find((candidate, candidateIndex) =>
       candidateIndex !== index
       && !isWorktreePath(candidate.path)
       && isInside(parsed.primary, candidate.path))
-    if (target < 0) return // No repo workspace: keep the group (fallback).
-    // Topology keys the worktree at its git root; a subdirectory workspace
-    // (created from packages/foo) lives at `<root>/<relPath>`.
+    if (harbor === undefined) return
     const worktree = worktreeByPath.get(parsed.root)
-    for (const sessionId of workspace.sessionIds) {
-      if (worktree !== undefined) {
-        decorations.set(sessionId, {
-          kind: 'dsh-next-worktrees',
-          slug: worktree.slug,
-          title: worktree.title,
-          branch: worktree.branch,
-          baseRef: worktree.baseRef,
-          primaryBranch: worktree.primaryBranch,
-          path: worktree.path,
-          workspaceId: workspace.workspaceId,
-          sessionIds: [...workspace.sessionIds],
-          dirty: worktree.status.dirty,
-          ahead: worktree.status.ahead,
-          merged: worktree.status.merged,
-          conflict: worktree.status.conflict,
-        })
-      }
-      if (!projected[target]!.sessionIds.includes(sessionId)) {
-        projected[target] = {
-          ...projected[target]!,
-          sessionIds: [...projected[target]!.sessionIds, sessionId],
-        }
-      }
-    }
-    hidden.add(workspace.workspaceId)
+    clusters.set(
+      workspace.workspaceId,
+      decorationFrom(workspace, harbor.workspaceId, worktree, parsed),
+    )
+    nested.add(workspace.workspaceId)
   })
 
   return {
-    workspaces: projected.filter((w) => !hidden.has(w.workspaceId)),
-    decorations,
-    hiddenWorkspaceIds: hidden,
+    workspaces,
+    clusters,
+    nestedWorkspaceIds: nested,
   }
 }
 
 /**
- * Mark (or synthesize) the in-flight setup row so the identity icon can
+ * Copy cluster decorations onto workspace items so `deriveGroups` can pass
+ * them through to group nodes.
+ */
+export function decorateWorkspaces<W extends WorkspaceItemLike>(
+  workspaces: readonly W[],
+  clusters: ReadonlyMap<string, WorktreeRowDecoration>,
+): ReadonlyArray<W & { __dshNextWorktrees?: WorktreeRowDecoration }> {
+  if (clusters.size === 0) return workspaces
+  return workspaces.map((workspace) => {
+    const decoration = clusters.get(workspace.workspaceId)
+    return decoration === undefined
+      ? workspace
+      : { ...workspace, __dshNextWorktrees: decoration }
+  })
+}
+
+/**
+ * Mark (or synthesize) the in-flight setup cluster so the identity icon can
  * spin before topology has the new worktree, and after it does.
  */
 export function overlaySettingUp(
-  decorations: ReadonlyMap<string, WorktreeRowDecoration>,
+  clusters: ReadonlyMap<string, WorktreeRowDecoration>,
   settingUp: SettingUpOverlay | undefined,
 ): ReadonlyMap<string, WorktreeRowDecoration> {
-  if (settingUp === undefined) return decorations
-  const next = new Map(decorations)
-  for (const [sessionId, decoration] of next) {
-    if (decoration.slug === settingUp.slug) next.set(sessionId, { ...decoration, settingUp: true })
+  if (settingUp === undefined) return clusters
+  const next = new Map(clusters)
+  for (const [workspaceId, decoration] of next) {
+    if (decoration.slug === settingUp.slug) next.set(workspaceId, { ...decoration, settingUp: true })
   }
-  const existing = next.get(settingUp.sessionId)
-  next.set(settingUp.sessionId, existing === undefined
-    ? {
-        kind: 'dsh-next-worktrees',
-        slug: settingUp.slug,
-        title: settingUp.slug,
-        branch: `dsh-worktrees/${settingUp.slug}`,
-        baseRef: '',
-        primaryBranch: '',
-        path: settingUp.path,
-        workspaceId: settingUp.workspaceId,
-        sessionIds: [settingUp.sessionId],
-        dirty: false,
-        ahead: 0,
-        merged: false,
-        conflict: false,
-        settingUp: true,
-      }
-    : { ...existing, settingUp: true })
+  const existing = next.get(settingUp.workspaceId)
+  if (existing !== undefined) {
+    next.set(settingUp.workspaceId, { ...existing, settingUp: true })
+    return next
+  }
+  next.set(settingUp.workspaceId, {
+    kind: 'dsh-next-worktrees',
+    slug: settingUp.slug,
+    title: settingUp.slug,
+    branch: `dsh-worktrees/${settingUp.slug}`,
+    baseRef: '',
+    primaryBranch: '',
+    path: settingUp.path,
+    workspaceId: settingUp.workspaceId,
+    harborWorkspaceId: '',
+    sessionIds: [settingUp.sessionId],
+    dirty: false,
+    ahead: 0,
+    merged: false,
+    conflict: false,
+    settingUp: true,
+  })
   return next
 }
 
 /**
- * Pin the in-flight setup session onto its repo group so the nested row
- * exists before the workspace store has caught up.
- */
-export function ensureSettingUpSession(
-  workspaces: readonly WorkspaceItemLike[],
-  settingUp: SettingUpOverlay | undefined,
-): readonly WorkspaceItemLike[] {
-  if (settingUp === undefined) return workspaces
-  const parsed = parseWorktreeWorkspacePath(settingUp.path)
-  if (parsed === undefined) return workspaces
-  let attached = false
-  const next = workspaces.map((workspace) => {
-    if (isWorktreePath(workspace.path)) return workspace
-    if (!isInside(parsed.primary, workspace.path)) return workspace
-    attached = true
-    if (workspace.sessionIds.includes(settingUp.sessionId)) return workspace
-    return { ...workspace, sessionIds: [...workspace.sessionIds, settingUp.sessionId] }
-  })
-  return attached ? next : workspaces
-}
-
-/**
- * Apply decorations to session summaries: returns a new byId map where
- * re-parented sessions carry `__dshNextWorktrees` for the renderer seams.
+ * Pull decorated worktree groups out of the top-level list and attach them
+ * as `children` of their harbor. Harbor `containsCurrent` becomes true when
+ * any nested cluster holds the current session, so the repo row stays
+ * tinted and the auto-expand effect has a reason to open it.
  *
- * @param sessionsById - the store's summary map (untouched).
- * @param decorations - the projection's decorations.
- * @returns a decorated shallow copy.
+ * Groups without a harbor decoration stay top-level (the no-repo fallback).
+ *
+ * @param groups - `deriveGroups` output (one group per workspace).
+ * @returns the same groups, nested.
  */
-export function decorateSessions<S extends SessionSummaryLike>(
-  sessionsById: Readonly<Record<string, S | undefined>>,
-  decorations: ReadonlyMap<string, WorktreeRowDecoration>,
-): Readonly<Record<string, (S & { __dshNextWorktrees?: WorktreeRowDecoration }) | undefined>> {
-  if (decorations.size === 0) return sessionsById
-  const byId: Record<string, (S & { __dshNextWorktrees?: WorktreeRowDecoration }) | undefined> = { ...sessionsById }
-  for (const [sessionId, decoration] of decorations) {
-    const summary = byId[sessionId]
-    byId[sessionId] = {
-      ...(summary ?? { id: sessionId } as S),
-      __dshNextWorktrees: decoration,
-    }
+export function nestWorktreeGroups<G extends GroupNodeLike>(groups: readonly G[]): G[] {
+  const childrenByHarbor = new Map<string, G[]>()
+  const nested = new Set<string>()
+  for (const group of groups) {
+    const decoration = group.__dshNextWorktrees
+    if (decoration === undefined || decoration.kind !== 'dsh-next-worktrees') continue
+    if (decoration.harborWorkspaceId === '') continue
+    const parent = groups.find((candidate) => candidate.workspaceId === decoration.harborWorkspaceId)
+    if (parent === undefined) continue
+    nested.add(group.key)
+    const list = childrenByHarbor.get(parent.key) ?? []
+    list.push(group)
+    childrenByHarbor.set(parent.key, list)
   }
-  return byId
+  if (nested.size === 0) return [...groups]
+  return groups
+    .filter((group) => !nested.has(group.key))
+    .map((group) => {
+      const children = childrenByHarbor.get(group.key)
+      if (children === undefined || children.length === 0) return group
+      return {
+        ...group,
+        containsCurrent: group.containsCurrent || children.some((child) => child.containsCurrent),
+        children,
+      }
+    })
 }

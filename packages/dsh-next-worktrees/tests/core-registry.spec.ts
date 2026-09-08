@@ -51,7 +51,7 @@ describe('parseWorktreeList', () => {
 
   it('tolerates detached entries without a branch', () => {
     expect(parseWorktreeList('worktree /detached\nHEAD abc\n')).toEqual([
-      { path: '/detached', head: 'abc' },
+      { path: '/detached', detached: true, head: 'abc' },
     ])
   })
 
@@ -73,11 +73,29 @@ describe('reconcile', () => {
 
   it('treats windows and posix paths as the same worktree', () => {
     const kept = row({ path: '/repos/wt-repo/.dsh/worktrees/swift-01' })
-    const { kept: keptRows, dropped } = reconcile([kept], [
+    const { kept: keptRows, dropped, changed } = reconcile([kept], [
       { path: '\\repos\\wt-repo\\.dsh\\worktrees\\swift-01' },
     ])
     expect(keptRows).toEqual([kept])
     expect(dropped).toEqual([])
+    expect(changed).toBe(false)
+  })
+
+  it('updates a retained row to Git’s live branch', () => {
+    const binding = row()
+    const { kept, dropped, changed } = reconcile([binding], [
+      { path: binding.path, branch: 'agent-feature' },
+    ])
+    expect(kept).toEqual([{ ...binding, branch: 'agent-feature' }])
+    expect(dropped).toEqual([])
+    expect(changed).toBe(true)
+  })
+
+  it('clears the old branch when Git reports a detached worktree', () => {
+    const binding = row()
+    const { kept, changed } = reconcile([binding], [{ path: binding.path, detached: true }])
+    expect(kept).toEqual([{ ...binding, branch: '' }])
+    expect(changed).toBe(true)
   })
 
   it('drops rows whose worktree vanished', () => {

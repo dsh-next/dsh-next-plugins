@@ -15,6 +15,8 @@ export type MergeBlocker =
   | 'conflict'
   | 'already-merged'
   | 'no-target-branch'
+  | 'no-source-branch'
+  | 'running-session'
 
 /**
  * Dirty trees are warnings on Merge, not hard stops: the write is
@@ -35,6 +37,8 @@ export interface MergeFactsInput {
   readonly worktreeClean: boolean
   /** The primary has a checked-out branch to merge into. */
   readonly targetBranch: string | undefined
+  /** The worktree has a checked-out named branch to merge from. */
+  readonly sourceBranch: string | undefined
   /**
    * `git merge-tree --write-tree <target> <source>` exited clean (0) when
    * run; false means conflict or not-run. `dryRunRan` distinguishes the two.
@@ -44,6 +48,8 @@ export interface MergeFactsInput {
   readonly dryRunRan: boolean
   /** The source branch is already an ancestor of the target. */
   readonly alreadyMerged: boolean
+  /** Any session in the cluster is currently running (one-writer). */
+  readonly sessionRunning: boolean
 }
 
 export interface MergeVerdict {
@@ -72,7 +78,11 @@ export function mergeVerdict(input: MergeFactsInput): MergeVerdict {
   if (input.targetBranch === undefined || input.targetBranch === '') {
     blockers.push('no-target-branch')
   }
+  if (input.slugKnown && (input.sourceBranch === undefined || input.sourceBranch === '')) {
+    blockers.push('no-source-branch')
+  }
   if (!input.gitModern) blockers.push('old-git')
+  if (input.slugKnown && input.sessionRunning) blockers.push('running-session')
   if (!input.primaryClean) warnings.push('dirty-primary')
   if (!input.worktreeClean) warnings.push('dirty-worktree')
   if (input.alreadyMerged) blockers.push('already-merged')

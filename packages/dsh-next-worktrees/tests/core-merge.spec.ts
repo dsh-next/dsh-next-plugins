@@ -14,9 +14,11 @@ function facts(overrides: Partial<MergeFactsInput> = {}): MergeFactsInput {
     primaryClean: true,
     worktreeClean: true,
     targetBranch: 'main',
+    sourceBranch: 'dsh-worktrees/swift-01',
     dryRunClean: true,
     dryRunRan: true,
     alreadyMerged: false,
+    sessionRunning: false,
     ...overrides,
   }
 }
@@ -71,6 +73,15 @@ describe('mergeVerdict', () => {
   it('blocks a missing target branch', () => {
     const verdict = mergeVerdict(facts({ targetBranch: undefined }))
     expect(verdict.blockers).toContain('no-target-branch')
+  })
+
+  it('blocks a detached worktree without a source branch', () => {
+    expect(mergeVerdict(facts({ sourceBranch: undefined })).blockers)
+      .toContain('no-source-branch')
+  })
+
+  it('blocks any running session in the cluster', () => {
+    expect(mergeVerdict(facts({ sessionRunning: true })).blockers).toContain('running-session')
   })
 
   it('orders identity blockers before state blockers', () => {

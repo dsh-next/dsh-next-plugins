@@ -1,26 +1,25 @@
 /**
  * The plugin-owned seat around the official Workspace Browser.
  *
- * Strategy B (docs/ideas/dsh-next-worktrees-sidebar-ux.md): this plugin
+ * Strategy B (docs/ideas/dsh-next-worktrees-clusters.md): this plugin
  * replaces the stock `ui-workspace` loader row and registers the official
- * browser, wrapped here. The wrapper owns the NESTING PROJECTION: it
- * pulls the worktree topology from the host RPC, hides the worktree
- * workspace groups, re-parents their sessions under the repo group with
- * decoration metadata, and guards the mutations that are unsafe for
- * re-parented rows (fork, reorder). The derived renderer seams turn the
- * metadata into the branch-icon identity, the indent, and the suppressed
- * affordances.
+ * browser, wrapped here. The wrapper owns the CLUSTER PROJECTION: it
+ * pulls the worktree topology from the host RPC, decorates worktree
+ * workspaces, and lets the derived `deriveGroups` nest those groups under
+ * the harbor. Sessions stay in their worktree workspace so folder `+` and
+ * stock session menus are free. The wrapper also intercepts stock
+ * workspace delete (which would orphan the checkout) and grants sandbox
+ * to extra sessions in a cluster.
  */
 import * as React from 'react'
 import {
-  decorateSessions,
-  ensureSettingUpSession,
+  decorateWorkspaces,
   overlaySettingUp,
   projectWorkspaceSidebar,
   type WorkspaceItemLike,
 } from './projection.ts'
 import { updateBridgeFacts } from './bridge.ts'
-import { modalState, subscribeModal } from './create-store.ts'
+import { modalState, openDelete, subscribeModal } from './create-store.ts'
 import { rpc, REFRESH_EVENT, requestTopologyRefresh, type WorktreeTopology } from './rpc.ts'
 import { sweepAbandonedWorktrees } from './sweeper.ts'
 
@@ -57,6 +56,7 @@ interface OfficialPropsLike {
     beforeSessionId?: string,
   ) => void | Promise<void>
   readonly startSession?: (workspaceId?: string) => void | Promise<void>
+  readonly deleteWorkspace?: (workspaceId: string) => void | Promise<void>
 }
 
 /**
@@ -105,7 +105,7 @@ export function WorktreeBrowser(
       workspaces: itemsRef.current,
       sessionsById: byIdRef.current,
       currentSessionId: currentRef.current,
-      creating: modalState().creating,
+      creating: modalState().creating || modalState().settingUp !== undefined,
     }), [])
 
   React.useEffect(() => {
@@ -155,58 +155,43 @@ export function WorktreeBrowser(
     [topology, workspaceKey, sessionKey],
   )
 
-  const projectedWorkspaces = React.useMemo(
-    () => ensureSettingUpSession(
-      workspaceState.items
-        .filter((w) => !projection.hiddenWorkspaceIds.has(w.workspaceId))
-        .map((w) => {
-          const merged = projection.workspaces.find((p) => p.workspaceId === w.workspaceId)
-          return merged === undefined ? w : { ...w, sessionIds: merged.sessionIds }
-        }),
-      settingUp,
-    ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [workspaceState, projection, settingUp],
-  )
-
-  const decorations = React.useMemo(
-    () => overlaySettingUp(projection.decorations, settingUp),
+  const clusters = React.useMemo(
+    () => overlaySettingUp(projection.clusters, settingUp),
     [projection, settingUp],
   )
 
-  const projectedSessions = React.useMemo(
-    () => decorateSessions(sessionState.byId, decorations),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sessionState, decorations],
+  const projectedWorkspaces = React.useMemo(
+    () => decorateWorkspaces(workspaceState.items, clusters),
+    [workspaceState, clusters],
   )
 
-  const projectedSessionIds = settingUp !== undefined
-    && !sessionState.ids.includes(settingUp.sessionId)
-    ? [...sessionState.ids, settingUp.sessionId]
-    : sessionState.ids
+  const boundRef = React.useRef(new Set<string>())
+  React.useEffect(() => {
+    for (const workspace of workspaceState.items) {
+      if (!projection.nestedWorkspaceIds.has(workspace.workspaceId)) continue
+      for (const sessionId of workspace.sessionIds) {
+        if (boundRef.current.has(sessionId)) continue
+        boundRef.current.add(sessionId)
+        void rpc('bind', { sessionId }).catch(() => {
+          boundRef.current.delete(sessionId)
+        })
+      }
+    }
+  }, [workspaceKey, projection.nestedWorkspaceIds, workspaceState.items])
 
   const useProjectedWorkspaces = ((selector: (state: unknown) => unknown): unknown =>
     selector({ ...workspaceState, items: projectedWorkspaces })) as OfficialPropsLike['useWorkspaces']
-  const useProjectedSessions = ((selector: (state: unknown) => unknown): unknown =>
-    selector({ ...sessionState, ids: projectedSessionIds, byId: projectedSessions })) as OfficialPropsLike['useSessions']
 
   const guardedProps: Record<string, unknown> = {
     ...(officialProps as object),
     useWorkspaces: useProjectedWorkspaces,
-    useSessions: useProjectedSessions,
-    forkSession: (sessionId: string): void | Promise<void> => {
-      if (decorations.has(sessionId)) return
-      return officialProps.forkSession?.(sessionId)
-    },
-    insertSessionBefore: (
-      workspaceId: string,
-      sessionId: string,
-      beforeSessionId?: string,
-    ): void | Promise<void> => {
-      if (decorations.has(sessionId)) return
-      if (beforeSessionId !== undefined && decorations.has(beforeSessionId)) return
-      if (projection.hiddenWorkspaceIds.has(workspaceId)) return
-      return officialProps.insertSessionBefore?.(workspaceId, sessionId, beforeSessionId)
+    deleteWorkspace: (workspaceId: string): void | Promise<void> => {
+      const cluster = clusters.get(workspaceId)
+      if (cluster !== undefined) {
+        openDelete(cluster)
+        return
+      }
+      return officialProps.deleteWorkspace?.(workspaceId)
     },
   }
 

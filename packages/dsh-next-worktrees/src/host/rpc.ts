@@ -11,7 +11,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { WorktreeFlowError, WorktreesService } from './service.ts'
-import { nameSuggestion } from './service.ts'
 
 export const RPC_PATH = '/dsh-next-worktrees/rpc'
 
@@ -33,6 +32,16 @@ function strArray(value: unknown): readonly string[] {
     : []
 }
 
+/** Validate the shared worktree identity before reading method-specific options. */
+function requireWorktree(args: Record<string, unknown>, method: string): { cwd: string; slug: string } {
+  const cwd = str(args.cwd)
+  const slug = str(args.slug)
+  if (cwd === undefined || slug === undefined) {
+    throw new WorktreeFlowError('bad-request', `${method} requires cwd and slug`)
+  }
+  return { cwd, slug }
+}
+
 /**
  * The handler map. Contract tests import this directly and pin every
  * envelope; registerRpc only adds transport.
@@ -45,7 +54,11 @@ export function createHandlers(service: WorktreesService): Record<string, Handle
       if (cwd === undefined) throw new WorktreeFlowError('bad-request', 'preflight requires cwd')
       return service.preflight(cwd)
     },
-    suggestName: async () => nameSuggestion(Date.now()),
+    suggestName: async (args) => {
+      const cwd = str(asRecord(args).cwd)
+      if (cwd === undefined) throw new WorktreeFlowError('bad-request', 'suggestName requires cwd')
+      return service.suggestName(cwd)
+    },
     create: async (args) => {
       const a = asRecord(args)
       const cwd = str(a.cwd)
@@ -58,11 +71,7 @@ export function createHandlers(service: WorktreesService): Record<string, Handle
     },
     setup: async (args) => {
       const a = asRecord(args)
-      const cwd = str(a.cwd)
-      const slug = str(a.slug)
-      if (cwd === undefined || slug === undefined) {
-        throw new WorktreeFlowError('bad-request', 'setup requires cwd and slug')
-      }
+      const { cwd, slug } = requireWorktree(a, 'setup')
       return service.setup({ cwd, slug })
     },
     bind: async (args) => {
@@ -88,11 +97,7 @@ export function createHandlers(service: WorktreesService): Record<string, Handle
     },
     remove: async (args) => {
       const a = asRecord(args)
-      const cwd = str(a.cwd)
-      const slug = str(a.slug)
-      if (cwd === undefined || slug === undefined) {
-        throw new WorktreeFlowError('bad-request', 'remove requires cwd and slug')
-      }
+      const { cwd, slug } = requireWorktree(a, 'remove')
       return service.remove({ cwd, slug, force: a.force === true })
     },
     topology: async (args) => {
@@ -101,47 +106,27 @@ export function createHandlers(service: WorktreesService): Record<string, Handle
     },
     'merge/preflight': async (args) => {
       const a = asRecord(args)
-      const cwd = str(a.cwd)
-      const slug = str(a.slug)
-      if (cwd === undefined || slug === undefined) {
-        throw new WorktreeFlowError('bad-request', 'merge/preflight requires cwd and slug')
-      }
-      return service.mergePreflight({ cwd, slug })
+      const { cwd, slug } = requireWorktree(a, 'merge/preflight')
+      return service.mergePreflight({ cwd, slug, sessionIds: strArray(a.sessionIds) })
     },
     'merge/execute': async (args) => {
       const a = asRecord(args)
-      const cwd = str(a.cwd)
-      const slug = str(a.slug)
-      if (cwd === undefined || slug === undefined) {
-        throw new WorktreeFlowError('bad-request', 'merge/execute requires cwd and slug')
-      }
-      return service.mergeExecute({ cwd, slug })
+      const { cwd, slug } = requireWorktree(a, 'merge/execute')
+      return service.mergeExecute({ cwd, slug, sessionIds: strArray(a.sessionIds) })
     },
     'update/preflight': async (args) => {
       const a = asRecord(args)
-      const cwd = str(a.cwd)
-      const slug = str(a.slug)
-      if (cwd === undefined || slug === undefined) {
-        throw new WorktreeFlowError('bad-request', 'update/preflight requires cwd and slug')
-      }
-      return service.updatePreflight({ cwd, slug })
+      const { cwd, slug } = requireWorktree(a, 'update/preflight')
+      return service.updatePreflight({ cwd, slug, sessionIds: strArray(a.sessionIds) })
     },
     'update/execute': async (args) => {
       const a = asRecord(args)
-      const cwd = str(a.cwd)
-      const slug = str(a.slug)
-      if (cwd === undefined || slug === undefined) {
-        throw new WorktreeFlowError('bad-request', 'update/execute requires cwd and slug')
-      }
-      return service.updateExecute({ cwd, slug })
+      const { cwd, slug } = requireWorktree(a, 'update/execute')
+      return service.updateExecute({ cwd, slug, sessionIds: strArray(a.sessionIds) })
     },
     'update/abort': async (args) => {
       const a = asRecord(args)
-      const cwd = str(a.cwd)
-      const slug = str(a.slug)
-      if (cwd === undefined || slug === undefined) {
-        throw new WorktreeFlowError('bad-request', 'update/abort requires cwd and slug')
-      }
+      const { cwd, slug } = requireWorktree(a, 'update/abort')
       return service.updateAbort({ cwd, slug })
     },
   }

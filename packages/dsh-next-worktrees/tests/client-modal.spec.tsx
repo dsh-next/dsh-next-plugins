@@ -8,10 +8,12 @@ import { ModalHost } from '../src/client/modal-host.tsx'
 import {
   closeModal,
   modalState,
+  openCreate,
   openMerge,
   openUpdate,
   resetModalStore,
   runCreateFlow,
+  setCreateName,
   type WorktreeModalTarget,
 } from '../src/client/create-store.ts'
 import { englishTranslate, type MessageKey } from '../src/client/dictionaries.ts'
@@ -162,9 +164,65 @@ describe('create-in-progress status', () => {
     expect(modal?.getAttribute('data-dshx-create-error')).toBe('setup')
     expect(node.querySelector('.dshx-modalTitle')?.textContent).toBe('Worktree created, but setup failed')
     expect(node.querySelector('.dshx-fieldHint')?.textContent).toContain('worktree and session are ready')
+    expect(node.querySelector('[data-dshx-disk-folder]')).toBeNull()
     const body = node.querySelector('[data-dshx-error]')?.textContent ?? ''
     expect(body).toContain('setup command failed: pnpm install')
     expect(body).toContain('ERR_PNPM_LOCKED')
+  })
+
+  it('names the disk folder when it differs from the sidebar title', async () => {
+    await runCreateFlow({
+      cwd: '/repos/wt-repo',
+      name: 'auth-refresh',
+      rpc: async (method) => {
+        if (method === 'create') {
+          return {
+            slug: 'quartz-01',
+            path: '/repos/wt-repo/.dsh/worktrees/quartz-01',
+            relPath: '',
+            title: 'auth-refresh',
+            setupPending: true,
+          }
+        }
+        if (method === 'setup') {
+          throw new WorktreesRpcError('setup-failed', 'setup command failed: pnpm install')
+        }
+        return {}
+      },
+      workspaces: {
+        create: async () => ({ workspaceId: 'ws' }),
+        rename: async () => {},
+      },
+      sessions: { create: async () => 's', open: () => {} },
+      onTopologyRefresh: () => {},
+    })
+    const node = await mount()
+    expect(node.querySelector('[data-dshx-disk-folder]')?.textContent).toContain('quartz-01')
+    expect(node.querySelector('[data-dshx-disk-folder]')?.textContent).toContain('auth-refresh')
+  })
+})
+
+describe('CreateModal', () => {
+  it('renders the name field with the host suggestion', async () => {
+    openCreate('/repos/wt-repo', 'wt-repo', async () => 'quiet-otter')
+    await vi.waitFor(() => { expect(modalState().create?.busy).toBe(false) })
+    const node = await mount()
+    const modal = node.querySelector('[data-dshx-modal="create"]')
+    expect(modal).not.toBeNull()
+    const input = node.querySelector('[data-dshx-create-name]') as HTMLInputElement | null
+    expect(input?.value).toBe('quiet-otter')
+    expect(node.querySelector('[data-dshx-button="create"]')?.textContent).toBe('Create')
+    expect(node.querySelector('[data-dshx-button="create"]')).not.toHaveProperty('disabled', true)
+    expect(node.querySelector('.dshx-fieldHint')?.textContent).toContain('hyphens')
+  })
+
+  it('disables Create and shows an error for an invalid folder name', async () => {
+    openCreate('/repos/wt-repo', 'wt-repo', async () => 'quiet-otter')
+    await vi.waitFor(() => { expect(modalState().create?.busy).toBe(false) })
+    const node = await mount()
+    await act(async () => { setCreateName('Update Plugin') })
+    expect(node.querySelector('[data-dshx-name-error]')?.getAttribute('data-dshx-name-error')).toBe('format')
+    expect((node.querySelector('[data-dshx-button="create"]') as HTMLButtonElement).disabled).toBe(true)
   })
 })
 

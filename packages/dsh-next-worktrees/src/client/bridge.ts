@@ -8,6 +8,7 @@
  * entry installs the modal opening plus the localized label. Namespaced,
  * tiny, typed — not a grab bag.
  */
+import { nestWorktreeGroups, type GroupNodeLike } from './projection.ts'
 import type { WorkspaceFactsLike } from './types.ts'
 
 /** Decoration facts the menu actions carry (from the row's metadata). */
@@ -33,16 +34,18 @@ export interface WorktreesBridge {
   canCreate(cwd: string | undefined): boolean
   /** Localized aria label for the create button. */
   createLabel(repoLabel: string): string
-  /** The create button was clicked: start the auto-named create flow. */
+  /** The create button was clicked: open the name modal. */
   requestCreate(cwd: string, repoLabel: string): void
   /** Localized label for a menu item key (decoration supplies {branch} for update). */
   menuLabel(key: string, decoration?: MenuDecoration): string
-  /** Localized hover-card fact lines for one worktree row. */
+  /** Localized hover-card fact lines for one worktree cluster. */
   worktreeFacts(decoration: MenuDecoration): readonly string[]
-  /** A worktree menu action fired on a session row. */
-  requestMenu(action: string, decoration: MenuDecoration, sessionId: string): void
+  /** A worktree menu action fired on a cluster row. */
+  requestMenu(action: string, decoration: MenuDecoration, sessionId?: string): void
   /** Whether this slug's identity icon should spin (setup in flight). */
   isSettingUp(slug: string): boolean
+  /** Nest decorated worktree groups under their harbor. */
+  nestGroups<G extends GroupNodeLike>(groups: readonly G[]): G[]
 }
 
 declare global {
@@ -65,7 +68,7 @@ export function installBridge(handlers: {
   requestCreate(cwd: string, repoLabel: string): void
   menuLabel(key: string, decoration?: MenuDecoration): string
   worktreeFacts(decoration: MenuDecoration): readonly string[]
-  requestMenu(action: string, decoration: MenuDecoration, sessionId: string): void
+  requestMenu(action: string, decoration: MenuDecoration, sessionId?: string): void
 }): () => void {
   window.__dshNextWorktreesBridge = {
     canCreate: (cwd) => factsStore.get(cwd ?? '') === true,
@@ -75,6 +78,7 @@ export function installBridge(handlers: {
     worktreeFacts: handlers.worktreeFacts,
     requestMenu: handlers.requestMenu,
     isSettingUp: (slug) => document.documentElement.dataset.dshxSettingUp === slug,
+    nestGroups: nestWorktreeGroups,
   }
   return () => {
     delete window.__dshNextWorktreesBridge

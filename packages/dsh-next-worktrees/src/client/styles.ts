@@ -8,18 +8,21 @@
  * wins, computed in the seam and carried by `data-dshx-state`.
  */
 export const WORKTREE_STYLES = `
-.dshx-sessionRow--worktree {
-  padding-left: 24px;
+/* Nest the cluster one 16px slot under the harbor. Cluster sessions are
+   wrapped in HoverCard, so they get an explicit class (sibling selectors
+   never match). Their official 16px status slot + 4px title margin sit
+   under the cluster title when the row itself is nested 16px too.
+   Official hover swaps .folder (branch) for .chevron. */
+.dshx-clusterRow,
+.dshx-clusterSession {
+  padding-left: 16px;
 }
 .dshx-worktree-identity {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
-  min-width: 0;
   flex: none;
-  /* Read as a leading glyph of the session title, not a separate chip:
-     pull back over the official row's flex gap. */
-  margin-right: -14px;
   color: var(--dsw-alias-label-secondary);
   font-size: 12px;
   line-height: 18px;
@@ -148,6 +151,14 @@ html[data-dshx-creating="true"]:not([data-dshx-setting-up]) [data-dshx-create]::
   font-size: 12px;
   line-height: 18px;
   color: var(--dsw-alias-label-caption);
+}
+.dshx-fieldError {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-error);
+}
+.dshx-input[aria-invalid='true'] {
+  border-color: var(--dsw-alias-state-error-primary);
 }
 .dshx-input {
   height: 34px;

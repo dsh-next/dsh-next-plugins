@@ -24,7 +24,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { runOfficialWorkspaceClient } from '../generated/workspace-browser.generated.mjs'
 import { WorktreeBrowser } from './browser-wrapper.tsx'
 import { installBridge } from './bridge.ts'
-import { openDelete, openMerge, openUpdate, runCreateFlow } from './create-store.ts'
+import { openCreate, openDelete, openMerge, openUpdate } from './create-store.ts'
 import { ModalHost } from './modal-host.tsx'
 import { requestTopologyRefresh, rpc } from './rpc.ts'
 import { configureWorktreeSweeper } from './sweeper.ts'
@@ -108,20 +108,12 @@ export function apply(ctx: Context): void {
   const workspaces = loose.get('workspaces') as WorkspacesServiceLike | undefined
   const sessions = loose.get('sessions') as SessionsServiceLike | undefined
 
-  // The derived-browser bridge: repo-row button gating, the auto-named
-  // create flow, menu labels, and localized hover facts.
+  // The derived-browser bridge: repo-row button gating, the name modal,
+  // cluster menu labels, and localized hover facts.
   ctx.effect(() => installBridge({
     createLabel: (repoLabel) => t('create.title' satisfies MessageKey, { repo: repoLabel }),
-    requestCreate: (cwd) => {
-      // Failures surface through the store (create-error modal); the
-      // flow itself never rejects.
-      void runCreateFlow({
-        cwd,
-        rpc,
-        workspaces: workspaces ?? { create: async () => ({ workspaceId: '' }) },
-        sessions: sessions ?? { create: async () => '', open: () => {} },
-        onTopologyRefresh: requestTopologyRefresh,
-      })
+    requestCreate: (cwd, repoLabel) => {
+      openCreate(cwd, repoLabel, rpc)
     },
     menuLabel: (key, decoration) => key === 'row.update'
       ? t('row.update' satisfies MessageKey, { branch: decoration?.primaryBranch || decoration?.branch || '' })
@@ -136,10 +128,15 @@ export function apply(ctx: Context): void {
             : decoration.ahead > 0
               ? t('status.ahead', { count: decoration.ahead })
               : t('status.clean')
+      const sessionCount = decoration.sessionIds?.length ?? 0
+      const sessionsLine = sessionCount === 1
+        ? t('row.facts.sessionOne')
+        : t('row.facts.sessions', { count: sessionCount })
       return [
         decoration.title,
         `${t('row.facts.branch')}: ${decoration.branch}`,
         `${t('row.facts.status')}: ${status}`,
+        sessionsLine,
       ]
     },
     requestMenu: (action, decoration) => {

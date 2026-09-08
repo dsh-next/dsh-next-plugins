@@ -10,6 +10,8 @@ const ALL_BLOCKERS: readonly MergeBlocker[] = [
   'conflict',
   'already-merged',
   'no-target-branch',
+  'no-source-branch',
+  'running-session',
 ]
 
 const ALL_WARNINGS: readonly MergeWarning[] = [
@@ -59,6 +61,7 @@ describe('merge blocker copy', () => {
 const ALL_UPDATE_BLOCKERS: readonly UpdateBlocker[] = [
   'unknown-slug',
   'no-target-branch',
+  'no-source-branch',
   'no-bound-session',
   'running-session',
   'in-progress',

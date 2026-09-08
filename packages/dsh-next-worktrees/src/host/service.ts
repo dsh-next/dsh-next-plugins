@@ -21,13 +21,14 @@ import {
   rowsForSlug,
   type WorktreeBinding,
 } from '../core/registry.ts'
-import { nextSlug, normalizeName, suggestName, displayTitle, slugFromPluginRef } from '../core/slug.ts'
+import { nextSlug, normalizeName, suggestName, displayTitle, slugFromPluginRef, validateFolderName } from '../core/slug.ts'
 import {
   parseWorktreesJson,
   resolveSetupSteps,
   setupPlatform,
   worktreesJsonCandidates,
   SETUP_ENV_ROOT,
+  type SetupStep,
 } from '../core/setup.ts'
 import { worktreeStatus, type WorktreeStatus } from '../core/status.ts'
 import { GitError } from './git.ts'
@@ -67,6 +68,13 @@ export interface ServicePorts {
    * that do not exercise `.worktrees.json`.
    */
   readonly readText?: (path: string) => Promise<string | null>
+  /** True when a worktree checkout is on disk. Absent in tests. */
+  readonly exists?: (path: string) => Promise<boolean>
+  /**
+   * Best-effort: make `.dsh/` locally ignored so a nested worktree is
+   * not untracked files in the harbor (git clean would delete it).
+   */
+  readonly ensureDotDshIgnored?: (primary: string) => Promise<void>
   /** Run one setup command or script in the new worktree. */
   readonly runCommand?: (input: {
     readonly command?: string
@@ -221,6 +229,11 @@ const fromGit = (error: unknown): never => {
 
 /** The orchestration service. Constructed once by the host entry. */
 export class WorktreesService {
+  /** In-flight `.worktrees.json` jobs, keyed by primary checkout and slug. */
+  private readonly setupJobs = new Map<string, Promise<void>>()
+  /** Setup job keys whose commands have not settled (remove must wait). */
+  private readonly setupInFlight = new Set<string>()
+
   constructor(private readonly ports: ServicePorts) {}
 
   /** Preflight a workspace cwd for worktree creation. */
@@ -258,6 +271,34 @@ export class WorktreesService {
     return result.code === 0
   }
 
+  /** Suggest an available name; creation still checks for concurrent claims. */
+  async suggestName(cwd: string): Promise<string> {
+    const placement = await this.ports.git.placement(cwd).catch(fromGit)
+    const taken = await this.takenSlugs(placement.primary)
+    const seed = this.ports.seed ?? this.ports.now ?? Date.now()
+    let name = suggestName(seed, taken)
+    while (await this.ports.exists?.(`${placement.worktreesRoot}/${name}`)) {
+      taken.push(name)
+      name = suggestName(seed, taken)
+    }
+    return name
+  }
+
+  /** Names reserved by live registry rows or retained plugin branches. */
+  private async takenSlugs(primary: string): Promise<string[]> {
+    const [bindings, pluginBranches] = await Promise.all([
+      this.reconciled(primary),
+      this.ports.git.listPluginBranches(primary),
+    ])
+    return [
+      ...bindings.map((b) => b.slug),
+      ...bindings.map((b) => b.path.split(/[/\\]/).filter(Boolean).pop() ?? b.slug),
+      ...pluginBranches
+        .map(slugFromPluginRef)
+        .filter((slug): slug is string => slug !== undefined),
+    ]
+  }
+
   /**
    * Create a worktree. The row starts unclaimed; the client creates the
    * workspace + session at `path` and then binds.
@@ -268,13 +309,12 @@ export class WorktreesService {
       throw new WorktreeFlowError('already-in-worktree',
         'worktrees never nest inside another worktree')
     }
-    const [baseRef, hasCommits, bindings, pluginBranches] = await Promise.all([
+    const [baseRef, hasCommits, taken] = await Promise.all([
       input.baseRef === undefined
         ? this.ports.git.defaultBaseRef(input.cwd)
         : Promise.resolve(input.baseRef),
       this.ports.git.refExists(input.cwd, 'HEAD'),
-      this.reconciled(placement.primary),
-      this.ports.git.listPluginBranches(placement.primary),
+      this.takenSlugs(placement.primary),
     ])
     if (!hasCommits) {
       throw new WorktreeFlowError('no-commits', 'the repository has no commits to branch from')
@@ -287,15 +327,25 @@ export class WorktreesService {
     }
     const registryPath = `${placement.primary}/.dsh/worktrees/registry.json`
     const now = this.ports.now ?? Date.now()
-    const taken = [
-      ...bindings.map((b) => b.slug),
-      ...pluginBranches.flatMap((ref) => {
-        const slug = slugFromPluginRef(ref)
-        return slug === undefined ? [] : [slug]
-      }),
-    ]
-    const slug = nextSlug({ takenSlugs: taken, seed: this.ports.seed ?? now, now })
-    const name = normalizeName(input.name ?? '')
+    const parsedName = validateFolderName(input.name ?? '')
+    if (input.name !== undefined && input.name.trim() !== '' && !parsedName.ok) {
+      throw new WorktreeFlowError(
+        'bad-name',
+        'folder name must be lowercase letters, numbers, and hyphens',
+        'example: update-plugin',
+      )
+    }
+    const slug = parsedName.ok
+      ? parsedName.folder
+      : nextSlug({ takenSlugs: taken, seed: this.ports.seed ?? now, now })
+    if (parsedName.ok && taken.includes(slug)) {
+      throw new WorktreeFlowError(
+        'name-taken',
+        `a worktree named ${slug} already exists`,
+        'pick a different folder name',
+      )
+    }
+    const name = parsedName.ok ? parsedName.folder : normalizeName(input.name ?? '')
     const path = `${placement.worktreesRoot}/${slug}`
     const branch = `dsh-worktrees/${slug}`
     await this.ports.git.addWorktree({
@@ -304,6 +354,7 @@ export class WorktreesService {
       branch,
       baseRef,
     }).catch(fromGit)
+    await this.ports.ensureDotDshIgnored?.(placement.primary).catch(() => {})
     try {
       await this.ports.store.mutate(placement.primary, registryPath, (rows) => [
         ...rows,
@@ -336,6 +387,7 @@ export class WorktreesService {
       await this.dropCreatedWorktree(placement.primary, registryPath, path, slug)
       throw new WorktreeFlowError('setup-invalid', planned.error)
     }
+    if (planned.pending) this.beginSetup(placement.primary, path, slug)
     return {
       slug,
       name,
@@ -360,7 +412,26 @@ export class WorktreesService {
     if (row === undefined) {
       throw new WorktreeFlowError('unknown-slug', `no worktree bound to slug ${input.slug}`)
     }
-    await this.runWorktreesSetup(placement.primary, row.path)
+    const key = setupJobKey(placement.primary, input.slug)
+    let job = this.setupJobs.get(key)
+    if (job === undefined) {
+      job = this.runWorktreesSetup(placement.primary, row.path)
+      this.setupJobs.set(key, job)
+    }
+    await job
+  }
+
+  /**
+   * Start `.worktrees.json` as soon as git has created the folder, so
+   * `pnpm install` is not racing the client's workspace/session round
+   * trip (or the abandoned-worktree sweeper).
+   */
+  private beginSetup(primary: string, worktreePath: string, slug: string): void {
+    const key = setupJobKey(primary, slug)
+    this.setupInFlight.add(key)
+    const job = this.runWorktreesSetup(primary, worktreePath)
+    this.setupJobs.set(key, job)
+    void job.finally(() => { this.setupInFlight.delete(key) }).catch(() => {})
   }
 
   /**
@@ -415,22 +486,28 @@ export class WorktreesService {
    * Invalid JSON fails create (no session row) so the error hint holds.
    */
   private async planSetup(primary: string): Promise<{ pending: boolean } | { error: string }> {
+    const setup = await this.readSetup(primary)
+    if (setup === undefined) return { pending: false }
+    if ('error' in setup) return setup
+    return { pending: setup.steps.length > 0 }
+  }
+
+  /** Read the first setup file, preserving local-override precedence even when invalid. */
+  private async readSetup(primary: string): Promise<
+    { path: string; steps: readonly SetupStep[] } | { error: string } | undefined
+  > {
     const readText = this.ports.readText
-    if (readText === undefined) return { pending: false }
-    let raw: string | undefined
-    for (const candidate of worktreesJsonCandidates(primary)) {
-      const text = await readText(candidate)
-      if (text !== null) {
-        raw = text
-        break
-      }
+    if (readText === undefined) return undefined
+    for (const path of worktreesJsonCandidates(primary)) {
+      const raw = await readText(path)
+      if (raw === null) continue
+      const parsed = parseWorktreesJson(raw)
+      if ('error' in parsed) return { error: parsed.error }
+      const steps = resolveSetupSteps(parsed, setupPlatform(this.ports.platform ?? 'linux'))
+      if ('error' in steps) return { error: steps.error }
+      return { path, steps }
     }
-    if (raw === undefined) return { pending: false }
-    const parsed = parseWorktreesJson(raw)
-    if ('error' in parsed) return { error: parsed.error }
-    const steps = resolveSetupSteps(parsed, setupPlatform(this.ports.platform ?? 'linux'))
-    if ('error' in steps) return { error: steps.error }
-    return { pending: steps.length > 0 }
+    return undefined
   }
 
   /**
@@ -439,30 +516,23 @@ export class WorktreesService {
    * throws; the worktree stays so the user can retry or delete.
    */
   private async runWorktreesSetup(primary: string, worktreePath: string): Promise<void> {
-    const readText = this.ports.readText
     const runCommand = this.ports.runCommand
-    if (readText === undefined || runCommand === undefined) return
-    let jsonPath: string | undefined
-    let raw: string | undefined
-    for (const candidate of worktreesJsonCandidates(primary)) {
-      const text = await readText(candidate)
-      if (text !== null) {
-        jsonPath = candidate
-        raw = text
-        break
-      }
+    if (this.ports.readText === undefined || runCommand === undefined) return
+    const setup = await this.readSetup(primary)
+    if (setup === undefined) return
+    if ('error' in setup) {
+      throw new WorktreeFlowError('setup-invalid', setup.error)
     }
-    if (jsonPath === undefined || raw === undefined) return
-    const parsed = parseWorktreesJson(raw)
-    if ('error' in parsed) {
-      throw new WorktreeFlowError('setup-invalid', parsed.error)
-    }
-    const steps = resolveSetupSteps(parsed, setupPlatform(this.ports.platform ?? 'linux'))
-    if ('error' in steps) {
-      throw new WorktreeFlowError('setup-invalid', steps.error)
-    }
-    const jsonDir = parentDir(jsonPath)
+    const { path, steps } = setup
+    const jsonDir = parentDir(path)
     const env = { [SETUP_ENV_ROOT]: primary }
+    if (!await this.waitForWorktreeDir(primary, worktreePath)) {
+      throw new WorktreeFlowError(
+        'setup-failed',
+        'setup command failed: worktree folder is missing',
+        worktreePath,
+      )
+    }
     for (const step of steps) {
       const result = step.kind === 'command'
         ? await runCommand({ command: step.command, cwd: worktreePath, env })
@@ -479,6 +549,25 @@ export class WorktreesService {
   }
 
   /**
+   * True when the worktree checkout is on disk. Prefer `package.json` when
+   * the harbor has one, so we do not start `pnpm` on an empty directory
+   * whose `.git` file landed before the tree was checked out.
+   */
+  private async waitForWorktreeDir(primary: string, worktreePath: string): Promise<boolean> {
+    const exists = this.ports.exists
+    if (exists === undefined) return true
+    const harborPackage = this.ports.readText === undefined
+      ? null
+      : await this.ports.readText(`${primary}/package.json`)
+    const marker = harborPackage !== null ? `${worktreePath}/package.json` : worktreePath
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      if (await exists(marker)) return true
+      await new Promise((resolve) => { setTimeout(resolve, 50) })
+    }
+    return false
+  }
+
+  /**
    * Bind a session to the worktree its cwd sits in (or already owns), then
    * switch the sandbox knob so git works inside the linked worktree.
    */
@@ -492,12 +581,15 @@ export class WorktreesService {
     const bindings = await this.reconciled(placement.primary)
     const row =
       rowForSession(bindings, sessionId)
-      ?? rowForCwd(bindings, sessionId, cwd)
+      ?? rowContainingCwd(bindings, cwd)
     if (row === undefined) {
       throw new WorktreeFlowError('no-worktree-here',
         'the session cwd is not inside a plugin worktree')
     }
-    if (row.sessionId !== sessionId) {
+    // Extra chats in the same folder get the sandbox knob but do not steal
+    // the one-writer claim. Only an unclaimed row takes a new claim; the
+    // owner re-binding keeps it without a registry rewrite.
+    if (row.sessionId === '' && sessionId !== '') {
       await this.ports.store.mutate(placement.primary, registryPath, (rows) =>
         rows.map((b) => b.path === row.path ? { ...b, sessionId } : b))
     }
@@ -587,6 +679,15 @@ export class WorktreesService {
   /** Remove a worktree; dirty refusal surfaces as a structured error. */
   async remove(input: { cwd: string; slug: string; force: boolean }): Promise<void> {
     const placement = await this.ports.git.placement(input.cwd).catch(fromGit)
+    const key = setupJobKey(placement.primary, input.slug)
+    if (this.setupInFlight.has(key)) {
+      throw new WorktreeFlowError(
+        'setup-running',
+        'setup is still running for this worktree',
+        'wait for setup to finish, then delete',
+      )
+    }
+    this.setupJobs.delete(key)
     const registryPath = `${placement.primary}/.dsh/worktrees/registry.json`
     const bindings = await this.reconciled(placement.primary)
     const rows = rowsForSlug(bindings, input.slug)
@@ -598,10 +699,10 @@ export class WorktreesService {
       path: rows[0]!.path,
       force: input.force,
     }).catch(fromGit)
-    await this.ports.store.replaceAll(
+    await this.ports.store.mutate(
       placement.primary,
       registryPath,
-      bindings.filter((b) => b.slug !== input.slug),
+      (current) => current.filter((row) => row.slug !== input.slug),
     )
   }
 
@@ -664,20 +765,33 @@ export class WorktreesService {
     }
   }
 
+  /** True when any listed session (or the bound owner) is running. */
+  private anySessionRunning(sessionIds: readonly string[] | undefined, bound: string | undefined): boolean {
+    const ids = sessionIds !== undefined && sessionIds.length > 0
+      ? sessionIds
+      : bound !== undefined && bound !== '' ? [bound] : []
+    return ids.some((id) => this.ports.isSessionRunning(id))
+  }
+
   /** Merge preflight: facts and blockers for the confirmation modal. */
-  async mergePreflight(input: { cwd: string; slug: string }): Promise<MergePreflightResult> {
+  async mergePreflight(input: {
+    cwd: string
+    slug: string
+    sessionIds?: readonly string[]
+  }): Promise<MergePreflightResult> {
     const placement = await this.ports.git.placement(input.cwd).catch(fromGit)
     const bindings = await this.reconciled(placement.primary)
     const row = rowsForSlug(bindings, input.slug)[0]
     const slugKnown = row !== undefined
+    const sourceBranch = row?.branch === '' ? undefined : row?.branch
     const none: readonly string[] = []
     const [target, versionStdout, dirtyPrimary, dirtyWorktree, branchTip, baseTip] = await Promise.all([
       this.ports.git.currentBranch(placement.primary),
       this.ports.git.versionStdout(),
       slugKnown ? this.ports.git.dirtyPaths(placement.primary) : Promise.resolve(none),
       slugKnown ? this.ports.git.dirtyPaths(row!.path) : Promise.resolve(none),
-      slugKnown
-        ? this.ports.git.revParse(row!.path, row!.branch).catch(() => undefined)
+      slugKnown && sourceBranch !== undefined
+        ? this.ports.git.revParse(row!.path, sourceBranch).catch(() => undefined)
         : Promise.resolve(undefined),
       slugKnown ? this.resolveBaseTip(placement.primary, row!) : Promise.resolve(undefined),
     ])
@@ -688,42 +802,47 @@ export class WorktreesService {
     const worktreeClean = !slugKnown || dirtyWorktree.length === 0
     // A fresh branch (tip == base) is trivially an ancestor; that is
     // "no unique work yet", not "already merged".
-    const alreadyMerged = slugKnown && target !== undefined
+    const alreadyMerged = slugKnown && sourceBranch !== undefined && target !== undefined
       && branchTip !== baseTip
-      && await this.ports.git.isAncestor(placement.primary, row!.branch, target)
-    const dryRunRan = gitModern && slugKnown && target !== undefined && !alreadyMerged
+      && await this.ports.git.isAncestor(placement.primary, sourceBranch, target)
+    const dryRunRan = gitModern && slugKnown && sourceBranch !== undefined && target !== undefined && !alreadyMerged
     const [dryRunClean, fastForward, aheadCount] = await Promise.all([
       dryRunRan
-        ? this.ports.git.mergeTreeClean(placement.primary, target!, row!.branch)
+        ? this.ports.git.mergeTreeClean(placement.primary, target!, sourceBranch!)
         : Promise.resolve(false),
-      slugKnown && target !== undefined
-        ? this.ports.git.isAncestor(placement.primary, target, row!.branch)
+      slugKnown && sourceBranch !== undefined && target !== undefined
+        ? this.ports.git.isAncestor(placement.primary, target, sourceBranch)
         : Promise.resolve(false),
-      slugKnown
-        ? this.ports.git.aheadCount(placement.primary, row!.baseRef, row!.branch)
+      slugKnown && sourceBranch !== undefined
+        ? this.ports.git.aheadCount(placement.primary, row!.baseRef, sourceBranch)
         : Promise.resolve(0),
     ])
+    const bound = row !== undefined && row.sessionId !== '' ? row.sessionId : undefined
     const verdict = mergeVerdict({
-      slugKnown, gitModern, primaryClean, worktreeClean, targetBranch: target,
+      slugKnown, gitModern, primaryClean, worktreeClean, targetBranch: target, sourceBranch,
       dryRunClean, dryRunRan, alreadyMerged,
+      sessionRunning: this.anySessionRunning(input.sessionIds, bound),
     })
-    const source = row?.branch
     return {
       blockers: verdict.blockers,
       warnings: verdict.warnings,
       green: verdict.green,
       target,
-      source,
+      source: sourceBranch,
       fastForward,
       aheadCount,
-      manualCommand: source === undefined ? undefined : `git merge ${source}`,
-      dirtyPrimary: slugKnown ? dirtyPrimary : none,
-      dirtyWorktree: slugKnown ? dirtyWorktree : none,
+      manualCommand: sourceBranch === undefined ? undefined : `git merge ${sourceBranch}`,
+      dirtyPrimary,
+      dirtyWorktree,
     }
   }
 
   /** Execute the guarded merge; re-runs the full preflight first. */
-  async mergeExecute(input: { cwd: string; slug: string }): Promise<MergeExecuteResult> {
+  async mergeExecute(input: {
+    cwd: string
+    slug: string
+    sessionIds?: readonly string[]
+  }): Promise<MergeExecuteResult> {
     const pre = await this.mergePreflight(input)
     if (!pre.green || pre.target === undefined || pre.source === undefined) {
       throw new WorktreeFlowError(
@@ -738,11 +857,16 @@ export class WorktreesService {
   }
 
   /** Update-from-main preflight: merge the primary branch into the worktree. */
-  async updatePreflight(input: { cwd: string; slug: string }): Promise<UpdatePreflightResult> {
+  async updatePreflight(input: {
+    cwd: string
+    slug: string
+    sessionIds?: readonly string[]
+  }): Promise<UpdatePreflightResult> {
     const placement = await this.ports.git.placement(input.cwd).catch(fromGit)
     const bindings = await this.reconciled(placement.primary)
     const row = rowsForSlug(bindings, input.slug)[0]
     const slugKnown = row !== undefined
+    const targetBranch = row?.branch === '' ? undefined : row?.branch
     const sessionId = row !== undefined && row.sessionId !== '' ? row.sessionId : undefined
     const none: readonly string[] = []
     const [source, dirtyWorktree, inProgress] = await Promise.all([
@@ -751,13 +875,14 @@ export class WorktreesService {
       slugKnown ? this.ports.git.merging(row!.path) : Promise.resolve(false),
     ])
     const boundSession = sessionId !== undefined
-    const sessionRunning = boundSession && this.ports.isSessionRunning(sessionId)
-    const alreadyUpdated = slugKnown && source !== undefined && !inProgress
-      && await this.ports.git.isAncestor(placement.primary, source, row!.branch)
+    const sessionRunning = this.anySessionRunning(input.sessionIds, sessionId)
+    const alreadyUpdated = slugKnown && source !== undefined && targetBranch !== undefined && !inProgress
+      && await this.ports.git.isAncestor(placement.primary, source, targetBranch)
     const worktreeClean = !slugKnown || dirtyWorktree.length === 0
     const verdict = updateVerdict({
       slugKnown,
       sourceBranch: source,
+      targetBranch,
       boundSession,
       sessionRunning,
       inProgress,
@@ -765,26 +890,26 @@ export class WorktreesService {
       alreadyUpdated,
     })
     const gitModern = gitSupportsMergeTree(parseGitVersion(await this.ports.git.versionStdout()))
-    const dryRunRan = gitModern && slugKnown && source !== undefined && !alreadyUpdated && !inProgress
+    const dryRunRan = gitModern && slugKnown && source !== undefined && targetBranch !== undefined && !alreadyUpdated && !inProgress
     const [wouldConflict, fastForward] = await Promise.all([
       dryRunRan
-        ? this.ports.git.mergeTreeClean(placement.primary, row!.branch, source!).then((clean) => !clean)
+        ? this.ports.git.mergeTreeClean(placement.primary, targetBranch!, source!).then((clean) => !clean)
         : Promise.resolve(false),
-      slugKnown && source !== undefined
-        ? this.ports.git.isAncestor(placement.primary, row!.branch, source)
+      slugKnown && source !== undefined && targetBranch !== undefined
+        ? this.ports.git.isAncestor(placement.primary, targetBranch, source)
         : Promise.resolve(false),
     ])
     return {
       blockers: verdict.blockers,
       green: verdict.green,
       source,
-      target: row?.branch,
+      target: targetBranch,
       fastForward,
       wouldConflict,
       inProgress,
       sessionId,
       manualCommand: source === undefined ? undefined : `git merge ${source}`,
-      dirtyWorktree: slugKnown ? dirtyWorktree : none,
+      dirtyWorktree,
     }
   }
 
@@ -792,7 +917,11 @@ export class WorktreesService {
    * Start (or complete) the update merge inside the worktree. A conflict
    * outcome is success: the tree is left MERGING for the bound session.
    */
-  async updateExecute(input: { cwd: string; slug: string }): Promise<UpdateExecuteResult> {
+  async updateExecute(input: {
+    cwd: string
+    slug: string
+    sessionIds?: readonly string[]
+  }): Promise<UpdateExecuteResult> {
     const pre = await this.updatePreflight(input)
     if (!pre.green || pre.source === undefined || pre.target === undefined || pre.sessionId === undefined) {
       throw new WorktreeFlowError(
@@ -841,21 +970,22 @@ export class WorktreesService {
   }
 
   private async statusOf(primary: string, row: WorktreeBinding): Promise<WorktreeStatus> {
+    const branch = row.branch === '' ? undefined : row.branch
     // Independent git answers run concurrently; only the ancestry probe
     // waits on the primary's branch name.
     const [dirtyCount, ahead, target, branchTip, baseTip, merging] = await Promise.all([
       this.ports.git.dirtyCount(row.path).catch(() => 0),
       // Count from the primary so a stored symbolic base (HEAD, origin/HEAD)
       // resolves there, not inside the worktree where HEAD *is* the branch.
-      this.ports.git.aheadCount(primary, row.baseRef, row.branch).catch(() => 0),
+      branch === undefined ? Promise.resolve(0) : this.ports.git.aheadCount(primary, row.baseRef, branch).catch(() => 0),
       this.ports.git.currentBranch(primary).catch(() => undefined),
-      this.ports.git.revParse(row.path, row.branch).catch(() => undefined),
+      branch === undefined ? Promise.resolve(undefined) : this.ports.git.revParse(row.path, branch).catch(() => undefined),
       this.resolveBaseTip(primary, row),
       this.ports.git.merging(row.path).catch(() => false),
     ])
-    const mergedIntoTarget = target === undefined
+    const mergedIntoTarget = branch === undefined || target === undefined
       ? false
-      : await this.ports.git.isAncestor(primary, row.branch, target).catch(() => false)
+      : await this.ports.git.isAncestor(primary, branch, target).catch(() => false)
     // Fresh-worktree discriminator: tip == base means no unique work yet,
     // never "merged" (see worktreeStatus).
     const tipEqualsBase = branchTip !== undefined && branchTip === baseTip
@@ -875,11 +1005,16 @@ export class WorktreesService {
       this.ports.store.load(primary),
       this.ports.git.listWorktrees(primary),
     ])
-    const { kept, dropped } = reconcile(file.bindings, worktrees)
-    if (dropped.length > 0) {
-      await this.ports.store.replaceAll(primary, path, kept)
-    }
-    return kept
+    const initial = reconcile(file.bindings, worktrees)
+    if (initial.dropped.length === 0 && !initial.changed) return initial.kept
+
+    // Git collection cannot share the registry lock, but persistence must.
+    // Reconcile only rows observed before that collection; a row added after
+    // the snapshot is unknown to this Git list and must not be pruned here.
+    const observed = new Set(file.bindings.map(bindingKey))
+    return this.ports.store.mutate(primary, path, (current) => current.flatMap((row) =>
+      observed.has(bindingKey(row)) ? reconcile([row], worktrees).kept : [row],
+    ))
   }
 }
 
@@ -899,6 +1034,16 @@ function parentDir(path: string): string {
   return at <= 0 ? posix : posix.slice(0, at)
 }
 
+/** Stable identity for a row observed before an asynchronous Git read. */
+function bindingKey(row: WorktreeBinding): string {
+  return `${row.path}\u0000${row.createdAt}`
+}
+
+/** Slugs repeat across repositories, so setup state needs the checkout too. */
+function setupJobKey(primary: string, slug: string): string {
+  return `${primary}\u0000${slug}`
+}
+
 const SETUP_OUTPUT_MAX = 4_000
 
 /** Tail of a failed setup command, if anything was printed. */
@@ -906,9 +1051,4 @@ function clipSetupOutput(raw: string): string | undefined {
   const trimmed = raw.trim()
   if (trimmed === '') return undefined
   return trimmed.length <= SETUP_OUTPUT_MAX ? trimmed : trimmed.slice(-SETUP_OUTPUT_MAX)
-}
-
-/** Name suggestion for the create modal prefill. */
-export function nameSuggestion(seed: number): string {
-  return suggestName(seed)
 }

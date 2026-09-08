@@ -2,7 +2,9 @@ import { describe, expect, it, beforeEach, vi } from 'vitest'
 import { WorktreesRpcError } from '../src/client/rpc.ts'
 import {
   configureWorktreeSweeper,
+  createFlowInFlight,
   isDirtyRefusal,
+  isSetupRunning,
   sweepAbandonedWorktrees,
   type SweepDeps,
 } from '../src/client/sweeper.ts'
@@ -37,6 +39,8 @@ function blankStore(ids: readonly string[]): Record<string, { id: string; blank:
 
 beforeEach(() => {
   configureWorktreeSweeper(undefined)
+  delete document.documentElement.dataset.dshxCreating
+  delete document.documentElement.dataset.dshxSettingUp
 })
 
 describe('sweepAbandonedWorktrees', () => {
@@ -75,6 +79,19 @@ describe('sweepAbandonedWorktrees', () => {
       workspaces: [ws({ sessionIds: ['blank-1'] })],
       sessionsById: blankStore(['blank-1']),
       currentSessionId: 'blank-1',
+      creating: false,
+    })
+    expect(swept).toEqual([])
+    expect(d.removeWorktree).not.toHaveBeenCalled()
+  })
+
+  it('keeps an empty named folder after the last session is archived', async () => {
+    const d = deps()
+    configureWorktreeSweeper(d)
+    const swept = await sweepAbandonedWorktrees({
+      workspaces: [ws({ sessionIds: [] })],
+      sessionsById: { other: { id: 'other', blank: false } },
+      currentSessionId: 'other',
       creating: false,
     })
     expect(swept).toEqual([])
@@ -124,6 +141,38 @@ describe('sweepAbandonedWorktrees', () => {
       creating: false,
     })
     expect(swept).toEqual(['swift-01'])
+  })
+
+  it('never sweeps while the document create flag is set', async () => {
+    document.documentElement.dataset.dshxCreating = 'true'
+    const d = deps()
+    configureWorktreeSweeper(d)
+    const swept = await sweepAbandonedWorktrees({
+      workspaces: [ws({ sessionIds: ['blank-1'] })],
+      sessionsById: blankStore(['blank-1']),
+      currentSessionId: 'other',
+      creating: false,
+    })
+    expect(swept).toEqual([])
+    expect(d.removeWorktree).not.toHaveBeenCalled()
+  })
+
+  it('keeps the checkout when setup is still running', async () => {
+    const d = deps({
+      removeWorktree: vi.fn().mockRejectedValue(
+        new WorktreesRpcError('setup-running', 'setup is still running for this worktree'),
+      ),
+    })
+    configureWorktreeSweeper(d)
+    const swept = await sweepAbandonedWorktrees({
+      workspaces: [ws({ sessionIds: ['blank-1'] })],
+      sessionsById: blankStore(['blank-1']),
+      currentSessionId: 'other',
+      creating: false,
+    })
+    expect(swept).toEqual([])
+    expect(d.archiveSession).not.toHaveBeenCalled()
+    expect(d.deleteWorkspace).not.toHaveBeenCalled()
   })
 
   it('never sweeps while a create flow is in flight', async () => {
@@ -223,6 +272,12 @@ describe('sweepAbandonedWorktrees', () => {
     expect(isDirtyRefusal(new WorktreesRpcError('unknown-slug', 'no worktree bound'))).toBe(false)
     expect(isDirtyRefusal(new Error('worktree has uncommitted changes'))).toBe(false)
     expect(isDirtyRefusal(new Error('dirty-remove-refused: dirty'))).toBe(true)
+    expect(isSetupRunning(new WorktreesRpcError('setup-running', 'setup is still running'))).toBe(true)
+    expect(isSetupRunning(new WorktreesRpcError('unknown-slug', 'no worktree bound'))).toBe(false)
+    expect(createFlowInFlight(true)).toBe(true)
+    expect(createFlowInFlight(false)).toBe(false)
+    document.documentElement.dataset.dshxSettingUp = 'swift-01'
+    expect(createFlowInFlight(false)).toBe(true)
   })
 
   it('skips an overlapping sweep rather than running two at once', async () => {

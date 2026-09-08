@@ -1,14 +1,12 @@
 /**
  * Pure slug and name generation.
  *
- * Locked rules: the slug is generated (`[a-z]+-YYYYMMDDHHmm` UTC) and is
- * the only thing that ever reaches a branch name; the user-typed Name is a
- * display title only — user text never becomes a ref (PII the moment
- * someone pushes). Branches read `dsh-worktrees/<slug>`.
+ * The create modal asks for a folder name. A valid name is kebab-case
+ * (`update-plugin`) and is the disk folder, the sidebar title, and the
+ * slug in `dsh-worktrees/<slug>`. Generated `[a-z]+-YYYYMMDDHHmm` slugs
+ * remain the fallback when no name is sent (API / tests).
  *
- * Legacy rows may still use `[a-z]+-\d{2}` (`sable-01`). New creates never
- * reuse that shape, so a leftover branch from Delete cannot collide with
- * the next click.
+ * Legacy rows may still use `[a-z]+-\d{2}` (`sable-01`).
  */
 
 /** Plugin-owned branch prefix. The slug is everything after this. */
@@ -34,6 +32,29 @@ const NAME_NOUNS = [
 
 const MINUTE_MS = 60_000
 const MAX_MINUTE_SHIFTS = 24 * 60
+
+/** Folder / slug / title: kebab-case, git-ref safe, filesystem safe. */
+export const FOLDER_NAME_MAX = 60
+
+/**
+ * `update-plugin`, `a`, `auth-refresh-2`. No spaces, uppercase, dots,
+ * consecutive hyphens, or leading/trailing hyphens.
+ */
+const FOLDER_NAME_RE = /^[a-z](?:[a-z0-9]{0,59}|[a-z0-9-]{0,58}[a-z0-9])$/
+
+const WINDOWS_RESERVED = new Set([
+  'con', 'prn', 'aux', 'nul',
+  'com1', 'com2', 'com3', 'com4', 'com5', 'com6', 'com7', 'com8', 'com9',
+  'lpt1', 'lpt2', 'lpt3', 'lpt4', 'lpt5', 'lpt6', 'lpt7', 'lpt8', 'lpt9',
+])
+
+/** Why a typed folder name is not usable. */
+export type FolderNameReason = 'empty' | 'too-long' | 'format' | 'reserved'
+
+/** Result of validating a create-modal folder name. */
+export type FolderNameResult =
+  | { readonly ok: true; readonly folder: string }
+  | { readonly ok: false; readonly reason: FolderNameReason }
 
 /** Deterministic picker so tests (and retry paths) stay reproducible. */
 function pick<T>(list: readonly T[], seed: number): T {
@@ -107,27 +128,55 @@ export function nextSlug(input: SlugInput): string {
 }
 
 /**
- * Suggest a display Name (adjective + noun). The create modal prefills
- * this and the user freely edits it.
+ * Suggest a kebab-case folder name (adjective-noun). The create modal
+ * prefills this; the user may edit it into another valid folder name.
  *
  * @param seed - deterministic entropy for tests.
- * @returns a two-word suggestion.
+ * @param takenSlugs - occupied folder names and plugin branch slugs.
+ * @returns a free kebab-case suggestion, suffixed when the pair is taken.
  */
-export function suggestName(seed: number): string {
-  return `${pick(NAME_ADJECTIVES, seed)} ${pick(NAME_NOUNS, seed + 3)}`
+export function suggestName(seed: number, takenSlugs: readonly string[] = []): string {
+  const base = `${pick(NAME_ADJECTIVES, seed)}-${pick(NAME_NOUNS, seed + 3)}`
+  const taken = new Set(takenSlugs)
+  let name = base
+  for (let suffix = 2; taken.has(name); suffix += 1) {
+    name = `${base}-${suffix}`
+  }
+  return name
+}
+
+/**
+ * Whether `raw` is a legal worktree folder / slug / title.
+ *
+ * @param raw - the modal's input (not trimmed by the caller).
+ */
+export function validateFolderName(raw: string): FolderNameResult {
+  const folder = raw.trim()
+  if (folder === '') return { ok: false, reason: 'empty' }
+  if (folder.length > FOLDER_NAME_MAX) return { ok: false, reason: 'too-long' }
+  if (WINDOWS_RESERVED.has(folder) || folder === 'git') return { ok: false, reason: 'reserved' }
+  if (!FOLDER_NAME_RE.test(folder) || folder.includes('--')) {
+    return { ok: false, reason: 'format' }
+  }
+  return { ok: true, folder }
 }
 
 /**
  * Sanitize a user-typed Name into a display title.
  *
+ * Valid kebab-case names are kept as-is (they are also the folder).
+ * Anything else is trimmed to a single line so legacy callers still
+ * have a label; they must not be used as a folder.
+ *
  * @param raw - the modal's input.
- * @returns a trimmed single-line title, or '' when nothing usable remains
- * (callers fall back to the slug).
+ * @returns a trimmed title, or '' when nothing usable remains.
  */
 export function normalizeName(raw: string): string {
+  const parsed = validateFolderName(raw)
+  if (parsed.ok) return parsed.folder
   const collapsed = raw.replace(/\s+/g, ' ').trim()
   if (collapsed === '') return ''
-  return collapsed.slice(0, 60)
+  return collapsed.slice(0, FOLDER_NAME_MAX)
 }
 
 /**

@@ -8,11 +8,15 @@ import {
   modalState,
   abortUpdate,
   executeUpdate,
+  openCreate,
   openDelete,
   openMerge,
   openUpdate,
   resetModalStore,
+  folderName,
   runCreateFlow,
+  setCreateName,
+  submitCreate,
   subscribeModal,
 } from '../src/client/create-store.ts'
 import { installBridge, updateBridgeFacts } from '../src/client/bridge.ts'
@@ -30,6 +34,7 @@ describe('runCreateFlow', () => {
       create(a: { path: string }): Promise<{ workspaceId: string }>
       delete?(workspaceId: string): Promise<void>
       archiveSession?(sessionId: string): Promise<void>
+      rename?(workspaceId: string, title: string): Promise<unknown>
     }
     sessions?: { create(a: { workspaceId: string }): Promise<string>; open(id: string): void }
   } = {}) {
@@ -43,6 +48,7 @@ describe('runCreateFlow', () => {
       create: vi.fn().mockResolvedValue({ workspaceId: 'ws-1' }),
       delete: vi.fn().mockResolvedValue(undefined),
       archiveSession: vi.fn().mockResolvedValue(undefined),
+      rename: vi.fn().mockResolvedValue(undefined),
     }
     const sessions = overrides.sessions ?? {
       create: vi.fn().mockResolvedValue('session-1'),
@@ -75,6 +81,22 @@ describe('runCreateFlow', () => {
     expect(modalState().kind).toBe('closed')
     expect(modalState().creating).toBe(false)
     expect(f.onTopologyRefresh).toHaveBeenCalled()
+  })
+
+  it('passes the display name and renames the host workspace', async () => {
+    const f = faces()
+    const rename = vi.fn().mockResolvedValue(undefined)
+    f.workspaces.rename = rename
+    await runCreateFlow({
+      cwd: '/repos/wt-repo',
+      name: 'auth-refresh',
+      rpc: rpcOf(f.create),
+      workspaces: f.workspaces,
+      sessions: f.sessions,
+      onTopologyRefresh: f.onTopologyRefresh,
+    })
+    expect(f.create).toHaveBeenCalledWith({ cwd: '/repos/wt-repo', name: 'auth-refresh' })
+    expect(rename).toHaveBeenCalledWith('ws-1', 'auth-refresh')
   })
 
   it('runs setup with the identity spinner, then opens the session', async () => {
@@ -134,6 +156,20 @@ describe('runCreateFlow', () => {
     expect(WORKTREE_STYLES).toContain(".dshx-worktree-identity[data-dshx-state='setting-up']")
     expect(WORKTREE_STYLES).toContain('@keyframes dshx-spin')
     expect(WORKTREE_STYLES).toContain('prefers-reduced-motion')
+    expect(WORKTREE_STYLES).toContain('.dshx-clusterRow,\n.dshx-clusterSession {\n  padding-left: 16px;\n}')
+    expect(WORKTREE_STYLES).not.toContain('margin-right: -14px')
+    expect(WORKTREE_STYLES).not.toContain('padding-left: 32px')
+  })
+
+  it('keeps the official folder class so hover swaps the branch for the chevron', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const source = readFileSync(join(process.cwd(), 'scripts/derive-workspace-browser.mjs'), 'utf8')
+    expect(source).toContain("label: 'project row cluster icon'")
+    expect(source).toContain('Rows_module_css_default.slot, Rows_module_css_default.folder, worktreeDecoration === void 0 && active')
+    expect(source).not.toContain('worktreeDecoration === void 0 && Rows_module_css_default.folder')
+    expect(source).toContain('clusterSession && "dshx-clusterSession"')
+    expect(source).toContain('clusterSession: true')
   })
 
   it('guards re-entry while the flow is in flight', async () => {
@@ -298,6 +334,122 @@ describe('runCreateFlow', () => {
     expect(modalState().createError).toContain('setup command failed: pnpm install')
     expect(modalState().createError).toContain('ERR_PNPM_LOCKED')
   })
+
+  it('keeps the generated disk path in setup stderr and records the sidebar title separately', async () => {
+    const path = '/repos/wt-repo/.dsh/worktrees/quartz-202609072315'
+    await runCreateFlow({
+      cwd: '/repos/wt-repo',
+      name: 'auth-refresh',
+      rpc: vi.fn((method: string) => {
+        if (method === 'create') {
+          return Promise.resolve({
+            slug: 'quartz-202609072315',
+            path,
+            relPath: '',
+            title: 'auth-refresh',
+            setupPending: true,
+          })
+        }
+        if (method === 'setup') {
+          return Promise.reject(new WorktreesRpcError(
+            'setup-failed',
+            'setup command failed: pnpm install',
+            `[ERROR] ENOENT: no such file or directory, lstat '${path}'`,
+          ))
+        }
+        return Promise.resolve({})
+      }),
+      workspaces: {
+        create: vi.fn().mockResolvedValue({ workspaceId: 'ws-1' }),
+        rename: vi.fn().mockResolvedValue(undefined),
+      },
+      sessions: { create: vi.fn().mockResolvedValue('session-1'), open: vi.fn() },
+      onTopologyRefresh: vi.fn(),
+    })
+    expect(modalState().createError).toContain(path)
+    expect(modalState().createErrorTitle).toBe('auth-refresh')
+    expect(modalState().createErrorFolder).toBe('quartz-202609072315')
+    expect(folderName(path)).toBe('quartz-202609072315')
+  })
+})
+
+describe('openCreate', () => {
+  it.each(['quiet-otter', 'quiet-otter-2'])('opens the name modal with host suggestion %s', async (suggestion) => {
+    const rpc = vi.fn().mockResolvedValue(suggestion)
+    openCreate('/repos/wt-repo', 'wt-repo', rpc)
+    expect(modalState().kind).toBe('create')
+    expect(modalState().create?.busy).toBe(true)
+    await vi.waitFor(() => { expect(modalState().create?.busy).toBe(false) })
+    expect(modalState().create).toMatchObject({
+      cwd: '/repos/wt-repo',
+      repoLabel: 'wt-repo',
+      suggestion,
+      name: suggestion,
+    })
+    setCreateName('auth-refresh')
+    expect(modalState().create?.name).toBe('auth-refresh')
+  })
+
+  it('allows an explicit name after the suggestion lookup fails', async () => {
+    const rpc = vi.fn(async (method: string) => {
+      if (method === 'suggestName') throw new Error('cannot list branches')
+      if (method === 'create') {
+        return { slug: 'manual-name', path: '/r/.dsh/worktrees/manual-name', relPath: '', setupPending: false }
+      }
+      return {}
+    })
+    openCreate('/r', 'repo', rpc)
+    await vi.waitFor(() => { expect(modalState().create?.busy).toBe(false) })
+    expect(modalState().create).toMatchObject({ suggestion: '', name: '' })
+    setCreateName('manual-name')
+    const sessions = { create: vi.fn().mockResolvedValue('session-1'), open: vi.fn() }
+    submitCreate({
+      rpc,
+      workspaces: { create: vi.fn().mockResolvedValue({ workspaceId: 'ws-1' }) },
+      sessions,
+      onTopologyRefresh: vi.fn(),
+    })
+    await vi.waitFor(() => { expect(sessions.open).toHaveBeenCalledWith('session-1') })
+    expect(rpc).toHaveBeenCalledWith('create', { cwd: '/r', name: 'manual-name' })
+    expect(modalState().kind).toBe('closed')
+    expect(modalState().creating).toBe(false)
+  })
+
+  it('submitCreate runs the named flow and empty field uses the suggestion', async () => {
+    const create = vi.fn().mockResolvedValue({
+      slug: 'swift-01',
+      path: '/repos/wt-repo/.dsh/worktrees/swift-01',
+      relPath: '',
+      title: 'quiet-otter',
+      setupPending: false,
+    })
+    const workspaces = {
+      create: vi.fn().mockResolvedValue({ workspaceId: 'ws-1' }),
+      rename: vi.fn().mockResolvedValue(undefined),
+    }
+    const sessions = {
+      create: vi.fn().mockResolvedValue('session-1'),
+      open: vi.fn(),
+    }
+    const rpc = vi.fn((method: string, args?: unknown) => {
+      if (method === 'suggestName') return Promise.resolve('quiet-otter')
+      if (method === 'create') return create(args)
+      return Promise.resolve({})
+    })
+    openCreate('/repos/wt-repo', 'wt-repo', rpc)
+    await vi.waitFor(() => { expect(modalState().create?.busy).toBe(false) })
+    expect(rpc).toHaveBeenCalledWith('suggestName', { cwd: '/repos/wt-repo' })
+    setCreateName('   ')
+    submitCreate({
+      rpc,
+      workspaces,
+      sessions,
+      onTopologyRefresh: vi.fn(),
+    })
+    await vi.waitFor(() => { expect(workspaces.rename).toHaveBeenCalled() })
+    expect(create).toHaveBeenCalledWith({ cwd: '/repos/wt-repo', name: 'quiet-otter' })
+    expect(workspaces.rename).toHaveBeenCalledWith('ws-1', 'quiet-otter')
+  })
 })
 
 describe('bridge', () => {
@@ -348,6 +500,19 @@ describe('bridge', () => {
       'title', 'branch: b', 'status: clean',
     ])
     expect(worktreeFacts).toHaveBeenCalledWith(decoration)
+    expect(window.__dshNextWorktreesBridge?.nestGroups([{
+      key: 'repo',
+      workspaceId: 'repo',
+      containsCurrent: false,
+      expanded: true,
+      sessions: [],
+    }])).toEqual([{
+      key: 'repo',
+      workspaceId: 'repo',
+      containsCurrent: false,
+      expanded: true,
+      sessions: [],
+    }])
     uninstall()
   })
 })
@@ -382,7 +547,11 @@ describe('merge and delete modals', () => {
     expect(modalState().merge?.busy).toBe(true)
     await vi.waitFor(() => { expect(modalState().merge?.busy).toBe(false) })
     expect(modalState().merge?.preflight).toMatchObject({ green: true, target: 'main' })
-    expect(rpc).toHaveBeenCalledWith('merge/preflight', { cwd: target.path, slug: target.slug })
+    expect(rpc).toHaveBeenCalledWith('merge/preflight', {
+      cwd: target.path,
+      slug: target.slug,
+      sessionIds: ['wt-session-1'],
+    })
   })
 
   it('openMerge surfaces a preflight failure as an error', async () => {
@@ -506,7 +675,11 @@ describe('update modal', () => {
     expect(modalState().kind).toBe('update')
     await vi.waitFor(() => { expect(modalState().update?.busy).toBe(false) })
     expect(modalState().update?.preflight).toMatchObject({ green: true, source: 'main' })
-    expect(rpc).toHaveBeenCalledWith('update/preflight', { cwd: target.path, slug: target.slug })
+    expect(rpc).toHaveBeenCalledWith('update/preflight', {
+      cwd: target.path,
+      slug: target.slug,
+      sessionIds: ['wt-session-1'],
+    })
   })
 
   it('executeUpdate lands on the done view and hands off on conflict', async () => {

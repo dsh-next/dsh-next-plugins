@@ -72,6 +72,7 @@ export const execGit: ExecFn = (file, args, options) =>
   })
 
 const TIMEOUT_MS = 15_000
+const ADD_TIMEOUT_MS = 60_000
 
 /** Ports the service consumes; the concrete runner implements all of them. */
 export interface GitPorts {
@@ -145,8 +146,9 @@ export class GitRunner implements GitPorts {
   private async run(
     args: readonly string[],
     cwd: string,
+    timeoutMs: number = TIMEOUT_MS,
   ): Promise<GitResult> {
-    const result = await this.exec('git', args, { cwd, timeoutMs: TIMEOUT_MS })
+    const result = await this.exec('git', args, { cwd, timeoutMs })
     if (result.code !== 0 && /not a git repository/i.test(result.stderr)) {
       throw new GitError('not-a-repository', `git ${args[0]}: not a repository`)
     }
@@ -245,6 +247,7 @@ export class GitRunner implements GitPorts {
     const result = await this.run(
       ['-c', 'checkout.workers=0', 'worktree', 'add', '-b', input.branch, input.path, input.baseRef],
       input.primary,
+      ADD_TIMEOUT_MS,
     )
     if (result.code !== 0) {
       const existed = /already exists|already checked out/i.test(result.stderr)

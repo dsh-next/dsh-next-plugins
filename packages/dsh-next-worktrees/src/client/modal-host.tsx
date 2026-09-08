@@ -1,8 +1,7 @@
 /**
  * The plugin's modal surface: a body-level React root owning the merge
- * and delete modals, plus a visually-hidden live region while create is
- * in flight (create is modal-free since rev 3 — the repo-row button runs
- * the auto-named flow directly; the branch icon spins via CSS). Rendered
+ * delete, and create-name modals, plus a visually-hidden live region
+ * while create is in flight (the repo-row icon spins via CSS). Rendered
  * outside the official browser's tree on purpose — the conversation and
  * the sidebar stay pure harness; our overlays live in our own root.
  *
@@ -22,6 +21,8 @@ import {
   executeUpdate,
   modalState,
   openUpdate,
+  setCreateName,
+  submitCreate,
   subscribeModal,
   type HostCleanup,
   type MergePreflightFacts,
@@ -31,6 +32,7 @@ import {
 } from './create-store.ts'
 import type { MergeBlocker, MergeWarning } from '../core/merge.ts'
 import type { UpdateBlocker } from '../core/update.ts'
+import { validateFolderName } from '../core/slug.ts'
 import { rpc, requestTopologyRefresh } from './rpc.ts'
 import type {
   SessionsServiceLike,
@@ -56,7 +58,9 @@ function hostCleanup(workspaces: WorkspacesServiceLike): HostCleanup {
 export const BLOCKER_KEYS: Readonly<Record<MergeBlocker, string>> = {
   'unknown-slug': 'merge.blocker.unknownSlug',
   'no-target-branch': 'merge.blocker.noTarget',
+  'no-source-branch': 'merge.blocker.noSource',
   'old-git': 'merge.blocker.oldGit',
+  'running-session': 'merge.blocker.running',
   conflict: 'merge.blocker.conflict',
   'already-merged': 'merge.blocker.alreadyMerged',
 }
@@ -71,6 +75,7 @@ export const WARNING_KEYS: Readonly<Record<MergeWarning, string>> = {
 export const UPDATE_BLOCKER_KEYS: Readonly<Record<UpdateBlocker, string>> = {
   'unknown-slug': 'update.blocker.unknownSlug',
   'no-target-branch': 'update.blocker.noTarget',
+  'no-source-branch': 'update.blocker.noSource',
   'no-bound-session': 'update.blocker.noSession',
   'running-session': 'update.blocker.running',
   'in-progress': 'update.blocker.inProgress',
@@ -118,12 +123,16 @@ export function ModalHost(props: ModalHostProps): React.ReactElement | null {
     ? <CreatingStatus t={props.t} settingUp={state.settingUp !== undefined} />
     : null
   let modal: React.ReactElement | null = null
-  if (state.kind === 'create-error' && state.createError !== undefined) {
+  if (state.kind === 'create' && state.create !== undefined) {
+    modal = <CreateModal t={props.t} create={state.create} workspaces={props.workspaces} sessions={props.sessions} />
+  } else if (state.kind === 'create-error' && state.createError !== undefined) {
     modal = (
       <CreateErrorModal
         t={props.t}
         message={state.createError}
         kind={state.createErrorKind === 'setup' ? 'setup' : 'create'}
+        folder={state.createErrorFolder}
+        worktreeTitle={state.createErrorTitle}
       />
     )
   } else if (props.workspaces !== undefined) {
@@ -154,6 +163,92 @@ export function ModalHost(props: ModalHostProps): React.ReactElement | null {
   )
 }
 
+function CreateModal({ t, create, workspaces, sessions }: {
+  readonly t: Translate
+  readonly create: {
+    readonly cwd: string
+    readonly repoLabel: string
+    readonly suggestion: string
+    readonly name: string
+    readonly busy: boolean
+  }
+  readonly workspaces: WorkspacesServiceLike
+  readonly sessions: SessionsServiceLike
+}): React.ReactElement {
+  useEscapeClose()
+  const title = t('create.title', { repo: create.repoLabel })
+  const inputRef = React.useRef<HTMLInputElement>(null)
+  React.useEffect(() => {
+    inputRef.current?.focus()
+    inputRef.current?.select()
+  }, [create.busy])
+  const parsed = validateFolderName(create.name)
+  const canSubmit = !create.busy && parsed.ok
+  const submit = (): void => {
+    if (!canSubmit) return
+    submitCreate({
+      rpc,
+      workspaces,
+      sessions,
+      onTopologyRefresh: requestTopologyRefresh,
+    })
+  }
+  const errorKey = !parsed.ok && create.name.trim() !== ''
+    ? (`create.nameError.${parsed.reason}` as const)
+    : undefined
+  return (
+    <div
+      className="dshx-mask"
+      onMouseDown={(event) => { if (event.target === event.currentTarget) closeModal() }}
+      data-dshx-modal="create"
+    >
+      <div className="dshx-modal" role="dialog" aria-modal="true" aria-label={title}>
+        <div className="dshx-modalTitle">{title}</div>
+        <div className="dshx-modalBody">
+          <label className="dshx-field">
+            <span className="dshx-fieldLabel">{t('create.name')}</span>
+            <input
+              ref={inputRef}
+              className="dshx-input"
+              value={create.name}
+              disabled={create.busy}
+              aria-invalid={errorKey !== undefined}
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+              onChange={(event) => { setCreateName(event.target.value) }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  submit()
+                }
+              }}
+              data-dshx-create-name
+            />
+            {errorKey !== undefined
+              ? <span className="dshx-fieldError" data-dshx-name-error={parsed.ok ? undefined : parsed.reason}>{t(errorKey)}</span>
+              : <span className="dshx-fieldHint">{t('create.nameHint')}</span>}
+          </label>
+        </div>
+        <div className="dshx-modalActions">
+          <button type="button" className="dshx-buttonGhost" disabled={create.busy} onClick={closeModal} data-dshx-button="cancel">
+            {t('create.cancel')}
+          </button>
+          <button
+            type="button"
+            className="dshx-buttonPrimary"
+            disabled={!canSubmit}
+            onClick={submit}
+            data-dshx-button="create"
+          >
+            {t('create.submit')}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function CreatingStatus({ t, settingUp }: {
   readonly t: Translate
   readonly settingUp: boolean
@@ -170,10 +265,12 @@ function CreatingStatus({ t, settingUp }: {
   )
 }
 
-function CreateErrorModal({ t, message, kind }: {
+function CreateErrorModal({ t, message, kind, folder, worktreeTitle }: {
   readonly t: Translate
   readonly message: string
   readonly kind: 'create' | 'setup'
+  readonly folder?: string
+  readonly worktreeTitle?: string
 }): React.ReactElement {
   useEscapeClose()
   const title = kind === 'setup' ? t('create.setupFailed.title') : t('create.error.title')
@@ -190,6 +287,12 @@ function CreateErrorModal({ t, message, kind }: {
         <div className="dshx-modalBody">
           <div className="dshx-error" data-dshx-error>{message}</div>
           <div className="dshx-fieldHint">{hint}</div>
+          {kind === 'setup' && folder !== undefined && folder !== ''
+            && worktreeTitle !== undefined && worktreeTitle !== '' && worktreeTitle !== folder && (
+            <div className="dshx-fieldHint" data-dshx-disk-folder={folder}>
+              {t('create.setupFailed.disk', { folder, title: worktreeTitle })}
+            </div>
+          )}
         </div>
         <div className="dshx-modalActions">
           <button

@@ -79,11 +79,29 @@ export function configureWorktreeSweeper(next: SweepDeps | undefined): void {
  * deleted the workspace while leaving the dirty checkout on disk.
  */
 export function isDirtyRefusal(error: unknown): boolean {
-  if (error instanceof WorktreesRpcError) return error.code === 'dirty-remove-refused'
+  return errorHasCode(error, 'dirty-remove-refused')
+}
+
+/** Host is still running `.worktrees.json`; keep the checkout. */
+export function isSetupRunning(error: unknown): boolean {
+  return errorHasCode(error, 'setup-running')
+}
+
+function errorHasCode(error: unknown, code: string): boolean {
+  if (error instanceof WorktreesRpcError) return error.code === code
   if (typeof error === 'object' && error !== null && 'code' in error) {
-    return (error as { code: unknown }).code === 'dirty-remove-refused'
+    return (error as { code: unknown }).code === code
   }
-  return error instanceof Error && /dirty-remove-refused/.test(error.message)
+  return error instanceof Error && error.message.includes(code)
+}
+
+/** Create/setup in flight: module store or the DOM flag the modal writes. */
+export function createFlowInFlight(creating: boolean): boolean {
+  if (creating) return true
+  if (typeof document === 'undefined') return false
+  const data = document.documentElement.dataset
+  return data.dshxCreating === 'true'
+    || (data.dshxSettingUp !== undefined && data.dshxSettingUp !== '')
 }
 
 /**
@@ -98,28 +116,46 @@ export function isDirtyRefusal(error: unknown): boolean {
 export async function sweepAbandonedWorktrees(snapshot: SweepSnapshot): Promise<readonly string[]> {
   if (deps === undefined) return []
   if (running) return []
-  if (snapshot.creating) return []
+  if (createFlowInFlight(snapshot.creating)) return []
   if (Object.keys(snapshot.sessionsById).length === 0) return []
   running = true
   try {
-    const swept: string[] = []
+    const groups = new Map<string, {
+      parsed: NonNullable<ReturnType<typeof parseWorktreeWorkspacePath>>
+      workspaces: SweepWorkspaceLike[]
+      sessionIds: Set<string>
+    }>()
     for (const workspace of snapshot.workspaces) {
       const parsed = parseWorktreeWorkspacePath(workspace.path)
       if (parsed === undefined) continue
-      const sessions = workspace.sessionIds.map((id) => snapshot.sessionsById[id])
+      const group = groups.get(parsed.root) ?? { parsed, workspaces: [], sessionIds: new Set<string>() }
+      group.workspaces.push(workspace)
+      for (const sessionId of workspace.sessionIds) group.sessionIds.add(sessionId)
+      groups.set(parsed.root, group)
+    }
+    const swept: string[] = []
+    for (const { parsed, workspaces, sessionIds } of groups.values()) {
+      // Named empty folders stay available for the cluster `+` action. A
+      // checkout is eligible only when every workspace that points into it is
+      // abandoned, because removal deletes the entire checkout.
+      if (sessionIds.size === 0) continue
+      const ids = [...sessionIds]
+      const sessions = ids.map((id) => snapshot.sessionsById[id])
       if (sessions.some((session) => session !== undefined && !session.blank)) continue
-      if (workspace.sessionIds.includes(snapshot.currentSessionId ?? '\u0000')) continue
+      if (sessionIds.has(snapshot.currentSessionId ?? '\u0000')) continue
       try {
         await deps.removeWorktree({ cwd: parsed.primary, slug: parsed.slug })
       } catch (error) {
-        if (isDirtyRefusal(error)) continue // uncommitted work: keep it all
+        if (isDirtyRefusal(error) || isSetupRunning(error)) continue
         // unknown-slug and friends: the git side is already gone; still
         // drop the leftover workspace below.
       }
-      for (const sessionId of workspace.sessionIds) {
+      for (const sessionId of ids) {
         await deps.archiveSession(sessionId).catch(() => {})
       }
-      await deps.deleteWorkspace(workspace.workspaceId).catch(() => {})
+      for (const workspace of workspaces) {
+        await deps.deleteWorkspace(workspace.workspaceId).catch(() => {})
+      }
       swept.push(parsed.slug)
     }
     return swept

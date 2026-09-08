@@ -1,20 +1,21 @@
 /**
- * External store for the merge/delete modals and the auto-named create
- * flow. React 18's useSyncExternalStore consumes it; non-React callers
+ * External store for the merge/delete/create modals.
+ * React 18's useSyncExternalStore consumes it; non-React callers
  * (the bridge) drive it directly.
  *
- * Create has no modal (decision: docs/ideas/dsh-next-worktrees-sidebar-ux.md
- * rev 3): clicking the repo-row button creates the worktree immediately
- * with the host-suggested name. `creating` guards re-entry and writes
- * `html[data-dshx-creating]` so the repo-row icon can spin until the
- * session row exists; `settingUp` then moves the spinner onto that row's
- * identity icon while `.worktrees.json` runs.
+ * Create opens a one-field name modal (clusters one-pager): the typed
+ * text is the folder title only. Path, slug, and branch stay generated.
+ * `creating` guards re-entry and writes `html[data-dshx-creating]` so the
+ * repo-row icon can spin until the cluster exists; `settingUp` then
+ * moves the spinner onto that row's identity icon while `.worktrees.json`
+ * runs.
  */
 import type { MergeBlocker, MergeWarning } from '../core/merge.ts'
 import type { UpdateBlocker } from '../core/update.ts'
+import { validateFolderName } from '../core/slug.ts'
 import { WorktreesRpcError } from './rpc.ts'
 
-export type ModalKind = 'closed' | 'create-error' | 'merge' | 'delete' | 'update'
+export type ModalKind = 'closed' | 'create' | 'create-error' | 'merge' | 'delete' | 'update'
 
 /** Facts a worktree modal needs, carried from the row decoration. */
 export interface WorktreeModalTarget {
@@ -77,8 +78,18 @@ export interface UpdateHandoff {
 
 export interface ModalState {
   readonly kind: ModalKind
-  /** True while the auto-named create flow is in flight. */
+  /** True while the named create flow is in flight. */
   readonly creating: boolean
+  /** One-field name modal (suggestion prefilled). */
+  readonly create?: {
+    readonly cwd: string
+    readonly repoLabel: string
+    readonly suggestion: string
+    readonly name: string
+    /** Distinguishes an async suggestion from an earlier Create opening. */
+    readonly requestId: number
+    readonly busy: boolean
+  }
   /**
    * Set once the session row exists and `.worktrees.json` setup is
    * running. Drives the identity-icon spinner.
@@ -96,6 +107,10 @@ export interface ModalState {
    * after open). `create` when the flow rolled back so nothing remains.
    */
   readonly createErrorKind?: 'create' | 'setup'
+  /** Sidebar title for a setup failure (disk folder stays generated). */
+  readonly createErrorTitle?: string
+  /** Generated disk folder name (slug) when setup names a path. */
+  readonly createErrorFolder?: string
   readonly merge?: {
     readonly target: WorktreeModalTarget
     readonly preflight?: MergePreflightFacts
@@ -123,6 +138,7 @@ const INITIAL: ModalState = { kind: 'closed', creating: false }
 type Listener = () => void
 
 const listeners = new Set<Listener>()
+let nextCreateRequestId = 0
 let state: ModalState = INITIAL
 
 function emit(): void {
@@ -140,6 +156,18 @@ function set(next: ModalState): void {
     }
   }
   emit()
+}
+
+function setModalError(kind: 'merge' | 'update' | 'delete', error: unknown): void {
+  if (state.kind !== kind || state[kind] === undefined) return
+  set({
+    ...state,
+    [kind]: {
+      ...state[kind],
+      busy: false,
+      error: error instanceof Error ? error.message : String(error),
+    },
+  })
 }
 
 /** Subscribe to modal state changes (useSyncExternalStore contract). */
@@ -170,22 +198,16 @@ export function openMerge(target: WorktreeModalTarget, rpc: (m: string, a?: unkn
     delete: undefined,
     update: undefined,
   })
-  rpc('merge/preflight', { cwd: target.path, slug: target.slug })
+  rpc('merge/preflight', {
+    cwd: target.path,
+    slug: target.slug,
+    sessionIds: target.sessionIds ?? [],
+  })
     .then((preflight) => {
       if (state.kind !== 'merge' || state.merge === undefined || state.merge.target !== target) return
       set({ ...state, merge: { ...state.merge, preflight: preflight as MergePreflightFacts, busy: false } })
     })
-    .catch((error: unknown) => {
-      if (state.kind !== 'merge' || state.merge === undefined) return
-      set({
-        ...state,
-        merge: {
-          ...state.merge,
-          busy: false,
-          error: error instanceof Error ? error.message : String(error),
-        },
-      })
-    })
+    .catch((error: unknown) => { setModalError('merge', error) })
 }
 
 /** Execute the guarded merge from the merge modal. */
@@ -193,23 +215,17 @@ export function executeMerge(rpc: (m: string, a?: unknown) => Promise<unknown>):
   if (state.kind !== 'merge' || state.merge === undefined) return
   const target = state.merge.target
   set({ ...state, merge: { ...state.merge, busy: true, error: undefined } })
-  void rpc('merge/execute', { cwd: target.path, slug: target.slug })
+  void rpc('merge/execute', {
+    cwd: target.path,
+    slug: target.slug,
+    sessionIds: target.sessionIds ?? [],
+  })
     .then((result) => {
       if (state.kind !== 'merge' || state.merge === undefined) return
       const done = result as { target: string; fastForward: boolean }
       set({ ...state, merge: { ...state.merge, busy: false, done } })
     })
-    .catch((error: unknown) => {
-      if (state.kind !== 'merge' || state.merge === undefined) return
-      set({
-        ...state,
-        merge: {
-          ...state.merge,
-          busy: false,
-          error: error instanceof Error ? error.message : String(error),
-        },
-      })
-    })
+    .catch((error: unknown) => { setModalError('merge', error) })
 }
 
 /** Archive a worktree's sessions and drop its host workspace. */
@@ -230,17 +246,7 @@ export function cleanupMerged(rpc: (m: string, a?: unknown) => Promise<unknown>,
   return rpc('remove', { cwd: target.path, slug: target.slug, force: false })
     .then(() => cleanupHost(target, host))
     .then(() => { set(INITIAL) })
-    .catch((error: unknown) => {
-      if (state.kind !== 'merge' || state.merge === undefined) return
-      set({
-        ...state,
-        merge: {
-          ...state.merge,
-          busy: false,
-          error: error instanceof Error ? error.message : String(error),
-        },
-      })
-    })
+    .catch((error: unknown) => { setModalError('merge', error) })
 }
 
 /** Open the delete modal (dirty targets arm the force grammar). */
@@ -263,22 +269,16 @@ export function openUpdate(target: WorktreeModalTarget, rpc: (m: string, a?: unk
     delete: undefined,
     update: { target, busy: true },
   })
-  rpc('update/preflight', { cwd: target.path, slug: target.slug })
+  rpc('update/preflight', {
+    cwd: target.path,
+    slug: target.slug,
+    sessionIds: target.sessionIds ?? [],
+  })
     .then((preflight) => {
       if (state.kind !== 'update' || state.update === undefined || state.update.target !== target) return
       set({ ...state, update: { ...state.update, preflight: preflight as UpdatePreflightFacts, busy: false } })
     })
-    .catch((error: unknown) => {
-      if (state.kind !== 'update' || state.update === undefined) return
-      set({
-        ...state,
-        update: {
-          ...state.update,
-          busy: false,
-          error: error instanceof Error ? error.message : String(error),
-        },
-      })
-    })
+    .catch((error: unknown) => { setModalError('update', error) })
 }
 
 /** Execute update-from-main; on conflict, hand off to the bound session. */
@@ -290,7 +290,11 @@ export function executeUpdate(
   if (state.kind !== 'update' || state.update === undefined) return
   const target = state.update.target
   set({ ...state, update: { ...state.update, busy: true, error: undefined } })
-  void rpc('update/execute', { cwd: target.path, slug: target.slug })
+  void rpc('update/execute', {
+    cwd: target.path,
+    slug: target.slug,
+    sessionIds: target.sessionIds ?? [],
+  })
     .then((result) => {
       if (state.kind !== 'update' || state.update === undefined) return
       const done = result as { source: string; conflict: boolean; sessionId: string }
@@ -302,17 +306,7 @@ export function executeUpdate(
         }
       }
     })
-    .catch((error: unknown) => {
-      if (state.kind !== 'update' || state.update === undefined) return
-      set({
-        ...state,
-        update: {
-          ...state.update,
-          busy: false,
-          error: error instanceof Error ? error.message : String(error),
-        },
-      })
-    })
+    .catch((error: unknown) => { setModalError('update', error) })
 }
 
 /** Abort an in-flight update merge in the worktree. */
@@ -322,17 +316,7 @@ export function abortUpdate(rpc: (m: string, a?: unknown) => Promise<unknown>): 
   set({ ...state, update: { ...state.update, busy: true, error: undefined } })
   return rpc('update/abort', { cwd: target.path, slug: target.slug })
     .then(() => { set(INITIAL) })
-    .catch((error: unknown) => {
-      if (state.kind !== 'update' || state.update === undefined) return
-      set({
-        ...state,
-        update: {
-          ...state.update,
-          busy: false,
-          error: error instanceof Error ? error.message : String(error),
-        },
-      })
-    })
+    .catch((error: unknown) => { setModalError('update', error) })
 }
 
 /** Arm the force step for a dirty target. */
@@ -352,22 +336,75 @@ export function executeDelete(
   return rpc('remove', { cwd: target.path, slug: target.slug, force: target.dirty })
     .then(() => cleanupHost(target, host))
     .then(() => { set(INITIAL) })
-    .catch((error: unknown) => {
-      if (state.kind !== 'delete' || state.delete === undefined) return
-      set({
-        ...state,
-        delete: {
-          ...state.delete,
-          busy: false,
-          error: error instanceof Error ? error.message : String(error),
-        },
-      })
-    })
+    .catch((error: unknown) => { setModalError('delete', error) })
 }
 
 /** Mark the create flow in/out of flight (re-entry guard). */
 function setCreating(creating: boolean): void {
   set({ ...state, creating })
+}
+
+/** Open the name modal and pull a host suggestion. */
+export function openCreate(
+  cwd: string,
+  repoLabel: string,
+  rpc: (m: string, a?: unknown) => Promise<unknown>,
+): void {
+  if (state.creating) return
+  const requestId = ++nextCreateRequestId
+  set({
+    kind: 'create',
+    creating: false,
+    create: { cwd, repoLabel, suggestion: '', name: '', requestId, busy: true },
+  })
+  rpc('suggestName', { cwd })
+    .then((suggestion) => {
+      if (state.kind !== 'create' || state.create === undefined || state.create.requestId !== requestId) return
+      const value = typeof suggestion === 'string' ? suggestion : ''
+      set({
+        ...state,
+        create: { ...state.create, suggestion: value, name: value, busy: false },
+      })
+    })
+    .catch(() => {
+      if (state.kind !== 'create' || state.create === undefined || state.create.requestId !== requestId) return
+      set({ ...state, create: { ...state.create, busy: false } })
+    })
+}
+
+/** Edit the name field. Empty stays empty so submit can fall back. */
+export function setCreateName(name: string): void {
+  if (state.kind !== 'create' || state.create === undefined) return
+  set({ ...state, create: { ...state.create, name } })
+}
+
+interface CreateServices {
+  readonly rpc: (method: string, args?: unknown) => Promise<unknown>
+  readonly workspaces: {
+    create(a: { path: string }): Promise<{ workspaceId: string }>
+    delete?(workspaceId: string): Promise<void>
+    archiveSession?(sessionId: string): Promise<void>
+    rename?(workspaceId: string, title: string): Promise<unknown>
+  }
+  readonly sessions: { create(a: { workspaceId: string }): Promise<string>; open(id: string): void }
+  readonly onTopologyRefresh: () => void
+}
+
+/** Confirm the name modal: empty field uses the suggestion. */
+export function submitCreate(input: CreateServices): void {
+  if (state.kind !== 'create' || state.create === undefined || state.create.busy) return
+  const { cwd, suggestion, name } = state.create
+  const title = name.trim() === '' ? suggestion : name
+  if (!validateFolderName(title).ok) return
+  set({ ...state, kind: 'closed', create: undefined })
+  void runCreateFlow({
+    cwd,
+    name: title,
+    rpc: input.rpc,
+    workspaces: input.workspaces,
+    sessions: input.sessions,
+    onTopologyRefresh: input.onTopologyRefresh,
+  })
 }
 
 /** Reset for tests. */
@@ -376,43 +413,38 @@ export function resetModalStore(): void {
 }
 
 /**
- * The auto-named create flow, driven straight from the repo-row button.
+ * The named create flow, driven from the name modal.
  *
- * No modal (rev 3 decision): the name is omitted so the host applies its
- * own suggestion. Order matters: the worktree exists before the workspace
- * is registered (the workspace path must resolve), the session exists
- * before the bind (the bind claims the row for the session). Open comes
- * next so the nested row exists, then setup runs with that row's branch
- * icon spinning. A failed setup command keeps the worktree and session
- * (the user can finish setup or delete); earlier failures still roll back.
+ * The typed Name is a display title only; path/slug/branch stay generated.
+ * Order matters: the worktree exists before the workspace is registered
+ * (the workspace path must resolve), the session exists before the bind
+ * (the bind claims the row for the session). Open comes next so the
+ * nested cluster exists, then setup runs with that row's branch icon
+ * spinning. A failed setup command keeps the worktree and session (the
+ * user can finish setup or delete); earlier failures still roll back.
  *
  * @param input - the repo cwd plus the service/RPC faces.
  */
-export async function runCreateFlow(input: {
+export async function runCreateFlow(input: CreateServices & {
   readonly cwd: string
-  readonly rpc: (method: string, args?: unknown) => Promise<unknown>
-  readonly workspaces: {
-    create(a: { path: string }): Promise<{ workspaceId: string }>
-    delete?(workspaceId: string): Promise<void>
-    archiveSession?(sessionId: string): Promise<void>
-  }
-  readonly sessions: { create(a: { workspaceId: string }): Promise<string>; open(id: string): void }
-  readonly onTopologyRefresh: () => void
+  readonly name?: string
 }): Promise<void> {
-  const { cwd, rpc, workspaces, sessions, onTopologyRefresh } = input
+  const { cwd, name, rpc, workspaces, sessions, onTopologyRefresh } = input
   if (state.creating) return
   setCreating(true)
-  let created: { slug: string; path: string; relPath: string; setupPending?: boolean } | undefined
+  let created: { slug: string; path: string; relPath: string; title?: string; setupPending?: boolean } | undefined
   let workspaceId: string | undefined
   let sessionId: string | undefined
   let keepOnFailure = false
   try {
     created = await rpc('create', {
       cwd,
+      ...(name !== undefined && name !== '' ? { name } : {}),
     }) as {
       slug: string
       path: string
       relPath: string
+      title?: string
       setupPending?: boolean
     }
     const workspacePath = created.relPath === ''
@@ -420,6 +452,10 @@ export async function runCreateFlow(input: {
       : `${created.path}/${created.relPath}`
     const workspace = await workspaces.create({ path: workspacePath })
     workspaceId = workspace.workspaceId
+    const title = created.title !== undefined && created.title !== '' ? created.title : name
+    if (title !== undefined && title !== '' && workspaces.rename !== undefined) {
+      await workspaces.rename(workspace.workspaceId, title).catch(() => {})
+    }
     sessionId = await sessions.create({ workspaceId: workspace.workspaceId })
     await rpc('bind', { sessionId })
     sessions.open(sessionId)
@@ -443,11 +479,15 @@ export async function runCreateFlow(input: {
     onTopologyRefresh()
   } catch (error) {
     if (keepOnFailure) {
+      const title = created?.title || name || created?.slug || ''
+      const folder = folderName(created?.path ?? '')
       set({
         ...INITIAL,
         kind: 'create-error',
         createError: formatCreateError(error),
         createErrorKind: 'setup',
+        createErrorTitle: title === '' ? undefined : title,
+        createErrorFolder: folder === '' ? undefined : folder,
       })
       onTopologyRefresh()
       return
@@ -473,8 +513,13 @@ export async function runCreateFlow(input: {
   }
 }
 
+/** Last path segment, POSIX or Windows. */
+export function folderName(path: string): string {
+  return path.replace(/\\/g, '/').split('/').filter((part) => part !== '').pop() ?? ''
+}
+
 /** Message plus host hint (setup stderr) so the modal is actionable. */
-function formatCreateError(error: unknown): string {
+export function formatCreateError(error: unknown): string {
   if (error instanceof WorktreesRpcError) {
     const hint = error.hint?.trim() ?? ''
     return hint === '' ? error.message : `${error.message}\n${hint}`

@@ -14,6 +14,7 @@
 export type UpdateBlocker =
   | 'unknown-slug'
   | 'no-target-branch'
+  | 'no-source-branch'
   | 'no-bound-session'
   | 'running-session'
   | 'in-progress'
@@ -25,9 +26,11 @@ export interface UpdateFactsInput {
   readonly slugKnown: boolean
   /** The primary has a checked-out branch to merge from. */
   readonly sourceBranch: string | undefined
+  /** The worktree has a checked-out named branch to merge into. */
+  readonly targetBranch: string | undefined
   /** The worktree row is bound to a session (the resolver). */
   readonly boundSession: boolean
-  /** The bound session is currently running (one-writer). */
+  /** Any session in the cluster is currently running (one-writer). */
   readonly sessionRunning: boolean
   /** The worktree is already in the middle of a merge. */
   readonly inProgress: boolean
@@ -60,12 +63,16 @@ export function updateVerdict(input: UpdateFactsInput): UpdateVerdict {
   if (input.sourceBranch === undefined || input.sourceBranch === '') {
     blockers.push('no-target-branch')
   }
-  // Session and tree-state blockers are noise when the slug is gone —
-  // the modal only needs "refresh".
-  if (input.slugKnown && !input.boundSession) blockers.push('no-bound-session')
-  if (input.slugKnown && input.sessionRunning) blockers.push('running-session')
-  if (input.slugKnown && input.inProgress) blockers.push('in-progress')
-  else if (input.slugKnown && !input.worktreeClean) blockers.push('dirty-worktree')
-  if (input.slugKnown && input.alreadyUpdated) blockers.push('already-updated')
+  // Worktree-specific blockers are noise when the slug is gone.
+  if (input.slugKnown) {
+    if (input.targetBranch === undefined || input.targetBranch === '') {
+      blockers.push('no-source-branch')
+    }
+    if (!input.boundSession) blockers.push('no-bound-session')
+    if (input.sessionRunning) blockers.push('running-session')
+    if (input.inProgress) blockers.push('in-progress')
+    else if (!input.worktreeClean) blockers.push('dirty-worktree')
+    if (input.alreadyUpdated) blockers.push('already-updated')
+  }
   return { blockers, green: blockers.length === 0 }
 }

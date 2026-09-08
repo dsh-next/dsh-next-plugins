@@ -22,6 +22,8 @@ export interface WorkspacesServiceLike {
   delete(workspaceId: string): Promise<void>
   /** The stock archive: moves a session out of its workspace's list. */
   archiveSession(sessionId: string): Promise<void>
+  /** The stock rename: display title only, not the path. */
+  rename?(workspaceId: string, title: string): Promise<unknown>
 }
 
 /** One listed session row this plugin reads (running + prompt handoff). */

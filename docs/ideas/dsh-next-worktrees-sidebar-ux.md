@@ -4,6 +4,10 @@
 - status: implemented through revision 3; commits to strategy B (full nesting).
   Agent-resolved landing is 0.1.0 — see
   [dsh-next-worktrees-0.1.md](dsh-next-worktrees-0.1.md).
+  Next grammar (proposed 2026-09-07): named **clusters** under the harbor
+  — [dsh-next-worktrees-clusters.md](dsh-next-worktrees-clusters.md)
+  supersedes this spec's locks on one session per worktree, dropped
+  folder grammar, and the gone name modal.
 - supersedes: the M1 composer Isolated toggle and session-header chip (both
   removed), and revision 1's sidebar-foot popover (dropped — the owned
   browser makes it redundant)

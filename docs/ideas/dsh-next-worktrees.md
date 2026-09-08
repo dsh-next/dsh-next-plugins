@@ -18,6 +18,10 @@
 - v1 pivot (2026-09-05): public 0.1.0 is isolate → run → conflict-complete
   merge → cleanup. Merge lands onto the current branch; we do not switch
   the primary onto the worktree branch. Contract in the 0.1 one-pager.
+- next (2026-09-07): worktree **clusters** (named folder of chats under
+  the harbor, git on the folder, extra sessions, invisible skill
+  inheritance) — see
+  [dsh-next-worktrees-clusters.md](dsh-next-worktrees-clusters.md).
 
 ## Problem Statement
 

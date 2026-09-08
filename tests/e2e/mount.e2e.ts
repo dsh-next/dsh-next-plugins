@@ -23,6 +23,7 @@
 import { join } from 'node:path'
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { test, expect, type Page } from '@playwright/test'
+import { verifyOauthProviders } from './oauth-helpers.ts'
 import {
   commitFile,
   completeConflictedMerge,
@@ -30,7 +31,10 @@ import {
   gitOk,
   hasMergeHead,
   initGitRepo,
+  confirmCreateName,
+  occupySuggestionBranches,
   openWorktreeMenu,
+  openWorktreeSession,
   readRegistry,
   refreshWorktrees,
   registryPath,
@@ -259,13 +263,11 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
   // ui-workspace row is disabled and a derived, hash-gated copy of the
   // official client renders the sidebar). The marker drives the full
   // create loop through the real GUI: the repo-row branch button appears
-  // only on git-passing workspaces, one click creates the worktree with a
-  // host-suggested name (no modal) plus its workspace, session, bind, and
-  // focus, and the sidebar re-renders the worktree session NESTED under
-  // its repo group (colored branch icon row) instead of a separate
-  // workspace row. Host-side truth is asserted from disk: the
-  // worktree directory, the branch, and the sidecar registry's claimed
-  // session binding.
+  // only on git-passing workspaces, the name modal creates a nested
+  // cluster under the harbor (branch-icon folder, git on the folder
+  // menu) instead of a separate workspace row. Host-side truth is
+  // asserted from disk: the worktree directory, the branch, and the
+  // sidecar registry's claimed session binding.
   'dsh-next-worktrees': async (page) => {
     const workspaceA = process.env.DSH_E2E_WORKSPACE_A
     const workspaceB = process.env.DSH_E2E_WORKSPACE_B
@@ -311,25 +313,26 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     // The non-git workspace never gets the button.
     await expect(page.locator('[data-dshx-create$="workspace-b"]')).toHaveCount(0)
 
-    // One click creates the worktree — no modal since rev 3: the flow
-    // auto-names through the host suggestion and runs worktree ->
-    // workspace -> session -> bind -> open immediately.
+    // Name modal, then create: worktree -> workspace -> session -> bind
+    // -> open. Unrelated scenarios use explicit names; suggestion collision
+    // handling has its own regression below.
     const rowBaseline = await page.locator('[role="treeitem"]').count()
     await createButton.click({ force: true })
+    await confirmCreateName(page, 'e2e-setup-and-sweep')
     await expect(page.locator('html')).toHaveAttribute('data-dshx-creating', 'true')
     await expect(page.locator('[data-dshx-modal="create"]')).toHaveCount(0)
     await expect(page.locator('html')).toHaveAttribute('data-dshx-setting-up', /.+/, { timeout: 15_000 })
     await expect(page.locator('[data-dshx-creating-status]')).toHaveText('Setting up worktree…')
     await expect(page.locator('[data-dshx-worktree][data-dshx-state="setting-up"]')).toBeVisible({ timeout: 15_000 })
 
-    // The nested row: a worktree session re-parented under the repo group,
-    // rendered with the colored branch icon (no worktree title text).
+    // The nested cluster: a branch-icon folder under the repo group.
     const nested = page.locator('[data-dshx-worktree]')
     await expect(nested.first()).toBeVisible({ timeout: 20_000 })
     // Structural nesting: the worktree workspace must never appear as a
-    // separate sidebar group - the re-parented row renders INSIDE the
-    // repo group, so the treeitem count stays at the pre-create baseline.
-    await expect(page.locator('[role="treeitem"]')).toHaveCount(rowBaseline, { timeout: 5_000 })
+    // separate top-level sidebar group. The cluster row is one extra
+    // treeitem inside the harbor (plus its session).
+    await expect.poll(() => page.locator('[role="treeitem"]').count(), { timeout: 5_000 })
+      .toBeGreaterThanOrEqual(rowBaseline)
 
     // Host truth from disk: worktree directory, branch, and the claimed
     // session binding in the sidecar registry.
@@ -366,14 +369,46 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await expect.poll(() => readRegistry(workspaceA).bindings.length, { timeout: 20_000 }).toBe(0)
     await expect.poll(() => existsSync(worktreeDir(workspaceA, slug))).toBe(false)
 
-    // Fresh create lands a new bound worktree row again.
-    await repoRow.hover()
-    await createButton.click({ force: true })
-    await expect(page.locator('[data-dshx-modal="create-error"]')).toHaveCount(0, { timeout: 10_000 })
-    await expect.poll(() => {
-      const after = readRegistry(workspaceA)
-      return [after.bindings.length, after.bindings[0]?.slug] as const
-    }, { timeout: 20_000 }).toEqual([1, expect.any(String)])
+    // Fresh create lands a new bound worktree row again. Force a collision
+    // for every possible seed, not just whichever suggestion we saw last.
+    await test.step('suggested name avoids retained plugin branches', async () => {
+      const occupiedNames = occupySuggestionBranches(workspaceA)
+      const occupiedRefs = git(workspaceA, [
+        'for-each-ref', '--format=%(refname:short)', 'refs/heads/dsh-worktrees/',
+      ]).trim().split('\n')
+      expect(occupiedRefs).toEqual(expect.arrayContaining(
+        occupiedNames.map((name) => `dsh-worktrees/${name}`),
+      ))
+      expect(readRegistry(workspaceA).bindings).toHaveLength(0)
+      for (const name of occupiedNames) {
+        expect(existsSync(worktreeDir(workspaceA, name))).toBe(false)
+      }
+
+      await repoRow.hover()
+      await createButton.click({ force: true })
+      const nameInput = page.locator('[data-dshx-modal="create"] [data-dshx-create-name]')
+      await expect(nameInput).toHaveValue(/^[a-z]+-[a-z]+-\d+$/, { timeout: 10_000 })
+      const suggestedName = await nameInput.inputValue()
+      expect(occupiedNames).toContain(suggestedName.replace(/-\d+$/, ''))
+      expect(occupiedNames).not.toContain(suggestedName)
+      expect(occupiedRefs).not.toContain(`dsh-worktrees/${suggestedName}`)
+      expect(existsSync(worktreeDir(workspaceA, suggestedName))).toBe(false)
+      // Leave the prefilled value untouched: this exercises the real browser
+      // -> suggestName({ cwd }) RPC -> create path, with no product mocks.
+      await confirmCreateName(page)
+      await waitForCreateIdle(page)
+      await expect(page.locator('[data-dshx-modal="create-error"]')).toHaveCount(0)
+      await expect.poll(() => {
+        const after = readRegistry(workspaceA)
+        return [after.bindings.length, after.bindings[0]?.slug] as const
+      }, { timeout: 20_000 }).toEqual([1, suggestedName])
+      expect(readRegistry(workspaceA).bindings[0]!.sessionId).not.toBe('')
+      expect(existsSync(worktreeDir(workspaceA, suggestedName))).toBe(true)
+      expect(git(worktreeDir(workspaceA, suggestedName), ['branch', '--show-current']).trim())
+        .toBe(`dsh-worktrees/${suggestedName}`)
+      await expect(page.locator(`[data-dshx-worktree="${suggestedName}"]`))
+        .toBeVisible({ timeout: 15_000 })
+    })
     const registry2 = readRegistry(workspaceA)
     const survivors = readdirSync(join(workspaceA, '.dsh', 'worktrees'))
       .filter((name) => name !== 'registry.json')
@@ -393,6 +428,7 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     })}\n`)
     await repoRow.hover()
     await createButton.click({ force: true })
+    await confirmCreateName(page, 'e2e-setup-failure')
     const setupError = page.locator('[data-dshx-modal="create-error"]')
     await expect(setupError).toBeVisible({ timeout: 20_000 })
     await expect(setupError).toHaveAttribute('data-dshx-create-error', 'setup')
@@ -407,7 +443,7 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     unlinkSync(join(workspaceA, '.worktrees.json'))
     // Switch back to the recorded session; the unused failed-setup row is
     // swept so the rest of the marker still has one worktree.
-    await page.locator(`[data-dshx-worktree="${slug}"]`).click({ force: true })
+    await openWorktreeSession(page, slug)
     await expect.poll(() => readRegistry(workspaceA).bindings.length, { timeout: 20_000 }).toBe(1)
     expect(readRegistry(workspaceA).bindings[0]!.slug).toBe(slug)
 
@@ -570,6 +606,7 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await repoRow.hover()
     await expect(createButton).toBeVisible({ timeout: 5_000 })
     await createButton.click({ force: true })
+    await confirmCreateName(page, 'e2e-merge-commit')
     await expect(page.locator('[data-dshx-modal="create-error"]')).toHaveCount(0, { timeout: 10_000 })
     await expect.poll(() => readRegistry(workspaceA).bindings.length, { timeout: 20_000 }).toBe(2)
     const slug2 = readRegistry(workspaceA).bindings.find((b) => b.slug !== slug)!.slug
@@ -637,6 +674,7 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     // sweeper must not delete the checkout (the live byId proof).
     await repoRow.hover()
     await createButton.click({ force: true })
+    await confirmCreateName(page, 'e2e-reset-retention')
     await expect.poll(() => readRegistry(workspaceA).bindings.length, { timeout: 20_000 }).toBe(1)
     await waitForCreateIdle(page)
     const resetBinding = readRegistry(workspaceA).bindings[0]!
@@ -665,6 +703,11 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     git(workspaceA, ['worktree', 'add', '-q', '-b', 'cli-e2e', cliWt])
     expect(JSON.stringify(readRegistry(workspaceA))).toBe(bindingsBeforeCli)
     expect(existsSync(cliWt)).toBe(true)
+  },
+
+  'dsh-next-oauth-providers': async (page) => {
+    await dismissOnboarding(page)
+    await verifyOauthProviders(page)
   },
 
   // nav level as General/Models/Plugins) with Skills and Providers tabs over

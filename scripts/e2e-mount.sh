@@ -11,6 +11,7 @@
 #   PORT          fixed port (default 0 = OS-assigned, parsed from the log)
 #   DSH_HOME_BASE override the scratch root (default mktemp -d)
 #   KEEP_HOME     non-empty to keep the scratch home for debugging
+#   E2E_EXCLUDE_PLUGINS comma-separated bare slugs to omit (default: mount all)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -73,6 +74,10 @@ packages:
 
 nodeLinker: hoisted
 autoInstallPeers: false
+# Match the repository's explicit denial of unused pi-ai transitive scripts.
+allowBuilds:
+  '@google/genai': false
+  protobufjs: false
 EOF
 
 # A fresh home shows first-run onboarding dialogs (an "Internal Testing Notice"
@@ -208,6 +213,9 @@ for dir in "$ROOT"/packages/dsh-next-*; do
   [ -d "$dir" ] || continue
   [ -f "$dir/package.json" ] || continue
   id="$(basename "$dir")"
+  case ",${E2E_EXCLUDE_PLUGINS:-}," in
+    *",${id#dsh-next-},"*) say "excluding $id (E2E_EXCLUDE_PLUGINS)"; continue ;;
+  esac
   say "packing $id"
   tarball="$(cd "$dir" && pnpm pack --silent 2>/dev/null | tail -1)"
   tarball="$(cd "$dir" && pwd)/$tarball"
@@ -254,10 +262,11 @@ say "dsh web ready at $URL (pid $SERVER_PID)"
 
 # Run the headless render lane. Default is the family mount smoke; set
 # E2E_SPECS to a spec path (e.g. tests/e2e/checkpoints.e2e.ts) for a
-# dedicated plugin lane on the same boot recipe.
+# dedicated plugin lane on the same boot recipe. Use installed test tools:
+# running a lane must not implicitly install unrelated workspace dependencies.
 say "running Playwright headless ${E2E_SPECS:-tests/e2e/mount.e2e.ts}"
 DSH_E2E_URL="$URL" DSH_E2E_PLUGINS="$PLUGIN_IDS" DSH_E2E_LIVE="${DSH_E2E_LIVE:-}" \
   DSH_HOME="$DSH_HOME" DSH_AGENTS_HOME="$DSH_AGENTS_HOME" \
-  pnpm exec playwright test ${E2E_SPECS:-tests/e2e/mount.e2e.ts}
+  pnpm --config.verifyDepsBeforeRun=false exec playwright test ${E2E_SPECS:-tests/e2e/mount.e2e.ts}
 
-say "pass: plugin family mounted into a real DSH with no crash markers"
+say "pass: selected plugins mounted into a real DSH: $PLUGIN_IDS"

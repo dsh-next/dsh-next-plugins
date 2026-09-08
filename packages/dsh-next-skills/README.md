@@ -72,7 +72,9 @@ of workspace directory names enables it only inside workspaces whose folder
 matches one of those names; an empty list disables it everywhere. Scopes
 store folder names — not absolute paths — so the settings section keeps
 working when teammates check the repos out somewhere else. (Two registered
-workspaces sharing a folder name share their enablement.) The plugin publishes
+workspaces sharing a folder name share their enablement.) A git worktree
+session under that repo inherits the same enablement; worktree folders do
+not appear in the scope checklist. The plugin publishes
 the global-root skill catalog through its own `ctx.skills` provider (each
 candidate one rank above the filesystem provider's equal entry) and resolves
 the invocation flags per lookup from the scope — a disabled skill simply

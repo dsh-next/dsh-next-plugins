@@ -13,9 +13,8 @@ node_modules/
 # GUI test screenshots
 gui-test-screenshots/
 
-# Local debug probes (never committed)
-.dsh/*.js
-.dsh/*.py
+# Plugin worktree checkouts, sidecar registry, and local debug probes
+.dsh/
 
 # pnpm in-project package store (local dependency cache; never committed)
 .pnpm-store/
@@ -25,6 +24,10 @@ gui-test-screenshots/
 playwright-report/
 test-results/
 docs/screenshots/
+
+# Local artifacts and GUI design session drafts
+/artifacts/
+/design/session-*/
 
 # Build output (tsdown)
 packages/*/lib/

@@ -1,0 +1,7 @@
+# bundle patch for the oauth-providers plugin: inserts its plugin row into the profile
+# roster. Applied as a profile bundle layer (the `dsh.bundle.patch` manifest
+# field); install with
+# `dsh plugin --profile <name> add @dsh-next/dsh-next-oauth-providers`.
+- insert:
+    - id: dsh-next-oauth-providers
+      name: '@dsh-next/dsh-next-oauth-providers'

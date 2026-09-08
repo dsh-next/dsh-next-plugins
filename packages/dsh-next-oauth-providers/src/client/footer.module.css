@@ -1,0 +1,636 @@
+/**
+ * Copied from dsh-client-ui-settings-models ModelsSection (0.1.3-alpha.2)
+ * so Subscriptions uses the same chrome as Add provider / Edit / Fetch models.
+ * The select chevron SVG stroke is the stock data-URI, including its hex.
+ */
+
+.section {
+  max-width: 720px;
+  color: var(--dsw-alias-label-primary);
+  flex-direction: column;
+  gap: 12px;
+  display: flex;
+}
+
+.title {
+  color: var(--dsw-alias-label-primary);
+  margin: 0;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 24px;
+}
+
+.intro {
+  color: var(--dsw-alias-label-tertiary);
+  margin: 0;
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.notice {
+  color: var(--dsw-alias-state-warn-label);
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.savedNotice {
+  color: var(--dsw-alias-state-success-primary);
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.rows {
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+}
+
+.rowCard {
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: 16px;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 14px;
+  display: flex;
+}
+
+.rowHead {
+  align-items: center;
+  gap: 10px;
+  display: flex;
+}
+
+.rowIdentity {
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  display: inline-flex;
+}
+
+.rowName {
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 22px;
+}
+
+.credentialDot {
+  box-sizing: border-box;
+  corner-shape: round;
+  border-radius: 50%;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  display: inline-block;
+}
+
+.credentialDotConfigured {
+  background: var(--dsw-alias-state-success-primary);
+}
+
+.credentialDotMissing {
+  background: var(--dsw-alias-state-error-primary);
+}
+
+.rowActions {
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  display: inline-flex;
+}
+
+.primaryButton,
+.secondaryButton,
+.addButton {
+  box-sizing: border-box;
+  height: 36px;
+  font: inherit;
+  cursor: pointer;
+  border: none;
+  border-radius: 18px;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  padding: 0 14px;
+  font-size: 14px;
+  line-height: 22px;
+  display: inline-flex;
+}
+
+.primaryButton {
+  background: var(--dsw-alias-button-primary-fill);
+  color: var(--dsw-alias-label-primary-foreground);
+}
+
+.primaryButton:hover:not(:disabled) {
+  background: var(--dsw-alias-button-primary-hover);
+}
+
+.secondaryButton,
+.addButton {
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  color: var(--dsw-alias-label-primary);
+  background: transparent;
+}
+
+.secondaryButton:hover:not(:disabled),
+.addButton:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.secondaryButton:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover-solid);
+}
+
+.dangerButton {
+  box-sizing: border-box;
+  height: 36px;
+  color: var(--dsw-alias-state-error-primary);
+  font: inherit;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  border-radius: 18px;
+  justify-content: center;
+  align-items: center;
+  padding: 0 14px;
+  font-size: 14px;
+  line-height: 22px;
+  display: inline-flex;
+}
+
+.dangerButton:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+}
+
+.rowActions .secondaryButton,
+.rowActions .dangerButton {
+  border-radius: 14px;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.primaryButton:disabled,
+.secondaryButton:disabled,
+.dangerButton:disabled,
+.addButton:disabled,
+.linkButton:disabled,
+.addModelButton:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.primaryButton:focus-visible,
+.secondaryButton:focus-visible,
+.dangerButton:focus-visible,
+.addButton:focus-visible,
+.linkButton:focus-visible,
+.addModelButton:focus-visible,
+.iconButton:focus-visible,
+.customizedSummary:focus-visible {
+  box-shadow: 0 0 0 2px var(--dsw-alias-border-l3);
+  outline: none;
+}
+
+.editor {
+  background: var(--dsw-alias-bg-module-platform);
+  border-radius: 12px;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 16px;
+  display: flex;
+}
+
+.editorHeader {
+  align-items: baseline;
+  gap: 8px;
+  display: flex;
+}
+
+.editorTitle {
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 22px;
+}
+
+.editorRoute {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.field {
+  flex-direction: column;
+  gap: 6px;
+  display: flex;
+}
+
+.fieldLabel {
+  color: var(--dsw-alias-label-secondary);
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  display: inline-flex;
+}
+
+.linkButton {
+  box-sizing: border-box;
+  height: 28px;
+  color: var(--dsw-alias-label-tertiary);
+  font: inherit;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  border-radius: 14px;
+  align-items: center;
+  padding: 0 10px;
+  font-size: 12px;
+  line-height: 18px;
+  display: inline-flex;
+}
+
+.linkButton:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.editorActions {
+  justify-content: flex-end;
+  gap: 8px;
+  display: flex;
+}
+
+.addBlock {
+  flex-direction: column;
+  gap: 12px;
+  display: flex;
+}
+
+.addActions {
+  flex-wrap: wrap;
+  gap: 10px;
+  display: flex;
+}
+
+.addButton {
+  border: 1px dashed var(--dsw-alias-border-l3);
+  border-radius: 16px;
+  flex: 1 1 0;
+  gap: 6px;
+  min-width: 180px;
+  height: 44px;
+}
+
+.addCard {
+  background: var(--dsw-alias-bg-module-platform);
+  border-radius: 12px;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 16px;
+  list-style: none;
+  display: flex;
+}
+
+.addCard .editor {
+  background: transparent;
+  padding: 0;
+}
+
+.customized {
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+  padding-top: 10px;
+}
+
+.customizedSummary {
+  cursor: pointer;
+  width: fit-content;
+  color: var(--dsw-alias-label-secondary);
+  border-radius: 6px;
+  align-items: center;
+  gap: 6px;
+  margin-left: -4px;
+  padding: 2px 4px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  list-style: none;
+  display: flex;
+}
+
+.customizedSummary::-webkit-details-marker {
+  display: none;
+}
+
+.customizedSummary:before {
+  content: "";
+  border-bottom: 1.5px solid;
+  border-right: 1.5px solid;
+  width: 5px;
+  height: 5px;
+  transition: transform 0.12s;
+  transform: rotate(-45deg) translate(-1px, -1px);
+}
+
+.customized[open] > .customizedSummary:before {
+  transform: rotate(45deg) translate(-1px, -1px);
+}
+
+.customizedSummary:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+.customizedBody {
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 12px;
+  display: flex;
+}
+
+.modelCatalog {
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 12px;
+  display: flex;
+}
+
+.modelCatalogHeading {
+  flex-direction: column;
+  gap: 2px;
+  display: flex;
+}
+
+.modelCatalogTitle {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+}
+
+.modelCatalogMeta,
+.modelEmpty {
+  color: var(--dsw-alias-label-tertiary);
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.modelListHead {
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  display: flex;
+}
+
+.modelEntry {
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: 10px;
+  padding: 6px;
+}
+
+.modelRow {
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 6px;
+  display: grid;
+}
+
+.iconButton {
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  justify-content: center;
+  align-items: center;
+  display: inline-flex;
+}
+
+.iconButton:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.iconButton:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.iconButtonDanger:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.modelAdvanced {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+  padding: 8px 4px 2px;
+  display: grid;
+}
+
+.modelField {
+  flex-direction: column;
+  gap: 4px;
+  display: flex;
+}
+
+.modelFieldLabel {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.modelEmpty {
+  border: 1px dashed var(--dsw-alias-border-l3);
+  text-align: center;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.addModelButton {
+  box-sizing: border-box;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  height: 28px;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  cursor: pointer;
+  background: transparent;
+  border-radius: 14px;
+  align-self: flex-start;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px;
+  font-size: 12px;
+  line-height: 18px;
+  display: inline-flex;
+}
+
+.addModelButton:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.input {
+  box-sizing: border-box;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  width: 100%;
+  height: 32px;
+  font: inherit;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  border-radius: 8px;
+  padding: 0 10px;
+  font-size: 14px;
+  line-height: 22px;
+}
+
+select.input {
+  cursor: pointer;
+  max-width: 240px;
+}
+
+.input:focus {
+  border-color: var(--dsw-alias-brand-primary);
+  outline: none;
+}
+
+.input::placeholder {
+  color: var(--dsw-alias-label-dimmed);
+}
+
+.input:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.selectInput {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%2381858C' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: right 12px center;
+  background-repeat: no-repeat;
+  background-size: 12px 12px;
+  padding-right: 32px;
+}
+
+.error {
+  color: var(--dsw-alias-state-error-primary);
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.deleteDialog {
+  width: min(480px, 100%);
+}
+
+.deleteConfirm:not(:disabled) {
+  border-color: var(--dsw-alias-state-error-primary);
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.deleteConfirm:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+}
+
+.fetchDialog {
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+  max-width: 520px;
+}
+
+.candidateToolbar {
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  display: flex;
+}
+
+.candidateSearch {
+  flex: 240px;
+  min-width: 0;
+}
+
+.candidateList {
+  flex-direction: column;
+  gap: 2px;
+  max-height: 320px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  overflow-y: auto;
+}
+
+.candidate {
+  border-radius: 6px;
+}
+
+.candidateLabel {
+  cursor: pointer;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  display: flex;
+}
+
+.candidateId {
+  font-family: var(--ds-font-family-code);
+  overflow-wrap: anywhere;
+  flex: auto;
+  font-size: 13px;
+}
+
+.candidateEmpty {
+  color: var(--dsw-alias-label-secondary);
+  text-align: center;
+  margin: 24px 0;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.signInRow {
+  align-items: center;
+  gap: 8px;
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.attemptStack {
+  flex-direction: column;
+  gap: 10px;
+  display: flex;
+}
+
+.attemptMessage {
+  color: var(--dsw-alias-label-primary);
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.code {
+  font-family: inherit;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 24px;
+  letter-spacing: 0.08em;
+  color: var(--dsw-alias-label-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .customizedSummary:before {
+    transition: none;
+  }
+}

@@ -424,7 +424,7 @@ export class WorktreesService {
   /**
    * Start `.worktrees.json` as soon as git has created the folder, so
    * `pnpm install` is not racing the client's workspace/session round
-   * trip (or the abandoned-worktree sweeper).
+   * trip.
    */
   private beginSetup(primary: string, worktreePath: string, slug: string): void {
     const key = setupJobKey(primary, slug)

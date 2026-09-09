@@ -4,7 +4,7 @@ English | [中文](README.zh.md)
 
 This DeepSeek Harness plugin lets two agents work on the same git repository
 without overwriting each other. Each session gets its own folder and branch.
-When the work is ready, `Merge…` copies those commits onto the branch you
+When the work is ready, `Merge to <branch>` copies those commits onto the branch you
 have checked out in the main folder. If the branches would conflict, choose
 `Resolve in this session` so this session's agent can fix the files first.
 
@@ -17,7 +17,7 @@ have checked out in the main folder. If the branches would conflict, choose
    under that repo, with one session inside it.
 2. Do the work in that session. The cluster `+` starts another chat on
    the same files. The main folder stays on its own branch.
-3. When you are ready, open `Merge…` on the cluster `...` menu. The plugin
+3. When you are ready, open `Merge to <branch>` on the cluster `...` menu. The plugin
    checks first. If the branches would conflict, choose
    `Resolve in this session` — this session resolves the files and commits.
    Then Merge is a fast-forward.
@@ -55,13 +55,14 @@ when already merged, red when a merge is in progress.
 ### Cluster menu
 
 The folder `...` menu keeps stock `Rename`, then adds `Refresh` (re-read
-git status), `Update from <branch>…` (bring that branch into this
-worktree), `Merge…`, and `Delete worktree…` (this replaces stock
+git status), `Update from <branch>` (bring that branch into this
+worktree), `Merge to <branch>`, and `Delete worktree` (this replaces stock
 `Delete workspace`). Session `...` menus stay stock
 (`Rename` / `Fork` / `Archive`). The folder `+` starts another session
-in the same worktree.
+in the same worktree. `Merge to <branch>` names the branch currently checked
+out in the main folder (for example, `Merge to main`).
 
-![Session menu with Refresh, Update from main, Merge, and Delete worktree](media/menu.webp)
+![Worktree menu with Refresh, Update from main, Merge to main, and Delete worktree](media/menu.webp)
 
 ### Hover details
 
@@ -72,7 +73,7 @@ Hover the cluster for its title, branch, status, and
 
 ### Merge and conflicts
 
-`Merge…` checks that the merge would succeed, then lands the worktree on
+`Merge to <branch>` checks that the merge would succeed, then lands the worktree on
 your current branch. Uncommitted files are listed; you can still Merge.
 Git will refuse if the main folder's files would be overwritten.
 Uncommitted worktree files are not included. If the branches would
@@ -96,10 +97,10 @@ worktree branches. A name you type yourself must still be available.
 
 ### Unused worktrees
 
-A worktree you never started is removed when you switch to another
-session. A worktree with uncommitted changes is never removed this way.
-If you archive every chat in a named cluster, the folder stays so you
-can open another session with `+`.
+Switching away from a never-started session may hide that empty chat, but
+the worktree folder and sidebar cluster stay. They also stay if you archive
+every chat. Use the cluster `+` to open another session, or choose
+`Delete worktree` when you want to remove the folder.
 
 ## Optional local files
 

@@ -128,8 +128,9 @@ export async function confirmCreateName(page: Page, name?: string): Promise<void
 
 export async function openWorktreeMenu(page: Page, slug: string): Promise<void> {
   const icon = page.locator(`[data-dshx-worktree="${slug}"]`)
-  await expect(icon).toBeVisible({ timeout: 20_000 })
   const nestedRow = page.locator('[role="treeitem"]').filter({ has: icon })
+  // The stock row hides its identity icon while hovered; the row stays usable.
+  await expect(nestedRow).toBeVisible({ timeout: 20_000 })
   await nestedRow.scrollIntoViewIfNeeded()
   await nestedRow.hover({ force: true })
   await nestedRow.getByRole('button', { name: /Workspace actions/ }).click({ force: true, timeout: 20_000 })

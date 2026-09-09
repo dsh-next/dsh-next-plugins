@@ -27,7 +27,6 @@ import { installBridge } from './bridge.ts'
 import { openCreate, openDelete, openMerge, openUpdate } from './create-store.ts'
 import { ModalHost } from './modal-host.tsx'
 import { requestTopologyRefresh, rpc } from './rpc.ts'
-import { configureWorktreeSweeper } from './sweeper.ts'
 import { WORKTREE_STYLES } from './styles.ts'
 import { en, englishTranslate, NS, zh, type MessageKey } from './dictionaries.ts'
 import type {
@@ -115,9 +114,17 @@ export function apply(ctx: Context): void {
     requestCreate: (cwd, repoLabel) => {
       openCreate(cwd, repoLabel, rpc)
     },
-    menuLabel: (key, decoration) => key === 'row.update'
-      ? t('row.update' satisfies MessageKey, { branch: decoration?.primaryBranch || decoration?.branch || '' })
-      : t(key as MessageKey),
+    menuLabel: (key, decoration) => {
+      if (key === 'row.update') {
+        return t('row.update' satisfies MessageKey, { branch: decoration?.primaryBranch || decoration?.branch || '' })
+      }
+      if (key === 'row.merge') {
+        return decoration?.primaryBranch
+          ? t('row.merge' satisfies MessageKey, { branch: decoration.primaryBranch })
+          : t('row.mergeFallback' satisfies MessageKey)
+      }
+      return t(key as MessageKey)
+    },
     worktreeFacts: (decoration) => {
       const status = decoration.conflict
         ? t('status.conflict')
@@ -157,18 +164,6 @@ export function apply(ctx: Context): void {
       }
     },
   }), 'dsh-next-worktrees: bridge')
-
-  // The abandoned-worktree sweeper: same host-truth faces the delete
-  // modal drives, minus the UI.
-  ctx.effect(() => {
-    if (workspaces === undefined) return () => {}
-    configureWorktreeSweeper({
-      removeWorktree: (input) => rpc('remove', { ...input, force: false }) as Promise<void>,
-      archiveSession: (sessionId) => workspaces.archiveSession(sessionId),
-      deleteWorkspace: (workspaceId) => workspaces.delete(workspaceId),
-    })
-    return () => { configureWorktreeSweeper(undefined) }
-  }, 'dsh-next-worktrees: sweeper')
 
   // The modal root: our overlays live in their own React tree at the body
   // level; the conversation and sidebar stay pure harness.

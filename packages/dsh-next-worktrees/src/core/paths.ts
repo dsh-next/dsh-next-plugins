@@ -1,6 +1,6 @@
 /**
  * Path helpers shared by placement, the registry, and the client
- * projection/sweeper. Plugin worktrees live at
+ * projection. Plugin worktrees live at
  * `<primary>/.dsh/worktrees/<slug>` (and the session cwd may sit in a
  * subdirectory of that root when the user created from a nested
  * workspace).

@@ -36,7 +36,7 @@ export interface WorktreesBridge {
   createLabel(repoLabel: string): string
   /** The create button was clicked: open the name modal. */
   requestCreate(cwd: string, repoLabel: string): void
-  /** Localized label for a menu item key (decoration supplies {branch} for update). */
+  /** Localized menu label (decoration supplies the primary branch for update/merge). */
   menuLabel(key: string, decoration?: MenuDecoration): string
   /** Localized hover-card fact lines for one worktree cluster. */
   worktreeFacts(decoration: MenuDecoration): readonly string[]

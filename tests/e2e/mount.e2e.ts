@@ -24,6 +24,8 @@ import { join } from 'node:path'
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { test, expect, type Page } from '@playwright/test'
 import { verifyOauthProviders } from './oauth-helpers.ts'
+import { bareId, assertMountHealthy, runGuardedMarker, requireCheckpointsPanel } from '../../scripts/e2e-guards.mjs'
+import { closeDialogs, openWorkspaceSession, unblank } from './checkpoints-helpers.ts'
 import {
   commitFile,
   completeConflictedMerge,
@@ -57,13 +59,6 @@ const pluginIds = (process.env.DSH_E2E_PLUGINS || '')
   .split(',')
   .map((id) => id.trim())
   .filter(Boolean)
-
-// Each entry is the npm package name (`@dsh-next/dsh-next-<slug>`). The client
-// bundle is served at /plugins/<package-name>/client.js; the log crash-marker
-// prefix is the bare `dsh-next-<slug>` (the cordis `id` field).
-function bareId(pkg: string): string {
-  return pkg.startsWith('@dsh-next/') ? pkg.slice('@dsh-next/'.length) : pkg
-}
 
 // A fresh scratch home walks a first-run onboarding flow (an "Internal Testing
 // Notice", then an "Add an API key to get started" modal) whose masks intercept
@@ -318,7 +313,7 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     // handling has its own regression below.
     const rowBaseline = await page.locator('[role="treeitem"]').count()
     await createButton.click({ force: true })
-    await confirmCreateName(page, 'e2e-setup-and-sweep')
+    await confirmCreateName(page, 'e2e-setup-and-retain')
     await expect(page.locator('html')).toHaveAttribute('data-dshx-creating', 'true')
     await expect(page.locator('[data-dshx-modal="create"]')).toHaveCount(0)
     await expect(page.locator('html')).toHaveAttribute('data-dshx-setting-up', /.+/, { timeout: 15_000 })
@@ -357,15 +352,22 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await expect(nested.first()).toHaveAttribute('data-dshx-state', 'clean')
     await expect(nested.first()).toHaveAttribute('title', new RegExp(`dsh-worktrees/${slug}`))
 
-    // Switch-away sweep (the user's report): an unused session vanishes
-    // from the sidebar as soon as the user switches to another one, but
-    // the worktree behind it used to survive as an invisible orphan.
-    // Starting a session in the OTHER workspace switches current away;
-    // the sweeper must then remove the abandoned checkout, registry row,
-    // and workspace - the folder the user never typed in.
+    // Leaving a never-started chat must preserve its checkout and cluster.
+    // Refresh and reload to verify persistence beyond the current view.
     const plainRow = page.locator('[role="treeitem"]').filter({ hasText: 'workspace-b' }).first()
     await plainRow.hover()
     await plainRow.locator('button[aria-label*="New session in workspace-b"]').click({ force: true })
+    await refreshWorktrees(page)
+    await page.reload()
+    await dismissOnboarding(page)
+    await expect(page.locator(`[data-dshx-worktree="${slug}"]`)).toBeVisible({ timeout: 20_000 })
+    expect(readRegistry(workspaceA).bindings).toHaveLength(1)
+    expect(existsSync(worktreeDir(workspaceA, slug))).toBe(true)
+    // Only explicit deletion cleans up the fixture for subsequent scenarios.
+    await openWorktreeMenu(page, slug)
+    await page.getByText('Delete worktree', { exact: true }).last().click()
+    await page.locator('[data-dshx-button="remove-armed"]').click({ timeout: 10_000 })
+    await expect(page.locator('[data-dshx-modal="delete"]')).toBeHidden({ timeout: 15_000 })
     await expect.poll(() => readRegistry(workspaceA).bindings.length, { timeout: 20_000 }).toBe(0)
     await expect.poll(() => existsSync(worktreeDir(workspaceA, slug))).toBe(false)
 
@@ -417,8 +419,7 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     // The surviving worktree is whatever the second create left bound.
     slug = registry2.bindings[0]!.slug
     await waitForCreateIdle(page)
-    // Record a turn so the sweeper will not reap this worktree when the
-    // next (failing) create opens a different session.
+    // Record a turn so the later scenarios can reopen a persisted session.
     await unblankCurrentSession(page, 'keep this worktree')
 
     // A failing setup command keeps the new worktree and session; the
@@ -441,9 +442,16 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     expect(failedSlug).toEqual(expect.any(String))
     expect(existsSync(worktreeDir(workspaceA, failedSlug!))).toBe(true)
     unlinkSync(join(workspaceA, '.worktrees.json'))
-    // Switch back to the recorded session; the unused failed-setup row is
-    // swept so the rest of the marker still has one worktree.
+    // Failed setup also stays after switching away; delete it explicitly.
     await openWorktreeSession(page, slug)
+    await refreshWorktrees(page)
+    await expect(page.locator(`[data-dshx-worktree="${failedSlug}"]`)).toBeVisible()
+    expect(readRegistry(workspaceA).bindings).toHaveLength(2)
+    expect(existsSync(worktreeDir(workspaceA, failedSlug!))).toBe(true)
+    await openWorktreeMenu(page, failedSlug!)
+    await page.getByText('Delete worktree', { exact: true }).last().click()
+    await page.locator('[data-dshx-button="remove-armed"]').click({ timeout: 10_000 })
+    await expect(page.locator('[data-dshx-modal="delete"]')).toBeHidden({ timeout: 15_000 })
     await expect.poll(() => readRegistry(workspaceA).bindings.length, { timeout: 20_000 }).toBe(1)
     expect(readRegistry(workspaceA).bindings[0]!.slug).toBe(slug)
 
@@ -466,7 +474,29 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await expect(page.locator(`[data-dshx-worktree="${slug}"]`))
       .toHaveAttribute('data-dshx-state', 'ahead', { timeout: 15_000 })
     await openWorktreeMenu(page, slug)
-    await page.getByText('Merge…').last().click()
+    const worktreeMenu = page.getByRole('menu').last()
+    await expect(worktreeMenu.getByText('Update from main', { exact: true })).toBeVisible()
+    await expect(worktreeMenu.getByText('Merge to main', { exact: true })).toBeVisible()
+    await expect(worktreeMenu.getByText('Delete worktree', { exact: true })).toBeVisible()
+    await expect(worktreeMenu).not.toContainText('…')
+    await expect(worktreeMenu).not.toContainText('...')
+    await worktreeMenu.screenshot({ path: join('test-results', 'worktrees-menu-light.png') })
+    await page.emulateMedia({ colorScheme: 'dark' })
+    await expect(page.locator('body')).toHaveAttribute('data-ds-dark-theme')
+    await worktreeMenu.screenshot({ path: join('test-results', 'worktrees-menu.png') })
+    await page.emulateMedia({ colorScheme: null })
+    await page.keyboard.press('Escape')
+    // Labels follow the current destination, not the worktree's own branch.
+    git(workspaceA, ['checkout', '-b', 'release/menu'])
+    await refreshWorktrees(page)
+    await openWorktreeMenu(page, slug)
+    await expect(page.getByRole('menu').last().getByText('Merge to release/menu', { exact: true })).toBeVisible()
+    await expect(page.getByRole('menu').last().getByText('Update from release/menu', { exact: true })).toBeVisible()
+    await page.keyboard.press('Escape')
+    git(workspaceA, ['checkout', 'main'])
+    await refreshWorktrees(page)
+    await openWorktreeMenu(page, slug)
+    await page.getByText('Merge to main', { exact: true }).last().click()
     const mergeModal = page.locator('[data-dshx-modal="merge"]')
     await expect(mergeModal).toBeVisible({ timeout: 10_000 })
     await expect(mergeModal).toContainText('Fast-forward')
@@ -483,7 +513,7 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
 
     // Already-merged: Merge after Keep must name the blocker, not execute.
     await openWorktreeMenu(page, slug)
-    await page.getByText('Merge…').last().click()
+    await page.getByText('Merge to main', { exact: true }).last().click()
     await expect(mergeModal).toBeVisible({ timeout: 10_000 })
     await expect(page.locator('[data-dshx-blocker="already-merged"]')).toBeVisible()
     await mergeModal.locator('[data-dshx-button="cancel"]').click()
@@ -520,7 +550,7 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     commitFile(wtDir, 'seed.txt', 'worktree version\n', 'worktree edits seed')
     await refreshWorktrees(page)
     await openWorktreeMenu(page, slug)
-    await page.getByText('Merge…').last().click()
+    await page.getByText('Merge to main', { exact: true }).last().click()
     await expect(mergeModal).toBeVisible({ timeout: 10_000 })
     await expect(page.locator('[data-dshx-blocker="conflict"]')).toBeVisible({ timeout: 10_000 })
     await expect(page.locator('[data-dshx-blocker="conflict"]')).toContainText('Resolve in this session')
@@ -571,7 +601,7 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     }
     await refreshWorktrees(page)
     await openWorktreeMenu(page, slug)
-    await page.getByText('Merge…').last().click()
+    await page.getByText('Merge to main', { exact: true }).last().click()
     await expect(mergeModal).toBeVisible({ timeout: 10_000 })
     await expect(mergeModal).toContainText('Fast-forward')
     await expect(page.locator('[data-dshx-button="merge"]')).toHaveText('Merge')
@@ -593,7 +623,7 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await expect(page.locator('[data-dshx-dirty-files="dirty-worktree"]')).toContainText('dirty-wt.txt')
     await updateModal.locator('[data-dshx-button="cancel"]').click()
     await openWorktreeMenu(page, slug)
-    await page.getByText('Merge…').last().click()
+    await page.getByText('Merge to main', { exact: true }).last().click()
     await expect(page.locator('[data-dshx-warning="dirty-worktree"]')).toBeVisible({ timeout: 10_000 })
     await expect(page.locator('[data-dshx-dirty-files="dirty-worktree"]')).toContainText('dirty-wt.txt')
     await mergeModal.locator('[data-dshx-button="cancel"]').click()
@@ -624,7 +654,7 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     writeFileSync(join(workspaceA, 'dirty-primary.txt'), 'nope\n')
     await refreshWorktrees(page)
     await openWorktreeMenu(page, slug2)
-    await page.getByText('Merge…').last().click()
+    await page.getByText('Merge to main', { exact: true }).last().click()
     await expect(mergeModal).toBeVisible({ timeout: 10_000 })
     await expect(mergeModal).toContainText('Creates a merge commit')
     await expect(page.locator('[data-dshx-warning="dirty-primary"]')).toBeVisible({ timeout: 10_000 })
@@ -647,7 +677,7 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await page.waitForTimeout(1500)
     await openWorktreeMenu(page, slug)
     const beforeDelete = await page.locator('[role="treeitem"]').count()
-    const deleteItem = page.getByText('Delete worktree…').last()
+    const deleteItem = page.getByText('Delete worktree', { exact: true }).last()
     await expect(deleteItem).toBeVisible({ timeout: 5_000 })
     await deleteItem.click()
     const deleteModal = page.locator('[data-dshx-modal="delete"]')
@@ -670,8 +700,7 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await expect.poll(() => readRegistry(workspaceA).bindings.length).toBe(0)
 
     // /reset on a bound worktree: reclaim the registry row onto the new
-    // session, then switch away. The archived sibling is utilized, so the
-    // sweeper must not delete the checkout (the live byId proof).
+    // session, then switch away. Session lifecycle never deletes the checkout.
     await repoRow.hover()
     await createButton.click({ force: true })
     await confirmCreateName(page, 'e2e-reset-retention')
@@ -995,16 +1024,15 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await page.waitForTimeout(300)
   },
 
-  // Tab is registered. Full inspect/rewind coverage lives in
-  // tests/e2e/checkpoints.e2e.ts so this marker does not create sessions or git
-  // repos that the worktrees fixture depends on staying clean.
+  // Establish a known session; a missing tab or panel must fail, not skip.
+  // Detailed capture/rewind and Git mutations live in checkpoints.e2e.ts.
   'dsh-next-checkpoints': async (page) => {
-    await dismissOnboarding(page)
-    const tab = page.getByRole('tab', { name: 'Checkpoints' })
-    if (await tab.isVisible().catch(() => false)) {
-      await tab.click({ force: true })
-      await expect(page.getByTestId('dsh-next-checkpoints')).toBeVisible({ timeout: 15_000 })
-    }
+    await requireCheckpointsPanel(page, async () => {
+      await dismissOnboarding(page)
+      await closeDialogs(page)
+      await openWorkspaceSession(page, 'workspace-a')
+      await unblank(page, 'checkpoint mount marker')
+    }, expect)
   },
 }
 
@@ -1037,23 +1065,16 @@ test('plugin family mounts the dsh-next plugins without crash markers', async ({
     expect(entryIds, `${pkg} client bundle should be in the boot graph`).toContain(pkg)
   }
 
-  // No plugin crash strips or page errors anywhere.
-  for (const pkg of pluginIds) {
-    const id = bareId(pkg)
-    await expect(page.getByText(new RegExp(`^dsh-next-${id}:|^\\[dsh-next-${id}\\]`))).toHaveCount(0)
-  }
-  expect(pageErrors, 'page errors').toEqual([])
-  expect(pluginConsoleErrors, 'plugin console errors').toEqual([])
+  const assertHealthy = () => assertMountHealthy(page, pluginIds, pageErrors, pluginConsoleErrors, expect)
+  await assertHealthy()
 
-  // Per-plugin DOM markers: drive to each plugin's UI and assert it works.
-  // Checkpoints mutates the current session cwd (git + files); run it last so
-  // worktrees can still assert workspace-b is not a repo.
-  const markerPkgs = [
-    ...pluginIds.filter((pkg) => bareId(pkg) !== 'dsh-next-checkpoints'),
-    ...pluginIds.filter((pkg) => bareId(pkg) === 'dsh-next-checkpoints'),
-  ]
-  for (const pkg of markerPkgs) {
+  // Preserve the supplied order; each interaction has its own named evidence.
+  for (const pkg of pluginIds) {
     const marker = pluginMarkers[bareId(pkg)]
-    if (marker) await marker(page)
+    if (marker) {
+      await test.step(`marker: ${bareId(pkg)}`, () =>
+        runGuardedMarker(() => marker(page), assertHealthy))
+    }
   }
+  await assertHealthy()
 })

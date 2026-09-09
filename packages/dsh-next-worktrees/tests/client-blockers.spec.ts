@@ -47,9 +47,10 @@ describe('merge blocker copy', () => {
     expect(en['update.blocker.dirtyWorktree']).toContain('{branch}')
   })
 
-  it('keeps ellipsis on menu items and dialog-opening CTAs, not on confirms', () => {
-    expect(en['row.merge']).toBe('Merge…')
-    expect(en['row.update']).toBe('Update from {branch}…')
+  it('keeps dialog copy unchanged while menu actions omit ellipses', () => {
+    expect(en['row.merge']).toBe('Merge to {branch}')
+    expect(en['row.update']).toBe('Update from {branch}')
+    expect(en['row.delete']).toBe('Delete worktree')
     expect(en['merge.resolve']).toBe('Resolve in this session…')
     expect(en['merge.confirm']).toBe('Merge')
     expect(en['update.confirm']).toBe('Update from {branch}')

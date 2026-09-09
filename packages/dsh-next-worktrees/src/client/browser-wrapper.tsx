@@ -20,8 +20,7 @@ import {
 } from './projection.ts'
 import { updateBridgeFacts } from './bridge.ts'
 import { modalState, openDelete, subscribeModal } from './create-store.ts'
-import { rpc, REFRESH_EVENT, requestTopologyRefresh, type WorktreeTopology } from './rpc.ts'
-import { sweepAbandonedWorktrees } from './sweeper.ts'
+import { rpc, REFRESH_EVENT, type WorktreeTopology } from './rpc.ts'
 
 /** Minimal component shape the wrapper needs from the official Browser. */
 export type OfficialBrowserComponent = React.ComponentType<Record<string, unknown>>
@@ -89,24 +88,6 @@ export function WorktreeBrowser(
     .map((w) => `${w.workspaceId}:${w.sessionIds.join(',')}`)
     .join('|')
   const sessionKey = sessionState.ids.join('|')
-  const currentKey = sessionState.current ?? ''
-  // Live refs so a sweep that started from an older render still sees the
-  // session the user just opened (create race) without refetching git
-  // topology on every session switch.
-  const itemsRef = React.useRef(workspaceState.items)
-  itemsRef.current = workspaceState.items
-  const byIdRef = React.useRef(sessionState.byId)
-  byIdRef.current = sessionState.byId
-  const currentRef = React.useRef(sessionState.current)
-  currentRef.current = sessionState.current
-
-  const sweepNow = React.useCallback((): Promise<readonly string[]> =>
-    sweepAbandonedWorktrees({
-      workspaces: itemsRef.current,
-      sessionsById: byIdRef.current,
-      currentSessionId: currentRef.current,
-      creating: modalState().creating || modalState().settingUp !== undefined,
-    }), [])
 
   React.useEffect(() => {
     let active = true
@@ -118,12 +99,6 @@ export function WorktreeBrowser(
             if (!active) return
             setTopology(value)
             updateBridgeFacts(value.workspaces)
-            // Reap worktrees whose sessions were replaced/removed without
-            // ever starting (the platform replaces blank sessions); when
-            // something was swept, re-pull once so the sidebar settles.
-            void sweepNow().then((swept) => {
-              if (active && swept.length > 0) refresh()
-            })
           },
           () => { if (active) setTopology(EMPTY_TOPOLOGY) },
         )
@@ -137,13 +112,7 @@ export function WorktreeBrowser(
     // Membership only: switching the open session must not fan out git
     // status across every worktree.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceKey, sessionKey, sweepNow])
-
-  React.useEffect(() => {
-    void sweepNow().then((swept) => {
-      if (swept.length > 0) requestTopologyRefresh()
-    })
-  }, [currentKey, sweepNow])
+  }, [workspaceKey, sessionKey])
 
   const projection = React.useMemo(
     () => projectWorkspaceSidebar({

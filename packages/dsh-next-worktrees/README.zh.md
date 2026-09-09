@@ -3,7 +3,7 @@
 [English](README.md) | 中文
 
 这是一个 DeepSeek Harness 插件：让两个 agent 在同一个 git 仓库上工作，而不
-互相覆盖。每个会话拥有独立的文件夹与分支。工作就绪后，用 `Merge…` 把这些
+互相覆盖。每个会话拥有独立的文件夹与分支。工作就绪后，用 `Merge to <branch>` 把这些
 提交合入主文件夹当前检出的分支。若分支会冲突，选择
 `Resolve in this session`，由本会话中的 agent 先修好文件。
 
@@ -16,7 +16,7 @@
    会话。
 2. 只在该会话里改代码。集群上的 `+` 会在同一份文件上再开一个聊天。主
    文件夹仍留在自己的分支上。
-3. 准备好后，在集群的 `...` 菜单里打开 `Merge…`。插件会先检查。若分支会
+3. 准备好后，在集群的 `...` 菜单里打开 `Merge to <branch>`。插件会先检查。若分支会
    冲突，选择 `Resolve in this session` — 由本会话解决冲突并提交。之后再
    合并就是快进。
 4. 保留 worktree 或删掉它。分支和会话记录都会留下。
@@ -50,12 +50,13 @@
 ### 集群菜单
 
 文件夹的 `...` 菜单保留系统自带的 `Rename`，然后加上 `Refresh`（重新读取
-git 状态）、`Update from <branch>…`（把该分支合入这个 worktree）、
-`Merge…` 和 `Delete worktree…`（用来替代系统自带的 `Delete workspace`）。
+git 状态）、`Update from <branch>`（把该分支合入这个 worktree）、
+`Merge to <branch>` 和 `Delete worktree`（用来替代系统自带的 `Delete workspace`）。
 会话的 `...` 菜单仍是系统自带的（`Rename` / `Fork` / `Archive`）。文件夹
-上的 `+` 会在同一个 worktree 里再开一个会话。
+上的 `+` 会在同一个 worktree 里再开一个会话。`Merge to <branch>` 显示
+主文件夹当前检出的分支（例如 `Merge to main`）。
 
-![含 Refresh、Update from main、Merge、Delete worktree 的会话菜单](media/menu.webp)
+![含 Refresh、Update from main、Merge to main、Delete worktree 的工作树菜单](media/menu.webp)
 
 ### 悬停详情
 
@@ -66,7 +67,7 @@ git 状态）、`Update from <branch>…`（把该分支合入这个 worktree）
 
 ### 合并与冲突
 
-`Merge…` 会先确认合并能够成功，再把 worktree 合入当前分支。未提交的文件
+`Merge to <branch>` 会先确认合并能够成功，再把 worktree 合入当前分支。未提交的文件
 会列出来；你仍可以合并。若主文件夹里的文件会被覆盖，git 会拒绝。
 工作树里未提交的更改不会被合入。若分支会冲突，下一步是
 `Resolve in this session`：插件把主分支合并 *进
@@ -86,9 +87,9 @@ worktree*（绝不会反向），由本会话修好文件，再快进合并。�
 
 ### 未使用的 worktree
 
-从未开始过的 worktree 会在你切到另一个会话时被移除。有未提交改动的
-worktree 绝不会这样被移除。如果把命名集群里的会话全部归档，文件夹会
-留下来，可以用 `+` 再开一个会话。
+切换离开从未开始的会话时，空白聊天可能会隐藏，但 worktree 文件夹和
+侧边栏集群会保留。即使把所有聊天归档，它们也会保留。用集群上的 `+`
+再开一个会话，或在想要移除文件夹时选择 `Delete worktree`。
 
 ## 可选的本地文件
 

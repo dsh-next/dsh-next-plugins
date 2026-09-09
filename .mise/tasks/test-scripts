@@ -1,3 +1,4 @@
 #!/usr/bin/env bash
-#MISE description="Run repository script tests (pnpm test:scripts)"
-pnpm test:scripts
+#MISE description="Run repository script tests"
+set -euo pipefail
+exec pnpm run test:scripts "$@"

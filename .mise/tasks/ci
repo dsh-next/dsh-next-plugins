@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
-#MISE description="Run all pre-push gates"
-#MISE depends=["typecheck", "test", "build", "runtime-deps-check", "docs-check", "i18n-check"]
-echo "ci depends on: typecheck, test, build, runtime-deps-check, docs-check, i18n-check"
+#MISE description="Run ordered static gates and all keyless suites"
+set -euo pipefail
+exec pnpm run ci "$@"

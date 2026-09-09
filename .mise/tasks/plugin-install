@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Install selected tarballs into an existing profile"
+set -euo pipefail
+exec pnpm run plugin:install "$@"

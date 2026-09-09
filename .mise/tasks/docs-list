@@ -1,3 +1,4 @@
 #!/usr/bin/env bash
-#MISE description="List the documentation contract (pnpm docs:list)"
-pnpm docs:list
+#MISE description="List the documentation contract"
+set -euo pipefail
+exec pnpm run docs:list "$@"

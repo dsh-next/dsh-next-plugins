@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Build and pack selected plugins with local dependencies"
+set -euo pipefail
+exec pnpm run plugin:pack "$@"

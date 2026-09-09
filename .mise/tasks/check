@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Run ordered static gates without a DSH runtime"
+set -euo pipefail
+exec pnpm run check "$@"

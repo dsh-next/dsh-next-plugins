@@ -97,8 +97,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-  verify-release:
-    name: Post-publish mount smoke
+  # Installs checkout tarballs, not registry packages: this is not verification
+  # that the just-published registry artifacts can be fetched or installed.
+  checkout-smoke:
+    name: Post-publish checkout smoke
     needs: release
     if: needs.release.outputs.changesets_published == 'true'
     runs-on: ubuntu-latest
@@ -126,10 +128,7 @@ jobs:
         run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Install dsh CLI (pinned)
-        run: npm install -g @deepseek-ai/dsh@0.1.2-rc.1
-
-      - name: Build
-        run: pnpm build
+        run: npm install -g "@deepseek-ai/dsh@$(node -p "require('./scripts/workflow-config.json').dshVersion")"
 
       - name: Cache Playwright browsers
         uses: actions/cache@v6
@@ -139,7 +138,18 @@ jobs:
 
       - name: Install Playwright Chromium
         timeout-minutes: 10
-        run: pnpm exec playwright install chromium
+        run: pnpm exec playwright install --with-deps chromium
 
-      - name: Mount + headless-render smoke
-        run: bash scripts/e2e-mount.sh
+      - name: Checkout tarball mount smoke
+        run: pnpm run test:e2e -- smoke
+
+      - name: Upload checkout smoke failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: checkout-smoke-report
+          path: |
+            artifacts/testing/
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore

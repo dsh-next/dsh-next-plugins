@@ -2,7 +2,7 @@
 /**
  * Runtime dependency guardrail.
  *
- * Every bare (non-relative) import in a package's committed source must
+ * Every bare (non-relative) import in a package's working-tree source must
  * resolve at consumer install time:
  *
  * - node:* builtins are always available;
@@ -19,9 +19,9 @@
  * dsh web at boot with ERR_MODULE_NOT_FOUND: pnpm/npm do not install a
  * dependency's devDependencies. This script fails that bug class fast in CI.
  *
- * Scans committed source (src/ and any committed lib/) because the built
- * lib/ output is gitignored and does not exist in a fresh CI checkout —
- * scanning only lib/ made the check a permanent no-op.
+ * Scans existing tracked and non-ignored untracked source (src/ and lib/).
+ * Ignored build output is excluded unless tracked; scanning only lib/ would
+ * make the check a no-op in a fresh CI checkout.
  *
  * Usage: node scripts/runtime-deps-check.mjs
  */
@@ -167,16 +167,17 @@ function resolves(req, specifier) {
   }
 }
 
-function trackedPackageFiles() {
-  const files = execFileSync('git', ['ls-files', 'packages'], { encoding: 'utf8', cwd: ROOT })
-    .split('\n')
-    .filter(Boolean)
-  const tracked = new Set(files)
+function packageFiles() {
+  // NUL delimiters preserve whitespace and avoid Git's quoted path format.
+  const listed = execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', 'packages'], { encoding: 'utf8', cwd: ROOT })
+  const files = [...new Set(listed.split('\0').filter(Boolean))]
+    .filter((file) => existsSync(join(ROOT, file)))
+  const existing = new Set(files)
   const byDir = new Map()
   for (const file of files) {
     let dir = dirname(file)
-    while (dir !== '.' && dir !== 'packages' && !tracked.has(dir + '/package.json')) dir = dirname(dir)
-    if (!tracked.has(dir + '/package.json')) continue
+    while (dir !== '.' && dir !== 'packages' && !existing.has(dir + '/package.json')) dir = dirname(dir)
+    if (!existing.has(dir + '/package.json')) continue
     if (!byDir.has(dir)) byDir.set(dir, [])
     byDir.get(dir).push(file)
   }
@@ -186,7 +187,7 @@ function trackedPackageFiles() {
 const isCli = process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url
 
 if (isCli) {
-  const byDir = trackedPackageFiles()
+  const byDir = packageFiles()
   let failed = 0
   let scanned = 0
   for (const [dir, files] of byDir) {
@@ -194,8 +195,8 @@ if (isCli) {
     const pkgPath = join(ROOT, dir, 'package.json')
     if (!existsSync(pkgPath)) continue
     const pkgJson = JSON.parse(readFileSync(pkgPath, 'utf8'))
-    // Committed source (src/) plus any committed lib/ (lib/ is gitignored by
-    // default, so this usually means src/ only).
+    // Existing source, including new files not yet added to Git. Ignored lib/
+    // output is excluded by discovery unless it is already tracked.
     const sourcePrefixes = [`${dir}/src/`, `${dir}/lib/`]
     const sourceFiles = files.filter((f) =>
       sourcePrefixes.some((p) => f.startsWith(p)) && /\.(?:js|cjs|mjs|ts|tsx|jsx)$/.test(f),

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Run opt-in live-model checkpoint coverage"
+set -euo pipefail
+exec pnpm run test:live "$@"

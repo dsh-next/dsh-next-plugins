@@ -1,3 +1,4 @@
 #!/usr/bin/env bash
-#MISE description="Verify plugin UI translation consistency (pnpm i18n:check)"
-pnpm i18n:check
+#MISE description="Verify plugin UI translation consistency"
+set -euo pipefail
+exec pnpm run i18n:check "$@"

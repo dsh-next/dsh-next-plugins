@@ -1,3 +1,4 @@
 #!/usr/bin/env bash
-#MISE description="Run the E2E mount smoke against a scratch DSH instance"
-bash scripts/e2e-mount.sh
+#MISE description="Run keyless suites in fresh scratch runtimes"
+set -euo pipefail
+exec pnpm run test:e2e "$@"

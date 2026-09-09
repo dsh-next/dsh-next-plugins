@@ -7,6 +7,11 @@ on:
       - main
       - dev
   workflow_dispatch:
+    inputs:
+      live_checkpoints:
+        description: Run the opt-in live-model checkpoint test (spends credits)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -53,30 +58,12 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      # --ignore-scripts: a fresh build embeds the checkout's absolute path into
-      # bundle artifacts, so rebuilt bytes differ per machine and make committed-
-      # artifact consistency checks non-deterministic. The explicit Build step
-      # below still verifies that everything builds.
+      # The ordered check command explicitly builds after unit/script tests.
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Typecheck
-        run: pnpm typecheck
-
-      - name: Build
-        run: pnpm build
-
-      - name: Tests
-        run: pnpm test
-
-      - name: Runtime dependency check
-        run: pnpm runtime-deps:check
-
-      - name: Documentation consistency
-        run: pnpm docs:check
-
-      - name: UI translation consistency
-        run: pnpm i18n:check
+      - name: Ordered static checks (including script tests)
+        run: pnpm run check
 
       - name: No emoji rule (source code only)
         run: |
@@ -122,7 +109,8 @@ jobs:
   # Pack the family as npm tarballs, mount them into a REAL DSH instance
   # through the official `dsh plugin --profile <name> add` channel, and render
   # the DSH web UI headlessly (Playwright Chromium) to prove each plugin mounts
-  # with no crash markers. Runs keyless and deterministic; no API key needed.
+  # with no crash markers. Keyless suites use a fake key, not live credentials;
+  # authentication and marketplace traffic can still require network access.
   plugin-mount:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -142,10 +130,7 @@ jobs:
         run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Install dsh CLI (pinned)
-        run: npm install -g @deepseek-ai/dsh@0.1.2-rc.1
-
-      - name: Build
-        run: pnpm build
+        run: npm install -g "@deepseek-ai/dsh@$(node -p "require('./scripts/workflow-config.json').dshVersion")"
 
       - name: Cache Playwright browsers
         uses: actions/cache@v6
@@ -155,10 +140,10 @@ jobs:
 
       - name: Install Playwright Chromium
         timeout-minutes: 10
-        run: pnpm exec playwright install chromium
+        run: pnpm exec playwright install --with-deps chromium
 
-      - name: Mount + headless-render smoke
-        run: bash scripts/e2e-mount.sh
+      - name: All keyless suites (fresh runtime per suite attempt)
+        run: pnpm run test:e2e
 
       - name: Upload Playwright report on failure
         if: failure()
@@ -168,4 +153,40 @@ jobs:
           path: |
             playwright-report/
             test-results/
+            artifacts/testing/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  live-checkpoints:
+    name: Opt-in live-model checkpoint test
+    # Never expose live credentials to pull requests or arbitrary branch code.
+    if: github.event_name == 'workflow_dispatch' && inputs.live_checkpoints && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: live-tests
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Install tested DSH CLI
+        run: npm install -g "@deepseek-ai/dsh@$(node -p "require('./scripts/workflow-config.json').dshVersion")"
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Live checkpoint capture and rewind
+        run: pnpm run test:live -- checkpoints
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DSH_TELEMETRY_DISABLED: '1'
+      - name: Upload private live-test diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: live-checkpoints-diagnostics
+          path: artifacts/testing/
+          retention-days: 3
           if-no-files-found: ignore

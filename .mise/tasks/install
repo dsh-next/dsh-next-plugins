@@ -1,3 +1,4 @@
 #!/usr/bin/env bash
-#MISE description="Install workspace dependencies (pnpm install)"
-pnpm install
+#MISE description="Install workspace dependencies"
+set -euo pipefail
+exec pnpm install "$@"

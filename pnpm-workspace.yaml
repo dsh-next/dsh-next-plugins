@@ -6,6 +6,10 @@ packages:
 # install; no automatic peer installation.
 autoInstallPeers: false
 
+# Tests and builds must not install or purge dependencies implicitly.
+# Run pnpm install explicitly when the dependency state is stale.
+verifyDepsBeforeRun: error
+
 allowBuilds:
   # The cloudflared postinstall downloads the platform binary (the auto-tunnel
   # feature ships its own tunnel client — users install nothing).

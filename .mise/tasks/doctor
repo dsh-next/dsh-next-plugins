@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+#MISE description="Check workflow prerequisites without booting a runtime"
+set -euo pipefail
+exec pnpm run doctor "$@"

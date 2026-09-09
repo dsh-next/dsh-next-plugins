@@ -1,3 +1,4 @@
 #!/usr/bin/env bash
-#MISE description="Typecheck every package + shared (pnpm -r typecheck)"
-pnpm typecheck
+#MISE description="Typecheck every package and shared source"
+set -euo pipefail
+exec pnpm run typecheck "$@"

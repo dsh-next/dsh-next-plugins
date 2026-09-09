@@ -1,3 +1,4 @@
 #!/usr/bin/env bash
-#MISE description="Boot one plugin in a dev profile (build + pack + clean install + boot)"
-pnpm dev "$@"
+#MISE description="Build pack and boot a plugin in a fresh owned runtime"
+set -euo pipefail
+exec pnpm run dev "$@"

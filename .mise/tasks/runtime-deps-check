@@ -1,3 +1,4 @@
 #!/usr/bin/env bash
-#MISE description="Guard against runtime imports of undeclared deps"
-pnpm runtime-deps:check
+#MISE description="Guard runtime imports against undeclared dependencies"
+set -euo pipefail
+exec pnpm run runtime-deps:check "$@"

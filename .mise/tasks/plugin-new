@@ -1,3 +1,4 @@
 #!/usr/bin/env bash
-#MISE description="Scaffold a new plugin (pnpm plugin:new <slug>)"
-pnpm plugin:new "$@"
+#MISE description="Scaffold a new plugin"
+set -euo pipefail
+exec pnpm run plugin:new "$@"

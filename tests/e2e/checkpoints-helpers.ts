@@ -61,7 +61,7 @@ export async function unblank(page: Page, text: string): Promise<void> {
     .or(page.getByRole('textbox', { name: /Describe what you want/ }))
     .first()
   await composer.click({ timeout: 15_000 })
-  await page.keyboard.press('Meta+A')
+  await page.keyboard.press('ControlOrMeta+A')
   await page.keyboard.press('Backspace')
   await composer.pressSequentially(text, { delay: 8 })
   const send = page.getByRole('button', { name: 'Send message' })
@@ -137,7 +137,7 @@ export async function sendComposer(page: Page, text: string): Promise<void> {
     ? hero
     : page.locator('[contenteditable="true"]').first()
   await composer.click({ timeout: 15_000 })
-  await page.keyboard.press('Meta+A')
+  await page.keyboard.press('ControlOrMeta+A')
   await page.keyboard.press('Backspace')
   await composer.pressSequentially(text, { delay: 8 })
   const send = page.getByRole('button', { name: 'Send message' })

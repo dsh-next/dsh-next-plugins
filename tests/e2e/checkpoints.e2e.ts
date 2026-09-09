@@ -183,6 +183,16 @@ test('inspects a checkpoint, refuses silent restore, and rewind restores files',
     writeUtf(BETA, 'extra\n')
     const second = await captureCheckpoint(page, sessionId)
     await expect(row(page, second.turn)).toBeVisible({ timeout: 15_000 })
+    // Session start and the initial chat turn precede the two explicit captures.
+    // Presentation is newest-first; the host API remains chronological.
+    const chronological = await listCheckpoints(page, sessionId)
+    const ids = chronological.checkpoints.map((item) => item.id)
+    expect(ids.slice(-2)).toEqual([first.checkpointId, second.checkpointId])
+    const checkpointRows = page.getByTestId('dsh-next-checkpoints-row')
+    await expect.poll(() => checkpointRows.evaluateAll((rows) =>
+      rows.map((item) => item.getAttribute('data-checkpoint-id')),
+    )).toEqual([...ids].reverse())
+    await page.screenshot({ path: test.info().outputPath('checkpoints-newest-first.png') })
 
     await row(page, first.turn).click()
     await expect(row(page, first.turn)).toHaveAttribute('data-selected', 'true')

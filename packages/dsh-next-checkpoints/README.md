@@ -13,7 +13,7 @@ row never restores.
 1. Work as usual. A `Session start` checkpoint is saved when the session
    begins, and another at the end of each turn.
 2. Open the `Checkpoints` tab. The checkpoint rail is on the right; newest
-   checkpoints sit at the bottom.
+   checkpoints sit at the top, ordered by descending timestamp.
 3. Click a row to inspect every file changed **up to** that checkpoint
    (net vs the session baseline, then click a file for a GitHub-style unified preview with language highlighting).
 4. Click `Rewind` on that row. Read the confirm modal (later turns, dirty

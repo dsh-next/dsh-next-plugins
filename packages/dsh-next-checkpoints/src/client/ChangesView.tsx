@@ -122,7 +122,11 @@ export function ChangesView(props: ChangesViewProps): React.ReactElement {
     return () => { observer.disconnect() }
   }, [])
 
-  const live = list?.checkpoints.find((item) => item.live)
+  const checkpoints = React.useMemo(
+    () => [...(list?.checkpoints ?? [])].sort((a, b) => b.time - a.time || b.seq - a.seq),
+    [list],
+  )
+  const live = checkpoints.find((item) => item.live)
   const liveId = live?.id
   const liveTick = live?.time ?? 0
   const liveSeen = React.useRef<string | undefined>(undefined)
@@ -145,10 +149,10 @@ export function ChangesView(props: ChangesViewProps): React.ReactElement {
   }, [liveId])
 
   React.useEffect(() => {
-    if (list === null || list.checkpoints.length === 0) return
-    if (selectedId !== null && list.checkpoints.some((item) => item.id === selectedId)) return
-    setSelectedId(list.checkpoints[list.checkpoints.length - 1]!.id)
-  }, [list, selectedId])
+    if (checkpoints.length === 0) return
+    if (selectedId !== null && checkpoints.some((item) => item.id === selectedId)) return
+    setSelectedId(checkpoints[0]!.id)
+  }, [checkpoints, selectedId])
 
   React.useEffect(() => {
     if (sessionId === '' || selectedId === null) {
@@ -243,7 +247,6 @@ export function ChangesView(props: ChangesViewProps): React.ReactElement {
     setDragging(false)
   }
 
-  const checkpoints = list?.checkpoints ?? []
   const selected = diffs?.files ?? []
   const totals = sumDiffs(selected)
   const activeFile = selected.find((file) => file.targetKey === fileKey)

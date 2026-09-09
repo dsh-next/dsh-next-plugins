@@ -88,17 +88,35 @@ test('live chat Write is captured, listed, and undone by Session start rewind', 
     await row(page, 0).getByTestId('dsh-next-checkpoints-rewind').click()
     const modal = page.getByTestId('dsh-next-checkpoints-modal')
     await expect(modal).toBeVisible()
-    await expect(modal).toContainText('session start')
+    await expect(modal).toHaveAttribute('aria-label', 'Please confirm')
+    await expect(modal).toContainText('Files that will be deleted')
+    await expect(modal).toContainText(FILE)
     const confirm = page.getByTestId('dsh-next-checkpoints-confirm')
     await confirm.click()
     await expect(confirm).toHaveText('Restore this checkpoint')
+    const responsePromise = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === '/dsh-next-checkpoints/rpc' &&
+      response.request().method() === 'POST' && response.request().postDataJSON()?.method === 'rewind',
+    )
     await confirm.click()
+    const response = await responsePromise
+    expect(response.status()).toBe(200)
+    expect(response.request().postDataJSON().args).toMatchObject({
+      sessionId, checkpointId: listed.checkpoints.find((item) => item.turn === 0)!.id,
+    })
+    const rewound = await response.json() as { ok: boolean; nextSessionId: string; rewoundTo: string }
+    expect(rewound.ok).toBe(true)
+    expect(rewound.nextSessionId).toEqual(expect.any(String))
+    expect(rewound.nextSessionId).not.toBe(sessionId)
     await expect(modal).toHaveCount(0, { timeout: 15_000 })
-    await openChangesTab(page)
-    await expect(page.getByTestId('dsh-next-checkpoints-banner')).toBeVisible()
     await expect.poll(() => existsSync(abs()) ? 'present' : 'missing', { timeout: 15_000 }).toBe('missing')
-    await expect(row(page, last.turn)).toHaveCount(0)
-    await expect(row(page, 0)).toBeVisible()
+    // Session-start rewind intentionally creates an empty child. The DSH shell
+    // shows its new-session composer, not conversation tabs, until another turn.
+    await expect(page.getByRole('textbox', { name: /Describe what you want to build/ })).toBeVisible()
+    const after = await listCheckpoints(page, rewound.nextSessionId)
+    expect(after.checkpoints.map((item) => item.turn)).toEqual([0])
+    expect(after.rewoundTo).toBe(rewound.rewoundTo)
+    await page.screenshot({ path: test.info().outputPath('checkpoints-live-rewound.png') })
   } finally {
     rmSync(abs(), { force: true })
   }

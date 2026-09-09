@@ -35,6 +35,40 @@ describe('ChangesView', () => {
     vi.unstubAllGlobals()
   })
 
+  it('sorts by descending timestamp, breaks ties by sequence, and preserves selection on refresh', async () => {
+    vi.useFakeTimers()
+    try {
+      const oldest = { ...listPayload.checkpoints[0]!, time: 100 }
+      const middle = { ...listPayload.checkpoints[1]!, time: 200 }
+      const newest = { ...middle, id: 's1:3:12', turn: 3, seq: 12 }
+      const checkpoints = Object.freeze([newest, oldest, middle])
+      let payload = { ...listPayload, checkpoints }
+      vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? '{}')) as { method: string; args?: { checkpointId?: string } }
+        if (body.method === 'list') return json(payload)
+        return json({ checkpointId: body.args?.checkpointId, files: [] })
+      }))
+      document.body.appendChild(container)
+      root = createRoot(container)
+      await act(async () => {
+        root!.render(React.createElement(ChangesView, { sessionId: 's1' }))
+      })
+      const rows = () => [...container.querySelectorAll('[data-testid="dsh-next-checkpoints-row"]')]
+      const ids = () => rows().map((row) => row.getAttribute('data-checkpoint-id'))
+      expect(ids()).toEqual([newest.id, middle.id, oldest.id])
+      expect(rows()[0]?.getAttribute('data-selected')).toBe('true')
+      await act(async () => { (rows()[1] as HTMLElement).click() })
+      const next = { ...newest, id: 's1:4:15', turn: 4, seq: 15, time: 300 }
+      payload = { ...payload, checkpoints: [...checkpoints, next] }
+      await act(async () => { await vi.advanceTimersByTimeAsync(2500) })
+      expect(ids()).toEqual([next.id, newest.id, middle.id, oldest.id])
+      expect(rows()[2]?.getAttribute('data-selected')).toBe('true')
+      expect(checkpoints.map((item) => item.id)).toEqual([newest.id, oldest.id, middle.id])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('selects a row without restoring, and rewind opens the confirm modal', async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body ?? '{}')) as { method: string; args?: { checkpointId?: string } }
@@ -95,7 +129,7 @@ describe('ChangesView', () => {
 
     const rows = container.querySelectorAll('[data-testid="dsh-next-checkpoints-row"]')
     expect(rows.length).toBe(2)
-    await act(async () => { (rows[0] as HTMLElement).click() })
+    await act(async () => { (rows[1] as HTMLElement).click() })
     expect(container.querySelector('[data-testid="dsh-next-checkpoints-modal"]')).toBeNull()
     expect(fetchMock.mock.calls.some((call) => String(call[1]?.body).includes('"rewind"'))).toBe(false)
 

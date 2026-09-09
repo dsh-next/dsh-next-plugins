@@ -117,12 +117,11 @@ with a `SKILL.md` counts, at any depth, so both flat layouts
 `.git`, `.github`, and `node_modules` subtrees are ignored.
 
 On first launch the plugin seeds a set of default providers (anthropics/skills,
-openclaw/openclaw, mattpocock/skills,
-muratcankoylan/Agent-Skills-for-Context-Engineering, affaan-m/ecc,
+mattpocock/skills, muratcankoylan/Agent-Skills-for-Context-Engineering,
 nextlevelbuilder/ui-ux-pro-max-skill, addyosmani/agent-skills,
-Leonxlnx/taste-skill) and syncs them once shortly after boot, so the Skills
-tab is populated without any setup. Removing a default persists — they never
-come back.
+Leonxlnx/taste-skill) and syncs them once shortly after boot, so the Skills tab
+is populated without any setup. Removing a default persists — they never come
+back.
 
 **Rate limits.** Metadata calls authenticate with `DSH_GITHUB_TOKEN` or
 `GITHUB_TOKEN` (either environment variable, read again on every sync) when

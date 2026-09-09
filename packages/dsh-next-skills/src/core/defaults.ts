@@ -5,10 +5,8 @@
  */
 export const DEFAULT_PROVIDER_SPECS: readonly string[] = [
   'anthropics/skills',
-  'openclaw/openclaw',
   'mattpocock/skills',
   'muratcankoylan/Agent-Skills-for-Context-Engineering',
-  'affaan-m/ecc',
   'nextlevelbuilder/ui-ux-pro-max-skill',
   'addyosmani/agent-skills',
   'Leonxlnx/taste-skill',

@@ -91,8 +91,7 @@ vercel-labs/skills）和嵌套布局
 都能工作。`.git`、`.github` 和 `node_modules` 子树会被忽略。
 
 首次启动时，插件会预置一组默认提供方（anthropics/skills、
-openclaw/openclaw、mattpocock/skills、
-muratcankoylan/Agent-Skills-for-Context-Engineering、affaan-m/ecc、
+mattpocock/skills、muratcankoylan/Agent-Skills-for-Context-Engineering、
 nextlevelbuilder/ui-ux-pro-max-skill、addyosmani/agent-skills、
 Leonxlnx/taste-skill），并在启动后不久同步一次，因此无需任何设置，
 Skills 标签页即已有内容。移除默认提供方会持久生效——它们不会回来。

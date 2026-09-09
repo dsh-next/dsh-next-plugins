@@ -205,20 +205,27 @@ await check('Skills: presence badge defaults to Everywhere for seeded skills', a
 // ---- Providers: defaults + URL form --------------------------------------
 await openTab('Providers')
 await check('Providers: default providers are seeded and auto-sync after boot', async () => {
-  for (const spec of ['anthropics/skills', 'openclaw/openclaw', 'mattpocock/skills', 'Leonxlnx/taste-skill']) {
+  for (const spec of [
+    'anthropics/skills',
+    'mattpocock/skills',
+    'muratcankoylan/Agent-Skills-for-Context-Engineering',
+    'nextlevelbuilder/ui-ux-pro-max-skill',
+    'addyosmani/agent-skills',
+    'Leonxlnx/taste-skill',
+  ]) {
     await until(`${spec} row`, async () => await providerCard(spec).isVisible())
   }
   // The host seeds defaults and syncs them shortly after boot; every default
   // must end up either synced (lastRefresh set) or with a surfaced error.
   await until('defaults synced or errored', async () => {
     const s = await rpc('getState')
-    const defaults = s.config.providers.filter((p) => p.id !== 'vercel-labs-skills')
+    const defaults = s.providers.filter((p) => p.id !== 'vercel-labs-skills')
     const rows = s.providers
     const settled = (id) => {
       const row = rows.find((p) => p.id === id)
       return row !== undefined && (row.lastRefresh !== '' || (row.error !== undefined && row.error !== 'never synced'))
     }
-    return defaults.length >= 8 && defaults.every((p) => settled(p.id))
+    return defaults.length === 6 && defaults.every((p) => settled(p.id))
   }, 240_000)
   const s = await rpc('getState')
   if (!s.providers.some((p) => typeof p.stars === 'number')) throw new Error('no provider carries a star count')
@@ -226,7 +233,7 @@ await check('Providers: default providers are seeded and auto-sync after boot', 
 await check('Providers: settings.yaml holds the provider records', async () => {
   const section = settingsSection()
   if (!section.includes('dsh-next-skills:')) throw new Error('no dsh-next-skills section')
-  for (const spec of ['anthropics/skills', 'openclaw/openclaw']) {
+  for (const spec of ['anthropics/skills', 'mattpocock/skills']) {
     if (!section.includes(`spec: ${spec}`)) throw new Error(`provider ${spec} missing from settings.yaml`)
   }
 })

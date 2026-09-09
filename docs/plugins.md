@@ -46,9 +46,12 @@ merging, prove both:
    edge-case branches) to a test case. Pure logic (`core/`) is fully
    unit-testable; host/browser wiring gets its own targeted tests (see the
    per-zone guidance below).
-2. **No existing functionality regressed.** Run the full gate —
-   `pnpm typecheck && pnpm test && pnpm build` — plus `bash scripts/e2e-mount.sh`
-   (which now also runs the per-plugin DOM markers).
+2. **No existing functionality regressed.** Run `pnpm run ci` (or
+   `mise run ci`): the ordered static `check` gate followed by all keyless
+   E2E suites, including the per-plugin DOM markers. `pnpm test` includes
+   both package unit tests and repository script tests. For static-only
+   iteration use `pnpm run check`; prerequisite and focused-suite commands
+   live in [CONTRIBUTING.md](../CONTRIBUTING.md#canonical-checks).
 
 ### Unit tests
 
@@ -69,10 +72,13 @@ merging, prove both:
 ### End-to-end mount smoke
 
 The **end-to-end mount smoke** lives in the root `tests/e2e/mount.e2e.ts` and is
-driven by `scripts/e2e-mount.sh` (`mise run e2e`). It packs each plugin, mounts
-it into a real scratch DSH profile, and asserts the browser renders with no
-crash markers. This is the only test that catches frozen-module-table
-mismatches and `cordis.patch.yml` registration errors.
+driven by `pnpm run test:e2e -- smoke` (`mise run e2e -- smoke`). It packs
+checkout plugins, mounts them into a real scratch DSH profile, and asserts
+the browser renders with no crash markers. The default `test:e2e` command
+also runs detailed checkpoint and worktree-sidebar suites, each in a separate
+fresh runtime. Keyless uses fake credentials, not an offline-network guarantee.
+This lane catches frozen-module-table mismatches and `cordis.patch.yml`
+registration errors that unit tests cannot.
 
 **Per-plugin DOM markers** in `tests/e2e/mount.e2e.ts` are the layer that
 catches "mounts without crashing but renders nothing" — the crash-marker check
@@ -83,8 +89,9 @@ onboarding dialogs with `dismissOnboarding()` before driving the sidebar.
 
 The lane provides two fixtures every marker may use:
 
-- **Preseeded workspaces** — `scripts/e2e-mount.sh` registers two scratch
-  workspaces through the reusable `scripts/e2e-seed-workspaces.sh` and
+- **Preseeded workspaces** — the workflow registers two scratch workspaces
+  before boot through the reusable workspace seeder (stopped scratch runtimes
+  only; `scripts/e2e-seed-workspaces.sh` is its command wrapper) and
   exports their canonical paths as `DSH_E2E_WORKSPACE_A` / `_B`, so
   markers can drive workspace-scoped UI without machine-specific paths.
 - **On-disk assertions** — the spec process receives `DSH_HOME` and
@@ -121,8 +128,11 @@ Bundle patches apply in `dsh.profile.bundles` order, then the profile's own
 Overrides **replace the whole `config` object** (no deep merge). Inspect the
 composed result with `dsh --profile <name> --dump-config` before booting.
 
-See the [local-testing skill](../.agents/skills/dsh-next-local-testing/SKILL.md)
-for the manual live-install loop.
+See [CONTRIBUTING.md](../CONTRIBUTING.md#pack-or-install-checkout-plugins)
+for checkout tarball installation and the
+[local-testing skill](../.agents/skills/dsh-next-local-testing/SKILL.md) for
+isolated runtime verification. Existing-profile installation never boots or
+restarts that profile.
 
 ## SDK contract
 

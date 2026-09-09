@@ -27,6 +27,7 @@ docs/screenshots/
 
 # Local artifacts and GUI design session drafts
 /artifacts/
+/tmp/
 /design/session-*/
 
 # Build output (tsdown)
@@ -38,5 +39,9 @@ packages/*/lib/
 /.agents/skills/*
 !/.agents/skills/dsh-next-*/
 
-# Env files
+# Local credential/config files (never publish or commit)
 .env
+.env.*
+!.env.example
+mise.local.toml
+.mise.local.toml

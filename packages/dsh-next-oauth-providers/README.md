@@ -75,6 +75,10 @@ dsh plugin --profile <name> add @dsh-next/dsh-next-oauth-providers
   max-output sizes as defaults (1050K / 128K for current GPT-5.4+ ids; 400K /
   128K for `gpt-5.4-mini`). Customized settings still override a row.
 - One account per family in this version. Reconnect replaces that grant.
+- One unusable subscription does not take the others down. If a provider
+  catalog cannot be prepared, only that provider's models fail to load — the
+  model selector names it and offers **Retry** — while the remaining routes,
+  and chat on them, keep working. The host logs one warning per provider.
 - Closing an editor, switching provider editors, or leaving the Models page
   cancels its unfinished sign-in. Cancelling a login queued for credential
   storage preserves the previously saved grant.

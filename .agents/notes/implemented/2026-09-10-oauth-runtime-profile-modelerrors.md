@@ -52,13 +52,12 @@ subscription route could be prepared.
 - Gate: `pnpm typecheck && pnpm test && pnpm build && pnpm runtime-deps:check &&
   pnpm docs:check && pnpm i18n:check`, plus the mount smoke.
 
-## Follow-up
+## Why CI did not catch it
 
-`scripts/workflow-config.json` still declares `dshVersion: 0.1.3-alpha.2`, the
-"tested target" the workflow logs. The installed runtime is `0.1.5-rc.1` and
-passes the `dsh.engines.dsh` preflight, so nothing fails; the stale declaration
-is only why the skew stayed invisible. It is a repo-wide claim (other plugins,
-CI provisioning) and was left alone here.
+`scripts/workflow-config.json` pinned the tested DSH CLI at `0.1.3-alpha.2`,
+and `.github/workflows/ci.yml` installs exactly that version, so no lane ever
+executed the `0.1.5` adapter. The pin now tracks `0.1.5-rc.1`; see
+[the tested-target note](2026-09-10-tested-dsh-target-0.1.5-rc.1.md).
 
 ## Live evidence
 

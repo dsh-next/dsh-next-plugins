@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { parseOptions, selectSuites, runWorkflow } from './workflow.mjs'
+import { parseOptions, selectSuites, runWorkflow, testedDshVersion } from './workflow.mjs'
 
 async function fixture(t, behavior = {}) {
   const root = await mkdtemp(join(tmpdir(), 'workflow-orchestration-'))
@@ -31,7 +31,8 @@ async function fixture(t, behavior = {}) {
     browserPreflight: async () => { events.push(['browser']) },
     run: async (command, args, options) => {
       events.push(['run', command, args])
-      if (args.includes('--version')) return { stdout: behavior.version ?? '0.1.3-alpha.2', stderr: '', code: 0 }
+      // The workflow is only ever driven against the CLI CI actually installs.
+      if (args.includes('--version')) return { stdout: behavior.version ?? testedDshVersion, stderr: '', code: 0 }
       runs.push({ command, args, options })
       if (behavior.command) return behavior.command(command, args, options, runs.length)
       return { stdout: 'one test passed', stderr: '', code: 0 }
@@ -203,7 +204,8 @@ test('live credentials reach runtime only, not Playwright or installation', asyn
 test('doctor reports safe metadata without build or runtime', async t => {
   const f = await fixture(t)
   const result = await runWorkflow({ ...f.options, command: 'doctor' }, f.deps, {})
-  assert.equal(result.dshVersion, '0.1.3-alpha.2')
+  assert.equal(result.dshVersion, testedDshVersion)
+  assert.ok(f.events.some(([kind, message]) => kind === 'log' && message.endsWith('tested target ' + testedDshVersion)))
   assert.equal(f.packed, 0)
   assert.equal(f.roots.length, 0)
   assert.equal(JSON.stringify(result).includes('apiKey'), false)

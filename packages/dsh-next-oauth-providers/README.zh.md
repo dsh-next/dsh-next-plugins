@@ -76,5 +76,4 @@ dsh plugin --profile <name> add @dsh-next/dsh-next-oauth-providers
 - 订阅是否可用由提供方控制。在这里登录并不会赠予你尚未拥有的套餐。
 - Claude 与 ChatGPT 的回调服务绑定回环端口 `53692` 和 `1455`。若 1455
   已被占用（常见于 VS Code Codex），ChatGPT 登录会失败。
-- 本包目前为 private，待真实提供方登录验证后再发布。
 - 贡献者请看 [CONTRIBUTING.md](https://github.com/dsh-next/dsh-next-plugins/blob/main/CONTRIBUTING.md)。

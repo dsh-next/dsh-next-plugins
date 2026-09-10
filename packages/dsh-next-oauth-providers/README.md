@@ -87,5 +87,4 @@ dsh plugin --profile <name> add @dsh-next/dsh-next-oauth-providers
 - Claude and ChatGPT callback servers bind loopback ports `53692` and `1455`.
   ChatGPT sign-in fails if something else (often VS Code Codex) already owns
   `1455`.
-- This package is currently private while live provider sign-in is verified.
 - Contributors: see [CONTRIBUTING.md](https://github.com/dsh-next/dsh-next-plugins/blob/main/CONTRIBUTING.md).

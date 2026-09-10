@@ -4,6 +4,10 @@
 - status: implemented
 - scope: packages/dsh-next-oauth-providers
 
+Release posture superseded by
+[Releasing the subscription plugin](2026-09-10-oauth-providers-go-live.md); the
+design below still describes the shipped plugin.
+
 Adds `@dsh-next/dsh-next-oauth-providers` as a private plugin. Models
 `settings.models.footer` hosts a subscription provider manager for Kimi,
 Grok, ChatGPT, and Claude. Inference uses a private official `PiAiAdapter`

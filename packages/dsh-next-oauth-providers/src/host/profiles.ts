@@ -33,6 +33,10 @@ export function buildProfile(family: Family, stored: ProviderProfile): ResolvedP
     requestImageMaxBytes: REQUEST_IMAGE_MAX_BYTES,
     retryPolicy: resolveRetryPolicy(undefined, `dsh-next-oauth-providers.${family.nativeId}`),
     configuredMaxTokens,
+    // The adapter reads this map on every exact-model lookup. Omitting it made
+    // resolveModel/prepareCall throw inside the SDK, which broke the whole
+    // model catalog and every chat request.
+    modelErrors: new Map<string, string>(),
     ...headers === undefined ? {} : { headers },
   }
 }

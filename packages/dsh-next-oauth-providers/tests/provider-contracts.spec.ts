@@ -120,7 +120,11 @@ describe('resolved profile contracts', () => {
     })
     expect(profile.retryPolicy).toBeDefined()
     expect(profile.headers).toEqual(family.nativeId === 'xai' ? GROK_HEADERS : undefined)
-    for (const model of profile.piProvider.getModels()) {
+    // The runtime adapter reads this map on every exact-model lookup; an absent
+    // map is a TypeError inside the adapter rather than a cache miss.
+    expect(profile.modelErrors).toEqual(new Map())
+    expect(profile.piProvider).toBeDefined()
+    for (const model of profile.piProvider!.getModels()) {
       expect(profile.configuredMaxTokens.get(model.id)).toBe(model.maxTokens)
     }
   })
@@ -131,7 +135,7 @@ describe('resolved profile contracts', () => {
     })
     expect(profile.displayName).toBe('My Grok')
     expect([...profile.configuredMaxTokens]).toEqual([['custom-grok', 2048]])
-    expect(profile.piProvider.getModels()).toEqual([expect.objectContaining({
+    expect(profile.piProvider!.getModels()).toEqual([expect.objectContaining({
       id: 'custom-grok', contextWindow: 150_000, maxTokens: 2048, baseUrl: GROK_PROXY_BASE_URL,
     })])
   })

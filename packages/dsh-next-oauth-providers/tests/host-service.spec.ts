@@ -1,32 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { Credential, CredentialStore } from '@earendil-works/pi-ai'
-import { SubscriptionsService, type ConfigScopeFace } from '../src/host/service.ts'
-
-function memoryStore(seed: Record<string, Credential> = {}): CredentialStore {
-  const map = new Map<string, Credential>(Object.entries(seed))
-  return {
-    read: async (id) => map.get(id),
-    list: async () => [...map.entries()].map(([providerId, credential]) => ({ providerId, type: credential.type })),
-    modify: async (id, fn) => {
-      const next = await fn(map.get(id))
-      if (next !== undefined) map.set(id, next)
-      return map.get(id)
-    },
-    delete: async (id) => { map.delete(id) },
-  }
-}
-
-function memoryConfig(initial: object = {}): ConfigScopeFace {
-  let value: object = initial
-  return {
-    get: () => value,
-    update: async (patch) => { value = { ...value, ...patch } },
-    replace: async (section) => { value = section },
-    watch: () => () => {},
-  }
-}
-
-const grant = { type: 'oauth' as const, access: 'a', refresh: 'r', expires: Date.now() + 60_000 }
+import { SubscriptionsService } from '../src/host/service.ts'
+import { grant, memoryConfig, memoryStore } from './helpers/service-fixtures.ts'
 
 describe('SubscriptionsService', () => {
   it('rewrites legacy subscription-* settings keys to official catalog ids', async () => {

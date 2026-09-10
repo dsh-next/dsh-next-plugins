@@ -87,6 +87,7 @@ export class SubscriptionsService {
   private readonly onRoutesChanged: (aliases: readonly AliasRoute[]) => void
   private readonly login: (nativeId: string, interaction: LoginInteraction) => Promise<void>
   private readonly lifetime = new AbortController()
+  private readonly profileFailures = new Map<Family['family'], string>()
   private attempt: Attempt | undefined
   private connected = new Set<AliasRoute>()
 
@@ -120,14 +121,42 @@ export class SubscriptionsService {
     return normalizeConfig(this.config.get())
   }
 
+  /**
+   * Provider profiles for every connected family.
+   *
+   * The adapter reads this map on every operation, so a family whose profile
+   * cannot be built is dropped from the answer instead of thrown out of it:
+   * one unusable subscription must not take down the routes still serving.
+   * The route stays registered, so the model picker still names it as the one
+   * provider that failed instead of silently losing it.
+   */
   profiles(): ReadonlyMap<string, ResolvedPiAiProviderProfile> {
     const stored = this.configValue()
     const map = new Map<string, ResolvedPiAiProviderProfile>()
     for (const family of FAMILIES) {
       if (!this.connected.has(family.alias)) continue
-      map.set(family.nativeId, buildProfile(family, profileOf(stored, family.nativeId)))
+      try {
+        map.set(family.nativeId, buildProfile(family, profileOf(stored, family.nativeId)))
+        this.clearProfileFailure(family)
+      } catch (error) {
+        this.reportProfileFailure(family, error)
+      }
     }
     return map
+  }
+
+  /** Warn once per distinct failure so a per-request read cannot flood the log. */
+  private reportProfileFailure(family: Family, error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error)
+    if (this.profileFailures.get(family.family) === message) return
+    this.profileFailures.set(family.family, message)
+    this.logWarn(`dsh-next-oauth-providers profile ${family.family}: ${message}`)
+  }
+
+  private clearProfileFailure(family: Family): void {
+    if (this.profileFailures.delete(family.family)) {
+      this.logWarn(`dsh-next-oauth-providers profile ${family.family}: rebuilt`)
+    }
   }
 
   async hydrate(): Promise<void> {

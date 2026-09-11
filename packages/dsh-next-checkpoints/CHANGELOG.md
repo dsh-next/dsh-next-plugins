@@ -1,5 +1,11 @@
 # @dsh-next/dsh-next-checkpoints
 
+## 0.2.1
+
+### Patch Changes
+
+- Show checkpoints newest-first, with the latest timestamp at the top of the list.
+
 ## 0.2.0
 
 ### Minor Changes

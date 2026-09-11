@@ -1,7 +1,7 @@
 {
   "name": "@dsh-next/dsh-next-oauth-providers",
   "description": "DeepSeek Harness plugin: sign in to Kimi, Grok, ChatGPT, and Claude coding subscriptions from the Models page.",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

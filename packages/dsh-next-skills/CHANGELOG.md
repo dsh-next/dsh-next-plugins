@@ -1,5 +1,15 @@
 # @dsh-next/dsh-next-skills
 
+## 0.3.0
+
+### Minor Changes
+
+- Skills scoped to a workspace now also apply in that repo's worktree sessions. Worktree folders no longer appear in the scope checklist.
+
+### Patch Changes
+
+- Removed `openclaw/openclaw` and `affaan-m/ecc` from the providers seeded for new installations.
+
 ## 0.2.0
 
 ### Minor Changes

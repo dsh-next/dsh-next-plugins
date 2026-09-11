@@ -419,7 +419,9 @@ describe('SoundDriver lifecycle', () => {
   })
 })
 
-describe.skipIf(process.platform === 'win32')('generated POSIX programs', () => {
+// Real synthesis, decoder subprocesses and filesystem cleanup need headroom on shared CI runners.
+// Keep the default timeout for the mocked public-contract tests above.
+describe.skipIf(process.platform === 'win32')('generated POSIX programs', { timeout: 30_000 }, () => {
   it('falls back to openssl when base64 cannot decode', async () => {
     const root = await mkdtemp(join(tmpdir(), 'sound-driver-fallback-'))
     await writeFile(join(root, 'base64'), '#!/bin/sh\nexit 1\n', { mode: 0o700 })

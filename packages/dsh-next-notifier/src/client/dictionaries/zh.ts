@@ -75,5 +75,7 @@ export const zh: Record<MessageKey, string> = {
   'presence.ageMs': '{count}ms 前',
   'presence.stale': '已过期',
 
+  'rpc.timeout': '通知请求“{method}”超时，请重试。',
+  'rpc.disposed': '通知插件已停用。',
   'rpc.failed': '通知请求“{method}”失败（HTTP {status}）',
 }

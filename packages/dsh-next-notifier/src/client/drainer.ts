@@ -4,10 +4,11 @@
  */
 import type { ISessions } from '@deepseek-ai/dsh-client-runtime/client'
 import type { TimerLike } from '../core/timer.ts'
+import type { Delivery } from '../core/notifications.ts'
 import { DEEPSEEK_ICON } from './deepseek-icon.ts'
 
 interface PendingEvent {
-  id?: number
+  id?: number | string
   kind?: string
   title?: string
   body?: string
@@ -70,64 +71,124 @@ export function webPermission(): 'granted' | 'denied' | 'default' | 'unsupported
   try { return Notification.permission } catch { return 'unsupported' }
 }
 
-export function showWebNotification(event: PendingEvent, sessions: ISessions | undefined): void {
+
+export interface WebNotificationHandle {
+  shown: Promise<boolean>
+  close: () => void
+}
+
+/** Only a browser show event confirms acceptance; a constructor alone does not. */
+export function showWebNotification(event: PendingEvent, sessions: ISessions | undefined, onClose?: () => void): WebNotificationHandle | null {
+  if (webPermission() !== 'granted') return null
   try {
-    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
     const notification = new Notification(eventTitle(event), {
-      body: eventBody(event, sessions),
-      icon: DEEPSEEK_ICON,
-      tag: 'dsh-next-notifier-' + (typeof event.id === 'number' ? event.id : 'unknown'),
+      body: eventBody(event, sessions), icon: DEEPSEEK_ICON,
+      tag: 'dsh-next-notifier-' + (event.id ?? 'unknown'), silent: true,
     })
+    let closed = false
+    let settled = false
+    let settle!: (shown: boolean) => void
+    const shown = new Promise<boolean>((resolve) => { settle = resolve })
+    const finish = (value: boolean): void => { if (!settled) { settled = true; settle(value) } }
+    const close = (): void => {
+      if (closed) return
+      closed = true
+      clearTimeout(showTimer)
+      clearTimeout(closeTimer)
+      notification.onclick = notification.onshow = notification.onerror = notification.onclose = null
+      try { notification.close() } catch {}
+      finish(false)
+      onClose?.()
+    }
+    notification.onshow = () => { clearTimeout(showTimer); finish(true) }
+    notification.onerror = close
+    notification.onclose = close
     notification.onclick = () => {
       try { window.focus() } catch {}
-      if (sessions && typeof sessions.open === 'function' && typeof event.sessionId === 'string' && event.sessionId) {
-        try { sessions.open(event.sessionId as never) } catch {}
+      if (sessions && typeof event.sessionId === 'string' && event.sessionId) {
+        try { void Promise.resolve(sessions.open(event.sessionId as never)).catch(() => {}) } catch {}
       }
-      try { notification.close() } catch {}
+      close()
     }
-    const closeTimer = setTimeout(() => { try { notification.close() } catch {} }, 12000)
-    void closeTimer
+    const showTimer = setTimeout(close, 2000)
+    const closeTimer = setTimeout(close, 12000)
+    return { shown, close }
   } catch {
-    // A failed notification is non-fatal; drop silently.
+    return null
   }
 }
 
-export interface Drainer {
-  dispose: () => void
+export interface Drainer { dispose: () => void; poll: () => Promise<void> }
+export interface DeliveryTransport {
+  claim: () => Promise<unknown>
+  show: (event: Delivery) => Promise<boolean>
+  acknowledge: (event: Delivery) => Promise<unknown>
+  release: (event: Delivery) => Promise<unknown>
 }
 
-export function createDrainer(
-  sessions: ISessions | undefined,
-  timer: TimerLike | undefined,
-  fetchPending: () => Promise<unknown>,
-): Drainer {
-  const drain = (): void => {
-    void fetchPending().then((list) => {
+function isDelivery(value: unknown): value is Delivery {
+  if (!value || typeof value !== 'object') return false
+  const event = value as Partial<Delivery>
+  return typeof event.id === 'string' && typeof event.lease === 'string'
+    && typeof event.at === 'number' && Number.isFinite(event.at)
+    && typeof event.leaseExpiresAt === 'number' && Number.isFinite(event.leaseExpiresAt)
+    && typeof event.kind === 'string' && typeof event.title === 'string'
+    && typeof event.body === 'string' && typeof event.sessionId === 'string'
+}
+
+/** Single-flight polling shared by toast and web delivery; failed renders release their lease. */
+export function createDrainer(timer: TimerLike | undefined, transport: DeliveryTransport): Drainer {
+  let disposed = false
+  let busy = false
+  const shown = new Map<string, { at: number; lease: string }>()
+  const acknowledgements = new Map<string, Delivery>()
+  const acknowledge = async (event: Delivery): Promise<void> => {
+    try {
+      await transport.acknowledge(event)
+      acknowledgements.delete(event.id)
+    } catch {
+      if (!disposed) acknowledgements.set(event.id, event)
+    }
+  }
+  const poll = async (): Promise<void> => {
+    if (disposed || busy) return
+    busy = true
+    try {
+      for (const [id, entry] of shown) if (Date.now() - entry.at > 120000) { shown.delete(id); acknowledgements.delete(id) }
+      for (const event of acknowledgements.values()) {
+        if (disposed) return
+        if (Date.now() >= event.leaseExpiresAt) { acknowledgements.delete(event.id); continue }
+        await acknowledge(event)
+        break
+      }
+      if (disposed) return
+      const list = await transport.claim()
       if (!Array.isArray(list)) return
-      const now = Date.now()
-      for (const item of list as PendingEvent[]) {
-        if (!item || typeof item !== 'object') continue
-        if (typeof item.at === 'number' && now - item.at > 30000) continue
-        // Toast-channel events belong to the in-page toast layer; the web
-        // drainer only renders what the host routed to the OS notification
-        // path (events without a channel predate the split — treat as web).
-        if (item.channel === 'toast') continue
-        showWebNotification(item, sessions)
+      for (const event of list) {
+        if (!isDelivery(event)) continue
+        if (disposed || Date.now() >= event.leaseExpiresAt || Date.now() - event.at > 120000) {
+          await transport.release(event).catch(() => {})
+          continue
+        }
+        let delivered = shown.get(event.id)?.lease === event.lease
+        try { if (!delivered) delivered = await transport.show(event) } catch { delivered = false }
+        if (disposed || !delivered) {
+          await transport.release(event).catch(() => {})
+          continue
+        }
+        shown.set(event.id, { at: Date.now(), lease: event.lease })
+        if (shown.size > 100) {
+          const oldest = shown.keys().next().value!
+          shown.delete(oldest)
+          acknowledgements.delete(oldest)
+        }
+        await acknowledge(event)
       }
-    }).catch(() => {})
+    } catch {
+      // The host retains unacknowledged events; the next poll can retry.
+    } finally { busy = false }
   }
-
-  let off: (() => void) | null = null
-  if (timer && typeof timer.interval === 'function') {
-    off = timer.interval(drain, 2000)
-  }
-  drain()
-
-  return {
-    dispose: () => {
-      if (off) {
-        try { off() } catch {}
-      }
-    },
-  }
+  const off = timer?.interval(() => { void poll() }, 2000)
+  void poll()
+  return { poll, dispose: () => { disposed = true; off?.(); shown.clear(); acknowledgements.clear() } }
 }

@@ -26,6 +26,8 @@ import { test, expect, type Page } from '@playwright/test'
 import { verifyOauthProviders } from './oauth-helpers.ts'
 import { bareId, assertMountHealthy, runGuardedMarker, requireCheckpointsPanel } from '../../scripts/e2e-guards.mjs'
 import { closeDialogs, openWorkspaceSession, unblank } from './checkpoints-helpers.ts'
+import { verifyNotifier, registerNotifierTurnTest } from './notifier-marker.ts'
+
 import {
   commitFile,
   completeConflictedMerge,
@@ -59,6 +61,7 @@ const pluginIds = (process.env.DSH_E2E_PLUGINS || '')
   .split(',')
   .map((id) => id.trim())
   .filter(Boolean)
+
 
 // A fresh scratch home walks a first-run onboarding flow (an "Internal Testing
 // Notice", then an "Add an API key to get started" modal) whose masks intercept
@@ -233,26 +236,7 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
   // must reveal the settings body (the regression this guards: a Host RPC that
   // returned raw config instead of the card's envelope, so the header toggled
   // open but the body never rendered).
-  'dsh-next-notifier': async (page) => {
-    // A fresh scratch home shows the sequential onboarding dialogs (testing
-    // notice, API-key prompt) whose masks intercept pointer events; dismiss
-    // them before driving the sidebar.
-    await openNotifierCard(page)
-    await expect(page.getByText('Enable notifications')).toBeVisible()
-    await expect(page.getByText('Test browser notification')).toBeVisible()
-    // The in-page toast channel: the Show button enqueues a synthetic toast
-    // into the shell overlay; the capsule renders the test title and the
-    // close button dismisses it (guards the overlay-slot registration — a
-    // silent SlotMap mismatch would leave the layer unrendered). The frame
-    // overlay sits under modal masks, so the toast only becomes clickable
-    // after the Settings dialog closes; the sequence must beat the 12s TTL.
-    await page.getByRole('button', { name: 'Show', exact: true }).click()
-    await expect(page.getByTestId('dsh-next-notifier-toast').first()).toBeVisible()
-    await expect(page.getByTestId('dsh-next-notifier-toast').first()).toContainText('Test toast')
-    await page.getByRole('dialog', { name: 'Settings' }).getByRole('button', { name: 'Close' }).click({ force: true })
-    await page.getByTestId('dsh-next-notifier-toast-close').first().click()
-    await expect(page.getByTestId('dsh-next-notifier-toast')).toHaveCount(0)
-  },
+  'dsh-next-notifier': (page) => verifyNotifier(page, openNotifierCard),
 
   // The worktrees plugin owns the workspace browser (strategy B: the stock
   // ui-workspace row is disabled and a derived, hash-gated copy of the
@@ -1078,3 +1062,5 @@ test('plugin family mounts the dsh-next plugins without crash markers', async ({
   }
   await assertHealthy()
 })
+
+registerNotifierTurnTest(BASE_URL, pluginIds, dismissOnboarding)

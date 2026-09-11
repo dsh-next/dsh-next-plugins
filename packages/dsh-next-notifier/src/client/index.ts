@@ -23,8 +23,9 @@ import type { ISessions } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import { NotifierCard, type Translate } from './card.tsx'
-import { createDrainer, showWebNotification, webPermission } from './drainer.ts'
+import { showWebNotification, type WebNotificationHandle } from './drainer.ts'
 import { createPresenceReporter } from './presence.ts'
+import { createRpc } from './rpc.ts'
 import { ToastLayer, enqueueTestToast } from './toasts.tsx'
 import { en, englishTranslate, NS, zh, type MessageKey } from './dictionaries.ts'
 import type { TimerLike } from '../core/timer.ts'
@@ -55,7 +56,7 @@ const RPC_PATH = '/dsh-next-notifier/rpc'
 // Required services (fiber inject waiting — the renderer owns the slot
 // registry since 0.1.2, and the session controller applies later, so both
 // must be up before the card registers and reports presence).
-export const inject = ['slots', 'locale', 'sessions'] as const
+export const inject = ['slots', 'locale', 'sessions', 'timer'] as const
 
 export function apply(ctx: Context): void {
   const slots = ctx.get('slots')
@@ -86,29 +87,17 @@ export function apply(ctx: Context): void {
   // The RPC wrapper closes over the translator: transport failures surface
   // in the card's error line, so the message rides the locale like every
   // other string (the skills page's `rpc.failed` pattern).
-  const rpc = (method: string, args?: unknown): Promise<unknown> =>
-    fetch(RPC_PATH, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ method, args: args === undefined ? null : args }),
-    }).then((res) => {
-      if (!res.ok) throw new Error(t('rpc.failed', { method, status: res.status }))
-      return res.json()
-    })
-
-  const presence = createPresenceReporter(sessions, timer, (m, a) => rpc(m, a))
-  // Channel-scoped drains: the web drainer and the toast layer poll the same
-  // Host queue, and an unscoped read would consume (and drop) the other
-  // channel's events.
-  const drainer = createDrainer(sessions, timer, () => rpc('getPendingNotifications', { channel: 'web' }))
-
-  // Report the web-notification permission up front and on change.
-  const perm = webPermission()
-  if (perm !== 'unsupported') void rpc('reportWebPermission', { status: perm }).catch(() => {})
-  const offPerm = (): void => { if (webPermission() !== 'unsupported') void rpc('reportWebPermission', { status: webPermission() }).catch(() => {}) }
-  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
-    window.addEventListener('focus', offPerm)
+  const transport = createRpc(RPC_PATH, t)
+  const request = transport.request
+  const presence = createPresenceReporter(sessions, timer, request)
+  const rpc = (method: string, args?: unknown): Promise<unknown> => {
+    if (method === 'getPendingNotifications' || method === 'reportWebPermission') {
+      return request(method, presence.snapshot())
+    }
+    const fields = args && typeof args === 'object' ? args : {}
+    return request(method, { ...fields, clientId: presence.clientId })
   }
+  const web = new Set<WebNotificationHandle>()
 
   if (slots && typeof slots.inject === 'function') {
     // settings.plugin.item is declared by the configurable-plugins tab at boot,
@@ -120,7 +109,10 @@ export function apply(ctx: Context): void {
         sessions,
         timer,
         t,
-        showWebNotification: (e) => showWebNotification(e, sessions),
+        showWebNotification: (e) => {
+          const handle = showWebNotification(e, sessions, () => { if (handle) web.delete(handle) })
+          if (handle) web.add(handle)
+        },
         enqueueTestToast: (e) => enqueueTestToast(e),
       }),
     ))
@@ -136,9 +128,7 @@ export function apply(ctx: Context): void {
 
   ctx.effect(() => () => {
     presence.dispose()
-    drainer.dispose()
-    if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
-      window.removeEventListener('focus', offPerm)
-    }
+    transport.dispose()
+    for (const handle of web) handle.close()
   })
 }

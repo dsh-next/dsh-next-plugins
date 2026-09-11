@@ -8,7 +8,7 @@
 import * as React from 'react'
 import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ISessions } from '@deepseek-ai/dsh-client-runtime/client'
-import type { NotifierConfig, NotifyGroup } from '../core/types.ts'
+import type { NotifierConfig, NotifierConfigPatch, NotifyGroup } from '../core/types.ts'
 import type { TimerLike } from '../core/timer.ts'
 import { webPermission } from './drainer.ts'
 import { currentSessionId } from './presence.ts'
@@ -29,6 +29,32 @@ interface StateSnapshot {
   platform?: string | null
   webPermission?: string | null
   sounds?: SoundMeta[]
+}
+
+interface SettingsSession {
+  active: boolean
+  saved: StateSnapshot | null
+  pending: NotifierConfigPatch[]
+  volume: number | null
+  previewRevision: number
+  permissionPending: boolean
+  tail: Promise<void>
+}
+
+/** Replay only outstanding fields over the last confirmed server snapshot. */
+function optimisticSnapshot(session: SettingsSession): StateSnapshot | null {
+  if (!session.saved?.config) return session.saved
+  let config = session.saved.config
+  for (const patch of session.pending) {
+    config = {
+      ...config, ...patch,
+      finished: { ...config.finished, ...patch.finished },
+      approval: { ...config.approval, ...patch.approval },
+      question: { ...config.question, ...patch.question },
+    }
+  }
+  if (session.volume !== null) config = { ...config, volume: session.volume }
+  return { ...session.saved, config }
 }
 
 export interface CardDeps {
@@ -80,10 +106,32 @@ export function NotifierCard({ rpc, sessions, timer, t = englishTranslate, showW
   const [webStatus, setWebStatus] = React.useState<string | null>(null)
   const [advanced, setAdvanced] = React.useState(false)
 
+  const settings = React.useRef<SettingsSession | null>(null)
+  const volumeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+
   React.useEffect(() => {
-    let alive = true
-    rpc('getState').then((v) => { if (alive) setSnap(v as StateSnapshot) }).catch((e) => { if (alive) setError(String(e)) })
-    return () => { alive = false }
+    const session: SettingsSession = {
+      active: true, saved: null, pending: [], volume: null,
+      previewRevision: 0, permissionPending: false, tail: Promise.resolve(),
+    }
+    settings.current = session
+    setSnap(null)
+    session.tail = (async () => {
+      try {
+        const next = await rpc('getState') as StateSnapshot
+        if (!session.active) return
+        session.saved = next
+        setSnap(optimisticSnapshot(session))
+        setError(null)
+      } catch (e) {
+        if (session.active) setError(String(e))
+      }
+    })()
+    return () => {
+      session.active = false
+      if (volumeTimer.current !== null) clearTimeout(volumeTimer.current)
+      volumeTimer.current = null
+    }
   }, [rpc])
 
   React.useEffect(() => { setWebStatus(webPermission()) }, [])
@@ -103,43 +151,94 @@ export function NotifierCard({ rpc, sessions, timer, t = englishTranslate, showW
   const config = snap?.config
   const sounds = snap?.sounds ?? []
 
-  function update(patch: Record<string, unknown>): void {
-    setSnap((prev) => (prev && prev.config ? { ...prev, config: { ...prev.config, ...patch } as NotifierConfig } : prev))
-    rpc('setConfig', patch).then((v) => setSnap(v as StateSnapshot)).catch((e) => {
-      setError(String(e))
-      rpc('getState').then((v) => setSnap(v as StateSnapshot)).catch(() => {})
+  function update(patch: NotifierConfigPatch, preview?: { group: 'finished' | 'approval' | 'question'; revision: number }): void {
+    const session = settings.current
+    if (!session?.active || !session.saved?.config) return
+    session.pending.push(patch)
+    setSnap(optimisticSnapshot(session))
+    // Recovery reads and previews share the queue: neither can race a later save.
+    session.tail = session.tail.then(async () => {
+      if (!session.active) return
+      let saved = false
+      try {
+        const next = await rpc('setConfig', patch) as StateSnapshot
+        if (!session.active) return
+        session.saved = next
+        saved = true
+        setError(null)
+      } catch (e) {
+        if (!session.active) return
+        setError(String(e))
+        try {
+          const next = await rpc('getState') as StateSnapshot
+          if (!session.active) return
+          session.saved = next
+        } catch {
+          // Keep the last confirmed snapshot if the recovery read also fails.
+        }
+      }
+      if (!session.active) return
+      session.pending = session.pending.filter((pending) => pending !== patch)
+      setSnap(optimisticSnapshot(session))
+      if (saved && preview && preview.revision === session.previewRevision) {
+        const id = session.saved?.config?.[preview.group].soundName
+        if (id) {
+          try { await rpc('preview', { id }) } catch (e) {
+            if (session.active) setError(String(e))
+          }
+        }
+      }
     })
   }
 
   function sendGroup(key: 'finished' | 'approval' | 'question', fields: Partial<NotifyGroup>): void {
-    if (!config) return
-    const g = config[key]
-    update({ [key]: { enabled: g.enabled, sound: g.sound, soundName: g.soundName, subagent: g.subagent ?? false, goalOnly: g.goalOnly ?? true, ...fields } })
+    const session = settings.current
+    if (!session?.active) return
+    const preview = fields.soundName === undefined ? undefined : { group: key, revision: ++session.previewRevision }
+    const patch: NotifierConfigPatch = { [key]: fields }
+    // A sound selected during a slider drag must preview at the chosen volume.
+    if (preview && session.volume !== null) {
+      patch.volume = session.volume
+      session.volume = null
+      if (volumeTimer.current !== null) clearTimeout(volumeTimer.current)
+      volumeTimer.current = null
+    }
+    update(patch, preview)
   }
 
-  let volumeTimer: ReturnType<typeof setTimeout> | null = null
   function setVolume(value: string | number): void {
+    const session = settings.current
+    if (!session?.active) return
     const v = Math.max(0, Math.min(100, Math.round(Number(value) || 0)))
-    setSnap((prev) => (prev && prev.config ? { ...prev, config: { ...prev.config, volume: v } } : prev))
-    if (volumeTimer) clearTimeout(volumeTimer)
-    volumeTimer = setTimeout(() => {
-      rpc('setConfig', { volume: v }).then((next) => {
-        setSnap(next as StateSnapshot)
-        const cfg = (next as StateSnapshot).config
-        rpc('preview', { id: cfg?.finished?.soundName || 'chime' }).catch(() => {})
-      }).catch((e) => {
-        setError(String(e))
-        rpc('getState').then((vv) => setSnap(vv as StateSnapshot)).catch(() => {})
-      })
+    session.volume = v
+    const revision = ++session.previewRevision
+    setSnap(optimisticSnapshot(session))
+    if (volumeTimer.current !== null) clearTimeout(volumeTimer.current)
+    volumeTimer.current = setTimeout(() => {
+      volumeTimer.current = null
+      if (!session.active) return
+      session.volume = null
+      update({ volume: v }, { group: 'finished', revision })
     }, 600)
   }
 
   function enableWeb(): void {
-    if (typeof Notification === 'undefined') return
-    Notification.requestPermission().then((p) => {
-      setWebStatus(p)
-      rpc('reportWebPermission', { status: p }).catch(() => {})
-    }).catch(() => {})
+    const session = settings.current
+    if (!session?.active || session.permissionPending || typeof Notification === 'undefined') return
+    session.permissionPending = true
+    void (async () => {
+      try {
+        const status = await Notification.requestPermission()
+        if (!session.active) return
+        setWebStatus(status)
+        await rpc('reportWebPermission', { status })
+        if (session.active) setError(null)
+      } catch (e) {
+        if (session.active) setError(String(e))
+      } finally {
+        session.permissionPending = false
+      }
+    })()
   }
 
   function testWeb(): void {
@@ -188,7 +287,6 @@ export function NotifierCard({ rpc, sessions, timer, t = englishTranslate, showW
       onChange: (event: React.ChangeEvent<HTMLSelectElement>) => {
         const id = event.target.value
         sendGroup(groupKey, { soundName: id })
-        rpc('preview', { id }).catch(() => {})
       },
     }, Object.keys(byGroup).map((groupName) => React.createElement('optgroup', { key: groupName, label: groupName },
       byGroup[groupName].map((s) => React.createElement('option', { key: s.id, value: s.id }, s.name)))))
@@ -237,7 +335,8 @@ export function NotifierCard({ rpc, sessions, timer, t = englishTranslate, showW
       React.createElement('span', { className: styles.desc }, t('card.tagline'))),
     React.createElement(IconChevronDownOutline14, { className: styles.chevron + (open ? ' ' + styles.chevOpen : '') }))
 
-  let body: React.ReactNode = null
+  const errorLine = error ? React.createElement('p', { role: 'alert', className: styles.status + ' ' + styles.statusErr }, error) : null
+  let body: React.ReactNode = open && errorLine ? React.createElement('div', { className: styles.body }, errorLine) : null
   if (open && config) {
     body = React.createElement('div', { className: styles.body },
       React.createElement('label', { className: styles.row },
@@ -282,7 +381,7 @@ export function NotifierCard({ rpc, sessions, timer, t = englishTranslate, showW
         React.createElement('button', { type: 'button', className: styles.test, onClick: testToast }, t('toast.button.test'))),
       GROUPS.map((g) => renderGroup(g)),
       React.createElement('div', { className: styles.footer },
-        error ? React.createElement('p', { className: styles.status + ' ' + styles.statusErr }, String(error)) : null,
+        errorLine,
         React.createElement('button', { type: 'button', className: styles.test, onClick: () => setAdvanced((v) => !v) }, advanced ? t('details.hide') : t('details.show')),
         advanced
           ? React.createElement('div', { className: styles.adv },

@@ -15,6 +15,7 @@ type FakeNotification = {
   icon: string
   tag: string
   onclick: (() => void) | null
+  onshow?: (() => void) | null
   close: () => void
 }
 
@@ -132,67 +133,117 @@ describe('showWebNotification', () => {
     vi.useFakeTimers()
     installNotification('granted')
     showWebNotification({ id: 1, title: 't' }, undefined)
-    vi.advanceTimersByTime(12000)
+    fakeCtors[0].onshow?.()
+    vi.advanceTimersByTime(11999)
+    expect(fakeCtors[0].close).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
     expect(fakeCtors[0].close).toHaveBeenCalled()
     vi.useRealTimers()
   })
 })
 
 describe('createDrainer', () => {
-  it('drains only fresh object events and skips stale/non-object rows', async () => {
-    installNotification('granted')
-    const timer: TimerLike = {
-      timeout: vi.fn(),
-      interval: (cb) => { cb(); return vi.fn() as unknown as () => void },
+  const delivery = (overrides = {}) => ({ id: 'event', lease: 'token', leaseExpiresAt: Date.now() + 10000, at: Date.now(), kind: 'finished', title: 'Done', body: 'Finished', sessionId: 's1', ...overrides })
+  const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve() }
+  function setup(claim = vi.fn().mockResolvedValue([delivery()])) {
+    const transport = { claim, show: vi.fn().mockResolvedValue(true), acknowledge: vi.fn().mockResolvedValue({ ok: true }), release: vi.fn().mockResolvedValue({ ok: true }) }
+    const off = vi.fn()
+    const timer = { interval: vi.fn(() => off), timeout: vi.fn() } as TimerLike
+    return { transport, timer, off }
+  }
+  it('acknowledges only after rendering succeeds', async () => {
+    const { transport, timer, off } = setup()
+    let rendered!: (shown: boolean) => void
+    transport.show.mockImplementation(() => new Promise((r) => { rendered = r }))
+    const drainer = createDrainer(timer, transport)
+    await flush()
+    expect(transport.acknowledge).not.toHaveBeenCalled()
+    rendered(true)
+    await flush()
+    expect(transport.acknowledge).toHaveBeenCalledTimes(1)
+    drainer.dispose()
+    expect(off).toHaveBeenCalledTimes(1)
+  })
+  it('releases permission-denied and throwing render attempts without acknowledging', async () => {
+    for (const show of [vi.fn().mockResolvedValue(false), vi.fn().mockRejectedValue(new Error('browser'))]) {
+      const { transport } = setup()
+      transport.show = show
+      const drainer = createDrainer(undefined, transport)
+      await flush()
+      expect(transport.release).toHaveBeenCalledTimes(1)
+      expect(transport.acknowledge).not.toHaveBeenCalled()
+      drainer.dispose()
     }
-    // fetchPending mirrors the Host's drainPending(): the queue empties on
-    // first read, so a second poll (interval) returns nothing.
-    const queue = [
-      { id: 1, at: Date.now() - 1000, title: 'fresh' },
-      { id: 2, at: Date.now() - 60000, title: 'stale' },
-      null,
-      'not-an-object',
-    ]
-    const fetchPending = vi.fn().mockResolvedValue(queue).mockResolvedValueOnce(queue).mockResolvedValue([])
-    const drainer = createDrainer(undefined, timer, fetchPending)
-    await new Promise((r) => setTimeout(r, 20))
-    // Only the fresh, object row produced a notification (with the default emoji).
-    expect(fakeCtors.map((n) => n.title)).toEqual(['\ud83d\udd14 fresh'])
+  })
+  it('single-flights requests and releases late claims after disposal', async () => {
+    let resolve!: (events: unknown) => void
+    const { transport } = setup(vi.fn(() => new Promise((r) => { resolve = r })))
+    const drainer = createDrainer(undefined, transport)
+    await drainer.poll()
+    expect(transport.claim).toHaveBeenCalledTimes(1)
+    drainer.dispose()
+    resolve([delivery()])
+    await flush()
+    expect(transport.show).not.toHaveBeenCalled()
+    expect(transport.release).toHaveBeenCalledTimes(1)
+    await drainer.poll()
+    expect(transport.claim).toHaveBeenCalledTimes(1)
+  })
+  it('does not acknowledge a renderer that settles after disposal', async () => {
+    const { transport } = setup()
+    let resolve!: (shown: boolean) => void
+    transport.show.mockImplementation(() => new Promise((r) => { resolve = r }))
+    const drainer = createDrainer(undefined, transport)
+    await flush()
+    drainer.dispose()
+    resolve(true)
+    await flush()
+    expect(transport.acknowledge).not.toHaveBeenCalled()
+    expect(transport.release).toHaveBeenCalledTimes(1)
+  })
+  it('retries acknowledgements without rendering the same event twice', async () => {
+    const { transport } = setup()
+    transport.acknowledge.mockRejectedValueOnce(new Error('lost response'))
+    const drainer = createDrainer(undefined, transport)
+    await flush()
+    await drainer.poll()
+    expect(transport.show).toHaveBeenCalledTimes(1)
+    expect(transport.acknowledge.mock.calls.length).toBeGreaterThan(1)
     drainer.dispose()
   })
-
-  it('faces an initial drain even without a timer', async () => {
-    installNotification('granted')
-    const fetchPending = vi.fn().mockResolvedValue([])
-    const drainer = createDrainer(undefined, undefined, fetchPending)
-    await new Promise((r) => setTimeout(r, 10))
-    expect(fetchPending).toHaveBeenCalledTimes(1)
+  it('renders again for a new lease after a lost acknowledgement and expired toast', async () => {
+    const { transport } = setup()
+    transport.acknowledge.mockRejectedValueOnce(new Error('offline'))
+    const drainer = createDrainer(undefined, transport)
+    await flush()
+    transport.claim.mockResolvedValue([delivery({ lease: 'replacement' })])
+    await drainer.poll()
+    expect(transport.show).toHaveBeenCalledTimes(2)
     drainer.dispose()
   })
-
-  it('skips toast-channel events (the toast layer owns them)', async () => {
-    installNotification('granted')
-    const timer: TimerLike = {
-      timeout: vi.fn(),
-      interval: (cb) => { cb(); return vi.fn() as unknown as () => void },
-    }
-    const queue = [
-      { id: 1, at: Date.now() - 1000, title: 'toast-bound', channel: 'toast' },
-      { id: 2, at: Date.now() - 1000, title: 'web-bound', channel: 'web' },
-      { id: 3, at: Date.now() - 1000, title: 'legacy' },
-    ]
-    const fetchPending = vi.fn().mockResolvedValue(queue).mockResolvedValueOnce(queue).mockResolvedValue([])
-    const drainer = createDrainer(undefined, timer, fetchPending)
-    await new Promise((r) => setTimeout(r, 20))
-    expect(fakeCtors.map((n) => n.title)).toEqual(['\ud83d\udd14 web-bound', '\ud83d\udd14 legacy'])
+  it('ignores malformed rows and releases expired deliveries', async () => {
+    const { transport } = setup(vi.fn().mockResolvedValue([null, 'bad', {}, delivery({ at: Date.now() - 120001 }), delivery({ leaseExpiresAt: Date.now() - 1 })]))
+    const drainer = createDrainer(undefined, transport)
+    await flush()
+    expect(transport.show).not.toHaveBeenCalled()
+    expect(transport.release).toHaveBeenCalledTimes(2)
     drainer.dispose()
   })
-
-  it('opens the clicked session', () => {
+  it('recovers from failed fetch and ignores non-array responses', async () => {
+    const { transport } = setup(vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue({}))
+    const drainer = createDrainer(undefined, transport)
+    await flush()
+    await drainer.poll()
+    expect(transport.claim).toHaveBeenCalledTimes(2)
+    expect(transport.show).not.toHaveBeenCalled()
+    drainer.dispose()
+  })
+  it('opens the clicked session and closes its notification', () => {
     installNotification('granted')
     const open = vi.fn()
-    showWebNotification({ id: 9, sessionId: 's5', title: 't' }, { open } as never)
+    const handle = showWebNotification({ id: 9, sessionId: 's5', title: 't' }, { open } as never)
     fakeCtors[0].onclick?.()
     expect(open).toHaveBeenCalledWith('s5')
+    handle?.close()
   })
 })

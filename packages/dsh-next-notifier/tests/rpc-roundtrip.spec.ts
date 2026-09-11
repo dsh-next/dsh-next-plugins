@@ -1,133 +1,119 @@
+import { EventEmitter } from 'node:events'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { describe, expect, it } from 'vitest'
 import type { SettingsScope } from '@deepseek-ai/dsh-settings'
 import { Notifier } from '../src/host/notifier.ts'
 import { registerRpc } from '../src/host/rpc.ts'
+import { defaultConfig } from '../src/core/config.ts'
+import type { ClientPresence } from '../src/core/notifications.ts'
 import type { NotifierConfig } from '../src/core/types.ts'
 
-/**
- * Settings-chasing round-trip: drives the real `registerRpc` HTTP wire path
- * with a fake webServer that captures the raw handler, so we prove that a
- * browser `setConfig` POST persists through the settings scope and a follow-up
- * `getState` returns the updated envelope. This is the exact "does saving a
- * setting actually stick" path — the class of bug where the card renders but
- * edits never persist or never reflect back.
- */
-
-/** Minimal SettingsScope that stores one section and reports writes. */
-function fakeScope(initial: Partial<NotifierConfig> | null): { scope: SettingsScope<NotifierConfig>; stored: () => unknown; lastPatch: () => unknown } {
-  let stored: unknown = initial
-  let lastPatch: unknown = null
-  return {
-    stored: () => stored,
-    lastPatch: () => lastPatch,
-    scope: {
-      get: () => stored,
-      update: async (patch: unknown) => { lastPatch = patch; stored = patch; return stored },
-    } as unknown as SettingsScope<NotifierConfig>,
-  }
-}
-
-/** An IncomingMessage-alike that emits a POST body and signals end. */
-function requestWithBody(body: string): { method: string; on: (ev: string, cb: (d?: unknown) => void) => void; destroy: () => void } {
-  let dataCb: ((d: unknown) => void) | null = null
-  let endCb: (() => void) | null = null
-  const stream = {
-    method: 'POST',
-    on: (ev: string, cb: (d?: unknown) => void) => {
-      if (ev === 'data') dataCb = cb
-      if (ev === 'end') endCb = cb
-      return stream
+/** Model the settings service's partial/deep update, not whole-section replacement. */
+function fakeScope() {
+  let stored = defaultConfig()
+  let lastPatch: Record<string, unknown> = {}
+  const scope = {
+    get: () => stored,
+    update: async (patch: Record<string, unknown>) => {
+      lastPatch = patch
+      const next = { ...stored, ...patch }
+      for (const key of ['finished', 'approval', 'question'] as const) {
+        if (patch[key]) next[key] = { ...stored[key], ...patch[key] as object }
+      }
+      stored = next
+      return stored
     },
-    destroy: () => {},
-  }
-  // Emit synchronously after registration (tests call resolve immediately).
-  setTimeout(() => { dataCb?.(body); endCb?.() }, 0)
-  return stream
+  } as unknown as SettingsScope<NotifierConfig>
+  return { scope, lastPatch: () => lastPatch }
 }
 
-function makeResponse(): { res: Record<string, unknown>; json: () => unknown; status: () => number } {
-  let statusCode = 200
-  let bodyText = ''
-  return {
-    res: {
-      writeHead: (code: number) => { statusCode = code },
-      end: (data: string) => { bodyText = String(data ?? '') },
+function registerAndCapture(scope: SettingsScope<NotifierConfig>) {
+  const notifier = new Notifier({
+    ctx: { get: () => undefined } as never, scope,
+    timer: { timeout: () => () => {}, interval: () => () => {} }, goals: undefined,
+  })
+  let handler: (req: IncomingMessage, res: ServerResponse) => void
+  registerRpc({
+    get: (name: string) => {
+      if (name === 'webServer') return { register: (spec: { handler: typeof handler }) => { handler = spec.handler; return () => {} } }
+      if (name === 'settings') return { writable: true }
+      return undefined
+    },
+    effect: () => {},
+  } as never, notifier, scope)
+  const post = (method: string, args: unknown): Promise<{ status: number; json: ReturnType<Notifier['state']> }> => new Promise((resolve) => {
+    const req = Object.assign(new EventEmitter(), { method: 'POST' })
+    let status = 0
+    const res = Object.assign(new EventEmitter(), {
       writableEnded: false,
-    },
-    json: () => JSON.parse(bodyText || '{}'),
-    status: () => statusCode,
-  }
-}
-
-function registerAndCapture(scope: ReturnType<typeof fakeScope>['scope']): {
-  post: (method: string, args: unknown) => Promise<unknown>
-  notifier: Notifier
-} {
-  const notifier = new Notifier({ ctx: { get: () => undefined } as never, scope, timer: undefined, goals: undefined })
-  let captured: ((req: unknown, res: unknown) => void) | null = null
-  registerRpc(
-    {
-      get: (name: string) => {
-        if (name === 'webServer') return { register: (spec: unknown) => { captured = (spec as { handler: unknown }).handler as never; return () => {} } }
-        if (name === 'settings') return { writable: true }
-        return undefined
-      },
-      effect: () => {},
-    } as never,
-    notifier,
-    scope,
-  )
-  const post = (method: string, args: unknown): Promise<unknown> => {
-    const { res, json, status } = makeResponse()
-    const req = requestWithBody(JSON.stringify({ method, args }))
-    captured!(req, res)
-    return new Promise((resolve) => setTimeout(() => resolve({ json: json(), status: status() }), 10))
-  }
+      writeHead: (code: number) => { status = code },
+      end: (body: string) => { res.writableEnded = true; resolve({ status, json: JSON.parse(body) }) },
+    })
+    handler(req as IncomingMessage, res as unknown as ServerResponse)
+    req.emit('data', Buffer.from(JSON.stringify({ method, args })))
+    req.emit('end')
+  })
   return { post, notifier }
 }
 
+const report: ClientPresence = {
+  clientId: 'tab-a', sequence: 0, focused: true, visible: true, open: true,
+  sessionId: 'session-a', permission: 'granted',
+}
+
 describe('registerRpc settings round-trip', () => {
-  it('setConfig persists through the scope and getState returns the update', async () => {
-    const { scope } = fakeScope(null)
+  it('persists config and returns the full browser envelope', async () => {
+    const { scope } = fakeScope()
     const { post } = registerAndCapture(scope)
-
-    const setResult = await post('setConfig', { volume: 35, finished: { soundName: 'bell' } })
-    const envelope = (setResult as { json: { config: NotifierConfig } }).json
-    expect(envelope.config.volume).toBe(35)
-    expect(envelope.config.finished.soundName).toBe('bell')
-
-    const getResult = (await post('getState', null)) as { json: { config: NotifierConfig } }
-    expect(getResult.json.config.volume).toBe(35)
-    expect(getResult.json.config.finished.soundName).toBe('bell')
+    const result = await post('setConfig', { volume: 35, finished: { soundName: 'bell' } })
+    expect(result.status).toBe(200)
+    expect(Object.keys(result.json).sort()).toEqual(['config', 'platform', 'sounds', 'webPermission'])
+    expect(result.json.config.volume).toBe(35)
+    expect(result.json.config.finished.soundName).toBe('bell')
+    const reread = await post('getState', null)
+    expect(reread.status).toBe(200)
+    expect(reread.json.config).toEqual(result.json.config)
+    expect(scope.get()).toEqual(result.json.config)
   })
 
-  it('a follow-up getState reflects the stored section (persistence, not just a reply)', async () => {
-    const { scope } = fakeScope(null)
+  it('sends only the partial patch and preserves unrelated saved fields', async () => {
+    const { scope, lastPatch } = fakeScope()
     const { post } = registerAndCapture(scope)
-    await post('setConfig', { enabled: false })
-    // Re-read the scope directly — the write must have landed in storage.
-    expect((scope.get() as { enabled: boolean }).enabled).toBe(false)
+    await post('setConfig', { volume: 15, finished: { sound: false }, approval: { enabled: false } })
+    const result = await post('setConfig', { clientId: 'tab-a', finished: { soundName: 'bell' }, ignored: 'discard' })
+    expect(result.status).toBe(200)
+    expect(lastPatch()).toEqual({ finished: { soundName: 'bell' } })
+    expect(result.json.config.volume).toBe(15)
+    expect(result.json.config.finished.sound).toBe(false)
+    expect(result.json.config.finished.soundName).toBe('bell')
+    expect(result.json.config.approval.enabled).toBe(false)
   })
 
-  it('getState returns the full envelope on a fresh notifier', async () => {
-    const { scope } = fakeScope(null)
-    const { post } = registerAndCapture(scope)
-    const result = (await post('getState', null)) as { json: { config: NotifierConfig; sounds: unknown[]; platform: string | null; webPermission: string | null } }
-    expect(result.json).toHaveProperty('config')
-    expect(result.json).toHaveProperty('sounds')
-    expect(result.json.sounds.length).toBe(17)
+  it('returns the sound catalog and normalized defaults on a fresh notifier', async () => {
+    const { post } = registerAndCapture(fakeScope().scope)
+    const result = await post('getState', null)
+    expect(result.status).toBe(200)
+    expect(result.json.config).toEqual(defaultConfig())
+    expect(result.json.sounds).toHaveLength(17)
   })
 
-  it('getPendingNotifications accepts a channel arg and returns an empty list', async () => {
-    const { scope } = fakeScope(null)
-    const { post } = registerAndCapture(scope)
-    for (const channel of ['toast', 'web']) {
-      const result = (await post('getPendingNotifications', { channel })) as { json: unknown[] }
-      expect(Array.isArray(result.json)).toBe(true)
-      expect(result.json).toEqual([])
+  it('reports presence before claiming deliveries and returns client-scoped state', async () => {
+    const { post, notifier } = registerAndCapture(fakeScope().scope)
+    const result = await post('getPendingNotifications', report)
+    expect(result.status).toBe(200)
+    expect(result.json).toEqual([])
+    expect(notifier.getPresence('tab-a')).toMatchObject({ sessionId: 'session-a', permission: 'granted' })
+    const state = await post('getState', { clientId: 'tab-a' })
+    expect(state.json.webPermission).toBe('granted')
+    const saved = await post('setConfig', { clientId: 'tab-a', enabled: false })
+    expect(saved.json.webPermission).toBe('granted')
+    expect(saved.json.config.enabled).toBe(false)
+  })
+
+  it('rejects old unowned drains rather than consuming another client queue', async () => {
+    const { post } = registerAndCapture(fakeScope().scope)
+    for (const args of [null, { channel: 'toast' }, { channel: 'web' }]) {
+      expect((await post('getPendingNotifications', args)).status).toBe(400)
     }
-    // An unscoped call stays supported (legacy: drains everything).
-    const legacy = (await post('getPendingNotifications', null)) as { json: unknown[] }
-    expect(legacy.json).toEqual([])
   })
 })

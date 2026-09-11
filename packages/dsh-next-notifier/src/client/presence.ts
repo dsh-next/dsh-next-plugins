@@ -5,13 +5,10 @@
  */
 import type { ISessions } from '@deepseek-ai/dsh-client-runtime/client'
 import type { TimerLike } from '../core/timer.ts'
+import type { ClientPresence } from '../core/notifications.ts'
+import { webPermission } from './drainer.ts'
 
-export interface PresenceReport {
-  focused: boolean
-  visible: boolean
-  open: boolean
-  sessionId: string | null
-}
+export type PresenceReport = ClientPresence
 
 export function currentSessionId(sessions: ISessions | undefined): string | null {
   if (!sessions) return null
@@ -51,6 +48,8 @@ export function isLookingNow(): boolean {
 }
 
 export interface PresenceReporter {
+  readonly clientId: string
+  snapshot: () => ClientPresence
   report: () => void
   dispose: () => void
 }
@@ -60,25 +59,45 @@ export function createPresenceReporter(
   timer: TimerLike | undefined,
   send: (method: string, args: unknown) => Promise<unknown>,
 ): PresenceReporter {
-  const compute = (): PresenceReport => ({
-    focused: typeof document !== 'undefined' && typeof document.hasFocus === 'function' ? document.hasFocus() : false,
-    visible: typeof document === 'undefined' || document.visibilityState === undefined ? true : document.visibilityState === 'visible',
-    open: true,
-    sessionId: currentSessionId(sessions),
+  // Per reporter, not per tab storage: an HMR replacement is a new client.
+  const clientId = crypto.randomUUID()
+  let sequence = 0
+  let open = true
+  let disposed = false
+  const snapshot = (): ClientPresence => ({
+    clientId,
+    sequence: ++sequence,
+    focused: open && !disposed && typeof document !== 'undefined' && typeof document.hasFocus === 'function' ? document.hasFocus() : false,
+    visible: open && !disposed && (typeof document === 'undefined' || document.visibilityState === undefined || document.visibilityState === 'visible'),
+    open: open && !disposed,
+    sessionId: open && !disposed ? currentSessionId(sessions) : null,
+    permission: webPermission(),
   })
 
   const report = (): void => {
-    void send('reportPresence', compute()).catch(() => {})
+    if (disposed) return
+    try { void send('reportPresence', snapshot()).catch(() => {}) } catch {
+      // A synchronous transport failure must not interrupt browser teardown.
+    }
   }
 
   const offs: (() => void)[] = []
   if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
     const onAny = (): void => report()
+    const onHide = (): void => {
+      if (disposed || !open) return
+      open = false
+      report()
+    }
+    const onShow = (): void => {
+      if (disposed || open) return
+      open = true
+      report()
+    }
     window.addEventListener('focus', onAny)
     window.addEventListener('blur', onAny)
-    window.addEventListener('pagehide', () => {
-      void send('reportPresence', { focused: false, visible: false, open: false, sessionId: null }).catch(() => {})
-    })
+    window.addEventListener('pagehide', onHide)
+    window.addEventListener('pageshow', onShow)
     if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
       document.addEventListener('visibilitychange', onAny)
       offs.push(() => document.removeEventListener('visibilitychange', onAny))
@@ -86,6 +105,8 @@ export function createPresenceReporter(
     offs.push(() => {
       window.removeEventListener('focus', onAny)
       window.removeEventListener('blur', onAny)
+      window.removeEventListener('pagehide', onHide)
+      window.removeEventListener('pageshow', onShow)
     })
   }
 
@@ -108,9 +129,15 @@ export function createPresenceReporter(
   report()
 
   return {
+    clientId,
+    snapshot,
     report,
     dispose: () => {
-      for (const off of offs) {
+      if (disposed) return
+      open = false
+      report()
+      disposed = true
+      for (const off of offs.splice(0)) {
         try { off() } catch {}
       }
     },

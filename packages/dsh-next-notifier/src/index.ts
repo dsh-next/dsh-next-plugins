@@ -7,6 +7,7 @@
  * `src/host/` (stateful) and `src/core/` (pure); this entry stays thin.
  */
 import type { Context } from '@deepseek-ai/cordis'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SettingsScope } from '@deepseek-ai/dsh-settings'
 import { notifierSchema, type NotifierConfigShape } from './core/schema.ts'
 import { NOTIFIER_NAMESPACE } from './core/namespace.ts'
@@ -14,12 +15,12 @@ import type { TimerLike } from './core/timer.ts'
 import { Notifier } from './host/notifier.ts'
 import { registerRpc } from './host/rpc.ts'
 
-export const inject = ['settings', 'webServer', 'subprocess'] as const
+export const inject = ['settings', 'webServer', 'subprocess', 'timer'] as const
 
 export function apply(ctx: Context): void {
   const settings = ctx.get('settings')
-  const timerRaw = ctx.get('timer') as TimerLike | undefined
-  const goals = ctx.get('goals')
+  const timer = ctx.get('timer') as TimerLike
+  const goals = { get: (agent: Agent) => ctx.get('goals')?.get(agent) }
 
   // Register the settings namespace (typed scope). Without the settings
   // service the card still renders but config cannot persist; the notifier
@@ -28,11 +29,11 @@ export function apply(ctx: Context): void {
     ? settings.register(NOTIFIER_NAMESPACE, notifierSchema, { applies: 'live' })
     : null
 
-  const notifier = new Notifier({ ctx, scope, timer: timerRaw ?? undefined, goals })
+  const notifier = new Notifier({ ctx, scope, timer, goals })
 
   // Re-synthesize the sound set when the stored config's volume changes.
   if (scope && typeof scope.watch === 'function') {
-    scope.watch(() => notifier.onConfigChanged())
+    ctx.effect(() => scope.watch(() => notifier.onConfigChanged()))
   }
 
   registerRpc(ctx, notifier, scope)

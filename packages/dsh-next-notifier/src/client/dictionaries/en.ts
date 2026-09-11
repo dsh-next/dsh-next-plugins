@@ -80,6 +80,8 @@ export const en = {
   'presence.ageMs': '{count}ms old',
   'presence.stale': 'stale',
 
+  'rpc.timeout': 'Notifier request "{method}" timed out. Try again.',
+  'rpc.disposed': 'Notifier is no longer active.',
   'rpc.failed': 'Notifier request "{method}" failed (HTTP {status})',
 }
 

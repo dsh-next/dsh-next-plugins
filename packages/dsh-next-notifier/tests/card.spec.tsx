@@ -33,8 +33,8 @@ describe('NotifierCard header', () => {
     }))
   }
 
-  it('renders the localized title and tagline with the shell chevron icon', () => {
-    act(renderCard)
+  it('renders the localized title and tagline with the shell chevron icon', async () => {
+    await act(async () => { renderCard() })
     const header = container.querySelector('button[aria-expanded]')
     expect(header, 'the disclosure header should render').not.toBeNull()
     expect(header!.textContent).toContain('Notifier')
@@ -44,12 +44,12 @@ describe('NotifierCard header', () => {
     expect(header!.getAttribute('aria-expanded')).toBe('false')
   })
 
-  it('toggles aria-expanded when the header is clicked', () => {
-    act(renderCard)
+  it('toggles aria-expanded when the header is clicked', async () => {
+    await act(async () => { renderCard() })
     const header = container.querySelector('button[aria-expanded]') as HTMLButtonElement
-    act(() => { header.click() })
+    await act(async () => { header.click() })
     expect(header.getAttribute('aria-expanded')).toBe('true')
-    act(() => { header.click() })
+    await act(async () => { header.click() })
     expect(header.getAttribute('aria-expanded')).toBe('false')
   })
 
@@ -59,7 +59,7 @@ describe('NotifierCard header', () => {
     act(() => { renderCard(rpc, enqueue) })
     await act(async () => { await Promise.resolve() })
     const header = container.querySelector('button[aria-expanded]') as HTMLButtonElement
-    act(() => { header.click() })
+    await act(async () => { header.click() })
     const show = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Show')
     expect(show, 'the Show test-toast button should render').not.toBeUndefined()
     act(() => { show!.click() })

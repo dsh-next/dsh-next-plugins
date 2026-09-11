@@ -36,9 +36,11 @@ function installNotification(): { ctor: { title: string; body: string }[] } {
   class MockNotification {
     static permission = 'granted'
     onclick: (() => void) | null = null
+    onshow: (() => void) | null = null
     close = vi.fn()
     constructor(title: string, opts: { body?: string } = {}) {
       ctor.push({ title, body: opts.body ?? '' })
+      queueMicrotask(() => this.onshow?.())
     }
   }
   Object.defineProperty(globalThis, 'Notification', { value: MockNotification, configurable: true, writable: true })
@@ -47,7 +49,9 @@ function installNotification(): { ctor: { title: string; body: string }[] } {
 
 function event(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    id: 1,
+    id: '1',
+    lease: 'lease',
+    leaseExpiresAt: Date.now() + 10000,
     kind: 'approval',
     title: 'Approval needed',
     body: 'Waiting for your approval: bash',
@@ -110,11 +114,11 @@ describe('ToastLayer', () => {
       .toContain('Waiting for your approval: bash')
   })
 
-  it('ignores web-channel and legacy events (the web drainer owns them)', async () => {
+  it('ignores malformed events without a valid delivery lease', async () => {
     mockFocus(true)
     const rpc = vi.fn(async () => [
-      event({ channel: 'web', title: 'web-bound' }),
-      event({ channel: undefined, title: 'legacy' }),
+      event({ lease: undefined, title: 'unleased' }),
+      event({ id: undefined, title: 'unidentified' }),
     ])
     renderLayer(rpc)
     await flush()
@@ -176,7 +180,7 @@ describe('ToastLayer', () => {
     mockFocus(true)
     const queue = [
       event({ kind: 'approval', title: 'Approval needed' }),
-      event({ kind: 'question', title: 'Question asked' }),
+      event({ id: '2', kind: 'question', title: 'Question asked' }),
     ]
     const rpc = vi.fn(async () => queue)
     renderLayer(rpc, undefined, fakeTimer())
@@ -188,7 +192,7 @@ describe('ToastLayer', () => {
 
   it('caps the stack at five, dropping the oldest', async () => {
     mockFocus(true)
-    const queue = ['a', 'b', 'c', 'd', 'e', 'f'].map((s, i) => event({ id: i, sessionId: 's-' + s, title: 'Event ' + s }))
+    const queue = ['a', 'b', 'c', 'd', 'e', 'f'].map((s, i) => event({ id: String(i), sessionId: 's-' + s, title: 'Event ' + s }))
     const rpc = vi.fn(async () => queue)
     renderLayer(rpc, undefined, fakeTimer())
     await flush()
@@ -208,6 +212,46 @@ describe('ToastLayer', () => {
     expect(container.querySelector('[data-testid="dsh-next-notifier-toast"]')).toBeNull()
     expect(ctor).toHaveLength(1)
     expect(ctor[0].title).toBe('\u26a0\ufe0f Approval needed')
+  })
+
+  it('releases a focus-loss fallback when web permission is denied without acknowledging', async () => {
+    mockFocus(false)
+    class Denied { static permission = 'denied' }
+    Object.defineProperty(globalThis, 'Notification', { value: Denied, configurable: true })
+    const rpc = vi.fn(async (method: string) => method === 'getPendingNotifications' ? [event()] : {})
+    renderLayer(rpc)
+    await flush()
+    expect(container.querySelector('[data-testid="dsh-next-notifier-toast"]')).toBeNull()
+    expect(rpc.mock.calls.some(([method]) => method === 'releaseNotification')).toBe(true)
+    expect(rpc.mock.calls.some(([method]) => method === 'acknowledgeNotifications')).toBe(false)
+  })
+
+  it('acknowledges only after a visible toast commits', async () => {
+    mockFocus(true)
+    const rpc = vi.fn(async (method: string) => {
+      if (method === 'getPendingNotifications') return [event()]
+      if (method === 'acknowledgeNotifications') expect(container.querySelector('[data-testid="dsh-next-notifier-toast"]')).not.toBeNull()
+      return {}
+    })
+    renderLayer(rpc)
+    await flush()
+    expect(rpc.mock.calls.some(([method]) => method === 'acknowledgeNotifications')).toBe(true)
+  })
+
+  it('does not navigate when the close button receives Enter or Space', async () => {
+    mockFocus(true)
+    const open = vi.fn()
+    renderLayer(vi.fn(async () => [event()]), { open } as unknown as ISessions)
+    await flush()
+    const close = container.querySelector('[data-testid="dsh-next-notifier-toast-close"]') as HTMLButtonElement
+    for (const key of ['Enter', ' ']) {
+      const e = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+      act(() => { close.dispatchEvent(e) })
+      expect(e.defaultPrevented).toBe(false)
+    }
+    act(() => close.click())
+    expect(open).not.toHaveBeenCalled()
+    expect(container.querySelector('[data-testid="dsh-next-notifier-toast"]')).toBeNull()
   })
 
   it('serves the settings card test-toast bus', async () => {

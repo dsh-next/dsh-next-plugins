@@ -4,6 +4,7 @@
  * identity — unit-tested against synthetic inputs.
  */
 import type { NotifierConfig } from './types.ts'
+import type { EventKind } from './notifications.ts'
 
 /** A presence report as the client sends it and the host stores it. */
 export interface Presence {
@@ -29,7 +30,7 @@ export interface DecisionInput {
   config: NotifierConfig
   presence: Presence | null
   presenceAgeMs: number
-  eventKind: 'finished' | 'approval' | 'question' | 'subagent' | 'goal-complete' | 'goal-blocked'
+  eventKind: EventKind
   title: string
   body: string
   sessionId: string | null

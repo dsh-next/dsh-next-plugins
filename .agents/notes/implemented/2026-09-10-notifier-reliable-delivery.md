@@ -39,3 +39,9 @@ The [completeness contract](../../../docs/plugins.md#the-completeness-contract),
 ## Local web-profile installation
 
 Rebuilt and packed the notifier, then installed the local tarball through `dsh plugin --profile web add file:<tarball>`. The profile manifest and lockfile were backed up first; all other profile dependencies and bundle entries were preserved. Installed host and browser bundles matched the compiled files byte-for-byte. `dsh --profile web --dump-config` exited successfully and included the notifier; it also reported an unrelated existing global patch reference to the unmounted `dsh-next-cc-plugins` row. The running GUI process was left untouched: restart DSH, then refresh the browser to activate the new host/client pair.
+
+## Main-branch integration
+
+Rebased onto main while preserving the newer SDK resolutions, OAuth plugin, and extracted E2E health guards. The credential-isolated workflow sends the fake model key only to DSH, not Playwright; the notifier failed-turn probe now selects the keyless lane through `DSH_E2E_LIVE` instead of checking browser-test credentials, avoiding a silent skip.
+
+`pnpm install --frozen-lockfile`, `pnpm run check`, `pnpm changeset status`, and changeset coverage against `origin/main` passed. The full `pnpm run test:e2e --keep failure` gate passed on DSH 0.1.5-rc.1: two smoke tests (including the actual failed-agent-turn notification), six checkpoint tests, and the worktrees-sidebar test. All three suites passed on their first completed attempt with no skipped notifier probe.

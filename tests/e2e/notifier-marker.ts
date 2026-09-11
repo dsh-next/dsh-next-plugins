@@ -69,7 +69,7 @@ export async function verifyNotifier(page: Page, openCard: (page: Page) => Promi
 /** Keep real agent work in its own page/test, not in other plugins' shared marker state. */
 export function registerNotifierTurnTest(baseUrl: string, plugins: string[], preparePage: (page: Page) => Promise<void>): void {
   test('notifier distinguishes an actual failed agent turn', async ({ page }) => {
-    test.skip(!plugins.includes('@dsh-next/dsh-next-notifier') || process.env.DEEPSEEK_API_KEY !== 'fake-e2e-key', 'requires the isolated keyless notifier lane')
+    test.skip(!plugins.includes('@dsh-next/dsh-next-notifier') || process.env.DSH_E2E_LIVE === '1', 'requires the isolated keyless notifier lane')
     await page.emulateMedia({ colorScheme: 'dark' })
     await page.goto(baseUrl)
     await preparePage(page)

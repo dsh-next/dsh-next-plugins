@@ -27,7 +27,6 @@ import { verifyOauthProviders } from './oauth-helpers.ts'
 import { bareId, assertMountHealthy, runGuardedMarker, requireCheckpointsPanel } from '../../scripts/e2e-guards.mjs'
 import { closeDialogs, openWorkspaceSession, unblank } from './checkpoints-helpers.ts'
 import { verifyNotifier, registerNotifierTurnTest } from './notifier-marker.ts'
-
 import {
   commitFile,
   completeConflictedMerge,
@@ -61,7 +60,6 @@ const pluginIds = (process.env.DSH_E2E_PLUGINS || '')
   .split(',')
   .map((id) => id.trim())
   .filter(Boolean)
-
 
 // A fresh scratch home walks a first-run onboarding flow (an "Internal Testing
 // Notice", then an "Add an API key to get started" modal) whose masks intercept

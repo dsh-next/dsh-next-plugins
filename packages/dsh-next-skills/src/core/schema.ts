@@ -4,8 +4,7 @@
  * defaults; the host registers it with `settings.register()` and reads the
  * resolved value through the returned scope.
  *
- * The schema is deliberately permissive (plain string arrays and a free-form
- * scope map) because the document is hand-editable; `core/settings.ts`
+ * The document is hand-editable; `core/settings.ts`
  * normalizes and validates the resolved value defensively at every read.
  */
 import Schema from '@deepseek-ai/schemastery'
@@ -38,8 +37,6 @@ export const skillsConfigSchema = Schema.object({
     skillPath: string
   }>>)
     .default([]).description('Skills the plugin installed into the global root (provenance ledger)'),
-  scopes: (Schema.dict(Schema.any()) as Schemastery<Record<string, unknown>>)
-    .default({}).description('Per-skill-name enablement: absent = enabled everywhere; [] = off everywhere; [workspaceFolderName, ...] = enabled only in those workspaces'),
 })
 
 export type SkillsConfigShape = Schemastery.TypeT<typeof skillsConfigSchema>

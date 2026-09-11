@@ -1,35 +1,16 @@
-/**
- * Host loader entry for the skills manager — runs in the DSH host process.
- *
- * The settings-backed model:
- *  - Registers the `dsh-next-skills` settings namespace, so providers,
- *    installed records, and per-name enablement scopes persist in the
- *    harness `settings.yaml` (readable and shareable between developers).
- *  - Registers the plugin's `ctx.skills` provider, which re-publishes the
- *    filesystem provider's candidates with rank lowered by one and applies
- *    the per-workspace scope policy — enable/disable is pure config and no
- *    skill file is ever written for it.
- *  - Migrates the legacy state (providers.json, frontmatter toggles,
- *    workspace shadows, workspace installs) once, seeds default providers on
- *    a fresh install, syncs the provider caches, and reconciles recorded
- *    installs whose files are missing (the sharing payoff).
- *
- * Skills install GLOBAL-ONLY into `<agentsHome>/skills`; projects keep only
- * hand-created, version-controlled skills. All behavior lives in
- * `src/host/` (stateful) and `src/core/` (pure); this entry stays thin.
- */
+/** Host wiring for global skill management. Native filesystem discovery owns
+ * availability and frontmatter invocation; legacy scope settings are ignored. */
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import type { SkillRegistry } from '@deepseek-ai/dsh-skill'
 import type { SettingsScope } from '@deepseek-ai/dsh-settings'
+import type { SkillRegistry } from '@deepseek-ai/dsh-skill'
 import { nodeFs } from './host/fs-adapter.ts'
 import { registerRpc } from './host/rpc.ts'
 import { SkillsService, type ConfigScopeFace } from './host/skills-service.ts'
-import { createManagedSkillProvider, MANAGED_PROVIDER_NAME } from './host/skills-provider.ts'
 import { SKILLS_NAMESPACE, skillsConfigSchema } from './core/schema.ts'
 import { DEFAULT_PROVIDER_SPECS } from './core/defaults.ts'
-import type { ExternalMutationResult, InstallExternalSkillsArgs, RemoveExternalSkillsArgs, SetExternalSkillScopeArgs } from './core/types.ts'
+import type { ExternalMutationResult, InstallExternalSkillsArgs, RemoveExternalSkillsArgs } from './core/types.ts'
 
 export const inject = ['webServer', 'settings'] as const
 
@@ -40,11 +21,10 @@ export const EXTERNAL_SKILLS_SERVICE = 'cc-external-skills'
  * The narrow cross-plugin service surface the cc-plugins bridge consumes.
  * Kept deliberately tiny and decoupled from claude-plugin internals: the
  * owning plugin rewrites references and hands off finished files; this
- * service only places, scopes, and removes them.
+ * service only places and removes them globally.
  */
 export interface ExternalSkillsService {
   installExternalSkills(args: InstallExternalSkillsArgs): Promise<ExternalMutationResult>
-  setExternalSkillScope(args: SetExternalSkillScopeArgs): Promise<ExternalMutationResult>
   removeExternalSkills(args: RemoveExternalSkillsArgs): Promise<ExternalMutationResult>
 }
 
@@ -68,6 +48,26 @@ export function apply(ctx: Context): void {
   }
   const configFace = settingsScope as unknown as ConfigScopeFace
 
+  // Borrow the registry's supported invalidation capability without publishing
+  // candidates or overriding native invocation policy. The native watcher is
+  // asynchronous, so mutations must clear warm catalogs before returning to UI.
+  let invalidateInstalled: (() => void) | undefined
+  const registry = ctx.get('skills') as SkillRegistry | undefined
+  if (registry && typeof registry.registerProvider === 'function') {
+    const unregister = registry.registerProvider((control) => {
+      invalidateInstalled = control.invalidate
+      return {
+        name: 'dsh-next-skills-invalidation',
+        list: async () => [],
+        get: async () => undefined,
+      }
+    })
+    ctx.effect(() => () => {
+      invalidateInstalled = undefined
+      unregister()
+    }, 'dsh-next-skills: native catalog invalidation')
+  }
+
   const service = new SkillsService({
     fs,
     fetch: (url, init) => fetch(url, init),
@@ -75,6 +75,7 @@ export function apply(ctx: Context): void {
     agentsHome,
     logWarn: (message) => ctx.logger.warn(message),
     config: configFace,
+    onInstalledChanged: () => invalidateInstalled?.(),
   })
 
   // Provide the cross-plugin external-skills surface (the cc-plugins bridge
@@ -82,25 +83,8 @@ export function apply(ctx: Context): void {
   // no service; the cc plugin degrades with a visible note.
   ctx.provide(EXTERNAL_SKILLS_SERVICE, {
     installExternalSkills: (args) => service.installExternalSkills(args),
-    setExternalSkillScope: (args) => service.setExternalSkillScope(args),
     removeExternalSkills: (args) => service.removeExternalSkills(args),
   } satisfies ExternalSkillsService)
-
-  // Register the ctx.skills provider override. Scope edits invalidate the
-  // provider's catalog so a disable takes effect on the next lookup. The
-  // registry is read as an optional service — a ctx.skills property access
-  // without `inject` is rejected by the loader.
-  const skillsRegistry = ctx.get('skills') as SkillRegistry | undefined
-  if (skillsRegistry && typeof skillsRegistry.registerProvider === 'function') {
-    const unregister = skillsRegistry.registerProvider((control) => {
-      const disposeWatch = configFace.watch(() => control.invalidate())
-      control.signal.addEventListener('abort', () => disposeWatch(), { once: true })
-      return createManagedSkillProvider({ fs, dshHome, agentsHome, config: configFace })
-    })
-    ctx.effect(() => unregister, `dsh-next-skills: ${MANAGED_PROVIDER_NAME} provider`)
-  } else {
-    ctx.logger.warn('dsh-next-skills: ctx.skills registry unavailable; scope policy will not apply')
-  }
 
   registerRpc(ctx, service)
 

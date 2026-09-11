@@ -3,13 +3,15 @@
  * Page A: baseline /-menu -> remove grill-me via Skills UI.
  * Page B (independent browser context, fresh client): /-menu at +2s.
  * Page A again: New Session click (no reload), /-menu.
- * Usage: node scripts/skills-uninstall-ab.mjs <baseUrl>
+ * Destructive: use a fresh boot seed (grill-me must initially be present).
+ * Usage: node scripts/skills-remove-ab.mjs <baseUrl>
  */
-import { chromium } from '@playwright/test'
+import { chromium, expect } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 const BASE_URL = process.argv[2]
+if (!BASE_URL) { console.error('usage: node scripts/skills-remove-ab.mjs <baseUrl>'); process.exit(2) }
 const OUT = 'test-results/skills/ab'
 mkdirSync(OUT, { recursive: true })
 const t0 = Date.now()
@@ -69,6 +71,8 @@ async function slashMenuSkills(page, tag) {
   await box.pressSequentially('/')
   await page.waitForTimeout(1000)
   const text = (await page.locator('[role="listbox"], [role="menu"]').first().textContent().catch(() => '')) ?? ''
+  expect(text, 'native discovery must respect user-invocable: false').not.toContain('opentofu')
+  expect(text, 'remaining seeded skill proves the menu loaded').toContain('e2e-test-skill')
   const names = ['grill-me', 'e2e-test-skill'].filter((n) => text.includes(n))
   await page.screenshot({ path: join(OUT, `${tag}.png`) })
   await box.fill('')
@@ -79,37 +83,45 @@ async function slashMenuSkills(page, tag) {
 const ctxA = await browser.newContext()
 const pageA = await boot(ctxA, 'A')
 await newSession(pageA)
-console.log(at(), 'A baseline     ', JSON.stringify(await slashMenuSkills(pageA, 'a0-baseline')))
+const baseline = await slashMenuSkills(pageA, 'a0-baseline')
+console.log(at(), 'A baseline     ', JSON.stringify(baseline))
+expect(baseline, 'fresh seed required').toContain('grill-me')
 
 await pageA.getByText('Settings', { exact: true }).first().click()
 await pageA.waitForTimeout(900)
 await pageA.getByRole('button', { name: 'Skills', exact: true }).first().click()
 await pageA.waitForTimeout(900)
-// The scope modal: Manage -> two-step remove (grill-me is boot-seeded as
-// plugin-managed, so the remove flow accepts it).
+// Per-copy delete goes straight to a confirmation with the selected path.
 const card = pageA.locator('[data-testid="skills-card"]', { hasText: 'grill-me' }).first()
-await card.locator('[data-testid="skills-add"]').first().click()
-const modal = pageA.getByTestId('skills-modal')
-await modal.waitFor({ state: 'visible', timeout: 8000 })
-await modal.locator('[data-testid="skills-uninstall"]').click()
-await modal.locator('[data-testid="skills-uninstall-confirm"]').click()
-await pageA.waitForTimeout(500)
-console.log(at(), 'A removed grill-me, card visible:', await card.isVisible().catch(() => false))
+await expect(pageA.locator('[data-testid^="skills-scope"], [data-testid="skills-modal"], [data-testid="skills-presence"]')).toHaveCount(0)
+await card.getByTestId('skills-delete').click()
+const modal = pageA.getByTestId('skills-delete-confirm')
+await expect(modal).toBeVisible()
+await expect(modal.getByTestId('skills-delete-path')).toContainText('grill-me/SKILL.md')
+await modal.getByTestId('skills-delete-confirm-btn').click()
+await expect(modal).toBeHidden()
+console.log(at(), 'A deleted grill-me')
 
 // ---- Page B: independent fresh client, ~2s after removal -------------------
 await pageA.waitForTimeout(1500)
 const ctxB = await browser.newContext()
 const pageB = await boot(ctxB, 'B')
 await newSession(pageB)
-console.log(at(), 'B fresh client ', JSON.stringify(await slashMenuSkills(pageB, 'b1-fresh-client')))
+const b1_fresh_client = await slashMenuSkills(pageB, 'b1-fresh-client')
+console.log(at(), 'B fresh client ', JSON.stringify(b1_fresh_client))
+expect(b1_fresh_client, 'deleted skill must disappear').not.toContain('grill-me')
 
 // ---- Page A: New Session click WITHOUT reload ------------------------------
 await newSession(pageA)
-console.log(at(), 'A new-session  ', JSON.stringify(await slashMenuSkills(pageA, 'a2-new-session')))
+const a2_new_session = await slashMenuSkills(pageA, 'a2-new-session')
+console.log(at(), 'A new-session  ', JSON.stringify(a2_new_session))
+expect(a2_new_session, 'deleted skill must disappear').not.toContain('grill-me')
 
 // ---- Page B again a bit later ---------------------------------------------
 await pageA.waitForTimeout(4000)
 await newSession(pageB)
-console.log(at(), 'B again        ', JSON.stringify(await slashMenuSkills(pageB, 'b3-again')))
+const b3_again = await slashMenuSkills(pageB, 'b3-again')
+console.log(at(), 'B again        ', JSON.stringify(b3_again))
+expect(b3_again, 'deleted skill must disappear').not.toContain('grill-me')
 
 await browser.close()

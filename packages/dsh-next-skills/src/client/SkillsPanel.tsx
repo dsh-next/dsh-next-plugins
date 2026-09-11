@@ -1,34 +1,11 @@
 /**
- * The Skills settings page rendered in the `settings.section` slot — the
- * sibling of the Claude Plugins page (CcPanel) and styled by the same shared
- * chrome: `card.module.css` mirrors cc-plugins' module byte-for-byte on every
- * shared class, so the two settings pages read as one product.
+ * Global skills management in the settings.section slot: installed copies
+ * and provider catalogs share a filterable grid. Catalog cards install
+ * directly; installed cards retain provider switching, updates, and safe
+ * deletion. Skill names open the full SKILL.md detail preview.
  *
- *  - Skills: every discovered global skill copy plus every provider catalog
- *    skill in one card grid — one card per copy, with a relevance-ranked
- *    search box (name matches above description matches), a provider filter,
- *    and an installed-only toggle. An installed card shows the
- *    name, an origin chip, the recorded provider chip, and a presence badge,
- *    then an action row below the description: Update (warn-tinted outline,
- *    only when the recorded provider's content differs), Providers (opens the
- *    source switcher — Local or any provider offering the name, with an
- *    overwrite confirm), Delete (dark-red text, two-step confirm), and Scopes
- *    (opens the scope modal — Global by default or a checklist of
- *    workspaces). Catalog skills whose name has no installed copy render an
- *    Add button; a name that IS installed renders only its copy cards — the
- *    provider offerings live in the source switcher. The name button opens
- *    the skill's full SKILL.md rendered as markdown.
- *  - Providers: source management (add by owner/repo shorthand or GitHub
- *    URL, refresh all, remove) with per-source sync age and error rows.
- *
- * Providers, installed records, and scopes persist in the plugin's settings
- * namespace (the harness settings.yaml), so the configuration is readable
- * and shareable between developers.
- *
- * Every user-facing string rides the `t` translator (the platform locale
- * service bound to this package's namespace; English without it). The
- * exported formatters take `t` as an optional last argument defaulting to
- * English, so their standalone behavior is unchanged.
+ * Shared chrome matches the Claude Plugins page. All visible copy uses the
+ * package translator, defaulting to English when the locale is absent.
  */
 import * as React from 'react'
 import type {
@@ -38,10 +15,7 @@ import type {
   ProviderView,
   SkillDetail,
   SkillsState,
-  WorkspaceRow,
 } from '../core/types.ts'
-import type { SkillScopeSetting } from '../core/settings.ts'
-import { basenamePath } from '../core/path.ts'
 import styles from './card.module.css'
 import { englishTranslate, type MessageKey } from './dictionaries.ts'
 import { renderMarkdown } from './markdown.tsx'
@@ -51,7 +25,6 @@ export type Translate = (key: MessageKey, params?: Record<string, string | numbe
 
 export interface SkillsPanelDeps {
   rpc: (method: string, args?: unknown) => Promise<unknown>
-  getWorkspaces: () => WorkspaceRow[]
   /** Signals the browser that the installed skill catalog changed. */
   notifyInstalledChanged?: () => void
   /** Locale-bound translator; defaults to English when omitted (tests). */
@@ -67,7 +40,7 @@ const TAB_ORDER: readonly Tab[] = ['skills', 'providers']
 const PAGE_SIZE = 30
 
 /** Mutations whose success may change the installed copies the chat UI surfaces. */
-const CATALOG_MUTATIONS = new Set(['installSkill', 'setSkillScope', 'updateSkill', 'detachSkill', 'deleteSkill', 'addProvider', 'removeProvider', 'reconcileInstalled'])
+const CATALOG_MUTATIONS = new Set(['installSkill', 'updateSkill', 'detachSkill', 'deleteSkill', 'addProvider', 'removeProvider', 'reconcileInstalled'])
 
 function isMutationError(result: unknown): result is { ok: false; error: string } {
   return !!result && typeof result === 'object' && (result as { ok?: unknown }).ok === false
@@ -98,31 +71,22 @@ export function formatLastSync(iso: string, now: number = Date.now(), t: Transla
   return iso.slice(0, 10)
 }
 
-/** The presence badge label for a row's config scope (undefined = default). */
-export function presenceLabel(scope: SkillScopeSetting | undefined, t: Translate = englishTranslate): string {
-  if (scope === undefined) return t('presence.everywhere')
-  if (scope.length === 0) return t('presence.off')
-  return countOf(t, scope.length, 'presence.workspaces.one', 'presence.workspaces.many')
-}
-
 /** Dictionary key for a skill copy's origin root (the `source` bucket). */
 export function sourceKey(source: string): MessageKey {
   switch (source) {
-    case 'project-dsh': return 'source.projectDsh'
-    case 'project-agents': return 'source.projectAgents'
     case 'user-dsh': return 'source.userDsh'
     case 'user-agents': return 'source.userAgents'
     default: return 'source.custom'
   }
 }
 
-/** One card in the skills grid: one discovered copy, or a catalog skill (Use). */
+/** One card in the skills grid: one discovered copy, or a catalog skill (Install). */
 export interface GridEntry {
   key: string
   name: string
   description: string
   whenToUse?: string
-  /** The catalog skill backing this entry (Use flow), when offered. */
+  /** The catalog skill backing this entry (install flow), when offered. */
   catalog?: CatalogSkillView
   /** The discovered copy this card manages (undefined for offering cards). */
   row?: InstalledSkill
@@ -134,7 +98,7 @@ export interface GridEntry {
 
 /**
  * One card per discovered copy (a skill present in several roots produces a
- * card per root), plus a Use card per catalog skill whose name has NO
+ * card per root), plus an Install card per catalog skill whose name has NO
  * installed copy. A name that is installed renders only its copy cards: the
  * provider offerings collapse into that copy's source switcher (the
  * Providers button), so one skill + one source costs exactly one card.
@@ -226,12 +190,6 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
   const [providerFilter, setProviderFilter] = React.useState('')
   const [installedOnly, setInstalledOnly] = React.useState(false)
   const [visible, setVisible] = React.useState(PAGE_SIZE)
-  /** The open scope modal's entry. */
-  const [modal, setModal] = React.useState<GridEntry | undefined>()
-  /** The modal's radio: global (default) or a workspace whitelist. */
-  const [scopeMode, setScopeMode] = React.useState<'global' | 'workspaces'>('global')
-  /** Checked workspace names while the modal is in workspaces mode. */
-  const [checked, setChecked] = React.useState<Set<string>>(new Set())
   /** The provider a sequential Refresh all is currently downloading. */
   const [refreshingId, setRefreshingId] = React.useState<string | undefined>()
   /** The open detail modal's entry plus its loaded content. */
@@ -249,18 +207,11 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
    *  modal's second phase, rendered in place of the radio list. */
   const [confirmSource, setConfirmSource] = React.useState<{ providerId: string; providerSpec: string; skillPath: string } | undefined>()
   const [addSpec, setAddSpec] = React.useState('')
-  const workspaces = deps.getWorkspaces()
-  // The listing is global-only (project skills are hand-managed and live with
-  // the project), so getState needs no workspace paths; the registered
-  // workspaces still drive the scope modal's enablement checklist below.
 
   const refresh = React.useCallback(async (): Promise<void> => {
     try {
       const next = await deps.rpc('getState') as SkillsState
-      // Defensive: the listing is global-only. A stale host envelope still
-      // carrying workspace rows must not render them (they are hand-managed
-      // in the project, not this panel's business).
-      setState({ ...next, installed: next.installed.filter((s) => s.scope === 'global') })
+      setState(next)
     } catch (error) {
       setMessage({ ok: false, text: errMsg(error) })
     }
@@ -271,13 +222,13 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
   }, [refresh])
 
   React.useEffect(() => {
-    if (modal === undefined && detail === undefined && confirmDelete === undefined && confirmRemoveProvider === undefined && sourcesModal === undefined) return
+    if (detail === undefined && confirmDelete === undefined && confirmRemoveProvider === undefined && sourcesModal === undefined) return
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') { closeModal(); setDetail(undefined); setDetailData(undefined); setConfirmDelete(undefined); setConfirmRemoveProvider(undefined); closeSources() }
+      if (e.key === 'Escape') { setDetail(undefined); setDetailData(undefined); setConfirmDelete(undefined); setConfirmRemoveProvider(undefined); closeSources() }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [modal, detail, confirmDelete, confirmRemoveProvider, sourcesModal])
+  }, [detail, confirmDelete, confirmRemoveProvider, sourcesModal])
 
   // Load the detail body whenever the detail modal opens for a new entry.
   // Installed rows pass the copy's path: a name may have several copies, and
@@ -408,12 +359,6 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
     setVisible(PAGE_SIZE)
   }, [search, providerFilter, installedOnly])
 
-  const closeModal = (): void => {
-    setModal(undefined)
-    setScopeMode('global')
-    setChecked(new Set())
-  }
-
   /** Radio value for a copy's current source: its recorded provider's id, or
    *  'local' for a hand-managed copy (and for a record whose provider no
    *  longer offers the name — detaching is the right move there too). */
@@ -431,140 +376,6 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
   const closeSources = (): void => {
     setSourcesModal(undefined)
     setConfirmSource(undefined)
-  }
-
-  /** Open the scope modal; an installed skill starts on its current scope. */
-  const openModal = (entry: GridEntry): void => {
-    setModal(entry)
-    const scope = entry.row?.configScope
-    if (scope !== undefined) {
-      setScopeMode('workspaces')
-      setChecked(new Set(scope))
-    } else {
-      setScopeMode('global')
-      setChecked(new Set())
-    }
-  }
-
-  const toggleWorkspace = (name: string): void => {
-    setChecked((current) => {
-      const next = new Set(current)
-      if (next.has(name)) next.delete(name)
-      else next.add(name)
-      return next
-    })
-  }
-
-  /** Add (catalog entry) or re-scope (installed row) with the drafted scope.
-   *  A workspaces draft with zero checked boxes means off everywhere. */
-  const confirmModal = (): void => {
-    if (modal === undefined) return
-    const names = scopeMode === 'global' ? null : [...checked]
-    if (modal.row !== undefined) void mutate('setSkillScope', { name: modal.name, workspaces: names })
-    else if (modal.catalog !== undefined) {
-      void mutate('installSkill', {
-        providerId: modal.catalog.providerId,
-        skillPath: modal.catalog.skillPath,
-        ...(names !== null ? { workspaces: names } : {}),
-      })
-    }
-    closeModal()
-  }
-
-  /** The scope modal: one radio — Global (default) or a workspace
-   *  whitelist — and a checklist under the workspaces mode. Either/or. */
-  const modalDialog = (): React.ReactElement | null => {
-    if (modal === undefined) return null
-    const row = modal.row
-    // Checklist rows: the registry's workspaces plus any recorded name the
-    // registry no longer knows (so it stays visible and can be unchecked).
-    const recordedNames = row?.configScope ?? []
-    const rows: Array<{ name: string; title: string; missing: boolean }> = [
-      ...workspaces.map((w) => ({ name: basenamePath(w.path), title: w.title, missing: false })),
-      ...recordedNames
-        .filter((n) => !workspaces.some((w) => basenamePath(w.path) === n))
-        .map((n) => ({ name: n, title: n, missing: true })),
-    ]
-    // Both handlers set an ABSOLUTE value, so onClick (which label-forwarded
-    // clicks deliver reliably) and onChange (which React's change detection
-    // delivers) can run in any combination without double effects.
-    const pick = (mode: 'global' | 'workspaces') => (): void => { setScopeMode(mode) }
-    return (
-      <div className={styles.overlay} role="presentation" onClick={closeModal}>
-        <div
-          className={styles.modal}
-          role="dialog"
-          aria-modal="true"
-          aria-label={t('modal.aria', { name: modal.name })}
-          data-testid="skills-modal"
-          onClick={(e: React.MouseEvent) => e.stopPropagation()}
-        >
-          <p className={styles.modalTitle}>{modal.name}</p>
-          <p className={styles.modalHint}>{t('modal.hint')}</p>
-          <div className={styles.optionList} data-testid="skills-scope">
-            <label className={styles.optionRow} data-testid="skills-scope-global">
-              <input
-                type="radio"
-                name="skills-scope-mode"
-                checked={scopeMode === 'global'}
-                disabled={busy}
-                onClick={pick('global')}
-                onChange={pick('global')}
-              />
-              <span className={styles.optionLabel}>{t('modal.scope.global')}</span>
-            </label>
-            <label className={styles.optionRow} data-testid="skills-scope-workspaces">
-              <input
-                type="radio"
-                name="skills-scope-mode"
-                checked={scopeMode === 'workspaces'}
-                disabled={busy}
-                onClick={pick('workspaces')}
-                onChange={pick('workspaces')}
-              />
-              <span className={styles.optionLabel}>{t('modal.scope.workspaces')}</span>
-            </label>
-          </div>
-          {scopeMode === 'workspaces' && (
-            <div className={`${styles.optionList} ${styles.optionNested}`} data-testid="skills-workspaces">
-              {rows.length === 0 ? (
-                <p className={styles.modalHint}>{t('modal.workspaces.empty')}</p>
-              ) : rows.map((workspace) => (
-                <label key={workspace.name} className={styles.optionRow} data-testid="skills-workspace">
-                  <input
-                    type="checkbox"
-                    checked={checked.has(workspace.name)}
-                    disabled={busy}
-                    onChange={() => toggleWorkspace(workspace.name)}
-                  />
-                  <span className={styles.optionLabel}>{workspace.title}</span>
-                  {workspace.missing && <span className={styles.addedBadge}>{t('modal.workspaceMissing')}</span>}
-                </label>
-              ))}
-              <p className={styles.modalHint}>{t('modal.workspaces.hint')}</p>
-            </div>
-          )}
-          <p className={styles.modalHint}>{t('modal.effectHint')}</p>
-          <div className={styles.modalActions}>
-            <button
-              type="button"
-              className={styles.ghost}
-              disabled={busy}
-              onClick={closeModal}
-            >{t('modal.cancel')}</button>
-            <button
-              type="button"
-              className={styles.primary}
-              // An empty whitelist is meaningful: it disables the skill
-              // everywhere, so the confirm never disables itself.
-              disabled={busy}
-              onClick={confirmModal}
-              data-testid="skills-modal-confirm"
-            >{row !== undefined ? t('modal.save') : t('card.use')}</button>
-          </div>
-        </div>
-      </div>
-    )
   }
 
   /** The detail modal: invocability metadata plus the SKILL.md body rendered
@@ -790,7 +601,7 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
     )
   }
 
-  /** One card: a managed copy (installed) or a provider offering (Use). */
+  /** One card: a managed copy (installed) or a provider offering (Install). */
   const renderCard = (entry: GridEntry): React.ReactElement => {
     const row = entry.row
     const installedHere = row !== undefined
@@ -801,7 +612,6 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
     const currentSource = installedHere && row.ownership === undefined && row.provider !== undefined
       ? row.sources?.find((s) => s.providerSpec === row.provider)
       : undefined
-    const presenceTitle = row !== undefined && row.configScope !== undefined ? row.configScope.join('\n') : undefined
     return (
       <div key={entry.key} className={styles.pluginCard} data-testid="skills-card">
         <div className={styles.pluginCardTop}>
@@ -819,13 +629,6 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
             </div>
             <div className={styles.desc}>{entry.description !== '' ? entry.description : t('card.noDescription')}</div>
           </div>
-          {installedHere && (
-            <div className={styles.badges}>
-              <span className={styles.presenceBadge} data-testid="skills-presence" title={presenceTitle}>
-                {presenceLabel(row.configScope, t)}
-              </span>
-            </div>
-          )}
         </div>
         {installedHere && (
           <div className={styles.cardActions} data-testid="skills-actions">
@@ -855,13 +658,6 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
               onClick={() => setConfirmDelete(entry)}
               data-testid="skills-delete"
             >{t('card.delete')}</button>
-            <button
-              type="button"
-              className={styles.ghost}
-              disabled={busy}
-              onClick={() => openModal(entry)}
-              data-testid="skills-scopes"
-            >{t('card.scopes')}</button>
           </div>
         )}
         {!installedHere && (
@@ -872,9 +668,14 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
                 type="button"
                 className={styles.primary}
                 disabled={busy}
-                onClick={() => openModal(entry)}
+                onClick={() => {
+                  if (entry.catalog !== undefined) void mutate('installSkill', {
+                    providerId: entry.catalog.providerId,
+                    skillPath: entry.catalog.skillPath,
+                  })
+                }}
                 data-testid="skills-use"
-              >{t('card.use')}</button>
+              >{t('card.install')}</button>
             </div>
           </div>
         )}
@@ -1038,7 +839,6 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
         </div>
       )))}
 
-      {modalDialog()}
       {detailDialog()}
       {confirmDeleteDialog()}
       {confirmRemoveProviderDialog()}

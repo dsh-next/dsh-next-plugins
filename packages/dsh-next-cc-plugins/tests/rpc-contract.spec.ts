@@ -32,7 +32,6 @@ function makeService(gh: ReturnType<typeof createGhDouble> = createGhDouble({ 'o
     cordisPatchPath: '/home/u/.dsh/cordis.patch.yml',
     resolveSkillsManager: () => ({
       installExternalSkills: async () => ({ ok: true }),
-      setExternalSkillScope: async () => ({ ok: true }),
       removeExternalSkills: async () => ({ ok: true }),
     }),
   })

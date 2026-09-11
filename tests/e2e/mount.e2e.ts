@@ -21,7 +21,7 @@
  *      they gain UI.
  */
 import { join } from 'node:path'
-import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { test, expect, type Page } from '@playwright/test'
 import { verifyOauthProviders } from './oauth-helpers.ts'
 import { bareId, assertMountHealthy, runGuardedMarker, requireCheckpointsPanel } from '../../scripts/e2e-guards.mjs'
@@ -724,7 +724,7 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
   // nav level as General/Models/Plugins) with Skills and Providers tabs over
   // a card grid, backed by the settings.yaml configuration. Opening it must
   // reveal the tab bar and the seeded throwaway skill's card; the card's
-  // scope modal must offer Global vs the workspaces checklist; the source
+  // controls must offer global-only installation with no scope modal; the source
   // switcher must detach (config-only) and re-adopt (overwrite confirm) the
   // seeded same-name provider; and the red Delete must remove the skill
   // end-to-end through the two-step confirm (guards client-side state-refresh
@@ -738,19 +738,9 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await expect(page.getByText('Providers', { exact: true })).toBeVisible()
     const card = page.locator('[data-testid="skills-card"]', { hasText: 'e2e-test-skill' }).first()
     await expect(card).toBeVisible()
-    await card.locator('[data-testid="skills-scopes"]').click()
-    const modal = page.getByTestId('skills-modal')
-    await expect(modal).toBeVisible()
-    await expect(page.getByTestId('skills-scope-global').locator('input')).toBeChecked()
-    // The workspaces radio reveals the checklist, listing the workspaces
-    // e2e-mount.sh preseeded into the home's registry (canonical paths via
-    // env — the same reusable seeding every marker can drive). Scoped to
-    // the checklist: the preseeded workspaces also show in the sidebar.
-    await page.getByTestId('skills-scope-workspaces').click()
-    const wsList = page.getByTestId('skills-workspaces')
-    await expect(wsList).toContainText('workspace-a')
-    await expect(wsList).toContainText('workspace-b')
-    await modal.locator('[data-testid="skills-modal-confirm"]').click()
+    await expect(page.getByTestId('skills-scopes')).toHaveCount(0)
+    await expect(page.getByTestId('skills-presence')).toHaveCount(0)
+    await expect(page.getByTestId('skills-modal')).toHaveCount(0)
     // Source switcher: the seeded provider offers the same name with a
     // catalog version that never matches the local fingerprint, so the card
     // shows the recorded-provider Update button plus the Providers switcher.
@@ -815,6 +805,22 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     const remaining = page.locator('[data-testid="skills-card"]', { hasText: 'e2e-test-skill' })
     await expect(remaining.getByTestId('skills-use')).toBeVisible()
     await expect(remaining.getByTestId('skills-providers')).toHaveCount(0)
+    // Install is direct and global-only; no workspace selection or scope RPC.
+    const installRequest = page.waitForRequest((request) =>
+      request.url().endsWith('/dsh-next-skills/rpc') && request.postDataJSON()?.method === 'installSkill')
+    await remaining.getByTestId('skills-use').click()
+    expect((await installRequest).postDataJSON()).toEqual({
+      method: 'installSkill',
+      args: { providerId: 'e2e-local', skillPath: 'skills/e2e-test-skill' },
+    })
+    await expect(remaining.getByTestId('skills-delete')).toBeVisible()
+    await expect(page.getByTestId('skills-modal')).toHaveCount(0)
+    const agentsHome = process.env.DSH_AGENTS_HOME
+    if (!agentsHome) throw new Error('DSH_AGENTS_HOME is required for isolated skill installation')
+    expect(existsSync(join(agentsHome, 'skills', 'e2e-test-skill', 'SKILL.md'))).toBe(true)
+    for (const workspace of [process.env.DSH_E2E_WORKSPACE_A, process.env.DSH_E2E_WORKSPACE_B]) {
+      if (workspace) expect(existsSync(join(workspace, '.agents', 'skills', 'e2e-test-skill'))).toBe(false)
+    }
     // Providers tab renders with the add-provider control; the host seeds its
     // default providers shortly after boot, so rows may already be present —
     // never assert emptiness here.
@@ -950,7 +956,7 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     // preseeded into the scratch home's registry (canonical paths arrive
     // via env — never machine-specific literals). Install demo-tools into
     // workspace-a only: skills are global-only, so the copy lands in the
-    // global skill root and the workspace scope is enablement, not placement.
+    // global skill root, independently of the plugin workspace scope.
     const workspaceA = process.env.DSH_E2E_WORKSPACE_A
     if (!workspaceA) throw new Error('DSH_E2E_WORKSPACE_A is not set — run through scripts/e2e-mount.sh, which preseeds the workspaces')
     const workspaceB = process.env.DSH_E2E_WORKSPACE_B ?? ''
@@ -967,12 +973,13 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await expect(demoCard.getByTestId('cc-scopes')).toBeVisible()
     await expect(demoCard).toContainText('in workspace-a')
     // The skill copy landed in the GLOBAL root — skills never install into
-    // projects; the workspace scope is enablement, not physical placement.
+    // projects, and the plugin warns that its scope does not restrict skills.
+    await expect(page.getByTestId('cc-message')).toContainText('globally')
     await expect.poll(() => existsSync(join(agentsHome, 'skills', 'demo-skill', 'SKILL.md'))).toBe(true)
     expect(readFileSync(join(agentsHome, 'skills', 'demo-skill', 'SKILL.md'), 'utf8')).toContain('demo')
     expect(existsSync(join(workspaceA, '.agents', 'skills', 'demo-skill'))).toBe(false)
-    // Scopes re-opens on the workspace scope; Save scope to global clears the
-    // enablement restriction (the global copy stays put).
+    // Scopes still controls the Claude plugin composition, not skill visibility.
+    // Saving global leaves the global skill copy in place.
     await demoCard.getByTestId('cc-scopes').click()
     await expect(page.getByTestId('cc-scope-workspaces').locator('input')).toBeChecked()
     await page.getByTestId('cc-scope-global').locator('input').click()
@@ -1062,3 +1069,84 @@ test('plugin family mounts the dsh-next plugins without crash markers', async ({
 })
 
 registerNotifierTurnTest(BASE_URL, pluginIds, dismissOnboarding)
+
+test('Skills global-only page renders real repository skills', async ({ page }, testInfo) => {
+  test.skip(!pluginIds.includes('@dsh-next/dsh-next-skills'), 'Skills plugin is not mounted')
+  const agentsHome = process.env.DSH_AGENTS_HOME
+  if (!agentsHome) throw new Error('DSH_AGENTS_HOME is required for isolated screenshots')
+  const names = ['dsh-next-agent-coding', 'dsh-next-code-review', 'dsh-next-documentation']
+  const created: string[] = []
+  try {
+    for (const name of names) {
+      const directory = join(agentsHome, 'skills', name)
+      expect(existsSync(directory), 'screenshot seed must never overwrite a skill').toBe(false)
+      mkdirSync(directory, { recursive: true })
+      created.push(directory)
+      writeFileSync(join(directory, 'SKILL.md'), readFileSync(join('.agents', 'skills', name, 'SKILL.md'), 'utf8'))
+    }
+    await page.emulateMedia({ colorScheme: 'dark' })
+    await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' })
+    await openSkillsSection(page)
+    await page.getByTestId('skills-search').fill('dsh-next')
+    await expect(page.getByTestId('skills-card')).toHaveCount(names.length)
+    await expect(page.getByTestId('skills-scopes')).toHaveCount(0)
+    await expect(page.getByTestId('skills-presence')).toHaveCount(0)
+    await expect(page.getByTestId('skills-delete')).toHaveCount(names.length)
+    const panel = page.getByRole('heading', { name: 'Skills', exact: true }).locator('..')
+    const screenshot = testInfo.outputPath('skills-global-only.png')
+    await panel.screenshot({ path: screenshot })
+    await testInfo.attach('global-only Skills page', { path: screenshot, contentType: 'image/png' })
+  } finally {
+    for (const directory of created) rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('Skills mutations immediately refresh the native catalog', async ({ page }) => {
+  test.skip(!pluginIds.includes('@dsh-next/dsh-next-skills') || !pluginIds.includes('@dsh-next/dsh-next-worktrees'), 'Requires the family session fixture')
+  const home = process.env.DSH_HOME
+  const workspaceB = process.env.DSH_E2E_WORKSPACE_B
+  if (!home || !workspaceB) throw new Error('Run through the isolated family mount smoke')
+  const registry = JSON.parse(readFileSync(join(home, 'storages', 'workspace.json'), 'utf8')) as {
+    global: { archivedSessionIds: string[] }
+    tables: { workspaces: Record<string, { path: string; sessionIds: string[] }> }
+  }
+  const sessionId = Object.values(registry.tables.workspaces)
+    .find((workspace) => workspace.path === workspaceB)?.sessionIds
+    .find((id) => !registry.global.archivedSessionIds.includes(id))
+  expect(sessionId, 'family marker must leave an active session in workspace B').toBeTruthy()
+  await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' })
+  const snapshots = await page.evaluate(async (sessionId) => {
+    const nativeSkills = async (): Promise<string[]> => {
+      const response = await fetch('/api/skills/list', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ type: 'client-request', rpcId: crypto.randomUUID(), method: 'skills/list', payload: { args: { request: { sessionId } } } }),
+      })
+      if (!response.ok) throw new Error('native skill list HTTP ' + response.status)
+      const envelope = await response.json()
+      if (envelope.result?.ok !== true) throw new Error(JSON.stringify(envelope))
+      return envelope.result.value.skills.map((skill: { name: string }) => skill.name)
+    }
+    const rpc = async (method: string, args?: unknown) => {
+      const response = await fetch('/dsh-next-skills/rpc', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ method, args }),
+      })
+      const result = await response.json()
+      if (!response.ok || result.ok === false) throw new Error(JSON.stringify(result))
+      return result
+    }
+    const state = await rpc('getState')
+    const row = state.installed.find((skill: { name: string }) => skill.name === 'e2e-test-skill')
+    if (!row) throw new Error('family marker must leave the seeded skill installed')
+    // Deliberately no sleep, polling, or page reload: a warm native snapshot must
+    // be invalidated before each successful mutation response reaches the caller.
+    const before = await nativeSkills()
+    await rpc('deleteSkill', { name: row.name, directory: row.directory, kind: row.kind, path: row.path })
+    const afterDelete = await nativeSkills()
+    await rpc('installSkill', { providerId: 'e2e-local', skillPath: 'skills/e2e-test-skill' })
+    const afterInstall = await nativeSkills()
+    return { before, afterDelete, afterInstall }
+  }, sessionId!)
+  expect(snapshots.before).toContain('e2e-test-skill')
+  expect(snapshots.afterDelete).not.toContain('e2e-test-skill')
+  expect(snapshots.afterInstall).toContain('e2e-test-skill')
+})

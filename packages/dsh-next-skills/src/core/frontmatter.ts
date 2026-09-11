@@ -6,10 +6,9 @@
  *
  * A skill has two independent invocation surfaces: the model catalog
  * (`modelInvocable`, driven by `disable-model-invocation`) and the human-facing
- * `/` command menu (`userInvocable`, driven by `user-invocable`). Since the
- * settings-based refactor the plugin never edits these keys: enablement is
- * config-driven (per-name scopes applied by the plugin's `ctx.skills`
- * provider), and the flags here are the skill author's own defaults.
+ * `/` command menu (`userInvocable`, driven by `user-invocable`). The plugin
+ * never edits these keys: native filesystem discovery respects the author's
+ * invocation policy without any plugin-specific enablement override.
  */
 import { load } from 'js-yaml'
 

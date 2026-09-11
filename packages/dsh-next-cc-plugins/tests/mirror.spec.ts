@@ -149,8 +149,11 @@ function makeFixture(
     settings: mirror.mirror,
     resolveWorkspace: over.resolveWorkspace,
     resolveSkillsManager: () => ({
-      installExternalSkills: async (args) => { skills.push(...args.skills.map((s: { name: string }) => s.name)); return { ok: true } },
-      setExternalSkillScope: async () => ({ ok: true }),
+      installExternalSkills: async (args) => {
+        expect(args).not.toHaveProperty('workspaces')
+        skills.push(...args.skills.map((s: { name: string }) => s.name))
+        return { ok: true }
+      },
       removeExternalSkills: async () => ({ ok: true }),
     }),
   })
@@ -217,6 +220,8 @@ describe('CcMarketplaceService reconcileFromMirror', () => {
     const state = await f.service.state()
     const record = state.installed[0]
     expect(record.scope).toEqual({ kind: 'workspaces', workspacePaths: ['/w1'] })
+    expect(record.notes).toContain('Warning: skills install globally and are not restricted by plugin scope.')
+    expect((await f.service.getStore().readInstalled()).plugins[0].notes).toEqual(record.notes)
     expect(f.skills).toContain('deploy')
     // Model mappings were adopted, inherit word decoded back to null.
     expect(state.agentModelMap).toEqual({ haiku: 'dsh-fast' })
@@ -299,6 +304,19 @@ describe('CcMarketplaceService reconcileFromMirror', () => {
     // Nothing to adopt: no mirror write happened and the local model wins.
     expect(f.mirror.writes.length).toBe(writesBefore)
     expect((await f.service.state()).agentModelMap).toEqual({ haiku: 'local-choice' })
+  })
+
+  it('surfaces global-skill warnings for existing scoped installs without reinstalling', async () => {
+    const f = makeFixture()
+    await f.service.addMarketplace('o/r')
+    await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', scope: { kind: 'workspaces', workspacePaths: ['/w1'] } })
+    const stored = await f.service.getStore().readInstalled()
+    delete stored.plugins[0].notes // Simulate a pre-global-only record.
+    await f.service.getStore().saveInstalled(stored)
+    const report = await f.service.reconcileFromMirror()
+    expect(report).toEqual({ marketplacesAdded: [], installed: [], skipped: [] })
+    expect(f.skills).toEqual(['deploy'])
+    expect((await f.service.state()).installed[0].notes).toContain('Warning: skills install globally and are not restricted by plugin scope.')
   })
 
   it('backfills an empty document from local state on boot', async () => {

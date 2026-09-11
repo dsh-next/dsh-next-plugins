@@ -21,19 +21,28 @@ test('default fixtures seed only fresh private profile data and realpath workspa
   assert.deepEqual(profile.dsh.profile.bundles, ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'])
   const settings = await json(join(paths.home, 'settings.yaml'))
   assert.equal(settings['agent-default-model'].model, 'deepseek-v4-flash')
-  assert.deepEqual(settings['dsh-next-skills'].installations, [])
+  assert.deepEqual(settings['dsh-next-skills'], { providers: [], installations: [] })
   assert.equal(JSON.stringify(settings).includes('API_KEY'), false)
   const registry = await json(join(paths.home, 'storages', 'workspace.json'))
   assert.equal(Object.keys(registry.tables.workspaces).length, 2)
   assert.equal((await stat(join(paths.home, 'settings.yaml'))).mode & 0o777, 0o600)
 })
 
-test('smoke fixture uses current managed-installations schema and matching catalog files', async t => {
+test('smoke fixture preserves global provenance and seeds only adversarial legacy restrictions', async t => {
   const paths = await scratch(t)
   await seedRuntime(paths, { profile: 'smoke', fixtures: true })
   const settings = await json(join(paths.home, 'settings.yaml'))
-  assert.equal(settings['dsh-next-skills'].installations[0].name, 'e2e-test-skill')
-  assert.equal(settings['dsh-next-skills'].installed, undefined)
+  assert.deepEqual(settings['dsh-next-skills'], {
+    providers: [{ id: 'e2e-local', spec: 'e2e/local', addedAt: '2026-01-01T00:00:00.000Z' }],
+    installations: [{ name: 'e2e-test-skill', providerId: 'e2e-local', providerSpec: 'e2e/local', skillPath: 'skills/e2e-test-skill' }],
+    // The mount marker must still see and manage this installed copy.
+    scopes: { 'e2e-test-skill': [] },
+  })
+  for (const workspace of [paths.workspaceA, paths.workspaceB]) {
+    for (const root of ['.agents', '.dsh']) {
+      await assert.rejects(stat(join(workspace, root, 'skills')), { code: 'ENOENT' })
+    }
+  }
   const catalog = await json(join(paths.home, 'skills-market', 'catalog.json'))
   assert.equal(catalog.providers[0].skills.length, 2)
   const installed = await readFile(join(paths.agentsHome, 'skills', 'e2e-test-skill', 'SKILL.md'), 'utf8')

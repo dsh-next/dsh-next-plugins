@@ -54,9 +54,22 @@ test('skills uses shared closure packaging, private URL and preserved fixture ca
   const result = await runPreview(state.options, state.deps);
   const settings = JSON.parse(await readFile(join(state.owned.home, 'settings.yaml'), 'utf8'));
   assert.deepEqual(settings['dsh-next-skills'].installations.map(item => item.name), ['e2e-test-skill', 'grill-me', 'opentofu']);
-  assert.deepEqual(settings['dsh-next-skills'].scopes.opentofu, []);
+  const config = settings['dsh-next-skills'];
+  assert.deepEqual(config.scopes, { 'e2e-test-skill': [] }); // Only the stale-restriction regression seed.
+  assert.deepEqual(config.providers, [{ id: 'e2e-local', spec: 'e2e/local', addedAt: '2026-01-01T00:00:00.000Z' }]);
+  for (const item of config.installations) {
+    assert.equal(item.providerId, 'e2e-local');
+    assert.equal(item.providerSpec, 'e2e/local');
+    assert.equal(item.skillPath, 'skills/' + item.name);
+    assert.equal(Object.hasOwn(item, 'scope'), false);
+  }
+  for (const workspace of [state.owned.workspaceA, state.owned.workspaceB]) {
+    for (const root of ['.agents', '.dsh']) await assert.rejects(stat(join(workspace, root, 'skills')), { code: 'ENOENT' });
+  }
   for (const name of ['e2e-test-skill', 'grill-me', 'opentofu', 'hand-made']) await stat(join(state.owned.agentsHome, 'skills', name, 'SKILL.md'));
-  assert.match(await readFile(join(state.owned.agentsHome, 'skills/opentofu/SKILL.md'), 'utf8'), /disable-model-invocation: true/);
+  const opentofu = await readFile(join(state.owned.agentsHome, 'skills/opentofu/SKILL.md'), 'utf8');
+  assert.match(opentofu, /disable-model-invocation: true/);
+  assert.match(opentofu, /user-invocable: false/);
   assert.equal((await stat(result.urlFile)).mode & 0o777, 0o600);
   assert.match(await readFile(result.urlFile, 'utf8'), /synthetic-preview-token/);
   assert.doesNotMatch(state.logs.join('\n'), /synthetic-/);

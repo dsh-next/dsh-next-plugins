@@ -2,7 +2,7 @@
  * Ownership provenance for skills managed by an external plugin (the
  * cc-plugins bridge). A sidecar JSON file written next to a skill's SKILL.md
  * marks that skill as externally-owned: the Skills UI renders it read-only
- * and the service refuses to delete or re-scope it, so a claude plugin's
+ * and the service refuses ordinary delete, detach, or update calls, so a plugin's
  * skill cannot be orphaned while the rest of the plugin is still installed.
  *
  * The sidecar is pure data: reading it never mutates state, and a missing or

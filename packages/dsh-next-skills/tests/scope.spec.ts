@@ -1,37 +1,24 @@
 import { describe, expect, it } from 'vitest'
-import {
-  PROJECT_AGENTS_RANK,
-  PROJECT_DSH_RANK,
-  USER_AGENTS_RANK,
-  USER_DSH_RANK,
-  globalSkillsRoot,
-  resolveSkillRoots,
-  sortRootsByPrecedence,
-} from '../src/core/scope.ts'
+import { USER_AGENTS_RANK, USER_DSH_RANK, globalSkillsRoot, resolveSkillRoots, sortRootsByPrecedence } from '../src/core/scope.ts'
 
-describe('resolveSkillRoots', () => {
-  it('returns only user roots without a project root', () => {
-    const roots = resolveSkillRoots({ dshHome: '/home/u/.dsh', agentsHome: '/home/u/.agents' })
-    expect(roots.map((r) => r.source)).toEqual(['user-dsh', 'user-agents'])
-    expect(roots.every((r) => r.scope === 'global')).toBe(true)
+describe('global root helpers', () => {
+  it('returns only global roots, without physical scope metadata', () => {
+    expect(resolveSkillRoots({ dshHome: '/d', agentsHome: '/a' })).toEqual([
+      { path: '/d/skills', source: 'user-dsh', rank: USER_DSH_RANK },
+      { path: '/a/skills', source: 'user-agents', rank: USER_AGENTS_RANK },
+    ])
   })
-  it('includes project roots (workspace) before user roots when a project root is given', () => {
-    const roots = resolveSkillRoots({ projectRoot: '/repo', dshHome: '/home/u/.dsh', agentsHome: '/home/u/.agents' })
-    expect(roots.map((r) => r.source)).toEqual(['project-dsh', 'project-agents', 'user-dsh', 'user-agents'])
-    expect(roots[0].path).toBe('/repo/.dsh/skills')
-    expect(roots[1].path).toBe('/repo/.agents/skills')
-    expect(roots[0].scope).toBe('workspace')
-    expect(roots[1].scope).toBe('workspace')
+  it('ignores stale project root arguments instead of discovering workspace files', () => {
+    const args = { projectRoot: '/repo', dshHome: '/d', agentsHome: '/a' }
+    expect(resolveSkillRoots(args).map((r) => r.path)).toEqual(['/d/skills', '/a/skills'])
   })
-  it('ranks project above user so workspace shadows global', () => {
-    const roots = sortRootsByPrecedence(resolveSkillRoots({ projectRoot: '/repo', dshHome: '/d', agentsHome: '/a' }))
-    expect(roots.map((r) => r.source)).toEqual(['project-dsh', 'project-agents', 'user-dsh', 'user-agents'])
-    expect(roots.map((r) => r.rank)).toEqual([PROJECT_DSH_RANK, PROJECT_AGENTS_RANK, USER_DSH_RANK, USER_AGENTS_RANK])
+  it('sorts by native precedence without mutating inputs', () => {
+    const roots = resolveSkillRoots({ dshHome: '/d', agentsHome: '/a' }).reverse()
+    expect(sortRootsByPrecedence(roots).map((r) => r.rank)).toEqual([400, 500])
+    expect(roots.map((r) => r.rank)).toEqual([500, 400])
+    expect(sortRootsByPrecedence([])).toEqual([])
   })
-})
-
-describe('root helpers', () => {
-  it('globalSkillsRoot points at the shared agents skills dir', () => {
-    expect(globalSkillsRoot('/home/u/.agents')).toBe('/home/u/.agents/skills')
+  it('uses the shared agents convention for global installs', () => {
+    expect(globalSkillsRoot('/home/u/.agents/')).toBe('/home/u/.agents/skills')
   })
 })

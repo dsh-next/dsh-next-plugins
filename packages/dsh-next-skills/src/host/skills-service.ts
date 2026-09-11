@@ -3,11 +3,9 @@
  *
  * Skills are installed GLOBAL-ONLY, into the user skill root
  * (`<agentsHome>/skills`); projects keep only hand-created, version-controlled
- * skills, which the plugin discovers read-only. Providers, installed records,
- * and per-name enablement scopes persist in the `dsh-next-skills` settings
- * namespace (the harness `settings.yaml`), so the configuration is readable
- * and shareable between developers. Enable/disable never writes skill files —
- * scopes are applied at discovery time by the plugin's `ctx.skills` provider.
+ * skills. Only providers and installed records persist in the settings
+ * namespace. Native filesystem discovery owns availability and invocation;
+ * legacy scopes are ignored without modifying any existing skill files.
  *
  * All filesystem and network access flows through injected `fs`/`fetch`
  * faces, and config access through a structural scope face, so the service is
@@ -16,17 +14,14 @@
 import { catalogSkillViews, parseCatalog, providerViews } from '../core/catalog.ts'
 import { parseSkillFile } from '../core/frontmatter.ts'
 import { isSkillName } from '../core/name.ts'
-import { basenamePath, dirnamePath, isSafeRelativePath, joinPath } from '../core/path.ts'
+import { dirnamePath, isSafeRelativePath, joinPath } from '../core/path.ts'
 import { fingerprintVersion, providerId, providerSpec, type FingerprintFile } from '../core/provider.ts'
 import { globalSkillsRoot, resolveSkillRoots, sortRootsByPrecedence, type SkillRoot } from '../core/scope.ts'
 import {
   configForStorage,
   normalizeSkillsConfig,
-  pruneOrphanScopes,
-  withScope,
   type InstalledRecord,
   type ProviderRecord,
-  type SkillScopeSetting,
   type SkillsConfig,
 } from '../core/settings.ts'
 import type {
@@ -43,9 +38,7 @@ import type {
   MutationResult,
   ProviderView,
   RemoveExternalSkillsArgs,
-  SetExternalSkillScopeArgs,
   SkillDetail,
-  SkillScope,
   SkillSourceBucket,
   SkillsState,
 } from '../core/types.ts'
@@ -61,9 +54,7 @@ export const TRASH_DIR = '.trash'
  */
 export interface ConfigScopeFace {
   get(): unknown
-  update(patch: object): Promise<void>
   replace(section: object): Promise<void>
-  watch(callback: (next: unknown, prev: unknown) => void): () => void
 }
 
 export interface SkillsServiceOptions {
@@ -73,6 +64,8 @@ export interface SkillsServiceOptions {
   agentsHome: string
   /** Optional warning sink (the host passes ctx.logger.warn). */
   logWarn?: (message: string) => void
+  /** Invalidate native catalogs synchronously after filesystem mutations, even partial failures. */
+  onInstalledChanged?: () => void
   /** The registered settings scope face (required in the real host). */
   config: ConfigScopeFace
 }
@@ -84,7 +77,6 @@ export interface DiscoveredSkill {
   whenToUse?: string
   fileModelInvocable: boolean
   fileUserInvocable: boolean
-  scope: SkillScope
   source: SkillSourceBucket
   kind: 'bundle' | 'flat'
   path: string
@@ -133,7 +125,6 @@ export async function discoverRoot(fs: FsLike, root: SkillRoot): Promise<Discove
       ...(parsed.whenToUse !== undefined ? { whenToUse: parsed.whenToUse } : {}),
       fileModelInvocable: parsed.modelInvocable,
       fileUserInvocable: parsed.userInvocable,
-      scope: root.scope,
       source: root.source,
       kind,
       path: skillPath,
@@ -181,6 +172,19 @@ export class SkillsService {
     })
   }
 
+  /** Cache observers must not veto a filesystem mutation or mask its error. */
+  private notifyInstalledChanged(): void {
+    try {
+      this.opts.onInstalledChanged?.()
+    } catch (error) {
+      try {
+        this.opts.logWarn?.('could not invalidate skill catalog: ' + (error instanceof Error ? error.message : String(error)))
+      } catch {
+        // A diagnostic sink must not change the mutation's result either.
+      }
+    }
+  }
+
   /** The current normalized configuration snapshot. */
   config(): SkillsConfig {
     return normalizeSkillsConfig(this.opts.config.get())
@@ -189,7 +193,7 @@ export class SkillsService {
   /**
    * Enumerate the plugin's own surface: skills in the GLOBAL roots only,
    * merged by precedence, enriched with the settings record's managed/update
-   * facts and the config scope per name. Project/workspace skills are
+   * facts. Project/workspace skills are
    * deliberately absent — they are hand-managed in the project and discovered
    * natively by the DSH filesystem provider; this plugin neither lists nor
    * manages them.
@@ -238,7 +242,6 @@ export class SkillsService {
         name: skill.name,
         description: skill.description,
         ...(skill.whenToUse !== undefined ? { whenToUse: skill.whenToUse } : {}),
-        scope: skill.scope,
         source: skill.source,
         kind: skill.kind,
         path: skill.path,
@@ -246,7 +249,6 @@ export class SkillsService {
         ...(skill.ownership !== undefined ? { ownership: skill.ownership } : {}),
         ...(record?.providerSpec !== undefined ? { provider: record.providerSpec } : {}),
         ...(sources !== undefined ? { sources } : {}),
-        ...(config.scopes[skill.name] !== undefined ? { configScope: config.scopes[skill.name] } : {}),
       }
     }))
   }
@@ -288,15 +290,6 @@ export class SkillsService {
   /** The full browser-facing state envelope. */
   async state(): Promise<SkillsState> {
     const [installed, catalog] = await Promise.all([this.listInstalled(), this.store.readCatalog()])
-    // Orphan-scope GC: drop enablement keys whose name no longer resolves to
-    // a discovered copy or a catalog skill (a deleted/renamed skill).
-    const config = this.config()
-    const installedNames = [...new Set(installed.map((s) => s.name))]
-    const catalogNames = [...new Set(catalogSkillViews(catalog).map((s) => s.name))]
-    const pruned = pruneOrphanScopes(config, installedNames, catalogNames)
-    if (Object.keys(pruned.scopes).length !== Object.keys(config.scopes).length) {
-      await this.writeConfig(pruned)
-    }
     return {
       installed,
       providers: this.providerRows(catalog),
@@ -374,32 +367,6 @@ export class SkillsService {
       return undefined
     }
     return skillDetailFromContent(content)
-  }
-
-  /**
-   * Set the enablement scope for one skill name: the workspace DIRECTORY
-   * NAMES where it is enabled (entries may arrive as full paths and are
-   * normalized to their basename, so the settings section stays portable
-   * between developers). Pure config: no skill file is touched.
-   * `undefined`/null clears the stored entry (absent = the everywhere
-   * default); an empty list disables the skill everywhere.
-   */
-  async setSkillScope(args: { name: string; workspaces?: readonly string[] | null }): Promise<MutationResult> {
-    if (!isSkillName(args.name)) return { ok: false, error: `invalid skill name "${args.name}"` }
-    if (await this.isExternalOwnedName(args.name)) {
-      return { ok: false, error: `skill "${args.name}" is managed by an external plugin; change its scope from that plugin` }
-    }
-    let scope: SkillScopeSetting | undefined
-    if (args.workspaces !== undefined && args.workspaces !== null) {
-      scope = [...new Set(args.workspaces.map((p) => basenamePath(p.trim())).filter((p) => p !== ''))]
-    }
-    const config = this.config()
-    const scopes = withScope(config.scopes, args.name, scope)
-    // Persist the WHOLE section: the settings provider deep-merges update()
-    // patches, so a cleared entry would silently survive inside the scopes
-    // map. Only a wholesale replace can delete a key.
-    await this.writeConfig({ ...config, scopes })
-    return { ok: true, state: await this.state() }
   }
 
   /**
@@ -487,13 +454,12 @@ export class SkillsService {
 
   /**
    * Install a catalog skill from the cache into the GLOBAL root and record it
-   * in settings (with an optional initial workspace-name whitelist). Skills
+   * in settings. Skills
    * never install into projects.
    */
   async installSkill(args: {
     providerId: string
     skillPath: string
-    workspaces?: readonly string[] | null
   }): Promise<MutationResult> {
     const catalog = await this.store.readCatalog()
     const provider = catalog.providers.find((p) => p.id === args.providerId)
@@ -522,11 +488,7 @@ export class SkillsService {
         skillPath: skill.skillPath,
       },
     ]
-    const initialScope: SkillScopeSetting | undefined = args.workspaces !== undefined && args.workspaces !== null
-      ? [...new Set(args.workspaces.map((p) => basenamePath(p.trim())).filter((p) => p !== ''))]
-      : undefined
-    const scopes = withScope(config.scopes, skill.name, initialScope)
-    await this.writeConfig({ ...config, installations, scopes })
+    await this.writeConfig({ ...config, installations })
     return { ok: true, state: await this.state() }
   }
 
@@ -539,10 +501,7 @@ export class SkillsService {
    */
   async updateSkill(args: { name: string; directory: string; providerId: string; skillPath: string }): Promise<MutationResult> {
     if (!isSkillName(args.name)) return { ok: false, error: `invalid skill name "${args.name}"` }
-    if (!this.isWithinKnownRoot(args.directory)) return { ok: false, error: `directory is not inside a managed skill root` }
-    if (this.isWithinProjectRoot(args.directory)) {
-      return { ok: false, error: `skill "${args.name}" lives in a workspace root; workspace skills are updated by hand in the project` }
-    }
+    if (!this.isWithinGlobalRoot(args.directory)) return { ok: false, error: `directory is not inside a managed skill root` }
     const ownership = await this.readOwnershipAt(args.directory)
     if (ownership !== undefined) {
       return { ok: false, error: `skill "${args.name}" is managed by ${ownership.owner} (${ownership.pluginKey}); update it through that plugin` }
@@ -566,7 +525,6 @@ export class SkillsService {
     // Make the directory match the provider copy exactly: provider files are
     // copied over it and EVERY file not in the provider's set is removed —
     // permanently, not into the trash (only deleteSkill uses the trash).
-    // Visibility scopes survive: they are config, not files.
     const keep = new Set(skill.files.map((f) => f.path))
     await this.pruneDirectory(args.directory, keep)
 
@@ -608,7 +566,11 @@ export class SkillsService {
         }
       }
     }
-    await walk(dir, '')
+    try {
+      await walk(dir, '')
+    } finally {
+      this.notifyInstalledChanged()
+    }
   }
 
   /** Copy every cached file of a skill into the target directory. */
@@ -627,6 +589,8 @@ export class SkillsService {
       // Roll back a partially-written install so no half a skill is left behind.
       await this.opts.fs.rm(targetDir, { recursive: true, force: true }).catch(() => {})
       return `failed to install skill: ${error instanceof Error ? error.message : String(error)}`
+    } finally {
+      this.notifyInstalledChanged()
     }
     return undefined
   }
@@ -639,7 +603,7 @@ export class SkillsService {
    */
   async detachSkill(args: { name: string; directory: string }): Promise<MutationResult> {
     if (!isSkillName(args.name)) return { ok: false, error: `invalid skill name "${args.name}"` }
-    if (!this.isWithinKnownRoot(args.directory)) return { ok: false, error: `directory is not inside a managed skill root` }
+    if (!this.isWithinGlobalRoot(args.directory)) return { ok: false, error: `directory is not inside a managed skill root` }
     const ownership = await this.readOwnershipAt(args.directory)
     if (ownership !== undefined) {
       return { ok: false, error: `skill "${args.name}" is managed by ${ownership.owner} (${ownership.pluginKey}); detach it through that plugin` }
@@ -657,14 +621,11 @@ export class SkillsService {
    * directory of its root (skipped by discovery), so an accidental confirm
    * can be undone by hand. Any copy from a known root can be removed — not
    * just plugin-installed ones. When no other copy of the name remains, the
-   * installations record and scope entry are dropped.
+   * installations record is dropped.
    */
   async deleteSkill(args: { name: string; directory: string; kind: 'bundle' | 'flat'; path: string }): Promise<MutationResult> {
     if (!isSkillName(args.name)) return { ok: false, error: `invalid skill name "${args.name}"` }
-    if (!this.isWithinKnownRoot(args.directory)) return { ok: false, error: `directory is not inside a managed skill root` }
-    if (this.isWithinProjectRoot(args.directory)) {
-      return { ok: false, error: `skill "${args.name}" lives in a workspace root; workspace skills are deleted by hand in the project` }
-    }
+    if (!this.isWithinGlobalRoot(args.directory)) return { ok: false, error: `directory is not inside a managed skill root` }
     const ownership = await this.readOwnershipAt(args.directory)
     if (ownership !== undefined) {
       return { ok: false, error: `skill "${args.name}" is managed by ${ownership.owner} (${ownership.pluginKey}); uninstall that plugin to remove it` }
@@ -672,17 +633,20 @@ export class SkillsService {
     const from = args.kind === 'bundle' ? args.directory : args.path
     const root = dirnamePath(from)
     const trashDir = joinPath(root, TRASH_DIR)
-    await this.opts.fs.mkdir(trashDir, { recursive: true })
-    await this.opts.fs.rename(from, joinPath(trashDir, `${Date.now()}-${args.name}`))
+    try {
+      await this.opts.fs.mkdir(trashDir, { recursive: true })
+      await this.opts.fs.rename(from, joinPath(trashDir, `${Date.now()}-${args.name}`))
+    } finally {
+      this.notifyInstalledChanged()
+    }
 
-    // Drop provenance + scope only when no other copy of the name remains.
+    // Drop provenance only when no other copy of the name remains.
     const remaining = (await this.listInstalled()).filter((s) => s.name === args.name)
     if (remaining.length > 0) return { ok: true, state: await this.state() }
     const config = this.config()
     await this.writeConfig({
       ...config,
       installations: config.installations.filter((r) => r.name !== args.name),
-      scopes: withScope(config.scopes, args.name, undefined),
     })
     return { ok: true, state: await this.state() }
   }
@@ -695,32 +659,6 @@ export class SkillsService {
       joinPath(this.opts.agentsHome, 'skills'),
     ]
     return globalRoots.some((p) => d === p || d.startsWith(`${p}/`))
-  }
-
-  /** Whether a directory sits inside a project convention root
-   *  (`<any>/.dsh/skills` or `<any>/.agents/skills`) — the hand-managed
-   *  workspace skills this plugin lists but never writes. The global roots
-   *  themselves (`<agentsHome>/.agents/skills`-shaped paths included) are
-   *  excluded: they are user roots, not project ones. */
-  private isWithinProjectRoot(directory: string): boolean {
-    if (this.isWithinGlobalRoot(directory)) return false
-    const d = directory.replace(/\/+$/, '')
-    const segments = d.split('/')
-    for (let i = 0; i < segments.length - 1; i++) {
-      if ((segments[i] === '.dsh' || segments[i] === '.agents') && segments[i + 1] === 'skills') return true
-    }
-    return false
-  }
-
-  /** Whether a directory sits inside one of the resolvable skill roots. */
-  private isWithinKnownRoot(directory: string): boolean {
-    return this.isWithinGlobalRoot(directory) || this.isWithinProjectRoot(directory)
-  }
-
-  /** Whether any discovered copy of `name` is externally owned. */
-  private async isExternalOwnedName(name: string): Promise<boolean> {
-    const rows = await this.listInstalled()
-    return rows.some((r) => r.name === name && r.ownership !== undefined)
   }
 
   /** Read the ownership sidecar at a skill directory (undefined when absent). */
@@ -762,7 +700,7 @@ export class SkillsService {
    * Install externally-managed skills (the cc-plugins bridge) into the global
    * root, global-only, each with an ownership sidecar. The owning plugin
    * rewrites plugin-level references before handing files off; this service
-   * only places them and records enablement. Collisions with an existing
+   * only places them. Collisions with an existing
    * same-name skill are rejected so hand-created and skills-plugin skills are
    * never overwritten.
    */
@@ -784,7 +722,6 @@ export class SkillsService {
       }
     }
     const root = globalSkillsRoot(this.opts.agentsHome)
-    const config = this.config()
     for (const skill of args.skills) {
       const targetDir = joinPath(root, skill.name)
       try {
@@ -805,27 +742,10 @@ export class SkillsService {
       } catch (error) {
         await this.opts.fs.rm(targetDir, { recursive: true, force: true }).catch(() => {})
         return { ok: false, error: `failed to install skill "${skill.name}": ${error instanceof Error ? error.message : String(error)}` }
+      } finally {
+        this.notifyInstalledChanged()
       }
     }
-    // Record enablement per name from the initial workspace whitelist.
-    if (args.workspaces !== undefined && args.workspaces.length > 0) {
-      const names = [...new Set(args.workspaces.map((p) => basenamePath(p.trim())).filter((p) => p !== ''))]
-      let scopes = config.scopes
-      for (const skill of args.skills) scopes = withScope(scopes, skill.name, names)
-      await this.writeConfig({ ...config, scopes })
-    }
-    return { ok: true }
-  }
-
-  /** Update the enablement scope of one externally-managed skill name. */
-  async setExternalSkillScope(args: SetExternalSkillScopeArgs): Promise<ExternalMutationResult> {
-    if (!isSkillName(args.name)) return { ok: false, error: `invalid skill name "${args.name}"` }
-    let scope: SkillScopeSetting | undefined
-    if (args.workspaces !== undefined && args.workspaces !== null) {
-      scope = [...new Set(args.workspaces.map((p) => basenamePath(p.trim())).filter((p) => p !== ''))]
-    }
-    const config = this.config()
-    await this.writeConfig({ ...config, scopes: withScope(config.scopes, args.name, scope) })
     return { ok: true }
   }
 
@@ -833,20 +753,17 @@ export class SkillsService {
   async removeExternalSkills(args: RemoveExternalSkillsArgs): Promise<ExternalMutationResult> {
     const rows = await this.listInstalled()
     const targets = rows.filter((r) => r.ownership !== undefined && r.ownership.owner === args.owner && r.ownership.pluginKey === args.pluginKey && (args.skillNames === undefined || args.skillNames.includes(r.name)))
-    let removed = 0
     for (const row of targets) {
       const from = row.kind === 'bundle' ? row.directory : row.path
       const root = dirnamePath(from)
       const trashDir = joinPath(root, TRASH_DIR)
-      await this.opts.fs.mkdir(trashDir, { recursive: true })
-      await this.opts.fs.rename(from, joinPath(trashDir, `${Date.now()}-${row.name}`))
-      removed += 1
+      try {
+        await this.opts.fs.mkdir(trashDir, { recursive: true })
+        await this.opts.fs.rename(from, joinPath(trashDir, `${Date.now()}-${row.name}`))
+      } finally {
+        this.notifyInstalledChanged()
+      }
     }
-    // Drop external ownership scope entries left behind.
-    const config = this.config()
-    let scopes = config.scopes
-    for (const row of targets) scopes = withScope(scopes, row.name, undefined)
-    if (removed > 0) await this.writeConfig({ ...config, scopes })
     return { ok: true }
   }
 

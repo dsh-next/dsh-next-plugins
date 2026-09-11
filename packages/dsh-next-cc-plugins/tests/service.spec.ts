@@ -50,14 +50,15 @@ const EXTERNAL_FILES: Record<string, string> = {
 }
 
 const PATCH = '/home/u/.dsh/cordis.patch.yml'
+const GLOBAL_SKILLS_WARNING = 'Warning: skills install globally and are not restricted by plugin scope.'
 
 interface Fixture {
   fs: MemFs
   gh: ReturnType<typeof createGhDouble>
   service: CcMarketplaceService
   skills: ExternalSkillsHandoff & {
-    installed: Array<{ name: string; files: Record<string, string>; pluginKey: string; workspaces?: readonly string[] }>
-    scopes: Map<string, readonly string[] | null>
+    installed: Array<{ name: string; files: Record<string, string>; pluginKey: string }>
+    installs: Array<Parameters<ExternalSkillsHandoff['installExternalSkills']>[0]>
     removed: string[]
   }
 }
@@ -65,13 +66,14 @@ interface Fixture {
 /** A recording skills-manager double exercising the handoff contract. */
 function makeSkillsDouble(): Fixture['skills'] {
   const installed: Fixture['skills']['installed'] = []
-  const scopes = new Map<string, readonly string[] | null>()
+  const installs: Fixture['skills']['installs'] = []
   const removed: string[] = []
   return {
     installed,
-    scopes,
+    installs,
     removed,
     async installExternalSkills(args) {
+      installs.push(args)
       for (const s of args.skills) {
         const prev = installed.find((i) => i.name === s.name)
         if (prev !== undefined && prev.pluginKey !== args.pluginKey) return { ok: false, error: `skill "${s.name}" already exists` }
@@ -79,14 +81,9 @@ function makeSkillsDouble(): Fixture['skills'] {
           // In-place update: replace the recorded files for the same owner.
           prev.files = s.files
         } else {
-          installed.push({ name: s.name, files: s.files, pluginKey: args.pluginKey, workspaces: args.workspaces })
+          installed.push({ name: s.name, files: s.files, pluginKey: args.pluginKey })
         }
       }
-      if (args.workspaces !== undefined) for (const s of args.skills) scopes.set(s.name, args.workspaces)
-      return { ok: true }
-    },
-    async setExternalSkillScope(args) {
-      scopes.set(args.name, args.workspaces ?? null)
       return { ok: true }
     },
     async removeExternalSkills(args) {
@@ -575,11 +572,10 @@ describe('CcMarketplaceService install', () => {
     await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'rich', scope: { kind: 'global' } })
     const record = (await f.service.state()).installed[0]
     expect(record.notes).toEqual(['ships 1 LSP server; no DSH bridge, not installed'])
-    // A noteless install persists no empty array. (Workspace scope so the
-    // shared "deploy" skill does not collide with the install above.)
+    // A noteless global install persists no empty array.
     f.gh.setRepo('x', 'clean', TEAM_TOOLS_V1)
     await f.service.addMarketplace('x/clean')
-    await f.service.installPlugin({ marketplaceId: 'github:x/clean', plugin: 'team-tools', scope: { kind: 'workspaces', workspacePaths: ['/w1'] } })
+    await f.service.installPlugin({ marketplaceId: 'github:x/clean', plugin: 'team-tools', scope: { kind: 'global' } })
     const clean = (await f.service.state()).installed.find((p) => p.key === 'github:x/clean/team-tools')
     expect(clean).toBeDefined()
     expect(clean?.notes).toBeUndefined()
@@ -774,6 +770,8 @@ describe('CcMarketplaceService install', () => {
     expect(f.skills.installed[0].pluginKey).toBe('github:o/r/team-tools')
     expect(f.skills.installed[0].files['SKILL.md']).toContain('name: deploy')
     expect(f.skills.installed[0].files['run.sh']).toBe('echo deploy')
+    expect(f.skills.installs[0]).not.toHaveProperty('workspaces')
+    expect(result.message).not.toContain(GLOBAL_SKILLS_WARNING)
 
     // The patch file carries the managed dsh-mcp-client and dsh-tool-subagent rows.
     const patch = f.fs.snapshot()[PATCH] ?? ''
@@ -1114,7 +1112,7 @@ describe('CcMarketplaceService install', () => {
     if (!dup.ok) expect(dup.error).toContain('duplicate workspace path')
   })
 
-  it('scopes skills by workspace enablement (global install), never copying per workspace', async () => {
+  it('installs skills globally without a workspace payload and warns about plugin scope', async () => {
     await f.service.addMarketplace('o/r')
     const result = await f.service.installPlugin({
       marketplaceId: 'github:o/r',
@@ -1123,15 +1121,36 @@ describe('CcMarketplaceService install', () => {
     })
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.message).toContain('2 workspaces')
+    expect(result.message).toContain('1 skill(s) installed globally')
+    expect(result.message).toContain(GLOBAL_SKILLS_WARNING)
+    expect(result.message).not.toContain('globally (scope:')
     // One global handoff, no per-workspace file copies.
     expect(f.skills.installed).toHaveLength(1)
-    expect(f.skills.installed[0].workspaces).toEqual(['w1', 'w2'])
+    expect(f.skills.installs).toHaveLength(1)
+    expect(Object.keys(f.skills.installs[0]).sort()).toEqual(['marketplaceId', 'owner', 'pluginKey', 'skills'])
+    expect(f.skills.installs[0]).not.toHaveProperty('workspaces')
     expect(f.fs.has('/w1/.agents/skills/deploy/SKILL.md')).toBe(false)
     expect(f.fs.has('/home/u/.agents/skills/deploy/SKILL.md')).toBe(false)
     const record = (await f.service.state()).installed[0]
     expect(record.scope).toEqual({ kind: 'workspaces', workspacePaths: ['/w1', '/w2'] })
     expect(record.skills.map((s) => s.name)).toEqual(['deploy'])
+    expect(record.notes).toContain(GLOBAL_SKILLS_WARNING)
+    expect((await f.service.getStore().readInstalled()).plugins[0].notes).toContain(GLOBAL_SKILLS_WARNING)
+  })
+
+  it('does not warn about global skills for a scoped plugin without skills', async () => {
+    const files = { ...TEAM_TOOLS_V1 }
+    delete files['plugins/team-tools/skills/deploy/SKILL.md']
+    delete files['plugins/team-tools/skills/deploy/run.sh']
+    f.gh.setRepo('o', 'r', files)
+    await f.service.addMarketplace('o/r')
+    const installed = await f.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', scope: { kind: 'workspaces', workspacePaths: ['/w1'] } })
+    expect(installed.ok).toBe(true)
+    expect(installed.message).not.toContain(GLOBAL_SKILLS_WARNING)
+    expect(installed.state?.installed[0].notes ?? []).not.toContain(GLOBAL_SKILLS_WARNING)
+    const changed = await f.service.setPluginScope('github:o/r/team-tools', { kind: 'workspaces', workspacePaths: ['/w2'] })
+    expect(changed.ok).toBe(true)
+    expect(changed.message).not.toContain(GLOBAL_SKILLS_WARNING)
   })
 
   it('fails without partial state when a skill already exists', async () => {
@@ -1246,20 +1265,31 @@ describe('CcMarketplaceService uninstall and update', () => {
     expect(result.ok).toBe(false)
   })
 
-  it('re-scopes a plugin by persisting workspace enablement through the manager', async () => {
+  it('re-scopes a plugin without touching global skills and keeps warnings current', async () => {
     const toWs = await f.service.setPluginScope('github:o/r/team-tools', { kind: 'workspaces', workspacePaths: ['/w1', '/w2'] })
     expect(toWs.ok).toBe(true)
     if (!toWs.ok) return
     expect(toWs.message).toContain('scope of "team-tools" set to 2 workspaces')
-    expect(f.skills.scopes.get('deploy')).toEqual(['w1', 'w2'])
+    expect(toWs.message).toContain(GLOBAL_SKILLS_WARNING)
+    expect(f.skills.installs).toHaveLength(1)
     expect(f.skills.installed).toHaveLength(1) // still one global copy
     let record = (await f.service.state()).installed[0]
     expect(record.scope).toEqual({ kind: 'workspaces', workspacePaths: ['/w1', '/w2'] })
 
-    // Back to global: the scope clears to everywhere.
+    expect(record.notes).toContain(GLOBAL_SKILLS_WARNING)
+    const persisted = (await f.service.getStore().readInstalled()).plugins[0]
+    expect(persisted.notes).toContain(GLOBAL_SKILLS_WARNING)
+    const same = await f.service.setPluginScope(record.key, record.scope)
+    expect(same.ok).toBe(true)
+    expect(same.message).toContain(GLOBAL_SKILLS_WARNING)
+    expect((await f.service.state()).installed[0].notes?.filter((note) => note === GLOBAL_SKILLS_WARNING)).toHaveLength(1)
+
+    // Back to global: remove only the now-inapplicable scope warning.
     const toGlobal = await f.service.setPluginScope('github:o/r/team-tools', { kind: 'global' })
     expect(toGlobal.ok).toBe(true)
-    expect(f.skills.scopes.get('deploy')).toEqual(null) // null = cleared to everywhere
+    expect(toGlobal.message).not.toContain(GLOBAL_SKILLS_WARNING)
+    expect(f.skills.installs).toHaveLength(1)
+    expect((await f.service.getStore().readInstalled()).plugins[0].notes ?? []).not.toContain(GLOBAL_SKILLS_WARNING)
     record = (await f.service.state()).installed[0]
     expect(record.scope).toEqual({ kind: 'global' })
   })
@@ -1278,19 +1308,21 @@ describe('CcMarketplaceService uninstall and update', () => {
     if (!bad.ok) expect(bad.error).toContain('at least one workspace')
   })
 
-  it('re-scope rejects when the skills manager errors', async () => {
-    const rejecting = makeSkillsDouble()
-    rejecting.setExternalSkillScope = async () => ({ ok: false, error: 'scope rejected' })
-    const seeded = makeFixture({}, { skillsManager: rejecting })
+  it('never calls a legacy skill scope method when changing plugin scope', async () => {
+    const manager = makeSkillsDouble()
+    Object.defineProperty(manager, 'setExternalSkillScope', {
+      get: () => { throw new Error('removed skill scope method must not be accessed') },
+    })
+    const seeded = makeFixture({}, { skillsManager: manager })
     await seeded.service.addMarketplace('o/r')
     await seeded.service.installPlugin({ marketplaceId: 'github:o/r', plugin: 'team-tools', scope: { kind: 'global' } })
-    const blocked = await seeded.service.setPluginScope('github:o/r/team-tools', { kind: 'workspaces', workspacePaths: ['/w1'] })
-    expect(blocked.ok).toBe(false)
-    if (!blocked.ok) expect(blocked.error).toContain('scope rejected')
-    expect((await seeded.service.state()).installed[0].scope).toEqual({ kind: 'global' })
+    const changed = await seeded.service.setPluginScope('github:o/r/team-tools', { kind: 'workspaces', workspacePaths: ['/w1'] })
+    expect(changed.ok).toBe(true)
+    expect(changed.message).toContain(GLOBAL_SKILLS_WARNING)
+    expect((await seeded.service.state()).installed[0].scope).toEqual({ kind: 'workspaces', workspacePaths: ['/w1'] })
   })
 
-  it('updates skills via the manager for the recorded scope', async () => {
+  it('updates skills globally while preserving plugin scope and its warning', async () => {
     await f.service.setPluginScope('github:o/r/team-tools', { kind: 'workspaces', workspacePaths: ['/w1'] })
     f.gh.setRepo('o', 'r', TEAM_TOOLS_V2)
     const result = await f.service.updatePlugin('github:o/r/team-tools')
@@ -1300,6 +1332,11 @@ describe('CcMarketplaceService uninstall and update', () => {
     const record = (await f.service.state()).installed[0]
     expect(record.scope).toEqual({ kind: 'workspaces', workspacePaths: ['/w1'] })
     expect(record.skills.map((s) => s.name).sort()).toEqual(['audit', 'deploy'])
+    expect(result.message).toContain(GLOBAL_SKILLS_WARNING)
+    expect(record.notes?.filter((note) => note === GLOBAL_SKILLS_WARNING)).toHaveLength(1)
+    expect(f.skills.installs).toHaveLength(2)
+    for (const args of f.skills.installs) expect(args).not.toHaveProperty('workspaces')
+    expect((await f.service.getStore().readInstalled()).plugins[0].notes).toContain(GLOBAL_SKILLS_WARNING)
   })
 
   it('migrates a legacy single-scope record on read', async () => {
@@ -1332,6 +1369,7 @@ describe('CcMarketplaceService uninstall and update', () => {
     expect(state.installed).toHaveLength(1)
     expect(state.installed[0].scope).toEqual({ kind: 'workspaces', workspacePaths: ['/legacy'] })
     expect(state.installed[0].skills).toEqual([{ name: 'deploy', directory: '/legacy/.agents/skills/deploy' }])
+    expect(state.installed[0].notes).toContain(GLOBAL_SKILLS_WARNING)
   })
 
   it('updates skills, MCP defs, and the version from upstream v2', async () => {
@@ -1353,6 +1391,20 @@ describe('CcMarketplaceService uninstall and update', () => {
     expect(record.scope).toEqual({ kind: 'global' })
     expect(record.skills.map((s) => s.name).sort()).toEqual(['audit', 'deploy'])
     expect(record.pending).toEqual({ commands: ['ship'], hookEvents: [] })
+  })
+
+  it('removes the scope warning when an update drops every skill', async () => {
+    await f.service.setPluginScope('github:o/r/team-tools', { kind: 'workspaces', workspacePaths: ['/w1'] })
+    const files = { ...TEAM_TOOLS_V2 }
+    delete files['plugins/team-tools/skills/deploy/SKILL.md']
+    delete files['plugins/team-tools/skills/audit/SKILL.md']
+    f.gh.setRepo('o', 'r', files)
+    const updated = await f.service.updatePlugin('github:o/r/team-tools')
+    expect(updated.ok).toBe(true)
+    expect(updated.message).not.toContain(GLOBAL_SKILLS_WARNING)
+    expect(updated.state?.installed[0].notes ?? []).not.toContain(GLOBAL_SKILLS_WARNING)
+    expect((await f.service.getStore().readInstalled()).plugins[0].notes ?? []).not.toContain(GLOBAL_SKILLS_WARNING)
+    expect(f.skills.removed.sort()).toEqual(['deploy'])
   })
 
   it('hands off only the skills still shipped upstream on update', async () => {

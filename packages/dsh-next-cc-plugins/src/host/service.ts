@@ -8,9 +8,8 @@
  *    Grok Build interop fallback);
  *  - install a marketplace plugin into DSH with an either/or scope —
  *    globally (the default) or a chosen set of workspaces. Skills install
- *    into the shared skills root regardless of scope; the scope records
- *    enablement (which workspaces may use them). Its `skills/`
- *    components are copied into the shared skills root (the root the native
+ *    into the shared skills root and are not restricted by plugin scope.
+ *    Its `skills/` components are copied into the shared skills root (the root the native
  *    filesystem skill provider scans, so installs go live through its
  *    watcher) with plugin-level references rewritten to the materialized
  *    copy's absolute paths, its `.mcp.json` servers become managed
@@ -77,10 +76,12 @@ export interface ReconcileReport {
  */
 export const EXTERNAL_SKILLS_KEY = 'cc-external-skills'
 
+const GLOBAL_SKILLS_WARNING = 'Warning: skills install globally and are not restricted by plugin scope.'
+
 /**
  * Structural face over dsh-next-skills' external handoff. The owning plugin
  * (cc-plugins) rewrites plugin-level references and hands off finished
- * files; the skills plugin places, scopes, and removes them. `ok: false`
+ * files; the skills plugin installs them globally and removes them. `ok: false`
  * carries an `error`; absence of the service (skills plugin not mounted) is
  * handled by the caller, never by this face.
  */
@@ -90,12 +91,6 @@ export interface ExternalSkillsHandoff {
     pluginKey: string
     marketplaceId: string
     skills: Array<{ name: string; files: Record<string, string> }>
-    workspaces?: readonly string[]
-  }): Promise<{ ok: boolean; error?: string; warning?: string }>
-  setExternalSkillScope(args: {
-    owner: string
-    name: string
-    workspaces?: readonly string[] | null
   }): Promise<{ ok: boolean; error?: string; warning?: string }>
   removeExternalSkills(args: {
     owner: string
@@ -228,7 +223,6 @@ export class CcMarketplaceService {
     marketplaceId: string,
     inventory: PluginInventory,
     rewritten: PluginFiles,
-    scope: InstallScope,
   ): Promise<{ skillNames: string[]; errors: string[] }> {
     const names = inventory.skills.map((s) => s.name)
     const manager = this.skillManager()
@@ -238,7 +232,6 @@ export class CcMarketplaceService {
         errors: names.length > 0 ? [`${names.length} skill(s) not installed: @dsh-next/dsh-next-skills is not mounted (install it to enable claude-plugin skills)`] : [],
       }
     }
-    const workspaces = scope.kind === 'workspaces' ? scope.workspacePaths.map((p) => p.split('/').filter(Boolean).pop() ?? p) : undefined
     const skills = names.map((name) => {
       const component = inventory.skills.find((s) => s.name === name)!
       return { name, files: skillFiles(rewritten, component) }
@@ -248,23 +241,16 @@ export class CcMarketplaceService {
       pluginKey: key,
       marketplaceId,
       skills,
-      ...(workspaces !== undefined ? { workspaces } : {}),
     })
     if (!result.ok) return { skillNames: names, errors: [result.error ?? 'skill handoff failed'] }
     return { skillNames: names, errors: [] }
   }
 
-  /** Update the enablement scope of a plugin's installed skills. */
-  private async handoffSkillScope(names: readonly string[], scope: InstallScope): Promise<string[]> {
-    const manager = this.skillManager()
-    if (manager === undefined) return []
-    const workspaces = scope.kind === 'workspaces' ? scope.workspacePaths.map((p) => p.split('/').filter(Boolean).pop() ?? p) : null
-    const errors: string[] = []
-    for (const name of names) {
-      const result = await manager.setExternalSkillScope({ owner: EXTERNAL_OWNER, name, workspaces })
-      if (!result.ok) errors.push(result.error ?? `failed to scope skill "${name}"`)
-    }
-    return errors
+  /** Keep scope warnings current, including records installed before this contract. */
+  private skillScopeNotes(scope: InstallScope, skillCount: number, notes: readonly string[] = []): string[] {
+    const current = notes.filter((note) => note !== GLOBAL_SKILLS_WARNING)
+    if (scope.kind === 'workspaces' && skillCount > 0) current.push(GLOBAL_SKILLS_WARNING)
+    return current
   }
 
   /** Remove every skill the plugin owns through the skills-manager service. */
@@ -433,7 +419,10 @@ export class CcMarketplaceService {
       models = [] // best effort: the tab degrades to inherit-only pickers
     }
     return {
-      installed: installed.plugins,
+      installed: installed.plugins.map((record) => {
+        const notes = this.skillScopeNotes(record.scope, record.skills.length, record.notes)
+        return notes.length > 0 || record.notes !== undefined ? { ...record, notes } : record
+      }),
       marketplaces: rows,
       models,
       agentModelMap: effective,
@@ -603,13 +592,13 @@ export class CcMarketplaceService {
     const rewritten = rewriteSkillFiles(resolved.files, inventory.skills, this.pluginRootOf(key))
 
     // 1. Skills: hand the rewritten files to the skills-manager service,
-    //    which places them global-only and records per-workspace enablement.
+    //    which installs them globally, independent of plugin scope.
     for (const skill of inventory.skills) {
       if (!isSkillName(skill.name)) {
         return { ok: false, error: `skill "${skill.name}" has a name the DSH skill registry rejects (kebab-case required)` }
       }
     }
-    const handoff = await this.handoffSkills(key, args.marketplaceId, inventory, rewritten.files, scope)
+    const handoff = await this.handoffSkills(key, args.marketplaceId, inventory, rewritten.files)
     if (handoff.errors.length > 0 && handoff.skillNames.length > 0 && this.skillManager() !== undefined) {
       // A real handoff failure (collision, IO) fails the install atomically.
       return { ok: false, error: handoff.errors.join('; ') }
@@ -638,7 +627,7 @@ export class CcMarketplaceService {
     // 5. Registry record + managed-block rewrite from the registry. The
     //    install notes persist on the record so they stay reviewable long
     //    after the panel toast is gone.
-    const notes = [materializeNote, ...handoff.errors, ...mcp.notes, ...agents.notes, ...unbridgedNotes(inventory.unbridged), ...dependencyNotes(inventory.dependencies), ...skillSemanticNotes(resolved.files, inventory.skills), ...(rewritten.rewrites > 0 ? [`rewrote ${rewritten.rewrites} plugin-level reference(s) in ${rewritten.skills} skill(s) to the materialized plugin copy`] : []), ...pluginLevelReferenceNotes(rewritten.files, inventory.skills, this.pluginRootOf(key))].filter((n): n is string => n !== undefined)
+    const notes = [...this.skillScopeNotes(scope, inventory.skills.length), materializeNote, ...handoff.errors, ...mcp.notes, ...agents.notes, ...unbridgedNotes(inventory.unbridged), ...dependencyNotes(inventory.dependencies), ...skillSemanticNotes(resolved.files, inventory.skills), ...(rewritten.rewrites > 0 ? [`rewrote ${rewritten.rewrites} plugin-level reference(s) in ${rewritten.skills} skill(s) to the materialized plugin copy`] : []), ...pluginLevelReferenceNotes(rewritten.files, inventory.skills, this.pluginRootOf(key))].filter((n): n is string => n !== undefined)
     const now = new Date().toISOString()
     // Claude's precedence: the marketplace entry's version, then the
     // plugin's own plugin.json version; the snapshot digest is the update
@@ -687,7 +676,7 @@ export class CcMarketplaceService {
     //    missing dependency never fails the parent install).
     const depNotes = await this.installDependencies(args.marketplaceId, inventory.dependencies, scope, key)
     const parts = [
-      inventory.skills.length > 0 && this.skillManager() !== undefined ? `${inventory.skills.length} skill(s) installed globally (scope: ${this.scopeLabel(scope)})` : '',
+      inventory.skills.length > 0 && this.skillManager() !== undefined ? `${inventory.skills.length} skill(s) installed globally` : '',
       mcp.rows.length > 0 ? `${mcp.rows.length} MCP server(s) written to cordis.patch.yml (restart DSH or reload the profile to attach)` : '',
       pendingBits.length > 0 ? pendingBits.join(', ') : '',
       ...depNotes,
@@ -772,10 +761,9 @@ export class CcMarketplaceService {
   }
 
   /**
-   * Move a plugin to a new scope: the skills-manager persists the new
-   * per-workspace enablement (skills stay global), and the record's scope
-   * updates. Managed rows, the materialized copy, and the pending components
-   * are plugin-level and stay untouched. A no-op when the scope already
+   * Move a plugin to a new scope. Skills remain global and are never scoped
+   * through the skills-manager. Managed rows, the materialized copy, and the
+   * pending components are plugin-level and stay untouched. A no-op when the scope already
    * matches.
    */
   async setPluginScope(key: string, scope: InstallScope): Promise<MutationResult> {
@@ -784,19 +772,16 @@ export class CcMarketplaceService {
     const installed = await this.store.readInstalled()
     const record = installed.plugins.find((p) => p.key === key)
     if (record === undefined) return { ok: false, error: `plugin "${key}" is not installed` }
+    const scopeNotes = this.skillScopeNotes(scope, record.skills.length)
+    const warning = scopeNotes.length > 0 ? `; ${scopeNotes.join('; ')}` : ''
     if (sameScope(record.scope, scope)) {
-      return { ok: true, message: `scope of "${record.pluginName}" is already ${this.scopeLabel(scope)}`, state: await this.state() }
-    }
-
-    const names = record.skills.map((s) => s.name)
-    const scopeErrors = await this.handoffSkillScope(names, scope)
-    if (scopeErrors.length > 0 && this.skillManager() !== undefined) {
-      return { ok: false, error: scopeErrors.join('; ') }
+      return { ok: true, message: `scope of "${record.pluginName}" is already ${this.scopeLabel(scope)}${warning}`, state: await this.state() }
     }
 
     const updated: InstalledPlugin = {
       ...record,
       scope,
+      notes: this.skillScopeNotes(scope, record.skills.length, record.notes),
       updatedAt: new Date().toISOString(),
     }
     const plugins = installed.plugins.map((p) => (p.key === key ? updated : p))
@@ -804,7 +789,7 @@ export class CcMarketplaceService {
     this.opts.onInstalledChanged?.()
     await this.mirrorCurrentState()
 
-    const message = `scope of "${record.pluginName}" set to ${this.scopeLabel(scope)}`
+    const message = `scope of "${record.pluginName}" set to ${this.scopeLabel(scope)}${warning}`
     return { ok: true, message, state: await this.state() }
   }
 
@@ -836,8 +821,8 @@ export class CcMarketplaceService {
     const rewritten = rewriteSkillFiles(resolved.files, inventory.skills, this.pluginRootOf(key))
 
     // Skills refresh via the skills-manager: hand off the rewritten files
-    // (in-place update), and update the enablement scope if it changed.
-    const handoff = await this.handoffSkills(key, record.marketplaceId, inventory, rewritten.files, record.scope)
+    // (in-place global update), without passing the plugin scope.
+    const handoff = await this.handoffSkills(key, record.marketplaceId, inventory, rewritten.files)
     const skillDirs: InstalledSkillRef[] = handoff.skillNames.map((name) => ({ name, directory: '' }))
     if (handoff.errors.length > 0 && handoff.skillNames.length > 0 && this.skillManager() !== undefined) {
       return { ok: false, error: `update failed: ${handoff.errors.join('; ')}` }
@@ -862,7 +847,7 @@ export class CcMarketplaceService {
 
     const effectiveVersion = resolved.entry.version !== '' ? resolved.entry.version : manifestVersion(resolved.files)
     const snapshotDigest = (await this.store.readSnapshot(record.marketplaceId))?.digest
-    const notes = [materializeNote, ...handoff.errors, ...mcp.notes, ...agents.notes, ...unbridgedNotes(inventory.unbridged), ...dependencyNotes(inventory.dependencies), ...skillSemanticNotes(resolved.files, inventory.skills), ...(rewritten.rewrites > 0 ? [`rewrote ${rewritten.rewrites} plugin-level reference(s) in ${rewritten.skills} skill(s) to the materialized plugin copy`] : []), ...pluginLevelReferenceNotes(rewritten.files, inventory.skills, this.pluginRootOf(key))].filter((n): n is string => n !== undefined)
+    const notes = [...this.skillScopeNotes(record.scope, inventory.skills.length), materializeNote, ...handoff.errors, ...mcp.notes, ...agents.notes, ...unbridgedNotes(inventory.unbridged), ...dependencyNotes(inventory.dependencies), ...skillSemanticNotes(resolved.files, inventory.skills), ...(rewritten.rewrites > 0 ? [`rewrote ${rewritten.rewrites} plugin-level reference(s) in ${rewritten.skills} skill(s) to the materialized plugin copy`] : []), ...pluginLevelReferenceNotes(rewritten.files, inventory.skills, this.pluginRootOf(key))].filter((n): n is string => n !== undefined)
     const updated: InstalledPlugin = {
       ...record,
       version: effectiveVersion,
@@ -875,7 +860,7 @@ export class CcMarketplaceService {
         commands: inventory.commands.map((c) => c.name),
         hookEvents: inventory.hookEvents,
       },
-      ...(notes.length > 0 ? { notes } : {}),
+      notes,
     }
     const plugins = installed.plugins.map((p) => (p.key === key ? updated : p))
     await this.writeManagedRows(plugins)

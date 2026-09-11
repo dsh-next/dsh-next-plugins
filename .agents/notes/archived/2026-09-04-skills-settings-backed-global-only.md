@@ -1,7 +1,7 @@
 # Skills: settings-backed state, global-only installs, cc-plugins-style page
 
 - date: 2026-09-04
-- status: implemented
+- status: archived
 - scope: packages/dsh-next-skills
 
 ## Change

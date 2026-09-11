@@ -9,7 +9,7 @@
  * substitutes them.
  *
  * Keys follow the Claude Plugins page's conventions (`tab.*`, `search.*`,
- * `provider.*`, `filter.*`, `card.*`, `presence.*`, `sync.*`, `modal.*`,
+ * `provider.*`, `filter.*`, `card.*`, `sync.*`, `modal.*`,
  * `detail.*`) so the two settings pages stay grep-compatible; values adopt
  * the cc-plugins wording wherever the two surfaces share a concept.
  */
@@ -23,7 +23,7 @@ export const en = {
   // Page scaffold (the shell's settings-section pattern: title, intro, tab
   // strip aria-label), mirroring the cc-plugins page's key set.
   'title': 'Skills',
-  'intro': 'Install skills from providers and control where each one is enabled.',
+  'intro': 'Install and manage skills globally.',
   'tabs': 'Skill views',
 
   'tab.skills': 'Skills',
@@ -43,17 +43,9 @@ export const en = {
   'card.providers': 'Providers ({count})',
   'card.providersTitle': 'Switch where this skill comes from',
   'card.delete': 'Delete',
-  'card.scopes': 'Scopes',
-  'card.use': 'Use',
+  'card.install': 'Install',
   'card.replace': 'Replace',
 
-  'presence.everywhere': 'Everywhere',
-  'presence.workspaces.one': '{count} workspace',
-  'presence.workspaces.many': '{count} workspaces',
-  'presence.off': 'Off',
-
-  'source.projectDsh': 'project .dsh',
-  'source.projectAgents': 'project .agents',
   'source.userDsh': 'user .dsh',
   'source.userAgents': 'user .agents',
   'source.custom': 'custom',
@@ -65,18 +57,7 @@ export const en = {
   'sync.hoursAgo': '{count}h ago',
   'sync.daysAgo': '{count}d ago',
 
-  'modal.aria': 'Manage skill "{name}"',
-  // The hint states the model: files install once, globally; the scope is
-  // pure configuration and never writes into a project.
-  'modal.hint': 'Skills install once, into your global skills directory; the scope only controls where they are enabled.',
-  'modal.scope.global': 'Global (every workspace)',
-  'modal.scope.workspaces': 'Selected workspaces',
-  'modal.workspaces.hint': 'The skill works only in the checked workspaces.',
-  'modal.workspaces.empty': 'No workspaces registered.',
-  'modal.workspaceMissing': 'not registered',
-  'modal.save': 'Save scope',
   'modal.cancel': 'Cancel',
-  'modal.effectHint': 'Scope changes take effect on the next lookup or a new session.',
   'modal.confirmDelete': 'Delete',
 
   'delete.aria': 'Delete skill "{name}"',
@@ -94,8 +75,8 @@ export const en = {
   'sources.detach': 'Detach',
   'sources.confirmTitle': 'Replace {name}?',
   // States the real updateSkill semantics: in-place overwrite, extras removed
-  // permanently (no trash), scopes untouched.
-  'sources.confirmBody': 'Your copy is overwritten with the {provider} version. Files that are not part of the provider copy are removed permanently (not moved to trash). Its visibility scopes are kept.',
+  // permanently (no trash).
+  'sources.confirmBody': 'Your copy is overwritten with the {provider} version. Files that are not part of the provider copy are removed permanently (not moved to trash).',
   'sources.confirmReplace': 'Replace',
 
   'providers.placeholder': 'owner/repo or GitHub URL…',

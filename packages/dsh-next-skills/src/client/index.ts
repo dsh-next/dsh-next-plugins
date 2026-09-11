@@ -4,8 +4,7 @@
  * Registers a top-level "Skills" section in the `settings.section` slot (the
  * seat General/Models/Plugins occupy — the panel gets the whole settings
  * content column instead of a cramped plugin card) and hands it the Host RPC
- * plus a workspace reader so installs and toggles can be scoped per
- * workspace.
+ * for global skills management.
  *
  * Localization rides the platform `locale` service and nothing else: the
  * dictionaries register under this package's namespace through the typed
@@ -19,7 +18,6 @@
  */
 import * as React from 'react'
 import type { Context } from '@deepseek-ai/cordis'
-import type { IWorkspaces } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale) and the
 // settings SlotMap merges — this package's client declares
 // `settings.section` (the main settings nav), so `slots.register`
@@ -28,7 +26,6 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import { SkillsPanel } from './SkillsPanel.tsx'
 import { en, englishTranslate, NS, zh, type MessageKey } from './dictionaries.ts'
-import { extractWorkspaces } from './workspaces.ts'
 
 // Merge this package's namespace into the locale namespace table: the
 // settings.section slot's `locale` field and the typed register/bind
@@ -64,14 +61,11 @@ function rpc(method: string, args: unknown | undefined, t: (key: MessageKey, par
   })
 }
 
-// Required services (fiber inject waiting — the renderer owns the slot
-// registry since 0.1.2, and the workspace controller applies later, so both
-// must be up before the section registers and reads the workspace list).
-export const inject = ['slots', 'locale', 'workspaces'] as const
+// Wait for the settings slot registry and locale service before registering.
+export const inject = ['slots', 'locale'] as const
 
 export function apply(ctx: Context): void {
   const slots = ctx.get('slots')
-  const workspaces = ctx.get('workspaces') as IWorkspaces | undefined
 
   // The optional service read goes through ctx.get — a ctx.locale property
   // access requires the service in `inject` and fails at runtime otherwise.
@@ -95,8 +89,6 @@ export function apply(ctx: Context): void {
   // bind returns a stable translator reading the active locale at call time;
   // without the service, English keeps the panel fully functional.
   const t = locale !== undefined ? locale.bind(NS) : englishTranslate
-
-  const getWorkspaces = () => extractWorkspaces(workspaces)
 
   // The core UI caches each session's skill catalog until the connection
   // resets, so a skill removed through this panel would still show up in the
@@ -122,7 +114,6 @@ export function apply(ctx: Context): void {
       { name: 'settings.section', id: 'skills', order: 16, label: () => t('nav'), locale: NS },
       () => React.createElement(SkillsPanel, {
         rpc: (method: string, args?: unknown) => rpc(method, args, t),
-        getWorkspaces,
         notifyInstalledChanged,
         t,
       }),

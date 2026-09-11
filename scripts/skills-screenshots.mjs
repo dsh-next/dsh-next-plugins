@@ -1,8 +1,7 @@
 /**
  * Headless Playwright screenshots of the Skills settings section in the
  * running isolated DSH smoke: Settings -> Skills nav item, the Skills tab
- * card grid, the scope modal (Everywhere vs the workspaces checklist), the
- * detail modal, and the Providers tab. Text assertions live in
+ * global-only card grid, the detail modal, and the Providers tab. Text assertions live in
  * scripts/skills-providers-verify.mjs and skills-full-verify.mjs; this script
  * only captures visual evidence.
  *
@@ -21,7 +20,7 @@ if (!BASE_URL) {
 mkdirSync(OUT, { recursive: true })
 
 const browser = await chromium.launch({ headless: true })
-const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } })
+const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, colorScheme: 'dark' })
 const pageErrors = []
 page.on('pageerror', (e) => pageErrors.push(e.message))
 page.on('console', (m) => { if (m.type() === 'error') pageErrors.push('[console] ' + m.text()) })
@@ -58,19 +57,6 @@ await page.screenshot({ path: `${OUT}/00-home.png` })
 await openSkillsSection()
 await page.screenshot({ path: `${OUT}/02-skills-grid.png` })
 
-// The scope modal (Manage): Everywhere radio, workspaces checklist, and the
-// two-step Remove reveal. Cancel keeps everything untouched.
-const manage = page.locator('[data-testid="skills-add"]').first()
-if (await manage.isVisible().catch(() => false)) {
-  await manage.click({ force: true })
-  await page.waitForTimeout(500)
-  await page.screenshot({ path: `${OUT}/05-scope-modal.png` })
-  await page.getByTestId('skills-scope-workspaces').click({ force: true }).catch(() => {})
-  await page.waitForTimeout(400)
-  await page.screenshot({ path: `${OUT}/06-scope-workspaces.png` })
-  await page.getByRole('button', { name: 'Cancel', exact: true }).first().click({ force: true }).catch(() => {})
-  await page.waitForTimeout(500)
-}
 
 await page.getByTestId('skills-tab-providers').first().click({ force: true })
 await page.waitForTimeout(800)

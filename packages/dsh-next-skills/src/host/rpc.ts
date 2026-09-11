@@ -13,7 +13,7 @@ const RPC_PATH = '/dsh-next-skills/rpc'
 type Handler = (args: Record<string, unknown>) => unknown | Promise<unknown>
 
 function record(input: unknown): Record<string, unknown> {
-  return (input && typeof input === 'object') ? input as Record<string, unknown> : {}
+  return (input && typeof input === 'object' && !Array.isArray(input)) ? input as Record<string, unknown> : {}
 }
 
 function str(input: unknown): string {
@@ -24,48 +24,17 @@ function optStr(input: unknown): string | undefined {
   return typeof input === 'string' && input !== '' ? input : undefined
 }
 
-function strArray(input: unknown): string[] {
-  return Array.isArray(input) ? input.filter((p): p is string => typeof p === 'string') : []
-}
-
-/**
- * Parse the workspace list from a scope payload. Accepted shapes: the new
- * `{ workspaces: [name, ...] }`, a bare array of names, and the legacy
- * `{ kind: 'workspaces', workspacePaths: [...] }`. `null`/absent (or a
- * legacy global marker) clears to the everywhere default. Entries may be
- * full paths; the service normalizes them to directory names.
- */
-function parseWorkspacesInput(args: Record<string, unknown>): string[] | undefined {
-  // `workspaces: null` (or a legacy global marker) must stay distinct from an
-  // empty list: null clears the stored scope, [] disables everywhere.
-  if (args.workspaces === null) return undefined
-  if (args.workspaces !== undefined) return strArray(args.workspaces)
-  if (args.scope === null) return undefined
-  if (Array.isArray(args.scope)) return strArray(args.scope)
-  const scope = args.scope
-  if (scope && typeof scope === 'object') {
-    const raw = scope as { kind?: unknown; workspaces?: unknown; workspacePaths?: unknown }
-    if (raw.kind === 'workspaces') return strArray(Array.isArray(raw.workspaces) ? raw.workspaces : raw.workspacePaths)
-  }
-  return undefined
-}
-
 export function registerRpc(ctx: Context, service: SkillsService): void {
   const webServer = ctx.get('webServer')
   if (!webServer || typeof webServer.register !== 'function') return
 
   const handlers: Record<string, Handler> = {
     getState: () => service.state(),
-    setSkillScope: (args) => {
-      const a = record(args)
-      return service.setSkillScope({ name: str(a.name), workspaces: parseWorkspacesInput(a) })
-    },
     installSkill: (args) => {
       const a = record(args)
       return service.installSkill({
         providerId: str(a.providerId),
         skillPath: str(a.skillPath),
-        workspaces: parseWorkspacesInput(a),
       })
     },
     updateSkill: (args) => {
@@ -126,14 +95,14 @@ export function registerRpc(ctx: Context, service: SkillsService): void {
         if (res.writableEnded) return
         let body: { method?: unknown; args?: unknown }
         try {
-          body = JSON.parse(raw || '{}')
+          body = record(JSON.parse(raw || '{}'))
         } catch {
           res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' })
           res.end('invalid json')
           return
         }
         const method = typeof body.method === 'string' ? body.method : ''
-        const handler = handlers[method]
+        const handler = Object.hasOwn(handlers, method) ? handlers[method] : undefined
         if (typeof handler !== 'function') {
           res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
           res.end('no such method: ' + method)

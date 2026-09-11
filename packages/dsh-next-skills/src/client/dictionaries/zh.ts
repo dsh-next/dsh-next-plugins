@@ -3,7 +3,7 @@
  *
  * Same key set as `en.ts` — the `Record<MessageKey, string>` annotation makes
  * a missing or extra key a compile error. Terminology follows the repo
- * glossary (技能/安装/更新/卸载/移除/全局/工作区/提供方/搜索/作用域);
+ * glossary (技能/安装/更新/卸载/移除/全局/提供方/搜索);
  * "agent", "frontmatter", "markdown", and on-screen literals of third-party
  * tooling stay English.
  */
@@ -14,7 +14,7 @@ export const zh: Record<MessageKey, string> = {
   'nav': '技能',
 
   'title': '技能',
-  'intro': '从提供方安装技能，并控制每个技能的启用位置。',
+  'intro': '全局安装和管理技能。',
   'tabs': '技能视图',
 
   'tab.skills': '技能',
@@ -34,17 +34,9 @@ export const zh: Record<MessageKey, string> = {
   'card.providers': '提供方（{count}）',
   'card.providersTitle': '切换此技能的来源',
   'card.delete': '删除',
-  'card.scopes': '作用域',
-  'card.use': '使用',
+  'card.install': '安装',
   'card.replace': '更换',
 
-  'presence.everywhere': '所有位置',
-  'presence.workspaces.one': '{count} 个工作区',
-  'presence.workspaces.many': '{count} 个工作区',
-  'presence.off': '已关闭',
-
-  'source.projectDsh': '项目 .dsh',
-  'source.projectAgents': '项目 .agents',
   'source.userDsh': '用户 .dsh',
   'source.userAgents': '用户 .agents',
   'source.custom': '自定义',
@@ -56,16 +48,7 @@ export const zh: Record<MessageKey, string> = {
   'sync.hoursAgo': '{count} 小时前',
   'sync.daysAgo': '{count} 天前',
 
-  'modal.aria': '管理技能“{name}”',
-  'modal.hint': '技能只安装一次，存放在全局技能目录中；作用域仅控制它在哪些工作区启用。',
-  'modal.scope.global': '全局（所有工作区）',
-  'modal.scope.workspaces': '选中的工作区',
-  'modal.workspaces.empty': '尚未注册任何工作区。',
-  'modal.workspaces.hint': '该技能只在勾选的工作区内启用。',
-  'modal.workspaceMissing': '未注册',
-  'modal.save': '保存作用域',
   'modal.cancel': '取消',
-  'modal.effectHint': '作用域更改会在下次查找或新会话时生效。',
   'modal.confirmDelete': '删除',
 
   'delete.aria': '删除技能“{name}”',
@@ -82,7 +65,7 @@ export const zh: Record<MessageKey, string> = {
   'sources.differs': '与你的副本不同',
   'sources.detach': '解除绑定',
   'sources.confirmTitle': '替换 {name}？',
-  'sources.confirmBody': '你的副本将被 {provider} 的版本覆盖。不属于提供商副本的文件将被永久移除（不会移入回收站）。其可见范围设置保持不变。',
+  'sources.confirmBody': '你的副本将被 {provider} 的版本覆盖。不属于提供商副本的文件将被永久移除（不会移入回收站）。',
   'sources.confirmReplace': '替换',
 
   'providers.placeholder': 'owner/repo 或 GitHub 链接…',

@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest'
 import type { InstalledSkill } from '../src/core/types.ts'
 import { mergeInstalled, sortInstalled } from '../src/core/skill-list.ts'
 
-function skill(name: string, scope: 'global' | 'workspace' = 'global'): InstalledSkill {
+function skill(name: string, source: InstalledSkill['source'] = 'user-agents'): InstalledSkill {
   return {
-    name, description: name, scope, source: scope === 'workspace' ? 'project-agents' : 'user-agents',
+    name, description: name, source,
     kind: 'bundle', path: `/x/${name}/SKILL.md`, directory: `/x/${name}`,
   }
 }
@@ -17,11 +17,11 @@ describe('sortInstalled', () => {
 
 describe('mergeInstalled', () => {
   it('first list wins a duplicate name', () => {
-    const workspace = [skill('shared', 'workspace')]
-    const global = [skill('shared', 'global')]
-    const merged = mergeInstalled(workspace, global)
+    const dsh = [skill('shared', 'user-dsh')]
+    const agents = [skill('shared', 'user-agents')]
+    const merged = mergeInstalled(dsh, agents)
     expect(merged).toHaveLength(1)
-    expect(merged[0].scope).toBe('workspace')
+    expect(merged[0].source).toBe('user-dsh')
   })
   it('merges distinct names', () => {
     const merged = mergeInstalled([skill('a')], [skill('b')])

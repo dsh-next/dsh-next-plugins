@@ -26,10 +26,11 @@ export function parsePreviewOptions(argv, env = process.env) {
 }
 
 async function skillsRecipe(scratch, settings) {
+  // All copies are global; native frontmatter alone controls invocation.
   const recipes = {
     'grill-me': '---\nname: grill-me\ndescription: Ask me a hard question and grill me on the answer.\n---\n# Changelog\n',
     opentofu: '---\nname: opentofu\ndescription: |\n  Terraform / OpenTofu infrastructure as code help.\n  Handles plan, apply, and state review.\ndisable-model-invocation: true\nuser-invocable: false\n---\n# Ops\n',
-    'hand-made': '---\nname: hand-made\ndescription: Hand-created skill with no settings record (renders the custom chip).\n---\n# Hand\n',
+    'hand-made': '---\nname: hand-made\ndescription: Hand-created skill with no provider provenance record.\n---\n# Hand\n',
   };
   for (const [name, content] of Object.entries(recipes)) {
     const dir = join(scratch.agentsHome, 'skills', name);
@@ -38,7 +39,6 @@ async function skillsRecipe(scratch, settings) {
   }
   const config = settings['dsh-next-skills'];
   for (const name of ['grill-me', 'opentofu']) config.installations.push({ name, providerId: 'e2e-local', providerSpec: 'e2e/local', skillPath: 'skills/' + name, version: 'seed-v1', installedAt: '2026-01-01T00:00:00.000Z' });
-  config.scopes.opentofu = [];
 }
 
 async function harborRecipe(scratch, settings, run, env, signal) {

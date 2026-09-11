@@ -2,161 +2,70 @@
 
 English | [中文](README.zh.md)
 
-DeepSeek Harness plugin that manages agent skills from the Web GUI: add
-GitHub repositories as skill providers, install their skills globally, and
-control per workspace — through configuration — which skills are enabled
-where. Skills install once, into the global skill root; projects keep only
-hand-created, version-controlled skills, and enable/disable never writes
-skill files.
+A DeepSeek Harness plugin that lets you browse GitHub skill catalogs and install, update, and remove global agent skills from the Web GUI.
 
-A **Skills** section appears in the main settings navigation (the same level
-as General, Models, and Plugins — registered through the official
-`settings.section` slot), styled after the Claude Plugins page, with two
-tabs:
+## How to use it
 
-- **Skills** — one card grid holding every skill in the global roots
-  (`~/.dsh/skills` and `~/.agents/skills`) plus every provider catalog skill
-  that is not already installed. Project/workspace skills are deliberately
-  absent: they are hand-managed in the project and discovered natively by DSH,
-  so this panel lists nothing it cannot manage. A relevance-ranked search box
-  (name matches above description-only matches, so typing a skill's name
-  surfaces it instead of alphabetically-earlier description hits), a provider
-  filter, an installed-only toggle, and a Show more button (30 cards per page)
-  keep large catalogs fast; changing the search returns to page one. A skill that exists in several roots shows **one
-  card per copy**, so per-copy actions are unambiguous: each carries an origin
-  chip (`user .dsh`, `user .agents`), the recorded provider spec, and per-copy
-  **Delete** (recoverable), **Scopes**, **Providers**, and **Update**. Update
-  refreshes the copy from its recorded provider only (same-name skills from
-  other providers never show as updates, so the button cannot cycle between
-  vendors). A name that is installed renders only its copy cards — every
-  provider offering collapses into the copy's **Providers** button (labeled
-  with how many providers offer the name). The source switcher lists Local
-  plus each provider with its content parity ("matches your copy" / "differs
-  from your copy"), marks the current source, and switching to a provider
-  requires an overwrite confirm: the copy's files are rewritten in place,
-  files that are not part of the provider copy are removed permanently (not
-  moved to trash), and visibility scopes are kept. Choosing Local detaches the
-  copy from its provider (files stay, updates stop) and applies directly.
-  Externally-owned skills (installed by the cc-plugins bridge) show no
-  Providers switcher — their source is the owning plugin's business. The
-  **presence badge** (`Everywhere`, `N workspaces`, or `Off`) reflects the
-  skill's scope, and clicking a name opens the full SKILL.md rendered as
-  markdown. Installed skills sort first, and a name installed into several
-  roots shares one bordered group box. The **Use/Scopes** button opens the
-  scope modal: a radio picks where the skill is enabled — Global (the default,
-  every workspace) or only in a checklist of registered workspaces — and
-  installing or saving applies that scope as pure configuration.
-- **Providers** — manages GitHub skill repositories: add by URL
-  (`https://github.com/owner/repo` or `owner/repo`), Refresh all, remove.
-  Each row shows the repository description, the number of cached skills,
-  the last sync age, and any sync error. Refresh all runs one provider at a
-  time: the downloading row swaps its Remove button for a spinner reading
-  "Refreshing…" until the next provider starts (so the active provider is
-  always identifiable), the button shows the progress ("Refreshing 2/9…"),
-  and a failing provider shows its error on its own row while the rest
-  continue. Default providers seed on a fresh install and sync once shortly
-  after boot; removals persist.
+1. Install the plugin below, open the DSH Web GUI, and go to settings → `Skills`.
+2. Wait for the default providers to sync, or open `Providers` and add a public GitHub repository such as `owner/repo` or `https://github.com/owner/repo`.
+3. In `Skills`, search for a skill and click its name to read the full `SKILL.md`. Use the provider filter or `Installed only` to narrow the list.
+4. Click `Install`. Files go directly into your global agents skill root (normally `~/.agents/skills/<name>/`), with no scope picker. DSH discovers them natively for use across workspaces, subject to their frontmatter invocation flags.
+5. Use `Refresh all` in `Providers` to check for changes, then `Update` on an installed copy to apply its provider’s version.
 
-## How it works
+## Features
 
-**Global-only installs.** Installing copies a skill's files into the global
-root (`~/.agents/skills/<name>/`) and records the provenance in settings. The
-plugin never writes skill files into a project — and it does not list, scope,
-or manage project skills either: a workspace's `.agents/skills/` (or
-`.dsh/skills/`) belongs to the project alone, hand-created and
-version-controlled there.
+### Browse and manage global copies
 
-**Enablement is configuration.** Per skill name, a scope setting decides
-where the skill is enabled: absent means enabled in every workspace; a list
-of workspace directory names enables it only inside workspaces whose folder
-matches one of those names; an empty list disables it everywhere. Scopes
-store folder names — not absolute paths — so the settings section keeps
-working when teammates check the repos out somewhere else. (Two registered
-workspaces sharing a folder name share their enablement.) A git worktree
-session under that repo inherits the same enablement; worktree folders do
-not appear in the scope checklist. The plugin publishes
-the global-root skill catalog through its own `ctx.skills` provider (each
-candidate one rank above the filesystem provider's equal entry) and resolves
-the invocation flags per lookup from the scope — a disabled skill simply
-carries both invocation flags off, so it disappears from every model and
-command surface. Project skills stay with the native filesystem provider,
-untouched by this config. No frontmatter edits, no shadow copies, no file
-writes.
+The `Skills` tab combines installed skills from the global DSH and agents roots
+(normally `~/.dsh/skills` and `~/.agents/skills`) with uninstalled provider skills.
+Search ranks name matches first; `Show more` reveals 30 more cards. Each installed
+copy has its own card and origin label, so copies with the same name stay distinct.
+Project skills are not listed or managed here.
 
-**Settings-backed state.** Providers, the install-provenance ledger
-(`installations`), and scopes persist in the plugin's own namespace of the
-harness settings file (`$DSH_HOME/settings.yaml`, key `dsh-next-skills:`) —
-readable, hand-editable, and easy to share between developers. That section
-is the single source managing the plugin's state: a provider exists because
-the section lists it, and a skill's provenance is whatever the section
-records — never a cache file or a per-skill sidecar (the provider catalog
-cache under `$DSH_HOME/skills-market/` is a replica: a cache entry without a
-settings record does not exist as far as the panel is concerned). After the
-provider caches sync, a skill recorded in settings whose files are missing is
-reinstalled from the cache, so copying the settings section to a teammate (or
-a new machine) reproduces the same skill set: providers configure immediately,
-the first boot syncs the caches and installs the recorded skills, and scopes
-apply as-is (they are folder names). Every Refresh all ends with the same
-reconcile, so a provider that failed during a first boot's sync self-corrects
-on the next refresh.
+![Skills settings with skill cards and provider controls](media/skills.webp)
 
-Deletion is recoverable: a copy's Delete button moves that copy into the
-`.trash` directory of its root (skipped by discovery), so an accidental
-removal can be undone by hand. Any copy in the global roots can be removed —
-not just plugin-installed ones — and when the last copy of a name is removed,
-the provenance record and scope entry are dropped together. Scope entries
-whose name no longer resolves to any copy or catalog skill are pruned
-automatically.
+### Choose a provider and update deliberately
 
-## Providers and the cache
+`Update` uses only the copy’s recorded provider; another provider’s same-name skill
+is never treated as its update. `Providers` shows alternative sources and whether
+they match your copy. Switching providers requires an overwrite confirmation.
+Updates and provider switches rewrite the copy in place and permanently remove
+files absent from the provider version, including local additions; those files
+do not go to trash. Choose `Local (hand-managed)` to detach without changing files
+and stop provider updates.
 
-A provider is any public GitHub repository containing skills: any directory
-with a `SKILL.md` counts, at any depth, so both flat layouts
-(`skills/<name>/SKILL.md`, e.g. vercel-labs/skills) and nested ones
-(`native-skills/default/<group>/<name>/SKILL.md`, e.g. holistics/skills) work.
-`.git`, `.github`, and `node_modules` subtrees are ignored.
+### Refresh catalogs without replacing installed copies
 
-On first launch the plugin seeds a set of default providers (anthropics/skills,
-mattpocock/skills, muratcankoylan/Agent-Skills-for-Context-Engineering,
-nextlevelbuilder/ui-ux-pro-max-skill, addyosmani/agent-skills,
-Leonxlnx/taste-skill) and syncs them once shortly after boot, so the Skills tab
-is populated without any setup. Removing a default persists — they never come
-back.
+Providers can be public GitHub repositories with `SKILL.md` directories at any
+depth; `.git`, `.github`, and `node_modules` are skipped. Default providers are
+added on first launch and synced shortly after boot; removing one persists.
+`Refresh all` syncs providers one at a time, showing progress and per-provider
+errors while continuing past failures. The catalog cache under
+`$DSH_HOME/skills-market/` does not activate skills by itself. Refresh detects
+changes without overwriting existing copies; missing recorded installs are
+restored as described below.
 
-**Rate limits.** Metadata calls authenticate with `DSH_GITHUB_TOKEN` or
-`GITHUB_TOKEN` (either environment variable, read again on every sync) when
-set — 5000 requests/hour instead of the 60/hour unauthenticated budget the
-whole machine shares. The snapshot download itself is CDN-backed and outside
-that budget either way.
+### Recover deletions and restore missing installs
 
-Adding a provider downloads every skill into a plugin-owned cache at
-`$DSH_HOME/skills-market/` — deliberately outside `$DSH_HOME/skills`, which the
-DSH filesystem provider scans, so cached skills never activate by themselves.
-The Skills tab reads that cache; installing copies the files into the global
-root and records the provenance in settings. A provider may expose any number
-of skills — there is no cap (the grid paginates, and syncing is content-hash
-incremental), so even repositories with hundreds of skills sync and browse
-fine.
+`Delete` moves a global copy into its root’s `.trash` directory for manual recovery,
+including hand-managed copies. Removing the last copy of a name also removes its
+installation record. Providers and the `installations` provenance ledger live in
+`$DSH_HOME/settings.yaml` under `dsh-next-skills`. After boot-time provider sync
+and each `Refresh all`, reconciliation restores missing global agents-root
+install directories from the available provider cache; it does not overwrite
+existing directories. Sharing that settings section can therefore recreate
+recorded provider installs on another machine after sync. A failed provider can
+be retried with `Refresh all`; deleting files by hand while keeping their record
+may cause them to be reinstalled.
 
-**Fast syncs via repository snapshots.** Instead of one request per file, a
-sync downloads the repository's default-branch snapshot in a single request
-(`codeload.github.com`, CDN-backed and outside the API rate limit), extracts
-it in memory, and copies out every `SKILL.md` directory. Skill versions are
-content hashes, so a refresh re-copies only skills whose files changed.
-Metadata (repository description and star count) comes from one cheap API
-call. That keeps even large default providers well within GitHub's 60
-req/hr unauthenticated budget and makes first syncs a matter of seconds.
+### Keep Claude plugin skills with their owner
 
-**Change detection** fingerprints each local copy with the same content-hash
-recipe used for catalog versions and compares it against every same-name
-catalog skill. A copy's recorded provider drives the Update button: when its
-content differs, Update rewrites the copy in place (pruning files that
-disappeared upstream) and re-pins the provenance record, leaving the scope
-untouched. Every other provider's offering — including adopting a
-hand-managed copy — goes through the Providers source switcher, which
-requires an explicit overwrite confirm before rewriting anything.
-Refresh is manual (Refresh all) and detect-only: nothing is installed or
-overwritten without a click.
+Skills installed through `Claude Plugins` remain owned by that plugin: update or
+uninstall them there, rather than switching providers or deleting them here.
+Their skill files install globally and are available independently of the Claude
+plugin’s scope, still subject to frontmatter invocation flags. Workspace-scoped
+plugins containing skills receive a nonfatal warning; Claude plugin and MCP
+scope behavior is otherwise unchanged.
 
 ## Install
 
@@ -164,13 +73,13 @@ overwritten without a click.
 dsh plugin --profile <name> add @dsh-next/dsh-next-skills
 ```
 
-## Development
+`<name>` is your DSH profile, for example `web`.
 
-```sh
-pnpm install
-pnpm typecheck
-pnpm test
-pnpm build
-```
+## Good to know
 
-Run the real-mount smoke from the repository root with `mise run e2e`.
+- Requires DeepSeek Harness `>=0.1.1-rc.1`. DSH’s native filesystem discovery handles skill visibility and precedence; this plugin does not override discovered skills or their invocation flags. `disable-model-invocation` and `user-invocable` in skill frontmatter still apply.
+- Upgrading preserves existing skill files, providers, and the installation ledger. Legacy `dsh-next-skills.scopes` settings are ignored and dropped on the next plugin settings save: previously disabled or workspace-restricted global skills become globally available, subject to frontmatter invocation flags. There are no per-skill scope or enable/disable controls. This alpha makes a clean interface break: install requests no longer interpret or validate scope fields; every install is global.
+- If you use `@dsh-next/dsh-next-cc-plugins`, upgrade both plugins together. A new Claude bridge paired with an older scoped Skills plugin can retain legacy skill restrictions; changing the Claude plugin’s scope no longer manages those restrictions.
+- No project copies are automatically moved or deleted. Existing `.agents/skills/` and `.dsh/skills/` copies in projects remain hand-managed and follow native DSH discovery.
+- If GitHub metadata requests hit rate limits, set `DSH_GITHUB_TOKEN` or `GITHUB_TOKEN` in the DSH process environment and refresh again.
+- For development and testing, see [CONTRIBUTING.md](https://github.com/dsh-next/dsh-next-plugins/blob/main/CONTRIBUTING.md).

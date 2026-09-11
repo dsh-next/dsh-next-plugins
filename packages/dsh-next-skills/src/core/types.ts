@@ -3,22 +3,17 @@
  * or Node runtime identity — both halves may import this module.
  */
 
-import type { SkillScopeSetting } from './settings.ts'
 import type { SkillOwnership } from './ownership.ts'
 /** The discovery bucket a skill came from (mirrors the DSH filesystem provider). */
 export type SkillSourceBucket =
-  | 'project-dsh'
-  | 'project-agents'
   | 'user-dsh'
   | 'user-agents'
-  | 'bundled'
 
 /** One discovered skill copy as shown in the Skills tab (one entry per copy). */
 export interface InstalledSkill {
   name: string
   description: string
   whenToUse?: string
-  scope: SkillScope
   source: SkillSourceBucket
   /** Directory-bundle skill (`<name>/SKILL.md`) or flat `<name>.md`. */
   kind: 'bundle' | 'flat'
@@ -32,8 +27,6 @@ export interface InstalledSkill {
    *  fingerprint (the source switcher's options; undefined for flat, owned,
    *  or unoffered copies). */
   sources?: SkillSourceOption[]
-  /** The config enablement scope for this name (undefined = global default). */
-  configScope?: SkillScopeSetting
   /** External-ownership provenance (undefined for skills- and hand-created skills). */
   ownership?: SkillOwnership
 }
@@ -49,9 +42,6 @@ export interface CatalogSkillMatch {
 /** One selectable source for an installed skill: a catalog offering plus
  *  whether the provider copy's content equals the local one. */
 export type SkillSourceOption = CatalogSkillMatch & { matches: boolean }
-
-/** Where a skill physically lives: a user/global root or a project root. */
-export type SkillScope = 'global' | 'workspace'
 
 /** One skill offered by a provider (catalog view served to the Skills tab). */
 export interface CatalogSkillView {
@@ -83,7 +73,7 @@ export interface ProviderView {
 
 /** The full browser-facing state envelope (RPC contract). */
 export interface SkillsState {
-  /** Discovered skill copies across the global roots and the requested workspaces. */
+  /** Discovered skill copies across the global roots. */
   installed: InstalledSkill[]
   /** Provider status rows. */
   providers: ProviderView[]
@@ -101,13 +91,6 @@ export interface SkillDetail {
   userInvocable: boolean
   /** Markdown body below the frontmatter. */
   body: string
-}
-
-/** A workspace row surfaced to the client (id/title/path). */
-export interface WorkspaceRow {
-  id: string
-  title: string
-  path: string
 }
 
 /** Mutation RPC envelope: success carries fresh state; failure carries an error. */
@@ -210,16 +193,6 @@ export interface InstallExternalSkillsArgs {
   pluginKey: string
   marketplaceId: string
   skills: ExternalSkillFiles[]
-  /** Initial per-name enablement (workspace folder names); undefined = everywhere. */
-  workspaces?: readonly string[]
-}
-
-/** Arguments for updating the enablement scope of one external skill name. */
-export interface SetExternalSkillScopeArgs {
-  owner: string
-  name: string
-  /** Workspace folder names; undefined clears (everywhere), [] disables everywhere. */
-  workspaces?: readonly string[] | null
 }
 
 /** Arguments for removing every skill owned by one plugin install. */

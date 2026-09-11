@@ -24,15 +24,15 @@ DeepSeek Harness 插件：添加 [Claude Code](https://code.claude.com/docs/en/p
   过滤器和“仅已安装”开关，并由 Show more 按钮（每页 30 张卡片）保证大型
   目录依然流畅。已安装的卡片显示其已安装版本，且只要市场携带有
   更新的版本，就会显示“更新”按钮（更新还会先重新同步该市场，因此总是拉取
-  真正的最新版本）。每张卡片的“安装”（或“作用域”）按钮会打开**范围弹窗**：
-  单选钮选择插件的技能在哪里启用 —— **全局**（默认；技能落到本 DSH home
-  处处扫描的共享技能根目录），或**选定的工作区**（显示已注册工作区的勾选
-  清单；技能仍安装到共享根目录，范围只决定它们在哪些工作区中启用）。两种
-  模式互斥 —— 一次安装，一个范围。对已安装的插件，卡片上还会提供“更新”和
-  “卸载”——后者经两步确认弹窗移除插件——而范围弹窗中的“保存范围”会重新
-  划定启用范围。
-  技能全局安装，范围即启用；MCP 服务器、代理行、命令和钩子是插件级的，
-  无论范围如何都只激活一次（弹窗中会说明这一点）。点击插件名称会打开**详情弹窗**：元数据、完整的组件清单（包括
+  真正的最新版本）。每张卡片的 `Install`（或 `Scopes`）按钮会打开
+  **范围弹窗**：选择插件记录的作用域 —— `Global`（默认）或
+  `Selected workspaces`（已注册工作区的勾选清单）。对于已安装的插件，
+  `Save scope` 更改该记录；`Update` 更新插件，`Uninstall` 经两步确认后
+  将其移除。技能始终安装到共享的全局 agents 根目录，不受该作用域限制，
+  在各工作区均可用，但仍遵循 frontmatter 调用标志。包含技能的工作区作用域
+  插件会收到说明这一限制的非致命警告。MCP 服务器、代理行、命令和钩子保留
+  现有的插件级激活行为，其作用域处理保持不变。点击插件名称会打开
+  **详情弹窗**：元数据、完整的组件清单（包括
   此桥接不安装的家族）、声明的依赖项，以及持久化在记录上的安装说明。
   范围特性引入之前的注册表记录（多目标或单范围形式）会在读取时迁移到
   范围结构：凡记录过全局根目录的即取全局（它覆盖所有工作区）；仅记录过
@@ -41,17 +41,18 @@ DeepSeek Harness 插件：添加 [Claude Code](https://code.claude.com/docs/en/p
 
   | Claude Code 组件 | DSH 目的地 | 激活时机 |
   | --- | --- | --- |
-  | `skills/*/SKILL.md` | 共享技能根目录 `~/.agents/skills`（技能始终全局安装；范围仅控制启用） | 立即，通过文件系统提供者的 watcher |
+  | `skills/*/SKILL.md` | 共享的全局 agents 根目录（通常为 `~/.agents/skills`），不受插件作用域限制 | DSH 原生文件系统发现；frontmatter 调用标志仍然有效 |
   | `commands/*.md` | 通过内置运行时桥接接入 DSH 命令注册表（`ctx.commands`） | 立即；在每次安装/更新/卸载后重新注册。命令会把 `$ARGUMENTS` 展开到插件的模板中，并作为模型可见的用户轮次提交 |
   | `.mcp.json` 服务器 | `$DSH_HOME/cordis.patch.yml` 中受管理的 `dsh-mcp-client` 行 | 在 DSH 重启或 profile 重载之后 |
   | `agents/*.md` | 受管理的 `dsh-tool-subagent` 行（每个代理一个 `cc-agent-<name>` 委派工具，代理 markdown 作为子代理的角色设定；`tools:` frontmatter 转换为对翻译后的 DSH 工具名的 `toolFilter.allow` —— Claude 内置工具经由一张众所周知的映射表，`mcp__` 引用通过插件已安装的 MCP 行解析从而让服务器名称去重得以保留，外来的 `mcp__server__tool` 引用直接透传，因为 DSH 的 MCP 客户端使用与 Claude 完全相同的命名；映射到的 `model:` 变为 `agentOptions.model`） | 在 profile 重载之后 |
   | `hooks/hooks.json` | 运行时桥接以 Claude 兼容的 JSON stdin、`CLAUDE_PLUGIN_ROOT`/`CLAUDE_PLUGIN_DATA` 环境变量、加入 `PATH` 的插件 `bin/` 目录和逐钩子的超时运行每个匹配的钩子。`PreToolUse`/`PostToolUse` 挂接到 `tools/pre-execute`/`tools/post-execute`（退出码 2 或 JSON deny 会阻止调用）；`UserPromptSubmit` 挂接到 `agent/pre-step`（block 会拒绝该步骤，stdout 成为注入的上下文）；`SessionStart` 挂接到 `agent/session-start`（仅观察，stdout 被注入，matcher 选择 `startup`/`resume`/`clear`/`compact`）；`Stop` 挂接到 `agent/turn-stopping`（block 会引导代理继续，逐轮有循环防护）；`SubagentStop` 挂接到 `subagent/end`（仅观察） | 在 `runtime.hooks` 启用期间 |
 
-- **更新安装** —— 从上游更新已安装的插件（技能在共享根目录中原地更新，
+- **更新安装** —— 从上游更新已安装的插件（技能在共享全局根目录中更新，
   被移除的技能可恢复地移入回收站，受管理的行以稳定的服务器/工具名重新
-  渲染），从“作用域”弹窗重新划定范围（只改启用范围，不移动技能副本 ——
-  且不触碰插件级的行），并卸载它（技能移到根目录的 `.trash`，受管理的行
-  和物化的插件副本退出）。物化的插件副本在重写时**保留 `node_modules`**
+  渲染），从 `Scopes` 更改其记录的作用域（不移动技能副本，也不限制其
+  可用性），并卸载它（归其所有的全局技能移到根目录的 `.trash`，受管理的行
+  和物化的插件副本退出）。此次全局化简化不会自动移动或删除现有的项目技能
+  副本。物化的插件副本在重写时**保留 `node_modules`**
   （与 Claude Code 跨插件版本的做法相同），因此其 MCP 服务器或钩子安装过
   依赖的插件在更新后依然可用；`package.json` 发生变化会被记录，以便插件
   自身的依赖引导程序刷新它们，而卸载会清除一切。安装与更新说明（未桥接的
@@ -242,6 +243,10 @@ cc-plugins:
 引用于诊断信息中。
 
 ## 安装
+
+请同时升级本插件和 `@dsh-next/dsh-next-skills`。新的桥接与仍支持作用域的旧版
+Skills 插件搭配时，可能保留旧的技能限制；更改 Claude 插件作用域已不再管理
+这些限制。
 
 ```sh
 dsh plugin --profile <name> add @dsh-next/dsh-next-cc-plugins

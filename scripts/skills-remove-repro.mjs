@@ -1,12 +1,12 @@
 /**
- * Focused live repro for the scope-modal flows against the RUNNING smoke
- * server (no reboot, real clicks without force so actionability issues
- * surface): Manage -> workspaces whitelist -> off-everywhere -> back to
- * Everywhere, with the presence badge checked after each step.
+ * Focused per-copy delete repro against a RUNNING isolated smoke server.
+ * Real clicks without force expose actionability issues: Delete -> cancel
+ * preserves the copy; Delete -> confirm removes only the selected copy.
+ * Destructive: consumes the boot-seeded grill-me copy; use a fresh seed.
  *
- * Usage: node scripts/skills-uninstall-repro.mjs <baseUrl> [outDir]
+ * Usage: node scripts/skills-remove-repro.mjs <baseUrl> [outDir]
  */
-import { chromium } from '@playwright/test'
+import { chromium, expect } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import process from 'node:process'
@@ -14,7 +14,7 @@ import process from 'node:process'
 const BASE_URL = process.argv[2]
 const OUT = process.argv[3] || 'test-results/skills/repro'
 if (!BASE_URL) {
-  console.error('usage: node scripts/skills-uninstall-repro.mjs <baseUrl> [outDir]')
+  console.error('usage: node scripts/skills-remove-repro.mjs <baseUrl> [outDir]')
   process.exit(2)
 }
 mkdirSync(OUT, { recursive: true })
@@ -69,47 +69,49 @@ await nav.click()
 await page.waitForTimeout(800)
 
 const skillCard = (name) => page.locator('[data-testid="skills-card"]', { hasText: name }).first()
-const presence = (name) => skillCard(name).locator('[data-testid="skills-presence"]').first()
 
 await page.screenshot({ path: join(OUT, 'r1-grid.png') })
 
-// ---- Step 1: Manage on a seeded skill -> scope modal ----------------------
+// ---- Cancel leaves the selected copy intact -------------------------------
 const target = 'grill-me'
-log('card visible:', await skillCard(target).isVisible().catch(() => false))
-await skillCard(target).locator('[data-testid="skills-add"]').first().click()
-await page.waitForTimeout(600)
-await page.screenshot({ path: join(OUT, 'r2-scope-modal.png') })
-const modal = page.getByTestId('skills-modal')
-log('scope modal visible:', await modal.isVisible().catch(() => false))
+await expect(skillCard(target)).toBeVisible()
+await expect(page.locator('[data-testid^="skills-scope"], [data-testid="skills-modal"], [data-testid="skills-presence"], [data-testid="skills-workspace"]')).toHaveCount(0)
+async function state() {
+  const response = await page.request.post(BASE_URL + '/dsh-next-skills/rpc', { data: { method: 'getState', args: {} } })
+  expect(response.ok()).toBe(true)
+  const value = await response.json()
+  expect(Object.keys(value).sort()).toEqual(['catalog', 'installed', 'providers'])
+  return value
+}
+const before = await state()
+await skillCard(target).getByTestId('skills-delete').click()
+const modal = page.getByTestId('skills-delete-confirm')
+await expect(modal).toBeVisible()
+const copyPath = await modal.getByTestId('skills-delete-path').textContent()
+expect(before.installed.some((row) => row.name === target && row.path === copyPath)).toBe(true)
+await page.screenshot({ path: join(OUT, 'r2-delete-confirm.png') })
+await modal.getByTestId('skills-delete-cancel').click()
+await expect(modal).toBeHidden()
+expect((await state()).installed.some((row) => row.path === copyPath)).toBe(true)
+log('cancel preserved copy:', copyPath)
 
-// ---- Step 2: off-everywhere (workspaces radio with nothing checked) -------
-await page.getByTestId('skills-scope-workspaces').click()
-await page.waitForTimeout(400)
-await page.screenshot({ path: join(OUT, 'r3-workspaces-mode.png') })
-await modal.getByRole('button', { name: 'Save scope', exact: true }).click()
-await page.waitForTimeout(1000)
-await page.screenshot({ path: join(OUT, 'r4-off-everywhere.png') })
-log('modal closed:', !(await modal.isVisible().catch(() => false)))
-log('presence badge now:', await presence(target).textContent().catch(() => '<gone>'))
-
-// ---- Step 3: back to Everywhere -------------------------------------------
-await skillCard(target).locator('[data-testid="skills-add"]').first().click()
-await page.waitForTimeout(600)
-await page.getByTestId('skills-scope-global').click()
-await page.waitForTimeout(200)
-await modal.getByRole('button', { name: 'Save scope', exact: true }).click()
-await page.waitForTimeout(1000)
-await page.screenshot({ path: join(OUT, 'r5-back-to-global.png') })
-log('presence badge restored:', await presence(target).textContent().catch(() => '<gone>'))
-
-// ---- Step 4: Providers tab (screenshot only; remove is destructive) -------
-await page.getByTestId('skills-tab-providers').first().click()
-await page.waitForTimeout(1000)
-await page.screenshot({ path: join(OUT, 'r6-providers.png') })
-log('provider row visible:', await skillCard('anthropics/skills').isVisible().catch(() => false))
+// ---- Confirm removes this exact copy, leaving other copies untouched -------
+await skillCard(target).getByTestId('skills-delete').click()
+await expect(modal).toBeVisible()
+await expect(modal.getByTestId('skills-delete-path')).toHaveText(copyPath)
+await modal.getByTestId('skills-delete-confirm-btn').click()
+await expect(modal).toBeHidden()
+await expect.poll(async () => (await state()).installed.some((row) => row.path === copyPath)).toBe(false)
+const after = await state()
+for (const row of before.installed.filter((row) => row.path !== copyPath)) {
+  expect(after.installed.some((remaining) => remaining.path === row.path)).toBe(true)
+}
+await page.screenshot({ path: join(OUT, 'r3-copy-deleted.png') })
+log('deleted copy:', copyPath)
 
 log('\nerrors captured:', errors.length)
 for (const e of errors) log(' ', e)
 log('failed requests:', requests.length)
 for (const r of requests) log(' ', r)
 await browser.close()
+if (errors.length || requests.length) process.exitCode = 1

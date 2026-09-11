@@ -1,9 +1,9 @@
 /**
  * Skills settings page styling.
  *
- * The shared-chrome block is kept byte-identical to the Claude Plugins page
+ * Shared chrome matches the Claude Plugins page; scope-only rules are omitted
  * (packages/dsh-next-cc-plugins/src/client/card.module.css) — header, tabs,
- * filter row, inputs, buttons, cards, notices, and the scope modal all read
+ * filter row, inputs, buttons, cards, notices, and the remaining modals read
  * as one product. The block copies the harness shell's own Plugins settings
  * page (title, intro, underline tab strip) and consumes only `--dsw-*` theme
  * tokens: no literal colors, no fallbacks masking token typos, no theme
@@ -363,29 +363,6 @@
   display: flex;
 }
 
-/* Badges and chips share the shell's pill recipe: module-platform fill, no
- * border, 11px/17px medium label. */
-.presenceBadge {
-  border-radius: 999px;
-  background: var(--dsw-alias-bg-module-platform);
-  color: var(--dsw-alias-label-secondary);
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 17px;
-  padding: 1px 8px;
-  flex: none;
-  white-space: nowrap;
-}
-
-/* Presence + kind chips stack on the card's top-right corner. */
-.badges {
-  flex: none;
-  align-items: flex-end;
-  gap: 4px;
-  display: flex;
-  flex-direction: column;
-}
-
 .hint {
   color: var(--dsw-alias-label-tertiary);
   font-size: 12px;
@@ -461,37 +438,11 @@
   border-color: var(--dsw-alias-label-dimmed);
 }
 
-.optionRow input[type='checkbox'] {
-  accent-color: var(--dsw-alias-brand-primary);
-  width: 16px;
-  height: 16px;
-  flex: none;
-  margin: 0;
-}
-
 .optionLabel {
   color: var(--dsw-alias-label-primary);
   font-size: 13px;
   flex: 1;
   min-width: 0;
-}
-
-/* The workspace checklist indents under its radio's label text. */
-.optionNested {
-  margin-left: 36px;
-}
-
-.addedBadge {
-  border: 0;
-  border-radius: 999px;
-  background: var(--dsw-alias-state-success-primary);
-  /* Constant near-black label: readable on the success fill in both themes. */
-  color: var(--dsw-static-neutral-bluish-1000);
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 17px;
-  padding: 1px 8px;
-  flex: none;
 }
 
 .optionAction {
@@ -525,7 +476,7 @@
   flex: none;
 }
 
-/* Card action row (Update / Providers / Delete / Scopes): natural-width
+/* Card action row (Update / Providers / Delete): natural-width
  * buttons pinned to the card's right edge. */
 .cardActions {
   display: flex;
@@ -587,19 +538,6 @@
   font-size: 11px;
 }
 
-/* Project-skill marker, same pill family. */
-.projectChip {
-  border: 0;
-  border-radius: 999px;
-  background: var(--dsw-alias-bg-module-platform);
-  color: var(--dsw-alias-label-secondary);
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 17px;
-  padding: 1px 8px;
-  white-space: nowrap;
-}
-
 /* Custom (hand-written, unmanaged) skill marker: warn fill with a constant
  * near-black label, readable on amber in both themes. */
 .customBadge {
@@ -611,22 +549,6 @@
   font-weight: 500;
   line-height: 17px;
   padding: 1px 8px;
-  white-space: nowrap;
-}
-
-/* Update-available flag for rows whose Update button cannot show (the skill
- * is workspace-scoped; updates only apply to the global install). Same pill
- * family as the plugins page's notes chip. */
-.updateChip {
-  border: 0;
-  border-radius: 999px;
-  background: var(--dsw-alias-state-warn-primary);
-  color: var(--dsw-static-neutral-bluish-1000);
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 17px;
-  padding: 1px 8px;
-  margin-left: 8px;
   white-space: nowrap;
 }
 

@@ -32,18 +32,17 @@ with a built-in runtime for the components DSH activates in-process.
   page) keeps large catalogs fast. Installed cards show their installed
   version and, whenever the marketplace carries a newer one, an Update
   button (update also re-syncs that marketplace first, so it always pulls
-  the true latest). Each card's Install (or Scopes) button opens the **scope
-  modal**: a radio picks where the plugin's skills are enabled — **Global**
-  (the default; skills land in the shared skills root this DSH home scans
-  everywhere) or **Selected workspaces** (a checklist of the registered
-  workspaces appears; skills still install into the shared root, and the
-  scope enables them only in the checked workspaces). The two modes are
-  exclusive — one install, one scope. For an installed plugin the same modal
-  manages it: Save scope re-scopes the enablement, Update refreshes it, and
-  Uninstall removes it after a two-step confirm. Skills install globally; the
-  scope is enablement. MCP servers, agent rows, commands, and hooks are
-  plugin-level and activate once regardless of
-  scope (the modal says so). Clicking a plugin's name opens a
+  the true latest). Each card's `Install` (or `Scopes`) button opens the
+  **scope modal**: choose the plugin's recorded scope — `Global` (the default)
+  or `Selected workspaces` (a checklist of registered workspaces). For an
+  installed plugin, `Save scope` changes that record; `Update` refreshes the
+  plugin and `Uninstall` removes it after a two-step confirmation. Skills
+  always install into the shared global agents root and are available across
+  workspaces regardless of this scope, subject to their frontmatter invocation
+  flags. Workspace-scoped plugins containing skills receive a nonfatal warning
+  explaining this limitation. MCP servers, agent rows, commands, and hooks
+  retain their existing plugin-level activation behavior; their scope handling
+  is unchanged. Clicking a plugin's name opens a
   **detail modal**: metadata, the full component listing (including the
   families this bridge does not install), declared dependencies, and the
   install notes persisted on the record. Pre-scope registry records
@@ -55,20 +54,20 @@ with a built-in runtime for the components DSH activates in-process.
 
   | Claude Code component | DSH destination | Activation |
   | --- | --- | --- |
-  | `skills/*/SKILL.md` | The scope's skills roots: `~/.agents/skills` for global, `<workspace>/.agents/skills` for each checked workspace | Immediate, through the filesystem provider's watcher |
+  | `skills/*/SKILL.md` | Shared global agents root (normally `~/.agents/skills`), independent of plugin scope | Native DSH filesystem discovery; frontmatter invocation flags still apply |
   | `commands/*.md` | DSH command registry (`ctx.commands`) via the built-in runtime bridge | Immediate; re-registers after every install/update/uninstall. A command expands `$ARGUMENTS` into the plugin's template and submits it as a model-visible user turn |
   | `.mcp.json` servers | Managed `dsh-mcp-client` rows in `$DSH_HOME/cordis.patch.yml` | After a DSH restart or profile reload |
   | `agents/*.md` | Managed `dsh-tool-subagent` rows (one `cc-agent-<name>` delegation tool per agent, the agent markdown as the child persona; the `tools:` frontmatter becomes `toolFilter.allow` over translated DSH tool names — Claude built-ins through a well-known map, `mcp__` refs resolved through the plugin's installed MCP rows so server-name dedupe survives, and foreign `mcp__server__tool` refs passed through since DSH's MCP client uses Claude's exact naming; a mapped `model:` becomes `agentOptions.model`) | After a profile reload |
   | `hooks/hooks.json` | The runtime bridge runs each matching hook with Claude-compatible JSON stdin, `CLAUDE_PLUGIN_ROOT`/`CLAUDE_PLUGIN_DATA` env, the plugin's `bin/` directory on `PATH`, and per-hook timeouts. `PreToolUse`/`PostToolUse` ride `tools/pre-execute`/`tools/post-execute` (exit code 2 or a JSON deny blocks the call); `UserPromptSubmit` rides `agent/pre-step` (a block rejects the step, stdout becomes injected context); `SessionStart` rides `agent/session-start` (observe, stdout injected, matcher selects `startup`/`resume`/`clear`/`compact`); `Stop` rides `agent/turn-stopping` (a block steers the agent to continue, loop-guarded per turn); `SubagentStop` rides `subagent/end` (observe only) | While `runtime.hooks` is enabled |
 
 - **Updating installs** — update an installed plugin from upstream (skills
-  re-copied into every root the scope spans, removed skills recoverably
-  trashed, managed rows re-rendered with stable server/tool names),
-  re-scope it from the Scopes modal (skill copies move between roots —
-  added roots get fresh copies from an existing install copy, dropped
-  roots' copies move to `.trash` — without touching the plugin-level rows),
-  and uninstall it (skills move to the root's `.trash`, managed rows and
-  the materialized plugin copy drop out).
+  refreshed in the shared global root, removed skills recoverably trashed,
+  managed rows re-rendered with stable server/tool names), change its recorded
+  scope from `Scopes` (without moving skill copies or restricting their
+  availability), and uninstall it (owned global skills move to the root's
+  `.trash`, managed rows and the materialized plugin copy drop out). Existing
+  project skill copies are not automatically moved or deleted by the
+  global-only simplification.
   The materialized plugin copy rewrites **preserving `node_modules`** (as
   Claude Code does across plugin versions), so a plugin whose MCP server or
   hooks installed dependencies keeps them working after an Update; a
@@ -306,6 +305,10 @@ on language switches. Host-generated messages (install notes, errors) stay
 English: they are persisted on install records and quoted in diagnostics.
 
 ## Install
+
+Upgrade this plugin and `@dsh-next/dsh-next-skills` together. Pairing the new
+bridge with an older scoped Skills plugin can retain legacy skill restrictions;
+changing a Claude plugin’s scope no longer manages those restrictions.
 
 ```sh
 dsh plugin --profile <name> add @dsh-next/dsh-next-cc-plugins

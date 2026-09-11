@@ -49,13 +49,14 @@ export async function seedRuntime(scratch, { profile = 'smoke', fixtures = false
     'ui-onboarding': { welcomeNoticeVersion: '2099-01-01.1' },
     'agent-default-model': { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
     'dsh-next-notifier': { enabled: true, suppressFocused: true, volume: 70 },
-    'dsh-next-skills': { providers: [], installations: [], scopes: {} },
+    'dsh-next-skills': { providers: [], installations: [] },
   }
   if (fixtures) {
     settings['dsh-next-skills'] = {
       providers: [{ id: 'e2e-local', spec: 'e2e/local', addedAt: '2026-01-01T00:00:00.000Z' }],
       installations: [{ name: 'e2e-test-skill', providerId: 'e2e-local', providerSpec: 'e2e/local', skillPath: 'skills/e2e-test-skill' }],
-      scopes: {},
+      // Deliberately stale restrictions must not hide this global installed copy.
+      scopes: { 'e2e-test-skill': [] },
     }
   }
   await json(join(scratch.home, 'settings.yaml'), settings)

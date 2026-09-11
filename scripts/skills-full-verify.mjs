@@ -5,23 +5,22 @@
  * Drives the settings-backed model in the real browser over real network:
  *   - Skills tab: card grid over seeded skills + provider catalog, search,
  *     provider filter, installed-only, Show more paging, detail markdown
- *   - Scope modal: Add (global), re-scope to a workspace whitelist and back,
- *     presence badges, two-step remove with trash on disk
- *   - Settings.yaml: providers/installed/scopes round-trip on disk
+ *   - Direct global Install, no scope controls, per-copy delete with trash
+ *   - Settings.yaml: providers/installations round-trip without scope state
  *   - Providers: default seed + auto-sync, add by URL and by bare spec,
  *     refresh all, remove (defaults survive)
- *   - Update: tampered settings record -> Update button -> update clears it
+ *   - Update: tampered local content -> Update button -> provider content restored
  *   - Composer: after a remove, a NEW session's "/" menu must not list the
  *     removed skill (client cache invalidation)
  *
- * Screenshots land in test-results/skills/ (or argv[3]). Exits non-zero on
- * the first failed check; prints a PASS/FAIL summary either way.
+ * Screenshots land in test-results/skills/ (or argv[4]). Exits non-zero on
+ * the first failed check; prints each result as it runs.
  *
  * Usage: node scripts/skills-full-verify.mjs <baseUrl> <scratchHome> [outDir]
  */
 import { chromium } from '@playwright/test'
-import { mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync, realpathSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
 import process from 'node:process'
 
 const BASE_URL = process.argv[2]
@@ -99,9 +98,8 @@ async function noErrorShown() {
 
 /** Like noErrorShown, but tolerates refresh failures that are environmental
  *  or upstream rather than product regressions: GitHub rate limits (60
- *  req/hr shared across the whole machine unauthenticated) and providers
- *  that grew past the 500-skill cap (surfaced per provider by design). Any
- *  other banner still fails. */
+ *  req/hr shared across the whole machine unauthenticated). Any other banner
+ *  still fails. */
 async function noErrorExceptRateLimit() {
   const count = await page.locator('[data-testid="skills-message"][class*="noticeErr"]').count()
   if (count === 0) return
@@ -112,26 +110,30 @@ async function noErrorExceptRateLimit() {
   console.log('  (tolerated environmental/upstream refresh failure)')
 }
 
-/** Open the scope modal for a skill and return its root element. */
-async function openScopeModal(name, action = 'skills-add') {
-  const card = skillCard(name)
-  await card.locator(`[data-testid="${action}"]`).first().click({ force: true })
-  const modal = page.getByTestId('skills-modal')
-  await until('scope modal', async () => await modal.isVisible())
+/** Scope/enablement controls are no longer part of this plugin. */
+async function noScopeControls() {
+  if (await page.locator('[data-testid^="skills-scope"], [data-testid="skills-modal"], [data-testid="skills-presence"], [data-testid="skills-workspace"], select[aria-label="Install into"]').count()) {
+    throw new Error('obsolete scope controls still present')
+  }
+}
+function assertState(state) {
+  if (Object.keys(state).sort().join(',') !== 'catalog,installed,providers') throw new Error('unexpected state envelope')
+  if (state.installed.some((row) => 'scope' in row || 'configScope' in row)) throw new Error('installed rows expose scope state')
+  if (state.installed.some((row) => !['user-agents', 'user-dsh'].includes(row.source))) throw new Error('non-global installed copy exposed')
+}
+async function openDelete(name) {
+  await cardButton(skillCard(name), 'skills-delete').click()
+  const modal = page.getByTestId('skills-delete-confirm')
+  await modal.waitFor({ state: 'visible' })
   return modal
 }
-
-/** Make re-runs idempotent: if the skill is installed (Manage button), remove
- *  it through the modal's two-step confirm so the Add flow can run again. */
+/** Remove only the seeded global copy so the direct Install flow can rerun. */
 async function ensureUninstalled(name) {
-  const card = skillCard(name)
-  if (await card.locator('[data-testid="skills-add"]').first().isVisible().catch(() => false)) return
-  const modal = await openScopeModal(name)
-  await modal.getByTestId('skills-uninstall').click({ force: true })
-  await modal.getByTestId('skills-uninstall-confirm').click({ force: true })
-  await until('modal closed', async () => !(await modal.isVisible().catch(() => false)))
-  await until('card uninstalled', async () =>
-    await card.locator('[data-testid="skills-add"]').first().isVisible())
+  if (await cardButton(skillCard(name), 'skills-use').isVisible().catch(() => false)) return
+  const modal = await openDelete(name)
+  await modal.getByTestId('skills-delete-confirm-btn').click()
+  await modal.waitFor({ state: 'hidden' })
+  await until('card uninstalled', async () => await cardButton(skillCard(name), 'skills-use').isVisible())
 }
 
 const browser = await chromium.launch({ headless: true })
@@ -168,26 +170,18 @@ await check('Skills section opens from Settings nav', async () => {
 await shot('01-skills-initial')
 
 // ---- Skills tab: seeded skills + grid ------------------------------------
-await check('Skills: seeded skills render as cards with the custom chip', async () => {
+await check('Skills: seeded global copies retain provider provenance', async () => {
   for (const name of ['e2e-test-skill', 'grill-me', 'opentofu', 'hand-made']) {
-    await until(`${name} card`, async () => await skillCard(name).isVisible())
+    await until(name + ' card', async () => await skillCard(name).isVisible())
+    if (!(await skillCard(name).textContent()).includes('user .agents')) throw new Error('global source chip missing: ' + name)
   }
-  // The boot records e2e-test-skill/grill-me/opentofu as managed, so they
-  // show the e2e/local provider chip; hand-made carries no record and shows
-  // the orange custom chip, painted from a real theme token.
-  const managed = skillCard('grill-me')
-  await until('provider chip on grill-me', async () => (await managed.textContent()).includes('e2e/local'))
-  const card = skillCard('hand-made')
-  const badge = card.locator('[class*="customBadge"]').first()
-  await until('custom chip on hand-made', async () => await badge.isVisible())
-  const bg = await badge.evaluate((el) => getComputedStyle(el).backgroundColor)
-  const m = bg.match(/rgba?\((\d+), (\d+), (\d+)/)
-  if (!m || Number(m[1]) < 200 || Number(m[2]) < 80 || Number(m[2]) > 160) {
-    throw new Error('custom chip background is not orange: ' + bg)
-  }
-  const fg = await badge.evaluate((el) => getComputedStyle(el).color)
-  const f = fg.match(/rgba?\((\d+), (\d+), (\d+)/)
-  if (!f || ![f[1], f[2], f[3]].every((v) => Number(v) >= 240)) throw new Error('custom chip text is not white: ' + fg)
+  const state = await rpc('getState')
+  assertState(state)
+  if (state.installed.find((row) => row.name === 'grill-me')?.provider !== 'e2e/local') throw new Error('managed provenance missing')
+  if (state.installed.find((row) => row.name === 'hand-made')?.provider !== undefined) throw new Error('local copy has unexpected provenance')
+  const disabled = state.installed.find((row) => row.name === 'opentofu')
+  const detail = await rpc('getInstalledSkillDetail', { name: disabled.name, path: disabled.path })
+  if (detail.modelInvocable !== false || detail.userInvocable !== false) throw new Error('native frontmatter invocation flags were lost')
 })
 await check('Skills: two tabs only (Skills / Providers); old tabs gone', async () => {
   for (const name of ['Skills', 'Providers']) {
@@ -197,10 +191,7 @@ await check('Skills: two tabs only (Skills / Providers); old tabs gone', async (
     if ((await tab(old).count()) !== 0) throw new Error(`old "${old}" tab still present`)
   }
 })
-await check('Skills: presence badge defaults to Everywhere for seeded skills', async () => {
-  const badge = skillCard('grill-me').locator('[data-testid="skills-presence"]').first()
-  await until('Everywhere badge', async () => (await badge.textContent()) === 'Everywhere')
-})
+await check('Skills: no scope or enablement controls', noScopeControls)
 
 // ---- Providers: defaults + URL form --------------------------------------
 await openTab('Providers')
@@ -286,7 +277,12 @@ await check('Skills: provider filter and installed-only render; old install pick
   await page.waitForTimeout(400)
   await until('find-skills still visible', async () => await skillCard('find-skills').isVisible())
   await providerSelect.selectOption('')
-  await page.waitForTimeout(400)
+  await page.getByTestId('skills-search').fill('grill-me')
+  await page.getByTestId('skills-installed-only').check()
+  await until('installed seeded copy remains', async () => await skillCard('grill-me').isVisible())
+  if (await page.getByTestId('skills-use').count()) throw new Error('catalog-only offering survived installed-only filter')
+  await page.getByTestId('skills-installed-only').uncheck()
+  await page.getByTestId('skills-search').fill('find')
 })
 await check('Skills: Show more pages the catalog (30 per page)', async () => {
   const s = await rpc('getState')
@@ -330,90 +326,50 @@ await check('Skills: empty state on a non-matching search', async () => {
 })
 await shot('05-skills')
 
-// ---- Scope modal: Add + presence + settings round-trip --------------------
-await check('Scope modal: Add installs globally and records settings', async () => {
+// ---- Direct install + global settings round-trip --------------------------
+await check('Install: direct action writes a global copy and installations ledger', async () => {
   await ensureUninstalled('find-skills')
-  const card = skillCard('find-skills')
-  await cardButton(card, 'skills-add').click({ force: true })
-  const modal = page.getByTestId('skills-modal')
-  await until('scope modal visible', async () => await modal.isVisible())
-  // Global is the default radio; the seeded workspace appears in the
-  // checklist under the workspaces mode.
-  if (!(await page.getByTestId('skills-scope-global').locator('input').isChecked())) {
-    throw new Error('Global radio is not the default')
+  const responsePromise = page.waitForResponse((r) => r.url().endsWith('/dsh-next-skills/rpc') && r.request().postDataJSON()?.method === 'installSkill')
+  await cardButton(skillCard('find-skills'), 'skills-use').click()
+  const response = await responsePromise
+  const args = response.request().postDataJSON().args
+  if (Object.keys(args).sort().join(',') !== 'providerId,skillPath') throw new Error('Install sent obsolete fields')
+  const result = await response.json()
+  if (result.ok !== true) throw new Error(result.error ?? 'install failed')
+  assertState(result.state)
+  await until('installed card', async () => await cardButton(skillCard('find-skills'), 'skills-delete').isVisible())
+  await noScopeControls()
+  await until('settings install record', async () => settingsSection().includes('installations:') && settingsSection().includes('- name: find-skills'))
+  if (/^  scopes:/m.test(settingsSection())) throw new Error('active scope settings persisted')
+  if (!existsSync(join(AGENT_SKILLS, 'find-skills', 'SKILL.md'))) throw new Error('global copy missing')
+  for (const workspace of ['workspace-a', 'workspace-b']) {
+    const directory = join(SCRATCH, workspace)
+    if (!existsSync(directory)) throw new Error('canonical workspace missing: ' + directory)
+    for (const root of ['.agents', '.dsh']) {
+      if (existsSync(join(directory, root, 'skills', 'find-skills'))) throw new Error('workspace copy created')
+    }
   }
-  await page.getByTestId('skills-scope-workspaces').click()
-  await until('workspace checklist', async () => await modal.locator('[data-testid="skills-workspace"]').first().isVisible())
-  await page.getByTestId('skills-scope-global').click()
-  await modal.getByTestId('skills-modal-confirm').click({ force: true })
-  await until('modal closed', async () => !(await modal.isVisible().catch(() => false)))
-  await until('find-skills managed card', async () => {
-    const text = await skillCard('find-skills').textContent()
-    return text.includes('vercel-labs/skills') && text.includes('Everywhere')
-  })
-  // The settings.yaml section now records the install.
-  await until('settings install record', async () => settingsSection().includes('- name: find-skills'))
   await noErrorShown()
-  await shot('06-scope-added')
-})
-await check('Scope modal: re-scope to a workspace whitelist and back', async () => {
-  const modal = await openScopeModal('find-skills')
-  await page.getByTestId('skills-scope-workspaces').click()
-  const wsBox = modal.locator('[data-testid="skills-workspace"]', { hasText: 'Alpha' }).first().locator('input')
-  await wsBox.check({ force: true })
-  await modal.getByTestId('skills-modal-confirm').click({ force: true })
-  await until('modal closed', async () => !(await modal.isVisible().catch(() => false)))
-  await until('presence badge shows one workspace', async () =>
-    (await skillCard('find-skills').locator('[data-testid="skills-presence"]').textContent()) === '1 workspace')
-  const s = await rpc('getState')
-  const scope = s.config.scopes['find-skills']
-  if (!Array.isArray(scope) || scope.length !== 1 || scope[0] !== 'ws-alpha') {
-    throw new Error('whitelist scope not recorded as folder names: ' + JSON.stringify(scope))
-  }
-  await shot('07-scope-whitelisted')
-  // Back to Everywhere: the scope entry clears from settings.
-  const modal2 = await openScopeModal('find-skills')
-  await page.getByTestId('skills-scope-global').click()
-  await modal2.getByTestId('skills-modal-confirm').click({ force: true })
-  await until('modal closed', async () => !(await modal2.isVisible().catch(() => false)))
-  await until('presence badge back to Everywhere', async () =>
-    (await skillCard('find-skills').locator('[data-testid="skills-presence"]').textContent()) === 'Everywhere')
-  const s2 = await rpc('getState')
-  if (s2.config.scopes['find-skills'] !== undefined) throw new Error('scope entry not cleared')
+  await shot('06-global-installed')
 })
 
 // ---- Update flow ----------------------------------------------------------
-await check('Update: tampered settings version enables the Update button', async () => {
-  // settings.yaml is the single source: the RECORD's version is what the
-  // update flag compares against, so the tamper lands there.
-  const settingsPath = join(SCRATCH, 'home', 'settings.yaml')
-  const lines = readFileSync(settingsPath, 'utf8').split('\n')
-  let inRecord = false
-  let hit = false
-  for (let i = 0; i < lines.length; i++) {
-    if (/^\s*- name: find-skills\s*$/.test(lines[i])) inRecord = true
-    else if (/^\s*- name:/.test(lines[i])) inRecord = false
-    if (inRecord && /^\s*version:/.test(lines[i])) {
-      lines[i] = lines[i].replace(/version: .*/, 'version: tampered000000')
-      inRecord = false
-      hit = true
-    }
-  }
-  if (!hit) throw new Error('could not tamper the find-skills record version')
-  writeFileSync(settingsPath, lines.join('\n'))
-  await openTab('Providers') // switching tabs refreshes state
-  await openTab('Skills')
+await check('Update: tampered local content enables the Update button', async () => {
+  const path = join(AGENT_SKILLS, 'find-skills', 'SKILL.md')
+  writeFileSync(path, readFileSync(path, 'utf8') + '\n<!-- skills-verify-tamper -->\n')
+  // Tabs only filter the current snapshot; remount the panel to refetch.
+  await page.locator('button', { hasText: 'New Session' }).first().click()
+  await page.getByText('Settings', { exact: true }).first().click()
+  await page.getByRole('button', { name: 'Skills', exact: true }).first().click()
+  await page.getByTestId('skills-search').fill('find-skills')
   await until('update button visible', async () => await cardButton(skillCard('find-skills'), 'skills-update').isVisible())
   await shot('08-update-available')
 })
 await check('Update: Update overwrites and clears the flag', async () => {
   await cardButton(skillCard('find-skills'), 'skills-update').click({ force: true })
   await until('update finished', async () => {
-    // The settings record (not the manifest) is the compared state.
-    const settings = readFileSync(join(SCRATCH, 'home', 'settings.yaml'), 'utf8')
-    if (settings.includes('version: tampered000000')) {
-      throw new Error('settings record not rewritten yet')
-    }
+    const content = readFileSync(join(AGENT_SKILLS, 'find-skills', 'SKILL.md'), 'utf8')
+    if (content.includes('skills-verify-tamper')) throw new Error('provider content not restored yet')
     if (await cardButton(skillCard('find-skills'), 'skills-update').isVisible().catch(() => false)) {
       throw new Error('Update still visible')
     }
@@ -424,24 +380,22 @@ await check('Update: Update overwrites and clears the flag', async () => {
 
 // ---- Remove: two-step confirm + composer staleness ------------------------
 await check('Remove: two-step confirm trashes recoverably and the composer refreshes', async () => {
-  const modal = await openScopeModal('find-skills')
-  await modal.getByTestId('skills-uninstall').click({ force: true })
-  // The first click only reveals the confirmation button.
-  if ((await modal.getByTestId('skills-uninstall-confirm').count()) === 0) throw new Error('confirm button missing')
+  const modal = await openDelete('find-skills')
+  if (!(await modal.getByTestId('skills-delete-path').textContent()).includes('find-skills/SKILL.md')) throw new Error('copy path missing')
+  if (!existsSync(join(AGENT_SKILLS, 'find-skills', 'SKILL.md'))) throw new Error('copy deleted before confirmation')
   await shot('09-remove-confirm')
-  await modal.getByTestId('skills-uninstall-confirm').click({ force: true })
-  await until('modal closed', async () => !(await modal.isVisible().catch(() => false)))
-  // The skill leaves the installed set but stays a catalog offering: the
-  // card flips back to the uninstalled (Add) state.
-  await until('card back to catalog-only', async () =>
-    await skillCard('find-skills').locator('[data-testid="skills-add"]').isVisible())
+  await modal.getByTestId('skills-delete-confirm-btn').click()
+  await modal.waitFor({ state: 'hidden' })
+  await until('card back to catalog-only', async () => await cardButton(skillCard('find-skills'), 'skills-use').isVisible())
   const trash = join(AGENT_SKILLS, '.trash')
   if (!existsSync(trash) || !readdirSync(trash).some((d) => d.endsWith('-find-skills'))) {
     throw new Error('no trash entry for find-skills')
   }
-  // The settings record and scope entry are dropped with the files.
+  // The final copy's settings record is dropped with the files.
   const s = await rpc('getState')
-  if (s.config.installed.some((r) => r.name === 'find-skills')) throw new Error('install record not dropped')
+  assertState(s)
+  if (s.installed.some((r) => r.name === 'find-skills')) throw new Error('installed copy not dropped')
+  if (settingsSection().includes('- name: find-skills')) throw new Error('install record not dropped')
   // The chat composer caches each session's skill catalog, so without the
   // panel's post-mutation invalidation a NEW chat in the SAME page would
   // still offer the removed skill until a full browser reload.
@@ -463,6 +417,7 @@ await check('Remove: two-step confirm trashes recoverably and the composer refre
   await composer.pressSequentially('/')
   await page.waitForTimeout(1000)
   const menuText = await page.locator('[role="listbox"], [role="menu"]').first().textContent().catch(() => '') ?? ''
+  if (menuText.includes('opentofu')) throw new Error('composer ignores user-invocable: false frontmatter')
   if (menuText.includes('find-skills')) throw new Error('composer / menu still lists the removed skill (stale client cache)')
   if (!menuText.includes('e2e-test-skill')) throw new Error('composer / menu did not list the remaining skill: ' + JSON.stringify(menuText.slice(0, 200)))
   await shot('09b-composer-after-remove')
@@ -476,55 +431,12 @@ await check('Remove: two-step confirm trashes recoverably and the composer refre
   await shot('09-after-remove')
 })
 
-// ---- Reinstall + scope RPC pass ------------------------------------------
-await check('Skills: reinstall find-skills with a workspace-restricted scope', async () => {
-  await openTab('Skills')
-  await page.getByTestId('skills-search').first().fill('find')
-  await until('find-skills card', async () => await skillCard('find-skills').isVisible())
-  await ensureUninstalled('find-skills')
-  const card = skillCard('find-skills')
-  await cardButton(card, 'skills-add').click({ force: true })
-  const modal = page.getByTestId('skills-modal')
-  await until('scope modal visible', async () => await modal.isVisible())
-  await page.getByTestId('skills-scope-workspaces').click()
-  const wsBox = modal.locator('[data-testid="skills-workspace"]', { hasText: 'Alpha' }).first().locator('input')
-  await wsBox.check({ force: true })
-  await modal.getByTestId('skills-modal-confirm').click({ force: true })
-  await until('modal closed', async () => !(await modal.isVisible().catch(() => false)))
-  await until('presence badge one workspace', async () =>
-    (await skillCard('find-skills').locator('[data-testid="skills-presence"]').textContent()) === '1 workspace')
-})
-await check('Scope RPC: installs are global-only even with a workspace scope', async () => {
-  // The workspace registry stores canon (realpath) paths — on macOS /tmp is
-  // a symlink to /private/tmp, so compare against the resolved form.
-  const WS_A = basename(realpathSync(join(SCRATCH, 'ws-alpha')))
-  const state = await rpc('getState')
-  const record = state.config.installed.find((r) => r.name === 'find-skills')
-  if (!record) throw new Error('install record missing')
-  // The files landed in the global root only.
-  if (!existsSync(join(AGENT_SKILLS, 'find-skills', 'SKILL.md'))) throw new Error('global copy missing')
-  if (existsSync(join(WS_A, '.agents', 'skills', 'find-skills'))) throw new Error('a workspace copy exists — installs must be global-only')
-  // The scope whitelist stores the workspace folder NAME (portable).
-  const scope = state.config.scopes['find-skills']
-  if (!Array.isArray(scope) || !scope.includes(WS_A)) {
-    throw new Error('whitelist not recorded as folder names: ' + JSON.stringify(scope))
-  }
-  // Reset to the everywhere default for a clean final state.
-  const reset = await rpc('setSkillScope', { name: 'find-skills', workspaces: null })
-  if (reset.ok !== true) throw new Error('setScope reset failed: ' + reset.error)
-  if (reset.state.config.scopes['find-skills'] !== undefined) throw new Error('scope not cleared')
-})
-await check('Scope RPC: setScope refuses invalid input without writing', async () => {
-  const bad = await rpc('setSkillScope', { name: 'not a name', workspaces: null })
-  if (bad.ok !== false) throw new Error('invalid name accepted')
-  const s = await rpc('getState')
-  if (s.config.scopes['find-skills'] !== undefined) throw new Error('unexpected scope after the refused write')
-})
-
 // ---- Providers: remove, then bare spec re-add ----------------------------
 await openTab('Providers')
 await check('Providers: remove the URL-form provider (defaults survive)', async () => {
   await providerCard('vercel-labs/skills').locator('[data-testid="skills-provider-remove"]').first().click({ force: true })
+  await page.getByTestId('skills-provider-remove-modal').waitFor({ state: 'visible' })
+  await page.getByTestId('skills-provider-remove-confirm-btn').click()
   await until('row gone', async () => !(await providerCard('vercel-labs/skills').isVisible().catch(() => false)))
   await until('defaults still present', async () => await providerCard('anthropics/skills').isVisible())
   // The settings section drops the provider record too.

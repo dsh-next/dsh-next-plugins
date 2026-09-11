@@ -27,6 +27,7 @@ import { verifyOauthProviders } from './oauth-helpers.ts'
 import { bareId, assertMountHealthy, runGuardedMarker, requireCheckpointsPanel } from '../../scripts/e2e-guards.mjs'
 import { closeDialogs, openWorkspaceSession, unblank } from './checkpoints-helpers.ts'
 import { verifyNotifier, registerNotifierTurnTest } from './notifier-marker.ts'
+import { verifySkillFolderOpener } from './skills-folder.ts'
 import {
   commitFile,
   completeConflictedMerge,
@@ -741,6 +742,9 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await expect(page.getByTestId('skills-scopes')).toHaveCount(0)
     await expect(page.getByTestId('skills-presence')).toHaveCount(0)
     await expect(page.getByTestId('skills-modal')).toHaveCount(0)
+    const folderRoot = process.env.DSH_AGENTS_HOME
+    if (!folderRoot) throw new Error('DSH_AGENTS_HOME is required for isolated folder-opener checks')
+    await verifySkillFolderOpener(page, join(folderRoot, 'skills', 'e2e-test-skill'))
     // Source switcher: the seeded provider offers the same name with a
     // catalog version that never matches the local fingerprint, so the card
     // shows the recorded-provider Update button plus the Providers switcher.
@@ -1070,6 +1074,15 @@ test('plugin family mounts the dsh-next plugins without crash markers', async ({
 
 registerNotifierTurnTest(BASE_URL, pluginIds, dismissOnboarding)
 
+test('Skills folder-opener supports keyboard, empty-app and error states', async ({ page }) => {
+  test.skip(!pluginIds.includes('@dsh-next/dsh-next-skills'), 'Skills plugin is not mounted')
+  const agentsHome = process.env.DSH_AGENTS_HOME
+  if (!agentsHome) throw new Error('DSH_AGENTS_HOME is required for isolated folder-opener checks')
+  await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' })
+  await openSkillsSection(page)
+  await verifySkillFolderOpener(page, join(agentsHome, 'skills', 'e2e-test-skill'))
+})
+
 test('Skills global-only page renders real repository skills', async ({ page }, testInfo) => {
   test.skip(!pluginIds.includes('@dsh-next/dsh-next-skills'), 'Skills plugin is not mounted')
   const agentsHome = process.env.DSH_AGENTS_HOME
@@ -1096,6 +1109,41 @@ test('Skills global-only page renders real repository skills', async ({ page }, 
     const screenshot = testInfo.outputPath('skills-global-only.png')
     await panel.screenshot({ path: screenshot })
     await testInfo.attach('global-only Skills page', { path: screenshot, contentType: 'image/png' })
+    // Native app detection/icons are not mocked for visual evidence. No launch is
+    // clicked here: the interaction marker above intercepts launches separately.
+    const nativeApps = await page.request.get(new URL('/open-in-app/apps', BASE_URL).href)
+    if (nativeApps.ok() && (await nativeApps.json()).apps?.length > 0) {
+      await page.getByTestId('skills-card').filter({ has: page.getByTestId('skills-detail').filter({ hasText: 'dsh-next-agent-coding' }) }).getByTestId('skills-detail').click()
+      const detail = page.getByTestId('skills-skill-detail')
+      await expect(detail.getByTestId('skills-open-folder')).toBeVisible()
+      await expect(detail.getByTestId('skills-detail-body')).toContainText('plugin development')
+      await detail.getByTestId('skills-open-folder-menu').click()
+      await expect(page.getByRole('menu')).toBeVisible()
+      const captureMenu = async (path: string) => {
+        const dialogBox = (await detail.boundingBox())!
+        const menuBox = (await page.getByRole('menu').boundingBox())!
+        const x = Math.min(dialogBox.x, menuBox.x)
+        const y = Math.min(dialogBox.y, menuBox.y)
+        const width = Math.max(dialogBox.x + dialogBox.width, menuBox.x + menuBox.width) - x
+        const height = Math.max(dialogBox.y + dialogBox.height, menuBox.y + menuBox.height) - y
+        await page.screenshot({ path, clip: { x, y, width, height } })
+      }
+      const folderShot = testInfo.outputPath('skills-folder-dark.png')
+      await captureMenu(folderShot)
+      await testInfo.attach('native skill folder opener dark', { path: folderShot, contentType: 'image/png' })
+      await page.keyboard.press('Escape')
+      await expect(detail).toBeVisible()
+      const darkBackground = await detail.evaluate((element) => getComputedStyle(element).backgroundColor)
+      await page.emulateMedia({ colorScheme: 'light' })
+      await expect.poll(() => detail.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(darkBackground)
+      await detail.getByTestId('skills-open-folder-menu').click()
+      await expect(page.getByRole('menu')).toBeVisible()
+      const lightShot = testInfo.outputPath('skills-folder-light.png')
+      await captureMenu(lightShot)
+      await testInfo.attach('native skill folder opener light', { path: lightShot, contentType: 'image/png' })
+      await page.keyboard.press('Escape')
+      await detail.getByTestId('skills-detail-close').click()
+    }
   } finally {
     for (const directory of created) rmSync(directory, { recursive: true, force: true })
   }

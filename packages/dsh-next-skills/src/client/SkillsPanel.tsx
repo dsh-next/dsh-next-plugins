@@ -19,6 +19,7 @@ import type {
 import styles from './card.module.css'
 import { englishTranslate, type MessageKey } from './dictionaries.ts'
 import { renderMarkdown } from './markdown.tsx'
+import { OpenSkillFolder } from './OpenSkillFolder.tsx'
 
 /** Translates a dictionary key with `{name}` params (platform semantics). */
 export type Translate = (key: MessageKey, params?: Record<string, string | number>) => string
@@ -224,7 +225,7 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
   React.useEffect(() => {
     if (detail === undefined && confirmDelete === undefined && confirmRemoveProvider === undefined && sourcesModal === undefined) return
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') { setDetail(undefined); setDetailData(undefined); setConfirmDelete(undefined); setConfirmRemoveProvider(undefined); closeSources() }
+      if (e.key === 'Escape' && !e.defaultPrevented) { setDetail(undefined); setDetailData(undefined); setConfirmDelete(undefined); setConfirmRemoveProvider(undefined); closeSources() }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -391,9 +392,21 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
           aria-modal="true"
           aria-label={t('detail.aria', { name: detail.name })}
           data-testid="skills-skill-detail"
+          onKeyDown={(e: React.KeyboardEvent) => {
+            if (e.key === 'Escape' && !e.defaultPrevented) {
+              e.preventDefault()
+              e.stopPropagation()
+              closeDetail()
+            }
+          }}
           onClick={(e: React.MouseEvent) => e.stopPropagation()}
         >
-          <p className={styles.modalTitle}>{detail.name}</p>
+          <div className={styles.detailHeader}>
+            <p className={styles.modalTitle}>{detail.name}</p>
+            {detail.row !== undefined && (
+              <OpenSkillFolder key={detail.row.path} directory={detail.row.directory} t={t} />
+            )}
+          </div>
           <p className={styles.modalHint}>
             {[
               detailData?.modelInvocable === false ? t('detail.modelBlocked') : t('detail.modelInvocable'),

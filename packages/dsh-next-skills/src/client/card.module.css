@@ -586,6 +586,20 @@
   }
 }
 
+/* Installed skill details keep the native folder opener beside the title. */
+.detailHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.detailHeader > .modalTitle {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
 /* Wide detail modal + its scrollable rendered-markdown body. */
 .modalWide {
   width: min(640px, calc(100vw - 48px));

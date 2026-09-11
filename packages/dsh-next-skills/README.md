@@ -24,6 +24,20 @@ Project skills are not listed or managed here.
 
 ![Skills settings with skill cards and provider controls](media/skills.webp)
 
+### Open a skill’s folder
+
+Click an installed skill’s name, then use the app icon beside the modal title to
+open that copy’s folder. The arrow lists supported apps detected by DSH, such as
+Finder or VS Code. Your choice is remembered for skill dialogs in this browser;
+flat Markdown skills open their containing folder.
+
+The control is hidden while apps load, when no supported apps are available,
+when DSH’s native opener is unavailable, and for uninstalled catalog skills.
+Launch failures leave the modal open so you can retry. Apps open on the machine
+running DSH, which may differ from the browser’s machine in remote deployments.
+
+![Skill details with the native-style folder-opening menu](media/skills-folder.webp)
+
 ### Choose a provider and update deliberately
 
 `Update` uses only the copy’s recorded provider; another provider’s same-name skill

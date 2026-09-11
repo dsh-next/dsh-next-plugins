@@ -2,89 +2,54 @@
 
 English | [中文](README.zh.md)
 
-A DeepSeek Harness plugin that alerts you when the agent finishes its turn,
-needs your approval, or asks you a question: an **in-page toast** while you are
-looking at the page and a **browser (web) notification** when the window is
-backgrounded or minimized, plus a configuration card in **Settings → Plugins**
-with a curated sound library.
+A DeepSeek Harness plugin that uses in-page toasts, browser notifications, and optional sounds to tell you when an agent finishes, stops with a problem, or needs your input.
 
-## Triggers
+## How to use it
 
-| Trigger | Notification |
-| --- | --- |
-| Agent finishes its turn | "Agent finished its turn." |
-| Agent asks for an approval | "Approval needed — Waiting for your approval: `<tool>`" |
-| Agent calls `ask_user_question` | "Question — The agent asked you a question…" |
-| Subagent finishes (opt-in) | "A subagent finished its turn." |
-| Session goal completes | "Goal completed — The session goal completed." |
-| Session goal gets blocked | "Goal blocked — The session goal was blocked: `<reason>`" |
+1. Install the plugin using the command below, then open the Web GUI for that profile.
+2. Open `Settings` → `Plugins` and expand `Notifier`. Keep `Enable notifications` on and choose which categories and sounds you want.
+3. Beside `Test in-page toast`, click `Show`. For background alerts, click `Enable` beside `Test browser notification`, allow browser permission, then click `Test`.
+4. Start a task and switch to another session or background the window. `Mute while viewing the session` is on by default, so real alerts stay quiet while you are looking at the session that triggered them.
+5. Click an alert to open its session. Dismiss a toast with its close button (also keyboard-accessible), or let it disappear after 12 seconds.
 
-## Configuration UI
+![Notifier settings in the dark-theme DSH GUI](media/settings.webp)
 
-The card in Settings → Plugins offers:
+## Features
 
-- **Enable notifications** — master switch for everything.
-- **Mute while viewing the session** — default on: stays quiet when the focused
-  window shows the exact session that triggered the notification.
-- **Volume** — 0–100 slider for all notification sounds. Loudness is baked into
-  the synthesized WAVs (perceptual `(v/100)^2` gain), so every player honors it.
-- **Per-category groups** (Agent finished / Approval needed / Question asked),
-  each with: Notify, Play sound, and a Sound dropdown (previews on select). The
-  finished group additionally has **Subagent finished** (opt-in) and **Only
-  notify when the goal completes** (default on).
-- **Test browser notification** — verifies the web layer and requests permission
-  the first time.
-- **Test in-page toast** — shows a sample toast inside the page.
-- **Show details** — the backend sound-player line and a live focus-tracking line.
+### Alerts that explain what happened
 
-Changes apply immediately and persist in the settings document under the
-`dsh-next-notifier` namespace.
+Main-agent alerts distinguish `Agent finished`, `Agent error`, `Agent blocked`, and `Agent reached token limit`. Cancelled or interrupted turns stay quiet. Terminal alerts wait for a two-second idle period; a resumed or disposed agent cancels its pending alert.
 
-## Sound library (17 synthesized sounds)
+`Approval needed` and `Question asked` mean a human response is still pending, not merely that a tool was called. Requests that settle within 200 ms stay quiet, and pending alerts are withdrawn when the request settles or is aborted.
 
-No audio assets ship: every sound is synthesized at startup as a WAV (16-bit
-PCM, 22.05 kHz mono) and written into the OS temp dir.
+Enable `Subagent finished` to receive child-run terminal alerts; it is off by default, and child status changes do not masquerade as main-agent finishes. `Only notify when the goal completes` is on by default: while a goal is active and armed to continue, it suppresses ordinary finishes, not errors. Goal completion or blocking produces one goal alert rather than a duplicate turn-finished alert.
+
+### One delivery owner across tabs
+
+A visible, focused page shows an in-page toast without browser permission. Otherwise, a background page with permission can show a browser notification. Multiple open clients coordinate delivery so one client owns each alert at a time; a focused page is preferred.
+
+If background browser notifications are unavailable or permission is not granted, an alert can wait up to 120 seconds for a foreground toast while a page remains alive. There is no offline inbox: events with no open client are dropped, and closing every page does not preserve pending alerts for next time.
+
+### Sound only with acknowledged delivery
+
+Automatic sound starts only after a visible toast is rendered or the browser reports that a notification was shown. Browser notifications request silent native playback to avoid a second sound. Browser acknowledgement cannot prove a desktop banner was actually presented: OS notification settings or Do Not Disturb may suppress it outside the browser API’s visibility.
+
+Sounds play on the machine running DSH, using `afplay` on macOS, PowerShell `Media.SoundPlayer` on Windows, or `paplay` / `aplay` on Linux. A remote DSH host does not play these sounds on your browser’s device.
+
+### Choose your sound
+
+The `Agent finished`, `Approval needed`, and `Question asked` categories each have an enable switch, `Play sound`, and a `Sound` selector. Selecting a sound saves and previews it. `Volume` ranges from 0–100; after you stop adjusting it for 600 ms, the latest value is saved and previewed. Save and preview failures appear in the card. `Show details` displays the detected sound player and focus-tracking status.
+
+The library contains 17 synthesized sounds; no audio download is needed.
 
 | Group | Sounds |
 | --- | --- |
-| Chimes | Chime, Ping, Bell |
-| Alerts | Alert, Error, Success |
-| Effects | Chirp, Pop, Knock, Whoosh, Magic, Blip, Ring, Gong |
-| Farts | Fart · Classic, Fart · Deep, Fart · Squeaky |
+| Chimes | `Chime`, `Ping`, `Bell` |
+| Alerts | `Alert`, `Error`, `Success` |
+| Effects | `Chirp`, `Pop`, `Knock`, `Whoosh`, `Magic`, `Blip`, `Ring`, `Gong` |
+| Farts | `Fart · Classic`, `Fart · Deep`, `Fart · Squeaky` |
 
-Defaults: finished = Chime, approval = Ping, question = Chirp.
-
-Playback: `afplay` (macOS) / `Media.SoundPlayer` via PowerShell (Windows) /
-`paplay` or `aplay` (Linux), played alongside the web notification.
-
-## Delivery
-
-Alerts arrive through the channel that fits where you are:
-
-- **Looking at the page** (window focused and visible): an **in-page toast**
-  slides in at the top of the window. Clicking the toast opens its session,
-  the close button dismisses it, and toasts auto-dismiss after 12 seconds.
-  Toasts need no browser permission.
-- **Backgrounded or minimized**: a **browser (web) notification** with the
-  DeepSeek icon — the OS shows it while the window is out of sight.
-- **Page closed**: the alert is dropped.
-
-Each alert's headline is an **emoji icon + the event type** (e.g.
-"⚠️ Approval needed", "✅ Agent finished"), and the **body is the session's
-title** (e.g. "Design spec"), so a glance tells you both what happened and in
-which session. Clicking either channel opens that session.
-
-## Architecture
-
-- **Host** (`src/index.ts` + `src/host/`) — registers the settings namespace
-  (Schemastery schema), listens to `agent/status`, `subagent/end`,
-  `approval/request`, `tools/execute`, and `goal/changed`, and serves the RPC
-  route at `POST /dsh-next-notifier/rpc`.
-- **Client** (`src/client/`) — the settings card in `settings.plugin.item`,
-  presence reporting, the web-notification drainer, and the in-page toast
-  layer registered in the shell's `shell.overlay` slot.
-- **Core** (`src/core/`) — pure shared logic: config normalization, WAV
-  synthesis, and notification decision, unit-tested without a runtime.
+Defaults: finished = `Chime`, approval = `Ping`, question = `Chirp`.
 
 ## Install
 
@@ -92,10 +57,11 @@ which session. Clicking either channel opens that session.
 dsh plugin --profile <name> add @dsh-next/dsh-next-notifier
 ```
 
-## Development
+Replace `<name>` with your DSH profile, for example `web`, and open DSH using the same profile.
 
-```sh
-pnpm build
-pnpm typecheck
-pnpm test
-```
+## Good to know
+
+- This plugin is for the DSH Web GUI; the declared DSH minimum is `0.1.1-rc.1`. Keep a page open to receive alerts.
+- Missing an alert? Check `Enable notifications`, the category switch, `Mute while viewing the session`, browser permission, and OS notification settings. Missing sound? Check `Play sound`, `Volume`, and the sound player under `Show details`.
+- Windows playback has contract-test coverage only; live Windows playback still needs verification. Browser test buttons do not guarantee OS banner presentation.
+- For local development and validation, see [CONTRIBUTING.md](https://github.com/dsh-next/dsh-next-plugins/blob/main/CONTRIBUTING.md).

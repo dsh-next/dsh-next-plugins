@@ -2,6 +2,7 @@
   "name": "@dsh-next/dsh-next-opencode-session-patch",
   "description": "Stamps the x-opencode-session header on requests to the OpenCode Go provider using the current DSH session id.",
   "version": "0.1.0",
+  "private": true,
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

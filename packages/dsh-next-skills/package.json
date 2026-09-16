@@ -1,7 +1,7 @@
 {
   "name": "@dsh-next/dsh-next-skills",
   "description": "DeepSeek Harness plugin: manage agent skills - browse provider catalogs, install globally, and manage updates from shared settings.",
-  "version": "0.3.0",
+  "version": "1.0.0",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

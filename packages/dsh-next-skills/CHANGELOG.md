@@ -1,5 +1,15 @@
 # @dsh-next/dsh-next-skills
 
+## 1.0.0
+
+### Major Changes
+
+- **Breaking**: Skills management is now global-only. Install skills directly without scope controls. Legacy Skills scope settings, including workspace restrictions and disabled entries, no longer apply; installed skills are available globally according to their own invocation settings. Existing files, providers, and installation records are preserved. Integrations must use the global install/remove interface instead of the removed skill-scope methods. Install requests no longer interpret or validate scope fields; all installations are global.
+
+### Minor Changes
+
+- Open an installed skill’s folder from its detail dialog using DSH’s detected applications and native launch support. The control is hidden when no supported applications are available or the skill is not installed.
+
 ## 0.3.0
 
 ### Minor Changes

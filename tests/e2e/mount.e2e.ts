@@ -592,6 +592,20 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
         .not.toBe('')
       await expect(page.locator('[data-slot-error="sidebar.right.pane.tab"]')).toHaveCount(0)
 
+      // The three sections ship collapsed; pin that, then expand them for the
+      // interactions below.
+      const sectionNames = ['changes', 'worktrees', 'history'] as const
+      await expect(page.locator('[data-dsh-git="section-toggle"]')).toHaveCount(3)
+      for (const section of sectionNames) {
+        await expect(page.locator(`[data-dsh-git="section-toggle"][data-section="${section}"]`)).toHaveAttribute(
+          'aria-expanded',
+          'false',
+        )
+      }
+      for (const section of sectionNames) {
+        await page.locator(`[data-dsh-git="section-toggle"][data-section="${section}"]`).click()
+      }
+
       // Capture only the column, cropped to the control the README shows, in
       // the dark theme the package READMEs use.
       await page.emulateMedia({ colorScheme: 'dark' })

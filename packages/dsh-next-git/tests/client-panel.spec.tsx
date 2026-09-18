@@ -158,6 +158,8 @@ async function renderPanel(
     /** Replace the tab hook, or omit it entirely with `null`. */
     tabHook?: (() => GitTabInfo) | null
   } = {},
+  /** Keep the sections in their collapsed-by-default state. */
+  options: { keepCollapsed?: boolean } = {},
 ) {
   const double = apiDouble({ getState: { state: panelState(), notice: null }, ...script })
   setPanelApi(() => double.api)
@@ -180,6 +182,19 @@ async function renderPanel(
   await act(async () => {
     await Promise.resolve()
   })
+  // Sections ship collapsed; tests that need a section's content open it
+  // through the real toggle, so the header stays exercised.
+  if (!options.keepCollapsed) {
+    await act(async () => {
+      for (const section of ['changes', 'worktrees', 'history'] as const) {
+        const toggle = container.querySelector<HTMLButtonElement>(
+          `[data-dsh-git="section-toggle"][data-section="${section}"]`,
+        )
+        toggle?.click()
+      }
+      await Promise.resolve()
+    })
+  }
   return { double, sessionId }
 }
 
@@ -231,8 +246,8 @@ describe('git panel body', () => {
     expect(container.textContent).toContain('new.md')
   })
 
-  it('starts with the three sections expanded as accordion headers', async () => {
-    await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } })
+  it('starts with the three sections collapsed behind accordion headers', async () => {
+    await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } }, {}, { keepCollapsed: true })
     const toggles = [...container.querySelectorAll<HTMLElement>('[data-dsh-git="section-toggle"]')]
     expect(toggles.map((toggle) => toggle.getAttribute('data-section'))).toEqual([
       'changes',
@@ -240,41 +255,43 @@ describe('git panel body', () => {
       'history',
     ])
     for (const toggle of toggles) {
-      expect(toggle.getAttribute('aria-expanded')).toBe('true')
+      expect(toggle.getAttribute('aria-expanded')).toBe('false')
     }
-    expect(all('section-body')).toHaveLength(3)
+    // Only the headers render; no section body, rows, or commit rows yet.
+    expect(all('section-body')).toHaveLength(0)
+    expect(all('row')).toHaveLength(0)
+    expect(marker('commit-row')).toBeNull()
   })
 
-  it('collapses one section without closing the others, and expands it back', async () => {
-    await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } })
+  it('expands one section without opening the others, and collapses it back', async () => {
+    await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } }, {}, { keepCollapsed: true })
     const worktrees = container.querySelector<HTMLElement>('[data-dsh-git="section-toggle"][data-section="worktrees"]')!
     await act(async () => {
       worktrees.click()
     })
-    expect(worktrees.getAttribute('aria-expanded')).toBe('false')
-    // The worktree rows are gone while the change rows stay.
-    expect(container.querySelectorAll('[data-dsh-git="worktree"]')).toHaveLength(0)
-    expect(all('row').some((row) => row.getAttribute('data-path') === 'src/app.ts')).toBe(true)
-    expect(container.querySelector('[data-dsh-git="section-body"][data-section="worktrees"]')).toBeNull()
+    expect(worktrees.getAttribute('aria-expanded')).toBe('true')
+    // The worktree rows are there while the change rows stay hidden.
+    expect(container.querySelectorAll('[data-dsh-git="worktree"]').length).toBeGreaterThan(0)
+    expect(all('row').some((row) => row.getAttribute('data-path') === 'src/app.ts')).toBe(false)
     await act(async () => {
       worktrees.click()
     })
-    expect(worktrees.getAttribute('aria-expanded')).toBe('true')
-    expect(container.querySelectorAll('[data-dsh-git="worktree"]').length).toBeGreaterThan(0)
+    expect(worktrees.getAttribute('aria-expanded')).toBe('false')
+    expect(container.querySelectorAll('[data-dsh-git="worktree"]')).toHaveLength(0)
+    expect(container.querySelector('[data-dsh-git="section-body"][data-section="worktrees"]')).toBeNull()
   })
 
-  it('collapses the changes section with its rows and empty state', async () => {
-    await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } })
+  it('expands the changes section with its rows and empty state', async () => {
+    await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } }, {}, { keepCollapsed: true })
     const changes = container.querySelector<HTMLElement>('[data-dsh-git="section-toggle"][data-section="changes"]')!
     await act(async () => {
       changes.click()
     })
-    expect(all('row').filter((row) => row.getAttribute('data-path') !== null)).toHaveLength(0)
-    expect(container.textContent).not.toContain(en['changes.none'])
+    expect(all('row').filter((row) => row.getAttribute('data-path') !== null).length).toBeGreaterThan(0)
     // History and worktrees are untouched.
     expect(container.querySelectorAll('[data-dsh-git="commit-row"]').length).toBe(0)
     expect(container.querySelector('[data-dsh-git="history"]')).not.toBeNull()
-    expect(container.querySelector('[data-dsh-git="section-body"][data-section="history"]')).not.toBeNull()
+    expect(container.querySelector('[data-dsh-git="section-body"][data-section="history"]')).toBeNull()
   })
 
   it('stages one path through the row action', async () => {

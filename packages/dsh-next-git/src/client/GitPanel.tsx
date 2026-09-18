@@ -394,8 +394,9 @@ function GitPanelBody(props: GitPanelProps): React.ReactElement {
         onSwitch={onBranchSwitch}
         onDeleteBranch={onBranchDelete}
         onNewWorktree={() => {
-          const form = document.getElementById('dsh-git-worktree-name')
-          form?.focus()
+          // The sections ship collapsed; the verb has to reveal its field.
+          if (snapshot.collapsed.worktrees) store.toggleSection('worktrees')
+          setTimeout(() => document.getElementById('dsh-git-worktree-name')?.focus(), 0)
         }}
         onAgentVerb={
           props.sendPrompt === undefined

@@ -105,7 +105,7 @@ export class PanelStore {
       diffLoading: false,
       history: null,
       historyLoading: false,
-      collapsed: { changes: false, worktrees: false, history: false },
+      collapsed: { changes: true, worktrees: true, history: true },
       expandedCommit: null,
       message: '',
     }

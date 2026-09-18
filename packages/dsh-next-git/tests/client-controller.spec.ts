@@ -162,11 +162,11 @@ describe('panel store reads', () => {
 })
 
 describe('section collapse', () => {
-  it('starts with every section expanded', async () => {
+  it('starts with every section collapsed', async () => {
     const { store: panel } = store({ getState: { state: state(), notice: null } })
     await panel.start()
-    expect(panel.getSnapshot().collapsed).toEqual({ changes: false, worktrees: false, history: false })
-    expect(panel.isCollapsed('changes')).toBe(false)
+    expect(panel.getSnapshot().collapsed).toEqual({ changes: true, worktrees: true, history: true })
+    expect(panel.isCollapsed('changes')).toBe(true)
     panel.dispose()
   })
 
@@ -174,14 +174,14 @@ describe('section collapse', () => {
     const { store: panel } = store({ getState: { state: state(), notice: null } })
     await panel.start()
     panel.toggleSection('worktrees')
-    expect(panel.isCollapsed('worktrees')).toBe(true)
-    expect(panel.isCollapsed('changes')).toBe(false)
-    expect(panel.isCollapsed('history')).toBe(false)
-    panel.toggleSection('history')
-    expect(panel.isCollapsed('worktrees')).toBe(true)
-    expect(panel.isCollapsed('history')).toBe(true)
-    panel.toggleSection('worktrees')
     expect(panel.isCollapsed('worktrees')).toBe(false)
+    expect(panel.isCollapsed('changes')).toBe(true)
+    expect(panel.isCollapsed('history')).toBe(true)
+    panel.toggleSection('history')
+    expect(panel.isCollapsed('worktrees')).toBe(false)
+    expect(panel.isCollapsed('history')).toBe(false)
+    panel.toggleSection('worktrees')
+    expect(panel.isCollapsed('worktrees')).toBe(true)
     panel.dispose()
   })
 
@@ -190,7 +190,7 @@ describe('section collapse', () => {
     await panel.start()
     panel.toggleSection('changes')
     await panel.refresh()
-    expect(panel.isCollapsed('changes')).toBe(true)
+    expect(panel.isCollapsed('changes')).toBe(false)
     panel.dispose()
   })
 })

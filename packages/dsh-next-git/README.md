@@ -20,7 +20,8 @@ to leave the GUI for the everyday git loop.
    everything first.
 4. Under **Changes**, click any row to read its diff. Hover a row for
    **Stage**, **Unstage** and **Discard**, or use the section header to stage,
-   unstage or discard everything. Click a section title to fold it away.
+   unstage or discard everything. The sections start folded: click a section
+   title to unfold it, and click again to fold it away.
 5. Under **Worktrees**, use the start-point button to choose what the new
    checkout gets: a fresh `dsh-git/<name>` branch from the base, or an existing
    branch, a remote branch or a tag. Press **Create** and it lands at

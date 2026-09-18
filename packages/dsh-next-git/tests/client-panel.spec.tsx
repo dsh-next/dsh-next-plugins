@@ -573,6 +573,52 @@ describe('git panel body', () => {
     expect(double.calls.find((call) => call.method === 'worktreeAdd')?.args).toMatchObject({ name: 'feature-two' })
   })
 
+  it('creates a worktree when Enter is pressed in the name field', async () => {
+    const { double } = await renderPanel({
+      getHistory: { commits: [], lanes: [], hasMore: false },
+      worktreeAdd: {
+        plan: { slug: 'feature-three', path: '/repo/.worktrees/feature-three', branch: 'dsh-git/feature-three', base: 'main', setup: [] },
+        state: panelState(),
+        setup: { ran: 0, failed: false, output: '' },
+        notice: null,
+      },
+    })
+    const input = marker('worktree-name') as HTMLInputElement
+    await act(async () => {
+      typeInto(input, 'Feature Three')
+    })
+    await act(async () => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    })
+    expect(double.calls.find((call) => call.method === 'worktreeAdd')?.args).toMatchObject({ name: 'feature-three' })
+  })
+
+  it('refuses an impossible name on Enter without calling the host', async () => {
+    const { double } = await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } })
+    const input = marker('worktree-name') as HTMLInputElement
+    await act(async () => {
+      typeInto(input, '!!!')
+    })
+    await act(async () => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    })
+    expect(double.calls.some((call) => call.method === 'worktreeAdd')).toBe(false)
+  })
+
+  it('leaves Enter alone while an IME composition is being confirmed', async () => {
+    const { double } = await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } })
+    const input = marker('worktree-name') as HTMLInputElement
+    await act(async () => {
+      typeInto(input, 'Feature Three')
+    })
+    const composing = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })
+    Object.defineProperty(composing, 'isComposing', { value: true })
+    await act(async () => {
+      input.dispatchEvent(composing)
+    })
+    expect(double.calls.some((call) => call.method === 'worktreeAdd')).toBe(false)
+  })
+
   it('refuses an impossible worktree name without calling the host', async () => {
     const { double } = await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } })
     const input = marker('worktree-name') as HTMLInputElement
@@ -585,16 +631,21 @@ describe('git panel body', () => {
     expect(double.calls.some((call) => call.method === 'worktreeAdd')).toBe(false)
   })
 
-  it('puts the worktree create row directly under the section band', async () => {
+  it('puts the worktree create row and its hint directly under the section band', async () => {
     await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } })
     const body = container.querySelector<HTMLElement>('[data-dsh-git="section-body"][data-section="worktrees"]')!
     const field = marker('worktree-name')!
+    const hint = marker('worktrees-hint')!
     const rows = all('worktree')
     // The create row is the section body's first child: creating a worktree
     // never means scrolling past the list to find the field.
     expect(body.firstElementChild?.contains(field)).toBe(true)
     expect(rows.length).toBeGreaterThan(0)
     expect(field.compareDocumentPosition(rows[0]!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
+    // The hint explains where the checkout lands, so it belongs to the create
+    // row rather than to the list under it.
+    expect(field.compareDocumentPosition(hint) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
+    expect(hint.compareDocumentPosition(rows[0]!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
   })
 
   it('shows the degraded state with its fix instead of an empty panel', async () => {

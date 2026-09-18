@@ -16,8 +16,18 @@ travels with the field.
 - `WorktreesSection` renders the row as the section body's first child; a new
   `.formRowTop` modifier carries the body inset above it. `.formRow` keeps
   its footer padding for History's Load more, its only other caller.
-- `tests/client-panel.spec.tsx` pins the order: the field is inside the
-  section body's first child and precedes every worktree row.
+- The hint that explains where the checkout lands (`worktrees.openHint`)
+  moved with the row: it sits between the field and the list, where it
+  explains what Create does, instead of trailing the section as a footnote. It
+  carries a `worktrees-hint` marker so the order is testable.
+- Enter in the field runs the same create path as the button, following the
+  inline-add grammar of `dsh-next-skills` and `dsh-next-cc-plugins`; a
+  composition-confirming Enter is ignored so an IME commit never creates a
+  worktree. Button and key share one `create()`, so validation and the issue
+  line cannot drift apart.
+- The dead `.inlineForm` rule was removed; nothing referenced it.
+- `tests/client-panel.spec.tsx` pins the order (field, hint, then rows) and
+  covers Enter for the valid, invalid and composing cases.
 - `packages/dsh-next-git/media/worktrees.webp` was re-captured from the real
   shell through the mount marker.
 
@@ -35,7 +45,7 @@ marker reach the Worktrees capture.
 ## Verification
 
 - `pnpm --filter @dsh-next/dsh-next-git run typecheck` clean; the package's
-  vitest suites (385 tests) pass, including the new order test.
+  vitest suites (388 tests) pass, including the order and Enter tests.
 - The isolated `dsh-next-git` mount marker passes against a real DSH
   0.1.6-alpha.2 shell: stage, commit, worktree create, the grid insets and the
   accordion checks, with host truth read back from disk.

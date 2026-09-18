@@ -1203,6 +1203,18 @@ function WorktreesSection(props: {
   const [issue, setIssue] = React.useState<string | null>(null)
   const current = state.head.branch ?? 'HEAD'
 
+  // One create path for the button and the field's Enter key: the slug is
+  // folded and validated before the host is asked to do anything.
+  const create = (): void => {
+    const verdict = validateSlug(normalizeSlug(name))
+    if (!verdict.ok) {
+      setIssue(t(`issue.slug.${verdict.issue}` as MessageKey))
+      return
+    }
+    setIssue(null)
+    void store.worktreeAdd(verdict.slug).then(() => setName(''))
+  }
+
   return (
     <Section
       id="worktrees"
@@ -1225,25 +1237,24 @@ function WorktreesSection(props: {
             setName(event.target.value)
             setIssue(null)
           }}
+          onKeyDown={(event) => {
+            // Enter creates, unless it is confirming an IME composition.
+            if (event.key === 'Enter' && !event.nativeEvent.isComposing) create()
+          }}
         />
         <Button
           size="sm"
           variant="ghost"
           disabled={busy || name.trim() === ''}
-          onClick={() => {
-            const verdict = validateSlug(normalizeSlug(name))
-            if (!verdict.ok) {
-              setIssue(t(`issue.slug.${verdict.issue}` as MessageKey))
-              return
-            }
-            setIssue(null)
-            void store.worktreeAdd(verdict.slug).then(() => setName(''))
-          }}
+          onClick={() => create()}
         >
           {t('worktrees.create')}
         </Button>
       </div>
       {issue === null ? null : <div className={classes.issue}>{issue}</div>}
+      <div className={classes.caption} data-dsh-git="worktrees-hint">
+        {t('worktrees.openHint')}
+      </div>
       {state.worktrees.length === 0 ? (
         <div className={classes.empty}>
           <span className={classes.emptyTitle}>{t('worktrees.empty')}</span>
@@ -1317,7 +1328,6 @@ function WorktreesSection(props: {
           </div>
         </div>
       ))}
-      <div className={classes.caption}>{t('worktrees.openHint')}</div>
     </Section>
   )
 }

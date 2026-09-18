@@ -548,13 +548,6 @@
   outline-offset: 0;
 }
 
-.inlineForm {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-}
-
 .issue {
   padding: 0 10px 4px 10px;
   font-size: 12px;

@@ -626,6 +626,12 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
       expect(readFileSync(join(workspaceA, '.git', 'info', 'exclude'), 'utf8')).toContain('.worktrees/')
       const worktreeRow = page.locator('[data-dsh-git="worktree"]').filter({ hasText: slug })
       await expect(worktreeRow).toBeVisible({ timeout: 20_000 })
+      // The row is named by the branch git reports, and its facts are measured
+      // against a base the panel shows rather than an invisible default.
+      await expect(worktreeRow).toContainText(`dsh-git/${slug}`)
+      await expect(worktreeRow.locator('[data-dsh-git="worktree-meta"]')).toContainText('Merged into')
+      await expect(page.locator('[data-dsh-git="worktree-base"]')).toContainText('main')
+      await expect(page.locator('[data-dsh-git="worktree-source"]')).toBeVisible()
 
       // Every trailing control shares one right line: the section pill, a row's
       // status letter and a row's action button must land within 2px of each

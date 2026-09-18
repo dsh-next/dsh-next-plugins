@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { openThenArchive } from '../src/core/switch.ts'
 
-function ports() {
+function ports(openResult = true) {
   return {
-    open: vi.fn(),
+    open: vi.fn().mockReturnValue(openResult),
     archive: vi.fn().mockResolvedValue(undefined),
   }
 }
@@ -59,6 +59,19 @@ describe('openThenArchive', () => {
       ports: p,
     })).resolves.toBe('noop')
     expect(p.open).not.toHaveBeenCalled()
+    expect(p.archive).not.toHaveBeenCalled()
+  })
+
+  it('leaves the old session alone when the host cannot navigate', async () => {
+    const p = ports(false)
+    await expect(openThenArchive({
+      fromId: 'old',
+      nextId: 'next',
+      currentId: 'old',
+      archivedIds: [],
+      ports: p,
+    })).resolves.toBe('noop')
+    // Archiving a session nobody was moved to would strand the user.
     expect(p.archive).not.toHaveBeenCalled()
   })
 

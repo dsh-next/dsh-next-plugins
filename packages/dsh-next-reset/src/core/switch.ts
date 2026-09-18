@@ -6,7 +6,12 @@
  * already archived, skip archive.
  */
 export interface SwitchPorts {
-  open(sessionId: string): void
+  /**
+   * Show the next session. `false` means the host cannot navigate right now,
+   * and the switch stops before archiving so the user keeps the session they
+   * are in.
+   */
+  open(sessionId: string): boolean
   archive(sessionId: string): Promise<void>
 }
 
@@ -23,7 +28,7 @@ export async function openThenArchive(input: {
   if (nextId === '' || fromId === nextId) return 'noop'
   let did = false
   if (currentId !== nextId) {
-    ports.open(nextId)
+    if (!ports.open(nextId)) return 'noop'
     did = true
   }
   if (!archivedIds.includes(fromId)) {

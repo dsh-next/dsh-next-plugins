@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import { RESET_HANDOFF } from '../src/core/handoff.ts'
-import { watchResetHandoff, type EventSourceLike, type SessionsLike, type WorkspacesLike } from '../src/client/handoff.ts'
+import {
+  watchResetHandoff,
+  type EventSourceLike,
+  type NavigatePort,
+  type SessionsLike,
+  type WorkspacesLike,
+} from '../src/client/handoff.ts'
 
 function makeSource(): EventSourceLike & {
   emit(change: { kind: string; entries?: { type: string; event: { type: string; data?: unknown } }[] }): void
@@ -22,34 +28,36 @@ function makeSource(): EventSourceLike & {
   }
 }
 
-function makeSessions(source: EventSourceLike, current = 'old'): SessionsLike & {
-  current: string | undefined
+/**
+ * A session list plus the navigation the entry would hand in. Navigation is a
+ * separate port on purpose: the live session service has no `open`, so the
+ * switch never assumes one.
+ */
+function makeSessions(source: EventSourceLike, current = 'old'): {
+  sessions: SessionsLike
   opened: string[]
+  navigate: NavigatePort
 } {
   const listListeners = new Set<() => void>()
-  const state = {
-    current: current as string | undefined,
-    opened: [] as string[],
-  }
-  const sessions: SessionsLike & { current: string | undefined; opened: string[] } = {
-    get current() { return state.current },
-    set current(value) { state.current = value },
-    opened: state.opened,
+  const opened: string[] = []
+  let currentId: string | undefined = current
+  const sessions: SessionsLike = {
     list: {
-      getSnapshot: () => ({ current: state.current }),
+      getSnapshot: () => ({ current: currentId }),
       subscribe: (listener) => {
         listListeners.add(listener)
         return () => { listListeners.delete(listener) }
       },
     },
-    binding: (id) => id === 'old' || id === state.current ? { eventSource: source } : undefined,
-    open: (id) => {
-      state.opened.push(id)
-      state.current = id
-      for (const listener of listListeners) listener()
-    },
+    binding: (id) => id === 'old' || id === currentId ? { eventSource: source } : undefined,
   }
-  return sessions
+  const navigate: NavigatePort = vi.fn((id: string) => {
+    opened.push(id)
+    currentId = id
+    for (const listener of listListeners) listener()
+    return true
+  })
+  return { sessions, opened, navigate }
 }
 
 function makeWorkspaces(archived: string[] = []): WorkspacesLike & { archived: string[] } {
@@ -62,48 +70,65 @@ function makeWorkspaces(archived: string[] = []): WorkspacesLike & { archived: s
 }
 
 describe('watchResetHandoff', () => {
-  it('opens next then archives old on a live handoff append', async () => {
+  it('opens next through the navigation port, then archives old', async () => {
     const source = makeSource()
-    const sessions = makeSessions(source)
+    const { sessions, opened, navigate } = makeSessions(source)
     const workspaces = makeWorkspaces()
-    const dispose = watchResetHandoff(sessions, workspaces)
+    const dispose = watchResetHandoff(sessions, workspaces, navigate)
     source.emit({
       kind: 'append',
       entries: [{ type: 'event', event: { type: RESET_HANDOFF, data: { nextSessionId: 'next' } } }],
     })
     await vi.waitFor(() => {
-      expect(sessions.opened).toEqual(['next'])
+      expect(opened).toEqual(['next'])
       expect(workspaces.archiveSession).toHaveBeenCalledWith('old')
     })
-    expect(sessions.opened[0]).toBe('next')
+    expect(navigate).toHaveBeenCalledWith('next')
     dispose()
   })
 
   it('ignores history replace windows', async () => {
     const source = makeSource()
-    const sessions = makeSessions(source)
+    const { sessions, opened, navigate } = makeSessions(source)
     const workspaces = makeWorkspaces()
-    watchResetHandoff(sessions, workspaces)
+    watchResetHandoff(sessions, workspaces, navigate)
     source.emit({
       kind: 'replace',
       entries: [{ type: 'event', event: { type: RESET_HANDOFF, data: { nextSessionId: 'next' } } }],
     })
     await Promise.resolve()
-    expect(sessions.opened).toEqual([])
+    expect(opened).toEqual([])
+    expect(workspaces.archiveSession).not.toHaveBeenCalled()
+  })
+
+  it('keeps the old session when navigation reports it cannot switch', async () => {
+    const source = makeSource()
+    const { sessions } = makeSessions(source)
+    const workspaces = makeWorkspaces()
+    const navigate = vi.fn(() => false)
+    watchResetHandoff(sessions, workspaces, navigate)
+    source.emit({
+      kind: 'append',
+      entries: [{ type: 'event', event: { type: RESET_HANDOFF, data: { nextSessionId: 'next' } } }],
+    })
+    await vi.waitFor(() => {
+      expect(navigate).toHaveBeenCalledWith('next')
+    })
+    // No navigation means no archive: the user stays where they are.
     expect(workspaces.archiveSession).not.toHaveBeenCalled()
   })
 
   it('is idempotent when next is already current and old is archived', async () => {
     const source = makeSource()
-    const sessions = makeSessions(source, 'next')
+    const { sessions, opened, navigate } = makeSessions(source, 'next')
     const workspaces = makeWorkspaces(['old'])
-    watchResetHandoff(sessions, workspaces)
+    watchResetHandoff(sessions, workspaces, navigate)
     source.emit({
       kind: 'append',
       entries: [{ type: 'event', event: { type: RESET_HANDOFF, data: { nextSessionId: 'next' } } }],
     })
     await Promise.resolve()
-    expect(sessions.opened).toEqual([])
+    expect(opened).toEqual([])
     expect(workspaces.archiveSession).not.toHaveBeenCalled()
   })
 })

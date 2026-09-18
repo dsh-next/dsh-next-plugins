@@ -26,8 +26,16 @@ export interface SessionsLike {
     subscribe(listener: () => void): () => void
   }
   binding(id: string): { readonly eventSource: EventSourceLike } | undefined
-  open(id: string): void
 }
+
+/**
+ * Show an already-created session.
+ *
+ * The caller resolves whichever service the host exposes for navigation; this
+ * module never assumes a method name that the live session service may not
+ * have.
+ */
+export type NavigatePort = (sessionId: string) => boolean
 
 export interface WorkspacesLike {
   readonly list: {
@@ -37,7 +45,11 @@ export interface WorkspacesLike {
 }
 
 /** Subscribe to the current session follow window; dispose unsubscribes. */
-export function watchResetHandoff(sessions: SessionsLike, workspaces: WorkspacesLike): () => void {
+export function watchResetHandoff(
+  sessions: SessionsLike,
+  workspaces: WorkspacesLike,
+  navigate: NavigatePort,
+): () => void {
   let unsubSource: (() => void) | undefined
   let watched: string | undefined
 
@@ -58,7 +70,7 @@ export function watchResetHandoff(sessions: SessionsLike, workspaces: Workspaces
     watched = current
     const fromId = current
     unsubSource = binding.eventSource.subscribe(() => {
-      void onAppend(fromId, binding.eventSource, sessions, workspaces)
+      void onAppend(fromId, binding.eventSource, sessions, workspaces, navigate)
     })
   }
 
@@ -75,6 +87,7 @@ async function onAppend(
   source: EventSourceLike,
   sessions: SessionsLike,
   workspaces: WorkspacesLike,
+  navigate: NavigatePort,
 ): Promise<void> {
   const change = source.getSnapshot().change
   if (change.kind !== 'append' || change.entries === undefined) return
@@ -90,7 +103,7 @@ async function onAppend(
         currentId: sessions.list.getSnapshot().current,
         archivedIds,
         ports: {
-          open: (id) => sessions.open(id),
+          open: (id) => navigate(id),
           archive: (id) => workspaces.archiveSession(id),
         },
       })

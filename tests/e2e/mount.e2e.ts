@@ -634,9 +634,14 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
         const box = await page.locator(selector).first().boundingBox()
         return panelBox === null || box === null ? null : panelBox.x + panelBox.width - (box.x + box.width)
       }
+      // The anchor row has to still be in the list when it is measured: the
+      // file committed above is gone from the change list by now, so the
+      // measurement uses the modified file that stays.
+      const anchorRow = page.locator('[data-dsh-git="row"][data-path="src/app.ts"]')
+      await expect(anchorRow).toBeVisible({ timeout: 20_000 })
       const insets = [
         await rightInset('[data-dsh-git="changes"] [data-dsh-git="section-count"]'),
-        await rightInset('[data-dsh-git="row"][data-path="src/git-panel/store.ts"] [data-dsh-git="status"]'),
+        await rightInset('[data-dsh-git="row"][data-path="src/app.ts"] [data-dsh-git="status"]'),
         await rightInset('[data-dsh-git="commit-row"] button'),
       ]
       expect(insets.every((inset) => inset !== null)).toBe(true)

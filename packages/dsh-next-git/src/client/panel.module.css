@@ -696,6 +696,13 @@
   padding: 4px 10px 8px 10px;
 }
 
+/* The Worktrees create row sits directly under the section band, so it takes
+   the body's inset above it; .formRow keeps its footer spacing for History's
+   Load more, where it sits under the list. */
+.formRowTop {
+  padding-top: 10px;
+}
+
 /* The message box carries the generate action in its own corner, the way an
    SCM view does, so drafting never costs a second row. */
 .messageWrap {

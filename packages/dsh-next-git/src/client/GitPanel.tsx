@@ -1211,6 +1211,39 @@ function WorktreesSection(props: {
       collapsed={props.collapsed}
       onToggle={props.onToggle}
     >
+      {/* The create row owns the seat under the band: it is the section's one
+          write, and it stays visible however long the list grows. */}
+      <div className={`${classes.formRow} ${classes.formRowTop}`}>
+        <input
+          id="dsh-git-worktree-name"
+          className={classes.input}
+          placeholder={t('worktrees.namePlaceholder')}
+          aria-label={t('worktrees.namePlaceholder')}
+          value={name}
+          data-dsh-git="worktree-name"
+          onChange={(event) => {
+            setName(event.target.value)
+            setIssue(null)
+          }}
+        />
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={busy || name.trim() === ''}
+          onClick={() => {
+            const verdict = validateSlug(normalizeSlug(name))
+            if (!verdict.ok) {
+              setIssue(t(`issue.slug.${verdict.issue}` as MessageKey))
+              return
+            }
+            setIssue(null)
+            void store.worktreeAdd(verdict.slug).then(() => setName(''))
+          }}
+        >
+          {t('worktrees.create')}
+        </Button>
+      </div>
+      {issue === null ? null : <div className={classes.issue}>{issue}</div>}
       {state.worktrees.length === 0 ? (
         <div className={classes.empty}>
           <span className={classes.emptyTitle}>{t('worktrees.empty')}</span>
@@ -1284,37 +1317,6 @@ function WorktreesSection(props: {
           </div>
         </div>
       ))}
-      <div className={classes.formRow}>
-        <input
-          id="dsh-git-worktree-name"
-          className={classes.input}
-          placeholder={t('worktrees.namePlaceholder')}
-          aria-label={t('worktrees.namePlaceholder')}
-          value={name}
-          data-dsh-git="worktree-name"
-          onChange={(event) => {
-            setName(event.target.value)
-            setIssue(null)
-          }}
-        />
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={busy || name.trim() === ''}
-          onClick={() => {
-            const verdict = validateSlug(normalizeSlug(name))
-            if (!verdict.ok) {
-              setIssue(t(`issue.slug.${verdict.issue}` as MessageKey))
-              return
-            }
-            setIssue(null)
-            void store.worktreeAdd(verdict.slug).then(() => setName(''))
-          }}
-        >
-          {t('worktrees.create')}
-        </Button>
-      </div>
-      {issue === null ? null : <div className={classes.issue}>{issue}</div>}
       <div className={classes.caption}>{t('worktrees.openHint')}</div>
     </Section>
   )

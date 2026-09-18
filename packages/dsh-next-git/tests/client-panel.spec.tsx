@@ -585,6 +585,18 @@ describe('git panel body', () => {
     expect(double.calls.some((call) => call.method === 'worktreeAdd')).toBe(false)
   })
 
+  it('puts the worktree create row directly under the section band', async () => {
+    await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } })
+    const body = container.querySelector<HTMLElement>('[data-dsh-git="section-body"][data-section="worktrees"]')!
+    const field = marker('worktree-name')!
+    const rows = all('worktree')
+    // The create row is the section body's first child: creating a worktree
+    // never means scrolling past the list to find the field.
+    expect(body.firstElementChild?.contains(field)).toBe(true)
+    expect(rows.length).toBeGreaterThan(0)
+    expect(field.compareDocumentPosition(rows[0]!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
+  })
+
   it('shows the degraded state with its fix instead of an empty panel', async () => {
     await renderPanel({
       getState: new GitApiError(

@@ -21,9 +21,12 @@ to leave the GUI for the everyday git loop.
 4. Under **Changes**, click any row to read its diff. Hover a row for
    **Stage**, **Unstage** and **Discard**, or use the section header to stage,
    unstage or discard everything. Click a section title to fold it away.
-5. Under **Worktrees**, name a worktree and press **Create** to get a fresh
-   checkout at `.worktrees/<name>` on branch `dsh-git/<name>`, without leaving
-   this repository.
+5. Under **Worktrees**, use the start-point button to choose what the new
+   checkout gets: a fresh `dsh-git/<name>` branch from the base, or an existing
+   branch, a remote branch or a tag. Press **Create** and it lands at
+   `.worktrees/<name>` without leaving this repository. The button under it
+   picks the **comparison base** every row is measured against, and the folder
+   icon on a row opens a session in that checkout.
 6. Under **History**, pick any commit's `⋯` menu to copy its hash, check it
    out, revert it, or cherry-pick it.
 
@@ -50,13 +53,19 @@ conflict is never a dead end.
 
 ![Merge conflict banner with Continue and Abort](media/conflict.webp)
 
-**Worktrees where the agent expects them.** Worktrees live at
-`.worktrees/<name>` inside the repository on branch `dsh-git/<name>`, and the
-directory is hidden through `.git/info/exclude` — never your committed
-`.gitignore`. `.worktrees.json` runs create-time setup commands (for example
-`pnpm install`), and `.worktreeinclude` copies the untracked files a checkout
-needs (`.env`, local config). Each row shows whether the worktree is clean,
-how far ahead it is, and whether it is already merged.
+**Worktrees you can reason about.** A row is named by the branch git reports —
+an existing branch, a remote branch, a tag (detached), or a fresh
+`dsh-git/<name>` branch started from the point you pick. Every row is measured
+against **one visible comparison base** (the repository's default branch unless
+you switch it), so "3 ahead" always says of what; rows carry the folder path,
+clean or dirty, ahead, behind, merged, locked and prunable states. Each row can
+open a session in that folder, update from the base, merge into the current
+checkout, unlock, or be deleted, and a missing folder can be pruned. Worktrees
+live at `.worktrees/<name>` inside the repository, hidden through
+`.git/info/exclude` — never your committed `.gitignore`. `.worktrees.json`
+runs create-time setup commands (for example `pnpm install`), and
+`.worktreeinclude` copies the untracked files a checkout needs (`.env`, local
+config).
 
 ![The Worktrees section with clean, dirty and merged worktrees](media/worktrees.webp)
 

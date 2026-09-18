@@ -1,0 +1,48 @@
+{
+  // Self-contained compiler settings: types resolve from the @deepseek-ai/*
+  // npm SDK packages declared in devDependencies (official NPM SDK), never
+  // from a DSH source checkout.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "jsx": "react-jsx",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    // pnpm gives this package its own copy of the SDK, but the sidebar-right
+    // package's `declare module '@deepseek-ai/dsh-client-ui-slots'` augmentation
+    // resolves that specifier from sidebar-right's directory, where pnpm's
+    // hoist can still point at an older slots copy. That would give the same
+    // declaration module two identities, leaving `SlotMap` unmerged and
+    // `sidebar.right.pane.tab` failing its constraint. Pinning the specifier to
+    // the version this package depends on restores one identity. Nothing
+    // value-imports slots (services arrive through `ctx.get`), so the alias is
+    // type-level only.
+    "baseUrl": ".",
+    "paths": {
+      "@deepseek-ai/dsh-client-ui-slots": [
+        "./node_modules/@deepseek-ai/dsh-client-ui-slots/lib/types/index.d.ts"
+      ]
+    },
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "tests/**/*.ts",
+    "tests/**/*.tsx"
+  ]
+}

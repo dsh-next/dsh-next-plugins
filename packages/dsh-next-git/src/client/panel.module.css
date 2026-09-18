@@ -1,0 +1,520 @@
+/*
+ * Git panel chrome.
+ *
+ * Values are copied from the Files tab, the closest list-centered precedent in
+ * the right sidebar, so the panel reads as one of the shell's own tabs: 38px
+ * header, 8px body inset, 10px-radius rows at 5px/10px, 12px captions.
+ * Colors are `--dsw-*` aliases only (docs/plugins.md, dsh-next-design skill).
+ */
+
+.root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  color: var(--dsw-alias-label-primary);
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  line-height: 1.5;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  height: 38px;
+  flex: 0 0 auto;
+  padding: 0 6px 0 16px;
+  gap: 4px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l3);
+}
+
+.headerMain {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.branchButton {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.branchButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.branchButton:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 1px;
+}
+
+.branchName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.branchGlyph {
+  flex: 0 0 auto;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.counts {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.iconButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.iconButton:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 1px;
+}
+
+.iconButton:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.spinning {
+  animation: git-spin 0.9s linear infinite;
+}
+
+@keyframes git-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinning {
+    animation: none;
+  }
+}
+
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 8px 0 8px 8px;
+  margin-right: 2px;
+  scrollbar-gutter: stable;
+  overflow: auto;
+}
+
+.section {
+  margin-bottom: 10px;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 10px;
+  min-height: 24px;
+}
+
+.sectionTitle {
+  font-weight: 600;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+  text-transform: none;
+}
+
+.sectionCount {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.sectionSpacer {
+  flex: 1 1 auto;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border-radius: 10px;
+  padding: 5px 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.row:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.row:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: -1px;
+}
+
+.rowStatic {
+  cursor: default;
+}
+
+.nested {
+  padding-left: 18px;
+}
+
+.rowMain {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rowPath {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-primary);
+}
+
+.rowMeta {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowActions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  opacity: 0;
+}
+
+.row:hover .rowActions,
+.row:focus-within .rowActions {
+  opacity: 1;
+}
+
+.badge {
+  flex: 0 0 auto;
+}
+
+.caption {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+  padding: 2px 10px;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px 16px 16px;
+}
+
+.emptyTitle {
+  font-weight: 500;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.emptyHint {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.banner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 8px 10px 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.bannerTitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+}
+
+.bannerBody {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.bannerError {
+  color: var(--dsw-alias-label-error);
+}
+
+.bannerWarn {
+  color: var(--dsw-alias-state-warn-label);
+}
+
+.bannerActions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.hookOutput {
+  max-height: 180px;
+  margin: 0;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 18px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.commit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 8px 12px 0;
+  padding: 8px;
+  border-radius: 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+}
+
+.textarea {
+  width: 100%;
+  min-height: 56px;
+  resize: vertical;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+}
+
+.textarea:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 0;
+}
+
+.input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+}
+
+.input:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 0;
+}
+
+.inlineForm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+}
+
+.issue {
+  padding: 0 10px 4px 10px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-error);
+}
+
+/* Diff view --------------------------------------------------------------- */
+
+.diffHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 6px 10px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l3);
+}
+
+.diffTitle {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.diffMeta {
+  display: flex;
+  gap: 8px;
+  padding: 6px 10px 2px 10px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.added {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.removed {
+  color: var(--dsw-alias-label-error);
+}
+
+.diffBody {
+  padding: 4px 8px 12px 8px;
+}
+
+.patchBlock {
+  margin: 0;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 18px;
+  overflow: auto;
+  max-height: 320px;
+  white-space: pre;
+}
+
+/* History ----------------------------------------------------------------- */
+
+.commitRow {
+  align-items: flex-start;
+}
+
+.graph {
+  flex: 0 0 auto;
+  color: var(--dsw-alias-label-quaternary);
+  padding-top: 2px;
+}
+
+.commitHash {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.commitSubject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-primary);
+}
+
+.commitMeta {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.menuItem {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menuItem:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.menuItemDanger {
+  color: var(--dsw-alias-label-error);
+}
+
+.menuItemDanger:hover {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+}
+
+/* Worktrees --------------------------------------------------------------- */
+
+.worktreePath {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.formRow {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 10px 8px 10px;
+}
+
+/* The destructive second step of the danger grammar: an outline danger
+   button, never a filled one. */
+.dangerButton {
+  color: var(--dsw-alias-label-error);
+  border-color: var(--dsw-alias-label-error);
+}
+
+.dangerButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+}

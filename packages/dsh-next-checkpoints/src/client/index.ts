@@ -17,6 +17,39 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 export const inject = ['slots', 'locale', 'sessions'] as const
 
+/** The workspace-navigation face that shows an existing session. */
+interface UiWorkspaceLike {
+  openSession(sessionId: string): void
+}
+
+/** The pre-0.1.6 session face, kept as a fallback for older hosts. */
+interface LegacySessionsLike {
+  open?(sessionId: string): void
+}
+
+/**
+ * Resolve how to show a session this plugin already created.
+ *
+ * The live client navigates through `uiWorkspace.openSession`; `sessions.open`
+ * was removed from the session service, so it is only a fallback for older
+ * hosts. Undefined means the host cannot navigate at all, and the caller omits
+ * the action rather than switching nothing.
+ *
+ * @param ctx - the client context.
+ * @returns the navigation call, or undefined when the host cannot navigate.
+ */
+export function makeSessionOpener(ctx: Context): ((sessionId: string) => void) | undefined {
+  const navigation = ctx.get('uiWorkspace') as UiWorkspaceLike | undefined
+  if (navigation !== undefined && typeof navigation.openSession === 'function') {
+    return (sessionId: string) => navigation.openSession(sessionId)
+  }
+  const legacy = ctx.get('sessions') as LegacySessionsLike | undefined
+  if (legacy !== undefined && typeof legacy.open === 'function') {
+    return (sessionId: string) => legacy.open?.(sessionId)
+  }
+  return undefined
+}
+
 export function apply(ctx: Context): void {
   const slots = ctx.get('slots')
   const locale = ctx.get('locale')
@@ -43,16 +76,14 @@ export function apply(ctx: Context): void {
           locale: NS,
           label: () => t('view.changes'),
           inject: (sessionId: string) => {
-            const sessions = ctx.get('sessions') as
-              | { open(id: string): void }
-              | undefined
             const workspaces = ctx.get('workspaces') as
               | { archiveSession?(id: string): Promise<void> }
               | undefined
+            const openSession = makeSessionOpener(ctx)
             return {
               sessionId,
               t,
-              openSession: (id: string) => { sessions?.open(id) },
+              ...(openSession === undefined ? {} : { openSession }),
               archiveSession: (id: string) => workspaces?.archiveSession?.(id),
             }
           },

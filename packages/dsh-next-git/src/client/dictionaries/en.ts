@@ -65,13 +65,14 @@ export const en = {
   'changes.open': 'Open',
   'changes.stageAll': 'Stage all',
   'changes.unstageAll': 'Unstage all',
+  'changes.discardAll': 'Discard all changes',
   'changes.none': 'No changes',
   'changes.path': 'Path',
   'changes.status': 'Status',
   'changes.actions': 'Actions',
 
   // Commit -----------------------------------------------------------------
-  'commit.placeholder': 'Commit message',
+  'commit.placeholder': 'Message ({mod}+Enter to commit on "{branch}")',
   'commit.button': 'Commit',
   'commit.draft': 'Draft message',
   'commit.amend': 'Amend last commit',

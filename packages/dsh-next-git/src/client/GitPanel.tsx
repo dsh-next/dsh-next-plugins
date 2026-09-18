@@ -23,6 +23,7 @@ import {
   IconChevronLeftOutline14,
   IconCopyOutline16,
   IconEllipsisOutline16,
+  FileTypeIcon,
   IconFolderOpen16,
   IconLoadingOutline16,
   IconPlusOutline16,
@@ -52,7 +53,7 @@ import type {
   WorktreeInfo,
 } from '../core/types.ts'
 import { normalizeSlug, validateSlug } from '../core/worktree.ts'
-import { PanelStore, type PanelSnapshot } from './controller.ts'
+import { PanelStore, type PanelSection, type PanelSnapshot } from './controller.ts'
 import type { MessageKey } from './dictionaries.ts'
 import classes from './panel.module.css'
 
@@ -99,25 +100,21 @@ type TranslateKey = MessageKey
 
 /* ------------------------------------------------------------------ helpers */
 
-/** Badge tone for one change kind. */
-function toneFor(entry: StatusEntry): 'success' | 'info' | 'warning' | 'danger' | 'neutral' {
-  if (entry.unmerged !== undefined) return 'danger'
-  if (entry.untracked) return 'info'
-  if (entry.index === 'deleted' || entry.worktree === 'deleted') return 'danger'
-  if (entry.index === 'added' || entry.index === 'renamed' || entry.index === 'copied') return 'success'
-  if (entry.index === 'modified' || entry.worktree === 'modified') return 'warning'
-  return 'neutral'
-}
-
-/** The short status label shown on a row. */
-function statusLabel(entry: StatusEntry): string {
-  if (entry.unmerged !== undefined) return entry.unmerged
+/**
+ * The status mark a row shows: git's own letter, colored by what it means.
+ * VS Code's SCM view reads the same way, which keeps the row scannable when
+ * the file name and its directory share one line.
+ */
+function statusLetter(entry: StatusEntry): string {
+  // Conflicts keep both letters (`UU`, `AA`), which is what git itself prints
+  // and what tells the user which side is missing.
+  if (entry.unmerged !== undefined) return entry.xy
   const kind = entry.index ?? entry.worktree
   switch (kind) {
     case 'added':
-      return '+'
+      return 'A'
     case 'deleted':
-      return '-'
+      return 'D'
     case 'renamed':
       return 'R'
     case 'copied':
@@ -125,10 +122,20 @@ function statusLabel(entry: StatusEntry): string {
     case 'typechange':
       return 'T'
     case 'untracked':
-      return '?'
+      return 'U'
     default:
       return 'M'
   }
+}
+
+/** The color class for one change's status letter. */
+function statusClass(entry: StatusEntry): string {
+  if (entry.unmerged !== undefined) return classes.statusDanger
+  if (entry.index === 'deleted' || entry.worktree === 'deleted') return classes.statusDanger
+  if (entry.untracked) return classes.statusSuccess
+  if (entry.index === 'added' || entry.index === 'renamed' || entry.index === 'copied') return classes.statusSuccess
+  if (entry.index === 'modified' || entry.worktree === 'modified') return classes.statusWarn
+  return classes.statusQuiet
 }
 
 /** `a/b.ts` -> `b.ts`. */
@@ -268,23 +275,34 @@ export function GitPanel(props: GitPanelProps): React.ReactElement {
           <>
             {state === null ? null : (
               <>
+                <CommitBox snapshot={snapshot} t={t} store={store} />
                 <ChangesSection
                   state={state}
                   t={t}
                   busy={busy}
+                  collapsed={snapshot.collapsed.changes}
+                  onToggle={() => store.toggleSection('changes')}
                   onOpen={(path, side, oldPath) => void store.openDiff(path, side, oldPath)}
                   onDiscard={onDiscard}
                   store={store}
                 />
-                <CommitBox snapshot={snapshot} t={t} store={store} />
                 <WorktreesSection
                   state={state}
                   t={t}
                   busy={busy}
                   store={store}
+                  collapsed={snapshot.collapsed.worktrees}
+                  onToggle={() => store.toggleSection('worktrees')}
                   onDelete={onWorktreeDelete}
                 />
-                <HistorySection snapshot={snapshot} t={t} store={store} onCheckout={onCheckout} />
+                <HistorySection
+                  snapshot={snapshot}
+                  t={t}
+                  store={store}
+                  collapsed={snapshot.collapsed.history}
+                  onToggle={() => store.toggleSection('history')}
+                  onCheckout={onCheckout}
+                />
               </>
             )}
           </>
@@ -739,6 +757,60 @@ function degradedFix(
   return t(key, { required: degraded.requiredVersion ?? '' })
 }
 
+/* ---------------------------------------------------------------- sections */
+
+/**
+ * One collapsible section: an accordion header (chevron, title, count, and the
+ * section's own actions) over its body. The header is a real button, so the
+ * sections answer the keyboard and expose `aria-expanded`; the actions sit
+ * beside it rather than inside, because a button cannot nest in a button.
+ */
+function Section(props: {
+  id: PanelSection
+  title: string
+  count?: number | null
+  collapsed: boolean
+  onToggle: () => void
+  actions?: React.ReactNode
+  children: React.ReactNode
+}): React.ReactElement {
+  const { id, title, count, collapsed, onToggle, actions, children } = props
+  const bodyId = `dsh-git-section-${id}`
+  return (
+    <section className={classes.section} data-dsh-git={id}>
+      <div className={classes.sectionHeader}>
+        <button
+          type="button"
+          className={classes.sectionToggle}
+          data-dsh-git="section-toggle"
+          data-section={id}
+          aria-expanded={!collapsed}
+          aria-controls={bodyId}
+          onClick={onToggle}
+        >
+          <IconChevronDownOutline14
+            size={12}
+            className={collapsed ? classes.sectionChevronCollapsed : classes.sectionChevron}
+          />
+          <span className={classes.sectionTitle}>{title}</span>
+        </button>
+        <span className={classes.sectionSpacer} />
+        {actions}
+        {count === undefined || count === null ? null : (
+          <span className={classes.sectionCount} data-dsh-git="section-count">
+            {count}
+          </span>
+        )}
+      </div>
+      {collapsed ? null : (
+        <div id={bodyId} data-dsh-git="section-body" data-section={id}>
+          {children}
+        </div>
+      )}
+    </section>
+  )
+}
+
 /* ----------------------------------------------------------------- changes */
 
 function ChangesSection(props: {
@@ -746,6 +818,8 @@ function ChangesSection(props: {
   t: Translate
   busy: boolean
   store: PanelStore
+  collapsed: boolean
+  onToggle: () => void
   onOpen: (path: string, side: DiffSide, oldPath?: string) => void
   onDiscard: (paths: readonly string[]) => void
 }): React.ReactElement {
@@ -757,38 +831,64 @@ function ChangesSection(props: {
     staged: changes.staged.filter((entry) => entry.unmerged === undefined),
     unstaged: changes.unstaged.filter((entry) => entry.unmerged === undefined),
   }
+  // Discard covers everything the panel can restore or delete; a conflicted
+  // path is resolved, not discarded.
+  const discardable = [...changeable.unstaged, ...changes.untracked]
   const total = changes.staged.length + changes.unstaged.length + changes.untracked.length
 
   return (
-    <section className={classes.section} data-dsh-git="changes">
-      <div className={classes.sectionHeader}>
-        <span className={classes.sectionTitle}>{t('changes.title')}</span>
-        {total === 0 ? <span className={classes.sectionCount}>0</span> : null}
-        <span className={classes.sectionSpacer} />
-        {changeable.unstaged.length + changes.untracked.length > 0 ? (
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={busy}
-            onClick={() =>
-              void store.stage([...changeable.unstaged, ...changes.untracked].map((entry) => entry.path))
-            }
-          >
-            {t('changes.stageAll')}
-          </Button>
-        ) : null}
-        {changeable.staged.length > 0 ? (
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={busy}
-            onClick={() => void store.unstage(changeable.staged.map((entry) => entry.path))}
-          >
-            {t('changes.unstageAll')}
-          </Button>
-        ) : null}
-      </div>
-
+    <Section
+      id="changes"
+      title={t('changes.title')}
+      count={total}
+      collapsed={props.collapsed}
+      onToggle={props.onToggle}
+      actions={
+        <>
+          {changeable.unstaged.length + changes.untracked.length > 0 ? (
+            <button
+              type="button"
+              className={classes.iconButton}
+              aria-label={t('changes.stageAll')}
+              title={t('changes.stageAll')}
+              data-dsh-git="stage-all"
+              disabled={busy}
+              onClick={() =>
+                void store.stage([...changeable.unstaged, ...changes.untracked].map((entry) => entry.path))
+              }
+            >
+              <IconPlusOutline16 size={14} />
+            </button>
+          ) : null}
+          {changeable.staged.length > 0 ? (
+            <button
+              type="button"
+              className={classes.iconButton}
+              aria-label={t('changes.unstageAll')}
+              title={t('changes.unstageAll')}
+              data-dsh-git="unstage-all"
+              disabled={busy}
+              onClick={() => void store.unstage(changeable.staged.map((entry) => entry.path))}
+            >
+              <IconChevronLeftOutline14 size={14} />
+            </button>
+          ) : null}
+          {discardable.length > 0 ? (
+            <button
+              type="button"
+              className={classes.iconButton}
+              aria-label={t('changes.discardAll')}
+              title={t('changes.discardAll')}
+              data-dsh-git="discard-all"
+              disabled={busy}
+              onClick={() => onDiscard(discardable.map((entry) => entry.path))}
+            >
+              <IconTrashOutline16 size={14} />
+            </button>
+          ) : null}
+        </>
+      }
+    >
       {total === 0 ? (
         <div className={classes.empty}>
           <span className={classes.emptyTitle}>{t('changes.none')}</span>
@@ -850,7 +950,7 @@ function ChangesSection(props: {
           {t('changes.ignored', { count: changes.ignoredCount })}
         </div>
       ) : null}
-    </section>
+    </Section>
   )
 }
 
@@ -868,9 +968,9 @@ function Group(props: {
   const { label, entries, t, busy, store, side, onOpen, onDiscard } = props
   return (
     <div data-dsh-git="group">
-      <div className={classes.sectionHeader}>
-        <span className={classes.sectionTitle}>{label}</span>
-        <span className={classes.sectionCount}>{entries.length}</span>
+      <div className={classes.groupHeader}>
+        <span className={classes.groupTitle}>{label}</span>
+        <span className={classes.groupCount}>{entries.length}</span>
       </div>
       {entries.map((entry) => (
         <div
@@ -888,18 +988,25 @@ function Group(props: {
             }
           }}
         >
-          <div className={classes.rowMain}>
-            <span className={classes.rowPath} title={entry.oldPath === undefined ? entry.path : `${entry.oldPath} -> ${entry.path}`}>
-              {baseName(entry.path)}
-              {entry.oldPath === undefined ? null : (
-                <span className={classes.rowMeta}>{` <- ${baseName(entry.oldPath)}`}</span>
-              )}
-            </span>
-            {dirName(entry.path) === '' ? null : <span className={classes.rowMeta}>{dirName(entry.path)}</span>}
-          </div>
-          <Tag tone={toneFor(entry)} className={classes.badge}>
-            {statusLabel(entry)}
-          </Tag>
+          <FileTypeIcon path={entry.path} size={14} className={classes.fileIcon} />
+          <span
+            className={classes.fileName}
+            title={entry.oldPath === undefined ? entry.path : `${entry.oldPath} -> ${entry.path}`}
+          >
+            {baseName(entry.path)}
+          </span>
+          {entry.oldPath === undefined ? null : (
+            <span className={classes.fileFrom}>{`<- ${baseName(entry.oldPath)}`}</span>
+          )}
+          {dirName(entry.path) === '' ? null : <span className={classes.fileDir}>{dirName(entry.path)}</span>}
+          <span className={classes.rowSpacer} />
+          <span
+            className={`${classes.statusLetter} ${statusClass(entry)}`}
+            data-dsh-git="status"
+            aria-hidden
+          >
+            {statusLetter(entry)}
+          </span>
           <div className={classes.rowActions}>
             {props.readonly === true ? null : side === 'staged' ? (
               <HoverCard
@@ -963,6 +1070,12 @@ function Group(props: {
 
 /* ------------------------------------------------------------------ commit */
 
+/** The commit chord's modifier name for this platform. */
+export function commitModifier(): string {
+  const platform = typeof navigator === 'undefined' ? '' : (navigator.platform ?? '')
+  return /Mac|iPhone|iPad|iPod/i.test(platform) ? '\u2318' : 'Ctrl'
+}
+
 function CommitBox(props: {
   snapshot: PanelSnapshot
   t: Translate
@@ -974,24 +1087,38 @@ function CommitBox(props: {
   if (state === null) return null
   const staged = state.changes.staged.length
   const canCommit = staged > 0 && !snapshot.busy
+  const branch = state.head.branch ?? 'HEAD'
+  const placeholder = t('commit.placeholder', { mod: commitModifier(), branch })
+  const submit = (): void => {
+    if (!canCommit || snapshot.message.trim() === '') return
+    void store.commit(snapshot.message, amend)
+  }
 
   return (
     <div className={classes.commit} data-dsh-git="commit">
       <textarea
         className={classes.textarea}
-        placeholder={t('commit.placeholder')}
-        aria-label={t('commit.placeholder')}
+        placeholder={placeholder}
+        aria-label={t('commit.placeholder', { mod: '', branch })}
         value={snapshot.message}
         onChange={(event) => store.setMessage(event.target.value)}
+        // VS Code's own chord: the message commits without reaching the mouse.
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault()
+            submit()
+          }
+        }}
         data-dsh-git="commit-message"
       />
       <Checkbox checked={amend} onChange={setAmend} label={t('commit.amend')} />
       <div className={classes.bannerActions}>
         <Button
+          className={classes.commitPrimary}
           size="sm"
           variant="primary"
           disabled={!canCommit || snapshot.message.trim() === ''}
-          onClick={() => void store.commit(snapshot.message, amend)}
+          onClick={submit}
         >
           {t('commit.button')}
         </Button>
@@ -1003,8 +1130,8 @@ function CommitBox(props: {
         >
           {t('commit.draft')}
         </Button>
-        {staged === 0 ? <span className={classes.caption}>{t('commit.nothingStaged')}</span> : null}
       </div>
+      {staged === 0 ? <span className={classes.commitHint}>{t('commit.nothingStaged')}</span> : null}
     </div>
   )
 }
@@ -1016,6 +1143,8 @@ function WorktreesSection(props: {
   t: Translate
   busy: boolean
   store: PanelStore
+  collapsed: boolean
+  onToggle: () => void
   onDelete: (worktree: WorktreeInfo) => void
 }): React.ReactElement {
   const { state, t, busy, store, onDelete } = props
@@ -1024,11 +1153,13 @@ function WorktreesSection(props: {
   const current = state.head.branch ?? 'HEAD'
 
   return (
-    <section className={classes.section} data-dsh-git="worktrees">
-      <div className={classes.sectionHeader}>
-        <span className={classes.sectionTitle}>{t('worktrees.title')}</span>
-        <span className={classes.sectionCount}>{state.worktrees.length}</span>
-      </div>
+    <Section
+      id="worktrees"
+      title={t('worktrees.title')}
+      count={state.worktrees.length}
+      collapsed={props.collapsed}
+      onToggle={props.onToggle}
+    >
       {state.worktrees.length === 0 ? (
         <div className={classes.empty}>
           <span className={classes.emptyTitle}>{t('worktrees.empty')}</span>
@@ -1047,7 +1178,13 @@ function WorktreesSection(props: {
               ) : null}
             </span>
             <span className={classes.worktreePath} title={worktree.path}>
-              {worktree.path.startsWith(`${state.root}/`) ? worktree.path.slice(state.root.length + 1) : worktree.path}
+              {/* The primary checkout is the repository itself, so it shows the
+                  folder name; linked worktrees show their path inside it. */}
+              {worktree.primary
+                ? baseName(state.root)
+                : worktree.path.startsWith(`${state.root}/`)
+                  ? worktree.path.slice(state.root.length + 1)
+                  : worktree.path}
             </span>
             <span className={classes.rowMeta}>
               {worktree.clean ? t('worktrees.clean') : t('worktrees.dirty')}
@@ -1128,7 +1265,7 @@ function WorktreesSection(props: {
       </div>
       {issue === null ? null : <div className={classes.issue}>{issue}</div>}
       <div className={classes.caption}>{t('worktrees.openHint')}</div>
-    </section>
+    </Section>
   )
 }
 
@@ -1138,6 +1275,8 @@ function HistorySection(props: {
   snapshot: PanelSnapshot
   t: Translate
   store: PanelStore
+  collapsed: boolean
+  onToggle: () => void
   onCheckout: (commit: CommitSummary) => void
 }): React.ReactElement {
   const { snapshot, t, store, onCheckout } = props
@@ -1146,18 +1285,22 @@ function HistorySection(props: {
   const loaded = React.useRef(false)
   const width = history === null ? 0 : graphWidth(history.lanes)
 
+  // A collapsed History section does not read the log: the first expansion is
+  // what loads it.
   React.useEffect(() => {
-    if (loaded.current) return
+    if (props.collapsed || loaded.current) return
     loaded.current = true
     void store.loadHistory()
-  }, [store])
+  }, [store, props.collapsed])
 
   return (
-    <section className={classes.section} data-dsh-git="history">
-      <div className={classes.sectionHeader}>
-        <span className={classes.sectionTitle}>{t('history.title')}</span>
-        {history === null ? null : <span className={classes.sectionCount}>{history.commits.length}</span>}
-        <span className={classes.sectionSpacer} />
+    <Section
+      id="history"
+      title={t('history.title')}
+      count={history === null ? null : history.commits.length}
+      collapsed={props.collapsed}
+      onToggle={props.onToggle}
+      actions={
         <button
           type="button"
           className={classes.iconButton}
@@ -1167,7 +1310,8 @@ function HistorySection(props: {
         >
           <IconRefreshOutline16 size={14} className={snapshot.historyLoading ? classes.spinning : undefined} />
         </button>
-      </div>
+      }
+    >
       {snapshot.historyLoading && history === null ? (
         <div className={classes.caption}>
           <IconLoadingOutline16 size={14} /> {t('history.loading')}
@@ -1238,7 +1382,7 @@ function HistorySection(props: {
           </Button>
         </div>
       ) : null}
-    </section>
+    </Section>
   )
 }
 

@@ -159,6 +159,40 @@ describe('panel store reads', () => {
   })
 })
 
+describe('section collapse', () => {
+  it('starts with every section expanded', async () => {
+    const { store: panel } = store({ getState: { state: state(), notice: null } })
+    await panel.start()
+    expect(panel.getSnapshot().collapsed).toEqual({ changes: false, worktrees: false, history: false })
+    expect(panel.isCollapsed('changes')).toBe(false)
+    panel.dispose()
+  })
+
+  it('toggles one section without touching the others', async () => {
+    const { store: panel } = store({ getState: { state: state(), notice: null } })
+    await panel.start()
+    panel.toggleSection('worktrees')
+    expect(panel.isCollapsed('worktrees')).toBe(true)
+    expect(panel.isCollapsed('changes')).toBe(false)
+    expect(panel.isCollapsed('history')).toBe(false)
+    panel.toggleSection('history')
+    expect(panel.isCollapsed('worktrees')).toBe(true)
+    expect(panel.isCollapsed('history')).toBe(true)
+    panel.toggleSection('worktrees')
+    expect(panel.isCollapsed('worktrees')).toBe(false)
+    panel.dispose()
+  })
+
+  it('keeps the collapse state across a refresh', async () => {
+    const { store: panel } = store({ getState: { state: state(), notice: null } })
+    await panel.start()
+    panel.toggleSection('changes')
+    await panel.refresh()
+    expect(panel.isCollapsed('changes')).toBe(true)
+    panel.dispose()
+  })
+})
+
 describe('diff view', () => {
   it('opens and closes a file diff', async () => {
     const { store: panel, calls } = store({

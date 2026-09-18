@@ -31,6 +31,9 @@ import type {
   StatePayload,
 } from '../core/types.ts'
 
+/** The stacked sections whose header collapses its body. */
+export type PanelSection = 'changes' | 'worktrees' | 'history'
+
 /** Which surface the body is showing. */
 export type PanelView =
   | { readonly kind: 'sections' }
@@ -59,6 +62,8 @@ export interface PanelSnapshot {
   readonly diffLoading: boolean
   readonly history: HistoryPage | null
   readonly historyLoading: boolean
+  /** Per-section collapse state; every section starts open. */
+  readonly collapsed: Readonly<Record<PanelSection, boolean>>
   readonly expandedCommit: string | null
   /** The commit message in the composer, mirrored so a hook Retry can repeat it. */
   readonly message: string
@@ -98,6 +103,7 @@ export class PanelStore {
       diffLoading: false,
       history: null,
       historyLoading: false,
+      collapsed: { changes: false, worktrees: false, history: false },
       expandedCommit: null,
       message: '',
     }
@@ -275,6 +281,22 @@ export class PanelStore {
       this.patch({ historyLoading: false })
       this.reportError(error)
     }
+  }
+
+  /**
+   * Collapse or expand one section.
+   *
+   * Sections are independent: an answer in this panel is rarely the only one
+   * the user wants, so opening History does not close Changes.
+   */
+  toggleSection(section: PanelSection): void {
+    const collapsed = { ...this.snapshot.collapsed, [section]: !this.snapshot.collapsed[section] }
+    this.patch({ collapsed })
+  }
+
+  /** Whether one section's body is hidden. */
+  isCollapsed(section: PanelSection): boolean {
+    return this.snapshot.collapsed[section]
   }
 
   /** Expand one commit row's actions. */

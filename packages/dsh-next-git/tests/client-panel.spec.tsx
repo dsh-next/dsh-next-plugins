@@ -202,6 +202,52 @@ describe('git panel body', () => {
     expect(container.textContent).toContain('new.md')
   })
 
+  it('starts with the three sections expanded as accordion headers', async () => {
+    await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } })
+    const toggles = [...container.querySelectorAll<HTMLElement>('[data-dsh-git="section-toggle"]')]
+    expect(toggles.map((toggle) => toggle.getAttribute('data-section'))).toEqual([
+      'changes',
+      'worktrees',
+      'history',
+    ])
+    for (const toggle of toggles) {
+      expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    }
+    expect(all('section-body')).toHaveLength(3)
+  })
+
+  it('collapses one section without closing the others, and expands it back', async () => {
+    await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } })
+    const worktrees = container.querySelector<HTMLElement>('[data-dsh-git="section-toggle"][data-section="worktrees"]')!
+    await act(async () => {
+      worktrees.click()
+    })
+    expect(worktrees.getAttribute('aria-expanded')).toBe('false')
+    // The worktree rows are gone while the change rows stay.
+    expect(container.querySelectorAll('[data-dsh-git="worktree"]')).toHaveLength(0)
+    expect(all('row').some((row) => row.getAttribute('data-path') === 'src/app.ts')).toBe(true)
+    expect(container.querySelector('[data-dsh-git="section-body"][data-section="worktrees"]')).toBeNull()
+    await act(async () => {
+      worktrees.click()
+    })
+    expect(worktrees.getAttribute('aria-expanded')).toBe('true')
+    expect(container.querySelectorAll('[data-dsh-git="worktree"]').length).toBeGreaterThan(0)
+  })
+
+  it('collapses the changes section with its rows and empty state', async () => {
+    await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } })
+    const changes = container.querySelector<HTMLElement>('[data-dsh-git="section-toggle"][data-section="changes"]')!
+    await act(async () => {
+      changes.click()
+    })
+    expect(all('row').filter((row) => row.getAttribute('data-path') !== null)).toHaveLength(0)
+    expect(container.textContent).not.toContain(en['changes.none'])
+    // History and worktrees are untouched.
+    expect(container.querySelectorAll('[data-dsh-git="commit-row"]').length).toBe(0)
+    expect(container.querySelector('[data-dsh-git="history"]')).not.toBeNull()
+    expect(container.querySelector('[data-dsh-git="section-body"][data-section="history"]')).not.toBeNull()
+  })
+
   it('stages one path through the row action', async () => {
     const { double } = await renderPanel({
       getHistory: { commits: [], lanes: [], hasMore: false },
@@ -249,6 +295,50 @@ describe('git panel body', () => {
       confirmButton.click()
     })
     expect(double.calls.find((call) => call.method === 'discard')?.args).toMatchObject({ paths: ['src/app.ts'] })
+  })
+
+  it('stages everything from the section header', async () => {
+    const { double } = await renderPanel({
+      getHistory: { commits: [], lanes: [], hasMore: false },
+      stage: panelState({ changes: { ...panelState().changes, unstaged: [], untracked: [] } }),
+    })
+    await act(async () => {
+      ;(marker('stage-all') as HTMLButtonElement).click()
+    })
+    expect(double.calls.find((call) => call.method === 'stage')?.args).toMatchObject({
+      paths: ['src/app.ts', 'docs/new.md'],
+    })
+  })
+
+  it('unstages everything from the section header', async () => {
+    const { double } = await renderPanel({
+      getHistory: { commits: [], lanes: [], hasMore: false },
+      unstage: panelState(),
+    })
+    await act(async () => {
+      ;(marker('unstage-all') as HTMLButtonElement).click()
+    })
+    expect(double.calls.find((call) => call.method === 'unstage')?.args).toMatchObject({ paths: ['src/staged.ts'] })
+  })
+
+  it('confirms a discard-all from the section header', async () => {
+    const { double } = await renderPanel({
+      getHistory: { commits: [], lanes: [], hasMore: false },
+      discard: panelState(),
+    })
+    await act(async () => {
+      ;(marker('discard-all') as HTMLButtonElement).click()
+    })
+    expect(double.calls.some((call) => call.method === 'discard')).toBe(false)
+    const confirmButton = [...document.querySelectorAll('button')].find((button) =>
+      button.textContent?.includes(en['confirm.force']),
+    ) as HTMLButtonElement
+    await act(async () => {
+      confirmButton.click()
+    })
+    expect(double.calls.find((call) => call.method === 'discard')?.args).toMatchObject({
+      paths: ['src/app.ts', 'docs/new.md'],
+    })
   })
 
   it('opens a file diff and returns to the sections', async () => {
@@ -359,6 +449,35 @@ describe('git panel body', () => {
       ;(byText(en['commit.button']) as HTMLButtonElement).click()
     })
     expect(double.calls.find((call) => call.method === 'commit')?.args).toMatchObject({ message: 'feat: raise it' })
+  })
+
+  it('marks each row with a file-type glyph, the muted directory and a status letter', async () => {
+    await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } })
+    const row = all('row').find((candidate) => candidate.getAttribute('data-path') === 'src/app.ts')!
+    // The type glyph comes from the platform primitive, keyed by the path.
+    expect(row.querySelector('svg')).not.toBeNull()
+    expect(row.textContent).toContain('src')
+    expect(row.querySelector('[data-dsh-git="status"]')?.textContent).toBe('M')
+  })
+
+  it('names the branch and the commit chord, and commits on the chord', async () => {
+    const { double } = await renderPanel({
+      getHistory: { commits: [], lanes: [], hasMore: false },
+      commit: panelState({ changes: { ...panelState().changes, staged: [] } }),
+    })
+    const textarea = marker('commit-message') as HTMLTextAreaElement
+    const placeholder = textarea.getAttribute('placeholder') ?? ''
+    expect(placeholder).toContain('main')
+    expect(placeholder).toMatch(/(\u2318|Ctrl)\+Enter/)
+    await act(async () => {
+      typeInto(textarea, 'feat: chord')
+    })
+    await act(async () => {
+      textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true }))
+    })
+    expect(double.calls.find((call) => call.method === 'commit')?.args).toMatchObject({
+      message: 'feat: chord',
+    })
   })
 
   it('drafts a message into the composer', async () => {

@@ -57,13 +57,14 @@ export const zh: Record<MessageKey, string> = {
   'changes.open': '打开',
   'changes.stageAll': '全部暂存',
   'changes.unstageAll': '全部取消暂存',
+  'changes.discardAll': '放弃全部更改',
   'changes.none': '没有更改',
   'changes.path': '路径',
   'changes.status': '状态',
   'changes.actions': '操作',
 
   // Commit -----------------------------------------------------------------
-  'commit.placeholder': '提交信息',
+  'commit.placeholder': '提交信息（{mod}+Enter 提交到“{branch}”）',
   'commit.button': '提交',
   'commit.draft': '生成信息草稿',
   'commit.amend': '修补上一次提交',

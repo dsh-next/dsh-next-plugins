@@ -8,7 +8,7 @@ import { parseOptions, selectSuites, runWorkflow, testedDshVersion } from './wor
 async function fixture(t, behavior = {}) {
   const root = await mkdtemp(join(tmpdir(), 'workflow-orchestration-'))
   t.after(() => rm(root, { recursive: true, force: true }))
-  const records = ['checkpoints', 'worktrees', 'skills'].map(slug => ({
+  const records = ['checkpoints', 'skills'].map(slug => ({
     name: '@dsh-next/dsh-next-' + slug, slug, version: '0.1.0',
     manifest: { dsh: { bundle: { patch: './cordis.patch.yml' }, client: {}, engines: { dsh: '>=0.1.3-alpha.2' } } },
   }))
@@ -20,7 +20,8 @@ async function fixture(t, behavior = {}) {
     planPackages: async selectors => {
       const packages = records.filter(pkg => selectors.includes(pkg.name) || selectors.includes(pkg.slug))
       // Model a required local plugin dependency shared by focused suites.
-      if (packages.some(pkg => pkg.slug === 'checkpoints') && !packages.includes(records[2])) packages.unshift(records[2])
+      const skillsRecord = records.find(record => record.slug === 'skills')
+      if (packages.some(pkg => pkg.slug === 'checkpoints') && skillsRecord !== undefined && !packages.includes(skillsRecord)) packages.unshift(skillsRecord)
       return { packages, requested: packages, buildPackages: packages }
     },
     resolveCredentials: async ({ live }) => {
@@ -78,7 +79,7 @@ test('suite registry accounts for every committed E2E spec', async () => {
 })
 
 test('default full E2E explicitly includes every keyless scenario group', () => {
-  assert.deepEqual(selectSuites('all').map(s => s.name), ['smoke', 'checkpoints', 'worktrees-sidebar'])
+  assert.deepEqual(selectSuites('all').map(s => s.name), ['smoke', 'checkpoints'])
   assert.equal(selectSuites('checkpoints', true)[0].spec, 'tests/e2e/checkpoints-chat.e2e.ts')
   assert.throws(() => selectSuites('all', true), /select it explicitly/)
   assert.throws(() => selectSuites('missing'), /Unknown/)
@@ -130,9 +131,9 @@ test('full suite packs once, preserves dependency closure, and isolates every gr
   const report = await runWorkflow(f.options, f.deps, { DEEPSEEK_API_KEY: 'never-use-real-key', OPENAI_API_KEY: 'also-not-for-tests' })
   assert.equal(report.status, 'passed')
   assert.equal(f.packed, 1)
-  assert.equal(new Set(f.roots.map(s => s.home)).size, 3)
-  assert.equal(f.events.filter(e => e[0] === 'server-dispose').length, 3)
-  assert.equal(f.events.filter(e => e[0] === 'scratch-dispose').length, 3)
+  assert.equal(new Set(f.roots.map(s => s.home)).size, 2)
+  assert.equal(f.events.filter(e => e[0] === 'server-dispose').length, 2)
+  assert.equal(f.events.filter(e => e[0] === 'scratch-dispose').length, 2)
   const focused = f.events.filter(e => e[0] === 'install')[1]
   assert.deepEqual(focused[1], ['checkpoints', 'skills'])
   for (const run of f.runs) {
@@ -151,10 +152,10 @@ test('failed group retries against fresh state without rebuilding and continues 
   const f = await fixture(t, { command: async (_command, _args, _options, call) => ({ stdout: '', stderr: '', code: call === 1 ? 1 : 0 }) })
   const report = await runWorkflow({ ...f.options, retries: 1 }, f.deps, {})
   assert.equal(report.status, 'passed')
-  assert.deepEqual(report.suites.map(s => s.status), ['failed', 'passed', 'passed', 'passed'])
+  assert.deepEqual(report.suites.map(s => s.status), ['failed', 'passed', 'passed'])
   assert.equal(f.packed, 1)
-  assert.equal(f.roots.length, 4)
-  assert.equal(f.events.filter(e => e[0] === 'scratch-dispose').length, 4)
+  assert.equal(f.roots.length, 3)
+  assert.equal(f.events.filter(e => e[0] === 'scratch-dispose').length, 3)
 })
 
 test('failure summary is non-green and retained scratch is opt-in', async t => {

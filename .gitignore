@@ -13,8 +13,11 @@ node_modules/
 # GUI test screenshots
 gui-test-screenshots/
 
-# Plugin worktree checkouts, sidecar registry, and local debug probes
+# Local DSH state and debug probes
 .dsh/
+
+# Git worktrees created by dsh-next-git
+.worktrees/
 
 # pnpm in-project package store (local dependency cache; never committed)
 .pnpm-store/

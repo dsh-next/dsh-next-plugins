@@ -4,7 +4,7 @@
 
 这是一个 DeepSeek Harness 插件：在**同一个文件夹**里开启空白会话，并把
 当前聊天归档。当对话已经被污染、但你还想继续在这里干活时，输入
-`/reset` — 包括插件 worktree 和用 `git worktree add` 建出的目录。
+`/reset` — 包括用 `git worktree add` 建出的目录。
 
 切换本身就是确认。你不会看到 “Reset succeeded” 这一行；那句话写在旧
 日志上，侧栏不再显示那一行。
@@ -21,13 +21,6 @@
 
 新会话使用当前工作区的目录。`git worktree add` 检出保持不变。未发送的
 输入草稿会被丢弃。
-
-### Worktree 认领保留
-
-如果已挂载 `dsh-next-worktrees`，且当前会话拥有插件 worktree
-（`/.dsh/worktrees/<slug>`），`/reset` 会把该认领交给新会话，并保持
-`danger-full-access`，git 仍然可用。普通文件夹和 CLI worktree 会跳过
-这一步。
 
 ### 单向归档
 

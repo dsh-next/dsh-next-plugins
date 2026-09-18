@@ -20,7 +20,6 @@
     "plugin:install": "node scripts/workflow-pack.mjs install",
     "npm:auth-test": "node scripts/npm-auth-test.mjs",
     "preview:skills": "node scripts/workflow-preview.mjs skills",
-    "capture:worktrees": "node scripts/workflow-preview.mjs worktrees",
     "typecheck": "pnpm -r typecheck",
     "changeset": "changeset",
     "changeset:status": "changeset status",

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { unblankCurrentSession } from './worktrees-helpers.ts'
+import { unblankCurrentSession } from './git-helpers.ts'
 
 /** Real packed-plugin smoke for settings, client identity, RPC safety and keyboard dismissal. */
 export async function verifyNotifier(page: Page, openCard: (page: Page) => Promise<void>): Promise<void> {

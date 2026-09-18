@@ -7,7 +7,7 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { commitFile, git, gitOk, initGitRepo } from './worktrees-helpers.ts'
+import { commitFile, git, gitOk, initGitRepo } from './git-helpers.ts'
 import {
   captureCheckpoint,
   checkpointsRpc,

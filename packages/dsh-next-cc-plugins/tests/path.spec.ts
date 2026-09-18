@@ -1,28 +1,25 @@
 import { describe, expect, it } from 'vitest'
-import { harborBasename, isWorktreeWorkspacePath } from '../src/core/path.ts'
 import { extractWorkspaces } from '../src/client/workspaces.ts'
 
 function ws(items: unknown): never {
   return { list: { getSnapshot: () => ({ items }) } } as never
 }
 
-describe('harborBasename', () => {
-  it('is the path basename for an ordinary workspace', () => {
-    expect(harborBasename('/Users/x/Projects/dsh-next-plugins')).toBe('dsh-next-plugins')
-  })
-  it('maps a worktree cwd to the harbor basename', () => {
-    expect(harborBasename('/Users/x/Projects/dsh-next-plugins/.dsh/worktrees/willow-01')).toBe('dsh-next-plugins')
-    expect(isWorktreeWorkspacePath('/Users/x/Projects/dsh-next-plugins/.dsh/worktrees/willow-01')).toBe(true)
-  })
-})
-
 describe('extractWorkspaces', () => {
-  it('hides plugin worktree workspaces from the checklist', () => {
+  it('normalizes every workspace row and falls back to the path as title', () => {
     expect(extractWorkspaces(ws([
-      { workspaceId: 'harbor', path: '/Users/x/Projects/web', title: 'web' },
-      { workspaceId: 'wt', path: '/Users/x/Projects/web/.dsh/worktrees/willow-01', title: 'auth-refresh' },
+      { workspaceId: 'web', path: '/Users/x/Projects/web', title: 'web' },
+      { workspaceId: 'api', path: '/Users/x/Projects/api' },
     ]))).toEqual([
-      { id: 'harbor', title: 'web', path: '/Users/x/Projects/web' },
+      { id: 'web', title: 'web', path: '/Users/x/Projects/web' },
+      { id: 'api', title: '/Users/x/Projects/api', path: '/Users/x/Projects/api' },
     ])
+  })
+
+  it('drops rows without a usable path', () => {
+    expect(extractWorkspaces(ws([
+      { workspaceId: 'missing' },
+      { workspaceId: 'empty', path: '' },
+    ]))).toEqual([])
   })
 })

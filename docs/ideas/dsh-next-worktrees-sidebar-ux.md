@@ -1,6 +1,9 @@
 # dsh-next-worktrees — owned-browser sidebar UX (design spec)
 
 - date: 2026-09-05
+- **superseded 2026-09-18 by [dsh-next-git.md](dsh-next-git.md)** — the
+  worktrees plugin is retired in favor of one Git tab in the right sidebar;
+  this document stays as the record of the shipped 0.1.x line.
 - status: implemented through revision 3; commits to strategy B (full nesting).
   Agent-resolved landing is 0.1.0 — see
   [dsh-next-worktrees-0.1.md](dsh-next-worktrees-0.1.md).

@@ -26,7 +26,7 @@ A package README is a first-run guide for someone who is not a contributor
 and is not a git expert. Local development belongs in
 [CONTRIBUTING.md](../CONTRIBUTING.md), not in the package README.
 
-Reference implementation: `packages/dsh-next-worktrees/README.md`.
+Reference implementation: `packages/dsh-next-skills/README.md`.
 
 ### Audience and tone
 

@@ -4,8 +4,8 @@ English | [中文](README.zh.md)
 
 This DeepSeek Harness plugin starts a **blank session in the same folder**
 and archives the chat you were in. Type `/reset` when the transcript is
-polluted and you want to keep working here — including inside a plugin
-worktree or a folder created with `git worktree add`.
+polluted and you want to keep working here — including inside a folder
+created with `git worktree add`.
 
 The switch *is* the acknowledgement. You will not see a “Reset succeeded”
 line; that string is written on the old log, which the sidebar no longer
@@ -24,13 +24,6 @@ shows.
 
 The new session uses this workspace’s directory. A `git worktree add`
 checkout stays that checkout. Unsaved composer draft is discarded.
-
-### Worktrees stay claimed
-
-If `dsh-next-worktrees` is mounted and this session owns a plugin worktree
-(`/.dsh/worktrees/<slug>`), `/reset` hands that claim to the new session
-and keeps `danger-full-access` so git still works. Ordinary folders and
-CLI worktrees skip that step.
 
 ### One-way archive
 

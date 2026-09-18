@@ -115,13 +115,11 @@ export function apply(ctx: Context): void {
         slots.register(
           { name: 'sidebar.right.pane.tab.title', key: GIT_ID, locale: NS },
           (props: unknown) => {
-            const share = props as {
-              sessionId?: string
-              useTabInfo?: GitPanelProps['useTabInfo']
-            }
-            if (share.useTabInfo === undefined) return null
+            // Always render: a title seat that returns null leaves the chip
+            // blank, and GitTitle falls back to the type label whenever the
+            // store has nothing to say yet.
+            const share = props as { sessionId?: string }
             return React.createElement(GitTitle, {
-              useTabInfo: share.useTabInfo,
               t,
               ...(share.sessionId === undefined ? {} : { sessionId: share.sessionId }),
             })

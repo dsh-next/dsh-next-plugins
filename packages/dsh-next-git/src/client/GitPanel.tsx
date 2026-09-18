@@ -1566,8 +1566,16 @@ function DiffPane(props: {
 
 /* ------------------------------------------------------------------- title */
 
-/** The live chip title: branch name, or the changed-file count. */
-export function GitTitle(props: { useTabInfo: () => { tab: { title: string } }; t: Translate; sessionId?: string }): React.ReactElement {
+/**
+ * The live chip title: branch name, or the changed-file count.
+ *
+ * The chip is never blank. With neither a branch nor a count to show — no
+ * store yet, a store mid-read, an empty branch name — the type label speaks,
+ * read fresh so a language change reaches it. The label is the last resort
+ * rather than the title recorded when the tab opened, which would freeze the
+ * copy in the language of that moment.
+ */
+export function GitTitle(props: { t: Translate; sessionId?: string }): React.ReactElement {
   const { t } = props
   const store = peekStore(props.sessionId)
   const snapshot = React.useSyncExternalStore(
@@ -1576,17 +1584,20 @@ export function GitTitle(props: { useTabInfo: () => { tab: { title: string } }; 
     store?.getSnapshot ?? (() => null),
   )
   const state = snapshot?.state ?? null
-  const head = state?.head
-  const label = head !== undefined && head !== null
-    ? head.branch ?? (head.detached ? t('header.detached') : null)
-    : null
+  const head = state?.head ?? null
+  const branch = head?.branch ?? null
+  const label = branch !== null && branch !== ''
+    ? branch
+    : head?.detached === true
+      ? t('header.detached')
+      : null
   const count = state === null
     ? 0
     : state.changes.staged.length + state.changes.unstaged.length + state.changes.untracked.length
   return (
     <React.Fragment>
       <IconBranchOutline16 size={14} className={classes.branchGlyph} />
-      {label ?? (count > 0 ? `${props.t('type.label')} (${count})` : props.useTabInfo().tab.title)}
+      <span data-dsh-git="chip-title">{label ?? (count > 0 ? `${t('type.label')} (${count})` : t('type.label'))}</span>
     </React.Fragment>
   )
 }

@@ -579,6 +579,8 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
       const panel = page.locator('[data-dsh-git="panel"]')
       await expect(panel).toBeVisible({ timeout: 20_000 })
       await expect(page.locator('[data-dsh-git="branch-button"]')).toContainText('main', { timeout: 20_000 })
+      // The tab chip never goes blank, however early the seat renders.
+      await expect(page.locator('[data-dsh-git="chip-title"]')).toHaveText(/\S/, { timeout: 20_000 })
 
       // Capture only the column, cropped to the control the README shows, in
       // the dark theme the package READMEs use.

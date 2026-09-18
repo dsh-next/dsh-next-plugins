@@ -797,16 +797,64 @@ describe('git panel body', () => {
 })
 
 describe('git chip title', () => {
-  it('renders the branch glyph', async () => {
-    await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } })
+  /** Render the title seat on its own, as the tab strip does. */
+  const renderTitle = async (props: { sessionId?: string }): Promise<{
+    container: HTMLDivElement
+    root: Root
+    title: () => string
+  }> => {
     const titleContainer = document.createElement('div')
+    document.body.appendChild(titleContainer)
     const titleRoot = createRoot(titleContainer)
     await act(async () => {
-      titleRoot.render(React.createElement(GitTitle, { useTabInfo, t }))
+      titleRoot.render(React.createElement(GitTitle, { t, ...props }))
     })
-    expect(titleContainer.textContent).toContain(en['type.label'])
+    return {
+      container: titleContainer,
+      root: titleRoot,
+      title: () => titleContainer.querySelector('[data-dsh-git="chip-title"]')?.textContent ?? '',
+    }
+  }
+
+  it('falls back to the type label instead of a blank chip', async () => {
+    const title = await renderTitle({})
+    // No store at all: the chip still names the tab, with its branch glyph.
+    expect(title.title()).toBe(en['type.label'])
+    expect(title.container.querySelector('svg')).not.toBeNull()
     act(() => {
-      titleRoot.unmount()
+      title.root.unmount()
+    })
+  })
+
+  it('shows the branch once the panel store has read the repository', async () => {
+    const { sessionId } = await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } })
+    const title = await renderTitle({ sessionId })
+    expect(title.title()).toBe('main')
+    act(() => {
+      title.root.unmount()
+    })
+  })
+
+  it('names a detached HEAD and a branchless change count', async () => {
+    const base = panelState()
+    const detached = await renderPanel({
+      getState: { state: panelState({ head: { ...base.head, branch: null, detached: true } }), notice: null },
+      getHistory: { commits: [], lanes: [], hasMore: false },
+    })
+    const detachedTitle = await renderTitle({ sessionId: detached.sessionId })
+    expect(detachedTitle.title()).toBe(en['header.detached'])
+    act(() => {
+      detachedTitle.root.unmount()
+    })
+
+    const unborn = await renderPanel({
+      getState: { state: panelState({ head: { ...base.head, branch: null, detached: false, unborn: true } }), notice: null },
+      getHistory: { commits: [], lanes: [], hasMore: false },
+    })
+    const unbornTitle = await renderTitle({ sessionId: unborn.sessionId })
+    expect(unbornTitle.title()).toBe(`${en['type.label']} (3)`)
+    act(() => {
+      unbornTitle.root.unmount()
     })
   })
 })

@@ -58,6 +58,42 @@ interface SessionFaceLike {
   prompt(content: unknown[], mode: 'queue' | 'steer'): Promise<unknown>
 }
 
+/** The workspace registry face, as much of it as this entry needs. */
+interface WorkspacesFaceLike {
+  create(input: { path: string }): Promise<{ workspaceId: string }>
+}
+
+/** The workspace navigation face, as much of it as this entry needs. */
+interface UiWorkspaceFaceLike {
+  openWorkspace(workspaceId: string): Promise<void>
+}
+
+/**
+ * Build the "open a session in this worktree" action.
+ *
+ * Registers the worktree as a workspace (idempotent) and navigates to a session
+ * in it. Both services are resolved through the context rather than declared as
+ * hard dependencies: the action is a convenience, and a host that does not
+ * offer workspace navigation should still mount the panel.
+ *
+ * @param ctx - the client context.
+ * @returns the action, or undefined when the host cannot navigate workspaces.
+ */
+export function makeWorktreeOpener(ctx: Context): ((path: string) => Promise<void>) | undefined {
+  const available = (): boolean =>
+    ctx.get('workspaces') !== undefined && ctx.get('uiWorkspace') !== undefined
+  if (!available()) return undefined
+  return async (path: string): Promise<void> => {
+    const workspaces = ctx.get('workspaces') as WorkspacesFaceLike | undefined
+    const uiWorkspace = ctx.get('uiWorkspace') as UiWorkspaceFaceLike | undefined
+    if (workspaces === undefined || uiWorkspace === undefined) {
+      throw new Error('workspace navigation is unavailable')
+    }
+    const view = await workspaces.create({ path })
+    await uiWorkspace.openWorkspace(view.workspaceId)
+  }
+}
+
 interface SessionsFace {
   scope?(id: string): unknown
   sessionOf?(ctx: unknown): SessionFaceLike | undefined
@@ -84,6 +120,7 @@ export function apply(ctx: Context): void {
   ctx.effect(() => ctx.sidebarRightTabs.register(gitDefinition(t)), 'dsh-next-git: git tab type')
 
   const sessions = ctx.get('sessions') as SessionsFace | undefined
+  const openWorktreeSession = makeWorktreeOpener(ctx)
 
   ctx.effect(
     () =>
@@ -102,6 +139,7 @@ export function apply(ctx: Context): void {
               useTabInfo: share.useTabInfo,
               t,
               ...(sendPrompt === undefined ? {} : { sendPrompt }),
+              ...(openWorktreeSession === undefined ? {} : { openWorktreeSession }),
             })
           },
         ),

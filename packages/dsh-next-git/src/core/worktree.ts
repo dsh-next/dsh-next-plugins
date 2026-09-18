@@ -16,7 +16,7 @@
  * project files' grammars, with no filesystem access.
  */
 
-import type { SetupStep, WorktreeInfo, WorktreePlan } from './types.ts'
+import type { SetupStep, WorktreeBase, WorktreeInfo, WorktreePlan } from './types.ts'
 
 /** Directory, relative to the repository root, that holds managed worktrees. */
 export const WORKTREES_DIR = '.worktrees'
@@ -122,6 +122,30 @@ export function slugFromWorktreePath(path: string): string | null {
   return slug === undefined || slug === '' ? null : slug
 }
 
+/**
+ * The `.worktrees/<slug>` slug a ref would get when checked out into a worktree.
+ *
+ * `main` stays `main`; `origin/feature/x` and `refs/heads/feature/x` both
+ * become `feature/x`'s last segment, because a slug may not contain a slash.
+ */
+export function slugForRef(ref: string): string {
+  const trimmed = ref.trim().replace(/^refs\/(heads|remotes|tags)\//, '')
+  const leaf = trimmed.includes('/') ? trimmed.slice(trimmed.lastIndexOf('/') + 1) : trimmed
+  return normalizeSlug(leaf)
+}
+
+/**
+ * The local branch a remote-tracking ref would create.
+ *
+ * `origin/feature/x` -> `feature/x`; a ref without a remote prefix passes
+ * through. The result is a branch name, not a slug: slashes are legal there.
+ */
+export function localBranchForRemoteRef(ref: string): string {
+  const trimmed = ref.trim().replace(/^refs\/remotes\//, '')
+  const slash = trimmed.indexOf('/')
+  return slash < 0 ? trimmed : trimmed.slice(slash + 1)
+}
+
 /** The slug of a `dsh-git/<slug>` branch, or null for any other branch. */
 export function slugFromBranch(branch: string | null): string | null {
   if (branch === null) return null
@@ -141,6 +165,10 @@ export interface ParsedWorktree {
   readonly bare: boolean
   readonly detached: boolean
   readonly locked: boolean
+  /** The reason git recorded with `locked`, when it recorded one. */
+  readonly lockedReason: string | null
+  /** Git marked the entry prunable: its directory or git dir is gone. */
+  readonly prunable: boolean
 }
 
 /**
@@ -158,6 +186,8 @@ export function parseWorktreeList(raw: string): ParsedWorktree[] {
     bare: boolean
     detached: boolean
     locked: boolean
+    lockedReason: string | null
+    prunable: boolean
   } | null = null
 
   const flush = (): void => {
@@ -175,7 +205,16 @@ export function parseWorktreeList(raw: string): ParsedWorktree[] {
     const value = space < 0 ? '' : line.slice(space + 1)
     if (key === 'worktree') {
       flush()
-      current = { path: value, head: null, branch: null, bare: false, detached: false, locked: false }
+      current = {
+        path: value,
+        head: null,
+        branch: null,
+        bare: false,
+        detached: false,
+        locked: false,
+        lockedReason: null,
+        prunable: false,
+      }
       continue
     }
     if (current === null) continue
@@ -194,6 +233,10 @@ export function parseWorktreeList(raw: string): ParsedWorktree[] {
         break
       case 'locked':
         current.locked = true
+        current.lockedReason = value === '' ? null : value
+        break
+      case 'prunable':
+        current.prunable = true
         break
       default:
         break
@@ -207,9 +250,11 @@ export function parseWorktreeList(raw: string): ParsedWorktree[] {
 export interface WorktreeEnrichment {
   /** Whether the working tree has changes (`git status --porcelain` non-empty). */
   readonly clean: boolean
-  /** Commits ahead of the merge base with the primary branch. */
+  /** Commits this branch has that the comparison base does not. */
   readonly ahead: number
-  /** Whether the branch tip is already an ancestor of the primary branch. */
+  /** Commits the comparison base has that this branch does not. */
+  readonly behind: number
+  /** Whether the branch tip is already an ancestor of the comparison base. */
   readonly merged: boolean
 }
 
@@ -235,10 +280,14 @@ export function describeWorktrees(
       branch: shortBranch(entry.branch),
       primary: index === 0,
       locked: entry.locked,
+      lockedReason: entry.lockedReason,
+      prunable: entry.prunable,
+      detached: entry.detached,
       managed: slug !== null,
       slug,
       clean: facts?.clean ?? entry.bare,
       ahead: facts?.ahead ?? 0,
+      behind: facts?.behind ?? 0,
       merged: facts?.merged ?? false,
     }
   })
@@ -249,6 +298,43 @@ export function shortBranch(branch: string | null): string | null {
   if (branch === null) return null
   const prefix = 'refs/heads/'
   return branch.startsWith(prefix) ? branch.slice(prefix.length) : branch
+}
+
+/**
+ * Pick the branch the Worktrees status columns compare against.
+ *
+ * Precedence is deliberate: a branch the user picked in the panel wins, then
+ * the repository's default branch (`origin/HEAD`, which is what a pull request
+ * compares against), and only then the primary checkout's current branch as the
+ * last resort. Comparing against "whatever the main checkout happens to have
+ * checked out" was the old behaviour, and it made the same worktree read
+ * "2 ahead" or "Merged" depending on where the root happened to be.
+ *
+ * @param input - the resolved candidates.
+ * @returns the base and where it came from.
+ */
+export function resolveWorktreeBase(input: {
+  /** `origin/HEAD` short name when the repository has one. */
+  readonly defaultBranch: string | null
+  /** The primary checkout's current branch, the final fallback. */
+  readonly primaryBranch: string | null
+  /** A branch the user picked in the panel, when any. */
+  readonly requested?: string | null
+  /** Local branch names offered as alternatives. */
+  readonly candidates?: readonly string[]
+}): WorktreeBase {
+  const candidates = input.candidates ?? []
+  const requested = input.requested ?? null
+  if (requested !== null && requested !== '') {
+    return { name: requested, source: 'panel', candidates }
+  }
+  if (input.defaultBranch !== null && input.defaultBranch !== '') {
+    return { name: input.defaultBranch, source: 'default-branch', candidates }
+  }
+  if (input.primaryBranch !== null && input.primaryBranch !== '') {
+    return { name: input.primaryBranch, source: 'primary', candidates }
+  }
+  return { name: null, source: 'none', candidates }
 }
 
 /* ------------------------------------------------------------------ setup */
@@ -412,12 +498,14 @@ export function planWorktree(input: {
   root: string
   slug: string
   base: string
+  /** Branch to check out; defaults to `dsh-git/<slug>`. `null` means detached. */
+  branch?: string | null
   setup?: readonly SetupStep[]
 }): WorktreePlan {
   return {
     slug: input.slug,
     path: worktreePathFor(input.root, input.slug),
-    branch: branchForSlug(input.slug),
+    branch: input.branch === undefined ? branchForSlug(input.slug) : input.branch,
     base: input.base,
     setup: input.setup ?? [],
   }

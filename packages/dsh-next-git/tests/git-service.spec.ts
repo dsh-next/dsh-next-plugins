@@ -1,7 +1,7 @@
-import { readFileSync, existsSync, writeFileSync } from 'node:fs'
+import { readFileSync, existsSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { createFixture, createNonRepository, type GitFixture } from './git-fixture.ts'
+import { createFixture, createNonRepository, MAIN_BRANCH, type GitFixture } from './git-fixture.ts'
 import { GitError, GitRunner } from '../src/host/git-runner.ts'
 import { GitService } from '../src/host/git-service.ts'
 import { memoryFs, nodeFs, type FsPorts } from '../src/host/fs-adapter.ts'
@@ -697,6 +697,133 @@ describe('worktree lifecycle', () => {
       service.worktreeMerge({ cwd: fixture.dir, path: join(fixture.dir, 'src') }),
       'path-missing',
     )
+  })
+
+
+  it('measures every linked worktree against the base, not the root checkout', async () => {
+    const fixture = createFixture('worktrees')
+    const service = serviceFor(fixture)
+    // The primary checkout moves aside; the rows must not follow it.
+    fixture.gitOk(['checkout', '-q', '-b', 'side'])
+    const read = await service.state({ cwd: fixture.dir })
+    expect(read.state.worktreeBase.source).toBe('primary')
+    expect(read.state.worktreeBase.name).toBe('side')
+
+    const overridden = await service.state({ cwd: fixture.dir, base: MAIN_BRANCH })
+    expect(overridden.state.worktreeBase).toMatchObject({ name: MAIN_BRANCH, source: 'panel' })
+    expect(overridden.state.worktreeBase.candidates).toContain(MAIN_BRANCH)
+    expect(overridden.state.worktrees.find((worktree) => worktree.slug === 'ahead'))
+      .toMatchObject({ ahead: 1, behind: 0, merged: false })
+    // A branch the base contains reads merged; the base has moved on since, so
+    // the row is behind as well as merged.
+    expect(overridden.state.worktrees.find((worktree) => worktree.slug === 'ready'))
+      .toMatchObject({ ahead: 0, behind: 1, merged: true })
+    expect(overridden.state.worktrees.find((worktree) => worktree.slug === 'merged'))
+      .toMatchObject({ merged: true, ahead: 0 })
+  })
+
+  it('uses origin/HEAD as the default base when the repository has one', async () => {
+    const fixture = createFixture('worktrees')
+    const remote = join(fixture.scratch('remote'), 'origin.git')
+    fixture.gitOk(['init', '-q', '--bare', '-b', MAIN_BRANCH, remote])
+    fixture.gitOk(['remote', 'add', 'origin', remote])
+    fixture.gitOk(['push', '-q', '-u', 'origin', MAIN_BRANCH])
+    fixture.gitOk(['remote', 'set-head', 'origin', '-a'])
+    const service = serviceFor(fixture)
+    const read = await service.state({ cwd: fixture.dir })
+    expect(read.state.worktreeBase.name).toBe('origin/' + MAIN_BRANCH)
+    expect(read.state.worktreeBase.source).toBe('default-branch')
+    expect(read.state.worktreeBase.candidates).toContain(MAIN_BRANCH)
+  })
+
+  it('merges the branch a hand-made worktree actually checks out', async () => {
+    const fixture = createFixture('clean')
+    fixture.gitOk(['branch', 'wk-manual'])
+    const target = fixture.addWorktreeOnBranch('manual', 'wk-manual')
+    fixture.gitOk(['-C', target, 'commit', '-q', '--allow-empty', '-m', 'feat: manual work'])
+    const service = serviceFor(fixture)
+    // The old shape looked for a `dsh-git/manual` branch; the real one is `wk-manual`.
+    const state = await service.worktreeMerge({ cwd: fixture.dir, path: target })
+    expect(state.head.oid).toBe(fixture.gitOk(['rev-parse', 'wk-manual']).trim())
+  })
+
+  it('creates worktrees from an existing branch, a remote branch and a tag', async () => {
+    const fixture = createFixture('clean')
+    fixture.gitOk(['branch', 'wk-existing'])
+    fixture.gitOk(['tag', 'v1.0.0'])
+    const remote = join(fixture.scratch('remote'), 'origin.git')
+    fixture.gitOk(['init', '-q', '--bare', '-b', MAIN_BRANCH, remote])
+    fixture.gitOk(['remote', 'add', 'origin', remote])
+    fixture.gitOk(['push', '-q', 'origin', MAIN_BRANCH + ':wk-remote'])
+    fixture.gitOk(['fetch', '-q', 'origin'])
+    const service = serviceFor(fixture)
+
+    const existing = await service.worktreeAdd({
+      cwd: fixture.dir,
+      mode: 'ref',
+      ref: 'wk-existing',
+      refKind: 'branch',
+    })
+    expect(existing.plan).toMatchObject({ slug: 'wk-existing', branch: 'wk-existing' })
+    expect(fixture.gitOk(['-C', existing.plan.path, 'rev-parse', '--abbrev-ref', 'HEAD']).trim()).toBe('wk-existing')
+
+    const tracked = await service.worktreeAdd({
+      cwd: fixture.dir,
+      mode: 'ref',
+      ref: 'origin/wk-remote',
+      refKind: 'remote',
+    })
+    expect(tracked.plan.branch).toBe('wk-remote')
+    expect(fixture.gitOk(['-C', tracked.plan.path, 'rev-parse', '--abbrev-ref', 'HEAD']).trim()).toBe('wk-remote')
+
+    const tag = await service.worktreeAdd({ cwd: fixture.dir, mode: 'ref', ref: 'v1.0.0', refKind: 'tag' })
+    expect(tag.plan.branch).toBeNull()
+    expect(fixture.gitOk(['-C', tag.plan.path, 'rev-parse', '--abbrev-ref', 'HEAD']).trim()).toBe('HEAD')
+
+    // A ref that does not exist is named, not guessed.
+    await expectGitError(
+      service.worktreeAdd({ cwd: fixture.dir, mode: 'ref', ref: 'nope', refKind: 'branch' }),
+      'path-missing',
+    )
+  })
+
+  it('refuses to remove the primary checkout or the session checkout', async () => {
+    const fixture = createFixture('worktrees')
+    const service = serviceFor(fixture)
+    await expectGitError(service.worktreeRemove({ cwd: fixture.dir, path: fixture.dir }), 'worktree-primary')
+    const ready = join(fixture.dir, '.worktrees', 'ready')
+    const inWorktree = serviceFor(fixture, { cwd: ready })
+    await expectGitError(inWorktree.worktreeRemove({ cwd: ready, path: ready }), 'worktree-current')
+  })
+
+  it('unlocks a locked worktree and prunes one whose folder is gone', async () => {
+    const fixture = createFixture('worktrees')
+    const service = serviceFor(fixture)
+    const ready = join(fixture.dir, '.worktrees', 'ready')
+    fixture.gitOk(['worktree', 'lock', ready])
+    expect((await service.state({ cwd: fixture.dir })).state.worktrees.find((worktree) => worktree.slug === 'ready')?.locked)
+      .toBe(true)
+    const unlocked = await service.worktreeUnlock({ cwd: fixture.dir, path: ready })
+    expect(unlocked.worktrees.find((worktree) => worktree.slug === 'ready')?.locked).toBe(false)
+
+    rmSync(ready, { recursive: true, force: true })
+    expect((await service.state({ cwd: fixture.dir })).state.worktrees.find((worktree) => worktree.slug === 'ready')?.prunable)
+      .toBe(true)
+    const pruned = await service.worktreePrune({ cwd: fixture.dir })
+    expect(pruned.worktrees.some((worktree) => worktree.slug === 'ready')).toBe(false)
+  })
+
+  it('updates a worktree from a chosen base', async () => {
+    const fixture = createFixture('worktrees')
+    fixture.gitOk(['branch', 'release'])
+    fixture.gitOk(['checkout', '-q', 'release'])
+    fixture.commit('src/release-only.ts', 'export const releaseOnly = true\n', 'feat: release only')
+    fixture.gitOk(['checkout', '-q', MAIN_BRANCH])
+    const service = serviceFor(fixture)
+    const target = join(fixture.dir, '.worktrees', 'ready')
+    const state = await service.worktreeUpdate({ cwd: fixture.dir, path: target, base: 'release' })
+    expect(state.operation.kind).toBeNull()
+    expect(existsSync(join(target, 'src', 'release-only.ts'))).toBe(true)
   })
 })
 

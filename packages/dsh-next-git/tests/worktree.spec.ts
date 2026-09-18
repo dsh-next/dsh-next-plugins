@@ -11,7 +11,10 @@ import {
   parseWorktreeInclude,
   parseWorktreeList,
   planWorktree,
+  localBranchForRemoteRef,
   resolveSetupSteps,
+  resolveWorktreeBase,
+  slugForRef,
   SETUP_ENV_ROOT,
   SETUP_FILE,
   SETUP_MAX_STEPS,
@@ -124,6 +127,11 @@ describe('worktree list parsing', () => {
     'detached',
     'locked reason',
     '',
+    'worktree /repo/.worktrees/gone',
+    'HEAD dddd',
+    'branch refs/heads/dsh-git/gone',
+    'prunable gitdir file points to non-existent location',
+    '',
     'worktree /bare',
     'bare',
     '',
@@ -131,16 +139,24 @@ describe('worktree list parsing', () => {
 
   it('parses every entry shape', () => {
     const entries = parseWorktreeList(raw)
-    expect(entries).toHaveLength(4)
+    expect(entries).toHaveLength(5)
     expect(entries[0]).toMatchObject({ path: '/repo', branch: 'refs/heads/main', bare: false, detached: false })
-    expect(entries[2]).toMatchObject({ path: '/repo/.worktrees/detached', detached: true, locked: true, branch: null })
-    expect(entries[3]).toMatchObject({ path: '/bare', bare: true })
+    expect(entries[2]).toMatchObject({
+      path: '/repo/.worktrees/detached',
+      detached: true,
+      locked: true,
+      lockedReason: 'reason',
+      prunable: false,
+      branch: null,
+    })
+    expect(entries[3]).toMatchObject({ path: '/repo/.worktrees/gone', prunable: true, locked: false })
+    expect(entries[4]).toMatchObject({ path: '/bare', bare: true })
   })
 
   it('describes rows with the managed convention and host facts', () => {
     const rows = describeWorktrees(parseWorktreeList(raw), {
-      '/repo': { clean: true, ahead: 0, merged: false },
-      '/repo/.worktrees/ready': { clean: true, ahead: 2, merged: false },
+      '/repo': { clean: true, ahead: 0, behind: 0, merged: false },
+      '/repo/.worktrees/ready': { clean: true, ahead: 2, behind: 1, merged: false },
     })
     expect(rows[0]).toMatchObject({ primary: true, managed: false, slug: null, clean: true })
     expect(rows[1]).toMatchObject({
@@ -152,10 +168,22 @@ describe('worktree list parsing', () => {
       merged: false,
       clean: true,
     })
-    // A detached managed path still resolves its slug from the path.
-    expect(rows[2]).toMatchObject({ managed: true, slug: 'detached', branch: null, clean: false })
+    // A detached managed path still resolves its slug from the path, and its
+    // lock reason and behind count reach the row.
+    expect(rows[2]).toMatchObject({
+      managed: true,
+      slug: 'detached',
+      branch: null,
+      clean: false,
+      detached: true,
+      locked: true,
+      lockedReason: 'reason',
+    })
+    expect(rows[1]).toMatchObject({ behind: 1 })
+    // A prunable entry keeps the flags the host needs to offer pruning.
+    expect(rows[3]).toMatchObject({ prunable: true, managed: true, slug: 'gone' })
     // A bare entry has no working tree, so it is reported clean.
-    expect(rows[3]).toMatchObject({ clean: true, primary: false })
+    expect(rows[4]).toMatchObject({ clean: true, primary: false })
   })
 
   it('handles an empty listing', () => {
@@ -291,5 +319,67 @@ describe('exclude handling', () => {
   it('names the project files it owns', () => {
     expect(SETUP_FILE).toBe('.worktrees.json')
     expect(INCLUDE_FILE).toBe('.worktreeinclude')
+  })
+})
+
+describe('worktree base', () => {
+  it('prefers a branch the panel picked over every default', () => {
+    expect(
+      resolveWorktreeBase({
+        defaultBranch: 'origin/main',
+        primaryBranch: 'dev',
+        requested: 'release/1',
+        candidates: ['main', 'dev'],
+      }),
+    ).toEqual({ name: 'release/1', source: 'panel', candidates: ['main', 'dev'] })
+  })
+
+  it('prefers the repository default branch over the primary checkout', () => {
+    // The regression this encodes: the same worktree must not read "2 ahead"
+    // or "Merged" depending on what the root happens to have checked out.
+    expect(resolveWorktreeBase({ defaultBranch: 'origin/main', primaryBranch: 'dev' })).toEqual({
+      name: 'origin/main',
+      source: 'default-branch',
+      candidates: [],
+    })
+  })
+
+  it('falls back to the primary branch, then to nothing', () => {
+    expect(resolveWorktreeBase({ defaultBranch: null, primaryBranch: 'dev' })).toMatchObject({
+      name: 'dev',
+      source: 'primary',
+    })
+    expect(resolveWorktreeBase({ defaultBranch: '', primaryBranch: null })).toMatchObject({
+      name: null,
+      source: 'none',
+    })
+  })
+})
+
+describe('worktree ref names', () => {
+  it('slugs a ref for the .worktrees directory', () => {
+    expect(slugForRef('main')).toBe('main')
+    expect(slugForRef('origin/feature/one')).toBe('one')
+    expect(slugForRef('refs/heads/feature/two')).toBe('two')
+    expect(slugForRef('v1.2.0')).toBe('v1.2.0')
+    expect(slugForRef('!!!')).toBe('')
+  })
+
+  it('names the local branch a remote ref tracks', () => {
+    expect(localBranchForRemoteRef('origin/feature/one')).toBe('feature/one')
+    expect(localBranchForRemoteRef('refs/remotes/upstream/x')).toBe('x')
+    expect(localBranchForRemoteRef('main')).toBe('main')
+  })
+
+  it('plans a checked-out ref or a detached tag', () => {
+    expect(planWorktree({ root: '/repo', slug: 'wk', base: 'main', branch: 'wk' })).toMatchObject({
+      path: '/repo/.worktrees/wk',
+      branch: 'wk',
+      base: 'main',
+    })
+    expect(planWorktree({ root: '/repo', slug: 'wk', base: 'v1', branch: null })).toMatchObject({
+      branch: null,
+      base: 'v1',
+    })
   })
 })

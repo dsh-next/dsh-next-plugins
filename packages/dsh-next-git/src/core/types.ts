@@ -116,18 +116,43 @@ export interface WorktreeInfo {
   readonly branch: string | null
   /** Whether this is the main worktree (the repository root itself). */
   readonly primary: boolean
-  /** Whether git marked the entry prunable or locked. */
+  /** Whether the entry is locked: git refuses to move, delete or prune it. */
   readonly locked: boolean
+  /** The reason git recorded for the lock, when it recorded one. */
+  readonly lockedReason: string | null
+  /** Whether git marked the entry prunable: its directory or git dir is gone. */
+  readonly prunable: boolean
+  /** Whether the checkout is detached (no branch). */
+  readonly detached: boolean
   /** Whether the plugin created it: sits under `.worktrees/` on a `dsh-git/` branch. */
   readonly managed: boolean
   /** The `.worktrees/<slug>` slug when managed. */
   readonly slug: string | null
   /** Working-tree cleanliness: false only when git reports changes. */
   readonly clean: boolean
-  /** Commits this worktree is ahead of its merge base with the primary branch. */
+  /** Commits this branch has that the comparison base does not. */
   readonly ahead: number
-  /** Whether its branch is already an ancestor of the primary branch. */
+  /** Commits the comparison base has that this branch does not. */
+  readonly behind: number
+  /** Whether its branch tip is already an ancestor of the comparison base. */
   readonly merged: boolean
+}
+
+/**
+ * How the Worktrees section picked the branch its status columns compare
+ * against. The panel shows this, because "2 ahead" means nothing without a
+ * "of what".
+ */
+export type WorktreeBaseSource = 'default-branch' | 'primary' | 'panel' | 'none'
+
+/** The branch the Worktrees status columns are measured against. */
+export interface WorktreeBase {
+  /** Ref name (`origin/main`, `main`), or null when the repository has none. */
+  readonly name: string | null
+  /** Where the name came from. */
+  readonly source: WorktreeBaseSource
+  /** Local branches the panel may switch the base to, in read order. */
+  readonly candidates: readonly string[]
 }
 
 /** One local branch for the branch picker. */
@@ -166,8 +191,12 @@ export interface PanelState {
   readonly changes: ChangeSummary
   /** Linked worktrees, primary first. */
   readonly worktrees: readonly WorktreeInfo[]
+  /** Branch the worktrees' ahead/behind/merged columns compare against. */
+  readonly worktreeBase: WorktreeBase
   /** Local branches. */
   readonly branches: readonly BranchInfo[]
+  /** Tag names, for the worktree create picker. */
+  readonly tags: readonly string[]
   /** Commit identity from git config. */
   readonly identity: IdentityState
   /** Absolute path of the directory the session runs in. */
@@ -265,6 +294,8 @@ export type GitFailureCode =
   | 'not-merged'
   | 'detached-head'
   | 'current-branch'
+  | 'worktree-primary'
+  | 'worktree-current'
   | 'branch-exists'
   | 'worktree-exists'
   | 'invalid-name'
@@ -346,8 +377,8 @@ export interface WorktreePlan {
   readonly slug: string
   /** Absolute path the worktree will occupy. */
   readonly path: string
-  /** Branch the worktree checks out (`dsh-git/<slug>`). */
-  readonly branch: string
+  /** Branch the worktree checks out; null when the base is a tag (detached). */
+  readonly branch: string | null
   /** Base ref the branch starts from. */
   readonly base: string
   /** `.worktrees.json` steps resolved for this platform. */

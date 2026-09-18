@@ -66,7 +66,12 @@ export function registerRpc(ctx: Context, service: GitService): void {
   }
 
   const handlers: Record<string, Handler> = {
-    getState: (args) => service.state({ ...source(args), includeIgnored: bool(args.includeIgnored) }),
+    getState: (args) =>
+      service.state({
+        ...source(args),
+        includeIgnored: bool(args.includeIgnored),
+        ...(optStr(args.base) === undefined ? {} : { base: optStr(args.base) }),
+      }),
     getDiff: (args) => {
       const a = record(args)
       const side: DiffSide = a.side === 'staged' ? 'staged' : 'unstaged'
@@ -123,9 +128,14 @@ export function registerRpc(ctx: Context, service: GitService): void {
     },
     worktreeAdd: (args) => {
       const a = record(args)
+      const kind = str(a.refKind)
+      const refKind = kind === 'branch' || kind === 'remote' || kind === 'tag' ? kind : undefined
       return service.worktreeAdd({
         ...source(a),
+        mode: str(a.mode) === 'ref' ? 'ref' : 'new',
         name: str(a.name),
+        ...(optStr(a.ref) === undefined ? {} : { ref: optStr(a.ref) }),
+        ...(refKind === undefined ? {} : { refKind }),
         ...(optStr(a.base) === undefined ? {} : { base: optStr(a.base) }),
       })
     },
@@ -144,8 +154,14 @@ export function registerRpc(ctx: Context, service: GitService): void {
     },
     worktreeUpdate: (args) => {
       const a = record(args)
-      return service.worktreeUpdate({ ...source(a), path: str(a.path) })
+      return service.worktreeUpdate({
+        ...source(a),
+        path: str(a.path),
+        ...(optStr(a.base) === undefined ? {} : { base: optStr(a.base) }),
+      })
     },
+    worktreePrune: (args) => service.worktreePrune(source(args)),
+    worktreeUnlock: (args) => service.worktreeUnlock({ ...source(args), path: str(record(args).path) }),
     branchCreate: (args) => {
       const a = record(args)
       return service.branchCreate({

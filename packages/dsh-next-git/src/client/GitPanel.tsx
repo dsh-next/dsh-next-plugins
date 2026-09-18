@@ -76,6 +76,12 @@ export interface GitPanelProps {
    * silently doing nothing.
    */
   readonly sendPrompt?: ((prompt: string) => void | Promise<void>) | undefined
+  /**
+   * Open a session whose checkout is the given worktree path; the client entry
+   * wires this to the workspace navigation services. Without it the row omits
+   * the action rather than offering one that does nothing.
+   */
+  readonly openWorktreeSession?: ((path: string) => Promise<void>) | undefined
 }
 
 /* ------------------------------------------------------------------ glyphs */
@@ -294,6 +300,9 @@ export function GitPanel(props: GitPanelProps): React.ReactElement {
                   collapsed={snapshot.collapsed.worktrees}
                   onToggle={() => store.toggleSection('worktrees')}
                   onDelete={onWorktreeDelete}
+                  {...(props.openWorktreeSession === undefined
+                    ? {}
+                    : { openWorktreeSession: props.openWorktreeSession })}
                 />
                 <HistorySection
                   snapshot={snapshot}
@@ -692,6 +701,8 @@ export function failureTitleKey(code: GitFailureCode): MessageKey {
     'not-merged': 'failure.notMerged',
     'detached-head': 'failure.detachedHead',
     'current-branch': 'failure.currentBranch',
+    'worktree-primary': 'failure.worktreePrimary',
+    'worktree-current': 'failure.worktreeCurrent',
     'branch-exists': 'failure.branchExists',
     'worktree-exists': 'failure.worktreeExists',
     'invalid-name': 'failure.invalidName',
@@ -718,6 +729,8 @@ function failureFix(code: GitFailureCode, t: Translate): string {
     'identity-missing': 'failure.fix.identityMissing',
     'no-upstream': 'failure.fix.noUpstream',
     'path-missing': 'failure.fix.pathMissing',
+    'worktree-primary': 'failure.fix.worktreePrimary',
+    'worktree-current': 'failure.fix.worktreeCurrent',
     'git-failed': 'failure.fix.gitFailed',
   }
   const key = fixes[code]
@@ -1189,6 +1202,11 @@ function CommitBox(props: {
 
 /* --------------------------------------------------------------- worktrees */
 
+/** Where a new worktree starts: a fresh branch, or an existing ref. */
+type WorktreeSource =
+  | { readonly mode: 'new' }
+  | { readonly mode: 'ref'; readonly ref: string; readonly refKind: 'branch' | 'remote' | 'tag' }
+
 function WorktreesSection(props: {
   state: PanelState
   t: Translate
@@ -1197,22 +1215,93 @@ function WorktreesSection(props: {
   collapsed: boolean
   onToggle: () => void
   onDelete: (worktree: WorktreeInfo) => void
+  openWorktreeSession?: ((path: string) => Promise<void>) | undefined
 }): React.ReactElement {
   const { state, t, busy, store, onDelete } = props
   const [name, setName] = React.useState('')
   const [issue, setIssue] = React.useState<string | null>(null)
+  const [source, setSource] = React.useState<WorktreeSource>({ mode: 'new' })
+  const [sourceOpen, setSourceOpen] = React.useState(false)
+  const [baseOpen, setBaseOpen] = React.useState(false)
+  const base = state.worktreeBase
+  const baseRef = base.name
   const current = state.head.branch ?? 'HEAD'
+  const prunable = state.worktrees.filter((worktree) => worktree.prunable).length
 
-  // One create path for the button and the field's Enter key: the slug is
-  // folded and validated before the host is asked to do anything.
+  // One create path for the button and the field's Enter key: a new branch is
+  // slugged and validated here, a picked ref is checked out as it is.
   const create = (): void => {
+    if (source.mode === 'ref') {
+      setIssue(null)
+      void store
+        .worktreeAdd({ mode: 'ref', ref: source.ref, refKind: source.refKind })
+        .then(() => setSource({ mode: 'new' }))
+      return
+    }
     const verdict = validateSlug(normalizeSlug(name))
     if (!verdict.ok) {
       setIssue(t(`issue.slug.${verdict.issue}` as MessageKey))
       return
     }
     setIssue(null)
-    void store.worktreeAdd(verdict.slug).then(() => setName(''))
+    void store
+      .worktreeAdd({ mode: 'new', name: verdict.slug, ...(baseRef === null ? {} : { base: baseRef }) })
+      .then(() => setName(''))
+  }
+
+  const picked = (kind: 'branch' | 'remote' | 'tag', ref: string): { icon: React.ReactElement } | Record<string, never> =>
+    source.mode === 'ref' && source.refKind === kind && source.ref === ref
+      ? { icon: <IconCheckOutline16 size={14} /> }
+      : {}
+
+  // The start point: a fresh branch from the comparison base, or any existing
+  // local branch, remote branch or tag (a tag checks out detached).
+  const sourceItems: MenuEntry[] = [
+    {
+      id: 'new',
+      label: t('worktrees.sourceNew', { branch: baseRef ?? t('worktrees.baseNone') }),
+      ...(source.mode === 'new' ? { icon: <IconCheckOutline16 size={14} /> } : {}),
+    },
+    ...state.branches
+      .filter((branch) => !branch.remote)
+      .map((branch): MenuEntry => ({ id: `branch:${branch.name}`, label: branch.name, ...picked('branch', branch.name) })),
+    ...state.branches
+      .filter((branch) => branch.remote)
+      .map((branch): MenuEntry => ({ id: `remote:${branch.name}`, label: branch.name, ...picked('remote', branch.name) })),
+    ...state.tags.map((tag): MenuEntry => ({ id: `tag:${tag}`, label: tag, ...picked('tag', tag) })),
+  ]
+
+  // The comparison base: every row's ahead/behind/merged column is measured
+  // against it, so the choice is visible next to the list it changes.
+  const baseItems: MenuEntry[] = [
+    {
+      id: 'default',
+      label: t('worktrees.baseDefault'),
+      ...(base.source === 'default-branch' ? { icon: <IconCheckOutline16 size={14} /> } : {}),
+    },
+    ...base.candidates.map((candidate): MenuEntry => ({
+      id: candidate,
+      label: candidate,
+      ...(base.name === candidate ? { icon: <IconCheckOutline16 size={14} /> } : {}),
+    })),
+  ]
+
+  const pickSource = (id: string): void => {
+    setSourceOpen(false)
+    setIssue(null)
+    if (id === 'new') {
+      setSource({ mode: 'new' })
+      return
+    }
+    const at = id.indexOf(':')
+    const kind = id.slice(0, at)
+    const ref = id.slice(at + 1)
+    if (kind === 'branch' || kind === 'remote' || kind === 'tag') setSource({ mode: 'ref', ref, refKind: kind })
+  }
+
+  const pickBase = (id: string): void => {
+    setBaseOpen(false)
+    void store.setWorktreeBase(id === 'default' ? null : id)
   }
 
   return (
@@ -1229,9 +1318,10 @@ function WorktreesSection(props: {
         <input
           id="dsh-git-worktree-name"
           className={classes.input}
-          placeholder={t('worktrees.namePlaceholder')}
+          placeholder={source.mode === 'new' ? t('worktrees.namePlaceholder') : t('worktrees.sourcePick')}
           aria-label={t('worktrees.namePlaceholder')}
-          value={name}
+          value={source.mode === 'new' ? name : source.ref}
+          disabled={source.mode === 'ref'}
           data-dsh-git="worktree-name"
           onChange={(event) => {
             setName(event.target.value)
@@ -1245,11 +1335,68 @@ function WorktreesSection(props: {
         <Button
           size="sm"
           variant="ghost"
-          disabled={busy || name.trim() === ''}
+          disabled={busy || (source.mode === 'new' && name.trim() === '')}
           onClick={() => create()}
         >
           {t('worktrees.create')}
         </Button>
+      </div>
+      {/* Where a new worktree starts, and what every row is measured against:
+          both change what the list means, so both sit in the open. */}
+      <div className={classes.contextRow}>
+        <Menu
+          open={sourceOpen}
+          anchor={
+            <button
+              type="button"
+              className={classes.contextButton}
+              data-dsh-git="worktree-source"
+              aria-label={t('worktrees.source')}
+              disabled={busy}
+              onClick={() => setSourceOpen(!sourceOpen)}
+            >
+              <span className={classes.contextButtonLabel}>
+                {source.mode === 'new' ? t('worktrees.sourceNewShort') : source.ref}
+              </span>
+              <IconChevronDownOutline14 size={12} />
+            </button>
+          }
+          items={sourceItems}
+          onSelect={pickSource}
+          onClose={() => setSourceOpen(false)}
+          align="start"
+          portal
+        />
+        {base.name === null ? null : (
+          <Menu
+            open={baseOpen}
+            anchor={
+              <button
+                type="button"
+                className={classes.contextButton}
+                data-dsh-git="worktree-base"
+                aria-label={t('worktrees.base')}
+                disabled={busy}
+                onClick={() => setBaseOpen(!baseOpen)}
+              >
+                <span className={classes.contextButtonLabel}>
+                  {t('worktrees.baseLabel', { branch: base.name })}
+                </span>
+                <IconChevronDownOutline14 size={12} />
+              </button>
+            }
+            items={baseItems}
+            onSelect={pickBase}
+            onClose={() => setBaseOpen(false)}
+            align="start"
+            portal
+          />
+        )}
+        {prunable === 0 ? null : (
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => void store.worktreePrune()}>
+            {t('worktrees.prune')}
+          </Button>
+        )}
       </div>
       {issue === null ? null : <div className={classes.issue}>{issue}</div>}
       <div className={classes.caption} data-dsh-git="worktrees-hint">
@@ -1261,73 +1408,121 @@ function WorktreesSection(props: {
           <span className={classes.emptyHint}>{t('worktrees.emptyHint')}</span>
         </div>
       ) : null}
-      {state.worktrees.map((worktree) => (
-        <div key={worktree.path} className={`${classes.row} ${classes.rowStatic}`} data-dsh-git="worktree">
-          <div className={classes.rowMain}>
-            <span className={classes.rowPath}>
-              {worktree.slug ?? worktree.branch ?? t('worktrees.detached')}
-              {worktree.primary ? (
-                <Tag tone="neutral" className={classes.badge}>
-                  {t('worktrees.primary')}
-                </Tag>
-              ) : null}
-            </span>
-            <span className={classes.worktreePath} title={worktree.path}>
-              {/* The primary checkout is the repository itself, so it shows the
-                  folder name; linked worktrees show their path inside it. */}
-              {worktree.primary
-                ? baseName(state.root)
-                : worktree.path.startsWith(`${state.root}/`)
-                  ? worktree.path.slice(state.root.length + 1)
-                  : worktree.path}
-            </span>
-            <span className={classes.rowMeta}>
-              {worktree.clean ? t('worktrees.clean') : t('worktrees.dirty')}
-              {worktree.ahead > 0 ? ` · ${t('worktrees.ahead', { count: worktree.ahead })}` : ''}
-              {worktree.merged ? ` · ${t('worktrees.merged')}` : ''}
-            </span>
-          </div>
-          <div className={classes.rowActions}>
-            {worktree.primary ? null : (
-              <>
-                <HoverCard
-                  anchor={
+      {state.worktrees.map((worktree) => {
+        // The branch is the identity; the slug only names the folder.
+        const label = worktree.branch ?? worktree.slug ?? t('worktrees.detached')
+        const baseLabel = baseRef ?? current
+        const meta = [
+          worktree.clean ? t('worktrees.clean') : t('worktrees.dirty'),
+          worktree.ahead > 0 ? t('worktrees.ahead', { count: worktree.ahead }) : null,
+          worktree.behind > 0 ? t('worktrees.behind', { count: worktree.behind }) : null,
+          worktree.merged && baseRef !== null ? t('worktrees.mergedInto', { branch: baseRef }) : null,
+          worktree.locked
+            ? worktree.lockedReason === null
+              ? t('worktrees.locked')
+              : t('worktrees.lockedReason', { reason: worktree.lockedReason })
+            : null,
+          worktree.prunable ? t('worktrees.prunable') : null,
+        ]
+          .filter((part): part is string => part !== null)
+          .join(' · ')
+        const canMerge = worktree.branch !== null && worktree.branch !== current
+        return (
+          <div key={worktree.path} className={`${classes.row} ${classes.rowStatic}`} data-dsh-git="worktree">
+            <div className={classes.rowMain}>
+              <span className={classes.rowPath}>
+                {label}
+                {worktree.primary ? (
+                  <Tag tone="neutral" className={classes.badge}>
+                    {t('worktrees.primary')}
+                  </Tag>
+                ) : null}
+              </span>
+              <span className={classes.worktreePath} title={worktree.path}>
+                {/* The primary checkout is the repository itself, so it shows the
+                    folder name; linked worktrees show their path inside it. */}
+                {worktree.primary
+                  ? baseName(state.root)
+                  : worktree.path.startsWith(`${state.root}/`)
+                    ? worktree.path.slice(state.root.length + 1)
+                    : worktree.path}
+              </span>
+              <span className={classes.rowMeta} data-dsh-git="worktree-meta">
+                {meta}
+              </span>
+            </div>
+            <div className={classes.rowActions}>
+              {worktree.primary ? null : (
+                <>
+                  {props.openWorktreeSession === undefined ? null : (
                     <button
                       type="button"
                       className={classes.iconButton}
-                      aria-label={t('worktrees.update', { branch: current })}
+                      aria-label={t('worktrees.openSession')}
+                      title={t('worktrees.openSession')}
+                      data-dsh-git="worktree-open-session"
                       disabled={busy}
-                      onClick={() => void store.worktreeUpdate(worktree.path)}
+                      onClick={() => {
+                        setIssue(null)
+                        void props.openWorktreeSession?.(worktree.path).catch(() => {
+                          setIssue(t('worktrees.openFailed'))
+                        })
+                      }}
                     >
-                      <IconRefreshOutline16 size={14} />
+                      <IconFolderOpen16 size={14} />
                     </button>
-                  }
-                  content={t('worktrees.update', { branch: current })}
-                  copyLabel={t('worktrees.update', { branch: current })}
-                  copiedLabel={t('diff.copied')}
-                />
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={busy}
-                  onClick={() => void store.worktreeMerge(worktree.path)}
-                >
-                  {t('worktrees.merge', { branch: current })}
-                </Button>
-                <button
-                  type="button"
-                  className={classes.iconButton}
-                  aria-label={t('worktrees.delete')}
-                  disabled={busy}
-                  onClick={() => onDelete(worktree)}
-                >
-                  <IconTrashOutline16 size={14} />
-                </button>
-              </>
-            )}
+                  )}
+                  <HoverCard
+                    anchor={
+                      <button
+                        type="button"
+                        className={classes.iconButton}
+                        aria-label={t('worktrees.update', { branch: baseLabel })}
+                        disabled={busy}
+                        onClick={() => void store.worktreeUpdate(worktree.path, baseRef ?? undefined)}
+                      >
+                        <IconRefreshOutline16 size={14} />
+                      </button>
+                    }
+                    content={t('worktrees.update', { branch: baseLabel })}
+                    copyLabel={t('worktrees.update', { branch: baseLabel })}
+                    copiedLabel={t('diff.copied')}
+                  />
+                  {canMerge ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() => void store.worktreeMerge(worktree.path)}
+                    >
+                      {t('worktrees.merge', { branch: current })}
+                    </Button>
+                  ) : null}
+                  {worktree.locked ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() => void store.worktreeUnlock(worktree.path)}
+                    >
+                      {t('worktrees.unlock')}
+                    </Button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className={classes.iconButton}
+                    aria-label={t('worktrees.delete')}
+                    disabled={busy}
+                    onClick={() => onDelete(worktree)}
+                  >
+                    <IconTrashOutline16 size={14} />
+                  </button>
+                </>
+              )}
+            </div>
           </div>
-        </div>
-      ))}
+        )
+      })}
     </Section>
   )
 }

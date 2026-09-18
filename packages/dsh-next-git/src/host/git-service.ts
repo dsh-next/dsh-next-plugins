@@ -44,11 +44,14 @@ import {
   parseWorktreeInclude,
   parseWorktreeList,
   planWorktree,
+  localBranchForRemoteRef,
   resolveSetupSteps,
+  resolveWorktreeBase,
+  slugForRef,
   SETUP_FILE,
   setupPlatform,
   shortBranch,
-  slugFromWorktreePath,
+  slugFromBranch,
   validateSlug,
   withWorktreesExcluded,
   WORKTREE_BRANCH_PREFIX,
@@ -227,16 +230,28 @@ export class GitService {
    * @returns repository state, or a terminal failure.
    */
   async state(
-    input: SourceRef & { includeIgnored?: boolean },
+    input: SourceRef & { includeIgnored?: boolean; base?: string },
     options: ReadOptions = {},
   ): Promise<StatePayload> {
     const repo = await this.repoFor(input, options.signal)
-    const state = await this.readState(repo, input.includeIgnored === true, options.signal)
+    const state = await this.readState(repo, input.includeIgnored === true, options.signal, input.base)
     return { state, notice: null }
   }
 
-  /** Read the panel state for an already-resolved repository. */
-  async readState(repo: RepoRef, includeIgnored: boolean, signal?: AbortSignal): Promise<PanelState> {
+  /**
+   * Read the panel state for an already-resolved repository.
+   *
+   * @param repo - the resolved repository.
+   * @param includeIgnored - whether to include the ignored-path list.
+   * @param signal - cancellation.
+   * @param requestedBase - a branch the panel picked for the worktree columns.
+   */
+  async readState(
+    repo: RepoRef,
+    includeIgnored: boolean,
+    signal?: AbortSignal,
+    requestedBase?: string,
+  ): Promise<PanelState> {
     const statusRaw = await this.ports.runner.runOk(
       // `--branch` is what makes porcelain v2 emit the `# branch.*` headers.
       ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all', '--ignored=matching'],
@@ -254,8 +269,15 @@ export class GitService {
 
     const markers = await this.readOperationMarkers(repo.gitDir)
     const operation = detectOperation(markers, report.entries)
-    const worktrees = await this.readWorktrees(repo, signal)
     const branches = await this.readBranches(repo.cwd, signal)
+    const worktreeBase = resolveWorktreeBase({
+      defaultBranch: await this.defaultBranch(repo, signal),
+      primaryBranch: await this.primaryBranch(repo, signal),
+      requested: requestedBase ?? null,
+      candidates: branches.filter((branch) => !branch.remote).map((branch) => branch.name),
+    })
+    const worktrees = await this.readWorktrees(repo, signal, worktreeBase.name)
+    const tags = await this.readTags(repo, signal)
     const identity = await this.readIdentity(repo.toplevel, signal)
 
     return {
@@ -266,7 +288,9 @@ export class GitService {
       operation,
       changes,
       worktrees,
+      worktreeBase,
       branches,
+      tags,
       identity,
       cwd: repo.cwd,
     }
@@ -501,14 +525,25 @@ export class GitService {
 
   /* ------------------------------------------------------------ worktrees */
 
-  /** Read linked worktrees with their cleanliness, ahead count and merged flag. */
-  async readWorktrees(repo: RepoRef, signal?: AbortSignal): Promise<WorktreeInfo[]> {
+  /**
+   * Read linked worktrees with their cleanliness and their standing against a
+   * comparison base.
+   *
+   * Every linked worktree is measured against `base` — the repository's default
+   * branch by default — not against whatever the primary checkout happens to
+   * have checked out, so the same row cannot change meaning when the root
+   * switches branches.
+   *
+   * @param repo - the resolved repository.
+   * @param signal - cancellation.
+   * @param base - the comparison ref, or null when the repository has none.
+   */
+  async readWorktrees(repo: RepoRef, signal?: AbortSignal, base: string | null = null): Promise<WorktreeInfo[]> {
     const raw = await this.ports.runner.runOk(['worktree', 'list', '--porcelain'], repo.root, {
       timeoutMs: STATUS_TIMEOUT_MS,
       ...(signal === undefined ? {} : { signal }),
     })
     const parsed = parseWorktreeList(raw)
-    const primaryBranch = await this.primaryBranch(repo, signal)
     const enrichment: Record<string, WorktreeEnrichment> = {}
     for (const entry of parsed) {
       const branch = shortBranch(entry.branch)
@@ -519,35 +554,75 @@ export class GitService {
         entry.path,
         { timeoutMs: STATUS_TIMEOUT_MS, ...signalArgs },
       )
-      const isPrimary = entry.path === repo.root
-      const aheadRaw = branch === null || primaryBranch === null || isPrimary
+      const compared = branch === null || base === null || entry.path === repo.root
+      const aheadRaw = compared
         ? null
-        : await this.ports.runner.runSoft(['rev-list', '--count', `${primaryBranch}..${branch}`], repo.root, {
+        : await this.ports.runner.runSoft(['rev-list', '--count', `${base}..${branch}`], repo.root, {
             timeoutMs: STATUS_TIMEOUT_MS,
             ...signalArgs,
           })
-      const merged = branch === null || primaryBranch === null || isPrimary
+      const behindRaw = compared
+        ? null
+        : await this.ports.runner.runSoft(['rev-list', '--count', `${branch}..${base}`], repo.root, {
+            timeoutMs: STATUS_TIMEOUT_MS,
+            ...signalArgs,
+          })
+      const merged = compared
         ? false
-        : await this.ports.runner.ok(['merge-base', '--is-ancestor', branch, primaryBranch], repo.root, {
+        : await this.ports.runner.ok(['merge-base', '--is-ancestor', branch, base], repo.root, {
             timeoutMs: STATUS_TIMEOUT_MS,
             ...signalArgs,
           })
       enrichment[entry.path] = {
         clean: cleanOutcome !== null && cleanOutcome.trim() === '',
         ahead: aheadRaw === null ? 0 : Number(aheadRaw.trim()) || 0,
+        behind: behindRaw === null ? 0 : Number(behindRaw.trim()) || 0,
         merged,
       }
     }
     return describeWorktrees(parsed, enrichment)
   }
 
-  /** The branch the primary worktree has checked out, for ahead/merged math. */
+  /** The branch the primary worktree has checked out, the base's last resort. */
   private async primaryBranch(repo: RepoRef, signal?: AbortSignal): Promise<string | null> {
     const raw = await this.ports.runner.runSoft(['symbolic-ref', '--short', 'HEAD'], repo.root, {
       timeoutMs: STATUS_TIMEOUT_MS,
       ...(signal === undefined ? {} : { signal }),
     })
     return raw === null ? null : raw.trim() || null
+  }
+
+  /**
+   * The repository's default branch as `origin/HEAD` names it (`origin/main`).
+   *
+   * This is what a pull request would compare against, which is why it is the
+   * preferred base over the primary checkout's current branch.
+   */
+  private async defaultBranch(repo: RepoRef, signal?: AbortSignal): Promise<string | null> {
+    const signalArgs = signal === undefined ? {} : { signal }
+    const symbolic = await this.ports.runner.runSoft(
+      ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'],
+      repo.root,
+      { timeoutMs: STATUS_TIMEOUT_MS, ...signalArgs },
+    )
+    if (symbolic !== null && symbolic.trim() !== '') return symbolic.trim()
+    const abbrev = await this.ports.runner.runSoft(['rev-parse', '--abbrev-ref', 'origin/HEAD'], repo.root, {
+      timeoutMs: STATUS_TIMEOUT_MS,
+      ...signalArgs,
+    })
+    const name = abbrev === null ? '' : abbrev.trim()
+    return name === '' || name === 'origin/HEAD' ? null : name
+  }
+
+  /** Tag names for the create picker, newest first and bounded. */
+  private async readTags(repo: RepoRef, signal?: AbortSignal): Promise<string[]> {
+    const raw = await this.ports.runner.runSoft(
+      ['for-each-ref', '--count=100', '--sort=-creatordate', '--format=%(refname:short)', 'refs/tags'],
+      repo.root,
+      { timeoutMs: STATUS_TIMEOUT_MS, ...(signal === undefined ? {} : { signal }) },
+    )
+    if (raw === null) return []
+    return raw.split('\n').map((line) => line.trim()).filter((line) => line !== '')
   }
 
   /** Read the local and remote-tracking branches. */
@@ -643,37 +718,42 @@ export class GitService {
    * `worktree add` creates the branch, and a failed create throws rather than
    * leaving a half-made worktree behind.
    */
-  async worktreeAdd(input: SourceRef & { name: string; base?: string }): Promise<{
+  async worktreeAdd(input: SourceRef & {
+    /** `new` starts a fresh branch; `ref` checks out an existing one. */
+    mode?: 'new' | 'ref'
+    /** Slug/name for a new branch. */
+    name?: string
+    /** Existing ref for `ref` mode: a local branch, remote branch or tag. */
+    ref?: string
+    /** What kind of ref `ref` is; decides checkout vs tracking vs detached. */
+    refKind?: 'branch' | 'remote' | 'tag'
+    /** Start point for `new` mode. */
+    base?: string
+  }): Promise<{
     plan: WorktreePlan
     state: PanelState
     setup: SetupReport
     notice: string | null
   }> {
     const repo = await this.repoFor(input)
-    const slug = normalizeSlug(input.name)
-    const verdict = validateSlug(slug)
-    if (!verdict.ok) throw new GitError({ code: 'invalid-name', detail: verdict.issue })
-    const path = worktreePathFor(repo.root, slug)
-    const entries = await this.readWorktrees(repo)
-    if (entries.some((entry) => entry.path === path)) {
-      throw new GitError({ code: 'worktree-exists', detail: path })
-    }
-    if (await this.ports.fs.exists(path)) throw new GitError({ code: 'worktree-exists', detail: path })
-    const branch = `${WORKTREE_BRANCH_PREFIX}${slug}`
-    if (await this.ports.runner.ok(['rev-parse', '--verify', `refs/heads/${branch}`], repo.root)) {
-      throw new GitError({ code: 'branch-exists', detail: branch })
-    }
-
-    const base = input.base ?? (await this.defaultBase(repo))
+    const mode = input.mode === 'ref' ? 'ref' : 'new'
+    const created = await this.resolveWorktreeTarget(repo, mode, input)
     const setup = await this.planSetup(repo)
-    const plan = planWorktree({ root: repo.root, slug, base, setup: setup.steps })
+    const plan = planWorktree({
+      root: repo.root,
+      slug: created.slug,
+      base: created.base,
+      branch: created.branch,
+      setup: setup.steps,
+    })
 
     await this.ensureExcluded(repo)
-    const outcome = await this.ports.runner.run(['worktree', 'add', '-b', branch, path, base], repo.root, {
+    const outcome = await this.ports.runner.run(created.args, repo.root, {
       timeoutMs: WRITE_TIMEOUT_MS,
       lockRetries: 4,
     })
     if (outcome.code !== 0) throw new GitError(classifyGitFailure(outcome))
+    const path = created.path
 
     let report: SetupReport = { ran: 0, failed: false, output: '' }
     if (setup.steps.length > 0) {
@@ -691,6 +771,72 @@ export class GitService {
       setup: report,
       notice: setup.error ?? (report.failed ? 'setup-failed' : null),
     }
+  }
+
+  /**
+   * Validate one create request and build the git arguments that carry it out.
+   *
+   * `new` names a slug and starts `dsh-git/<slug>` from a base. `ref` checks out
+   * an existing ref: a local branch directly, a remote-tracking branch as a new
+   * local branch that tracks it, or a tag detached.
+   */
+  private async resolveWorktreeTarget(
+    repo: RepoRef,
+    mode: 'new' | 'ref',
+    input: { name?: string; ref?: string; refKind?: 'branch' | 'remote' | 'tag'; base?: string },
+  ): Promise<{ slug: string; path: string; branch: string | null; base: string; args: string[] }> {
+    if (mode === 'new') {
+      const slug = normalizeSlug(input.name ?? '')
+      const verdict = validateSlug(slug)
+      if (!verdict.ok) throw new GitError({ code: 'invalid-name', detail: verdict.issue })
+      const path = worktreePathFor(repo.root, slug)
+      await this.assertWorktreePathFree(repo, path)
+      const branch = `${WORKTREE_BRANCH_PREFIX}${slug}`
+      if (await this.ports.runner.ok(['rev-parse', '--verify', `refs/heads/${branch}`], repo.root)) {
+        throw new GitError({ code: 'branch-exists', detail: branch })
+      }
+      const base = input.base ?? (await this.defaultBase(repo))
+      return { slug, path, branch, base, args: ['worktree', 'add', '-b', branch, path, base] }
+    }
+
+    const ref = (input.ref ?? '').trim()
+    const kind = input.refKind ?? 'branch'
+    if (ref === '') throw new GitError({ code: 'invalid-name', detail: 'ref' })
+    const slug = slugForRef(ref)
+    if (slug === '') throw new GitError({ code: 'invalid-name', detail: ref })
+    const path = worktreePathFor(repo.root, slug)
+    await this.assertWorktreePathFree(repo, path)
+
+    if (kind === 'tag') {
+      if (!(await this.ports.runner.ok(['rev-parse', '--verify', `refs/tags/${ref}`], repo.root))) {
+        throw new GitError({ code: 'path-missing', detail: ref })
+      }
+      return { slug, path, branch: null, base: ref, args: ['worktree', 'add', '--detach', path, ref] }
+    }
+    if (kind === 'remote') {
+      if (!(await this.ports.runner.ok(['rev-parse', '--verify', `refs/remotes/${ref}`], repo.root))) {
+        throw new GitError({ code: 'path-missing', detail: ref })
+      }
+      const branch = localBranchForRemoteRef(ref)
+      if (branch === '') throw new GitError({ code: 'invalid-name', detail: ref })
+      if (await this.ports.runner.ok(['rev-parse', '--verify', `refs/heads/${branch}`], repo.root)) {
+        throw new GitError({ code: 'branch-exists', detail: branch })
+      }
+      return { slug, path, branch, base: ref, args: ['worktree', 'add', '--track', '-b', branch, path, ref] }
+    }
+    if (!(await this.ports.runner.ok(['rev-parse', '--verify', `refs/heads/${ref}`], repo.root))) {
+      throw new GitError({ code: 'path-missing', detail: ref })
+    }
+    return { slug, path, branch: ref, base: ref, args: ['worktree', 'add', path, ref] }
+  }
+
+  /** Refuse a path a worktree already occupies, in git or on disk. */
+  private async assertWorktreePathFree(repo: RepoRef, path: string): Promise<void> {
+    const entries = await this.readWorktrees(repo)
+    if (entries.some((entry) => entry.path === path)) {
+      throw new GitError({ code: 'worktree-exists', detail: path })
+    }
+    if (await this.ports.fs.exists(path)) throw new GitError({ code: 'worktree-exists', detail: path })
   }
 
   /** Resolve `.worktrees.json` for the primary checkout. */
@@ -731,39 +877,65 @@ export class GitService {
     return copied
   }
 
-  /** Remove a worktree, honouring the preflight's force decision. */
+  /**
+   * Remove a worktree, honouring the preflight's force decision.
+   *
+   * The primary checkout and the checkout the session itself sits in are
+   * refused: git refuses the former anyway, and deleting the latter out from
+   * under a running session is not something a panel should arrange. A locked
+   * worktree takes the second `--force` git requires.
+   */
   async worktreeRemove(
     input: SourceRef & { path: string; force?: boolean; deleteBranch?: boolean },
   ): Promise<PanelState> {
     const repo = await this.repoFor(input)
+    // The primary checkout is the repository root, which the containment check
+    // below deliberately excludes, so it is named first.
+    if (this.samePath(resolvePath(input.path), repo.root)) {
+      throw new GitError({ code: 'worktree-primary', detail: input.path })
+    }
     const target = this.containedWorktreePath(repo, input.path)
+    const entry = await this.worktreeEntry(repo, target)
+    if (entry.primary) throw new GitError({ code: 'worktree-primary', detail: target })
+    if (this.samePath(target, repo.toplevel)) {
+      throw new GitError({ code: 'worktree-current', detail: target })
+    }
     const args = ['worktree', 'remove']
     if (input.force === true) args.push('--force')
+    if (entry.locked) args.push('--force')
     args.push(target)
     const outcome = await this.ports.runner.run(args, repo.root, {
       timeoutMs: WRITE_TIMEOUT_MS,
       lockRetries: 4,
     })
     if (outcome.code !== 0) throw new GitError(classifyGitFailure(outcome))
-    if (input.deleteBranch === true) {
-      const slug = slugFromWorktreePath(target)
-      if (slug !== null) {
-        await this.ports.runner.run(['branch', '-D', `${WORKTREE_BRANCH_PREFIX}${slug}`], repo.root, {
-          timeoutMs: WRITE_TIMEOUT_MS,
-          lockRetries: 4,
-        })
-      }
+    // Only a branch this plugin named is deleted with the worktree: a worktree
+    // created from an existing branch does not own that branch.
+    if (input.deleteBranch === true && slugFromBranch(entry.branch) !== null && entry.branch !== null) {
+      await this.ports.runner.run(['branch', '-D', entry.branch], repo.root, {
+        timeoutMs: WRITE_TIMEOUT_MS,
+        lockRetries: 4,
+      })
     }
     return this.readState(repo, false)
   }
 
-  /** Merge a managed worktree's branch into the current branch. */
+  /**
+   * Merge a worktree's branch into the checkout the session is in.
+   *
+   * The source is the worktree's real branch, read from git, not a name
+   * reconstructed from the directory: a worktree made by hand, or one checked
+   * out on an existing branch, merges exactly like one the panel created.
+   */
   async worktreeMerge(input: SourceRef & { path: string }): Promise<PanelState> {
     const repo = await this.repoFor(input)
     const target = this.containedWorktreePath(repo, input.path)
-    const slug = slugFromWorktreePath(target)
-    if (slug === null) throw new GitError({ code: 'path-missing', detail: target })
-    const outcome = await this.ports.runner.run(['merge', '--no-edit', `${WORKTREE_BRANCH_PREFIX}${slug}`], repo.cwd, {
+    const entry = await this.worktreeEntry(repo, target)
+    if (entry.branch === null) throw new GitError({ code: 'detached-head', detail: target })
+    if ((await this.branchAt(repo.cwd)) === entry.branch) {
+      throw new GitError({ code: 'current-branch', detail: entry.branch })
+    }
+    const outcome = await this.ports.runner.run(['merge', '--no-edit', entry.branch], repo.cwd, {
       timeoutMs: WRITE_TIMEOUT_MS,
       lockRetries: 4,
     })
@@ -773,11 +945,17 @@ export class GitService {
     return this.readState(repo, false)
   }
 
-  /** Update a worktree by merging the primary branch into it, conflicts allowed. */
-  async worktreeUpdate(input: SourceRef & { path: string }): Promise<PanelState> {
+  /**
+   * Update a worktree by merging the comparison base into it.
+   *
+   * The base is the same ref the panel's rows are measured against, so
+   * "Update from main" and "2 ahead of main" talk about the same thing.
+   */
+  async worktreeUpdate(input: SourceRef & { path: string; base?: string }): Promise<PanelState> {
     const repo = await this.repoFor(input)
     const target = this.containedWorktreePath(repo, input.path)
-    const base = await this.defaultBase(repo)
+    const base = input.base ?? (await this.worktreeBaseName(repo))
+    if (base === null) throw new GitError({ code: 'no-upstream', detail: target })
     const outcome = await this.ports.runner.run(['merge', '--no-edit', base], target, {
       timeoutMs: WRITE_TIMEOUT_MS,
       lockRetries: 4,
@@ -794,9 +972,67 @@ export class GitService {
     return this.readState(repo, false)
   }
 
+  /** Drop git's records for worktrees whose directories are gone. */
+  async worktreePrune(input: SourceRef): Promise<PanelState> {
+    const repo = await this.repoFor(input)
+    const outcome = await this.ports.runner.run(['worktree', 'prune', '--expire', 'now'], repo.root, {
+      timeoutMs: WRITE_TIMEOUT_MS,
+      lockRetries: 4,
+    })
+    if (outcome.code !== 0) throw new GitError(classifyGitFailure(outcome))
+    return this.readState(repo, false)
+  }
+
+  /** Release a worktree lock so git will move, delete or prune it again. */
+  async worktreeUnlock(input: SourceRef & { path: string }): Promise<PanelState> {
+    const repo = await this.repoFor(input)
+    const target = this.containedWorktreePath(repo, input.path)
+    const entry = await this.worktreeEntry(repo, target)
+    if (!entry.locked) return this.readState(repo, false)
+    const outcome = await this.ports.runner.run(['worktree', 'unlock', target], repo.root, {
+      timeoutMs: WRITE_TIMEOUT_MS,
+      lockRetries: 4,
+    })
+    if (outcome.code !== 0) throw new GitError(classifyGitFailure(outcome))
+    return this.readState(repo, false)
+  }
+
   /** Whether a directory is mid-merge. */
   private async merging(cwd: string): Promise<boolean> {
     return this.ports.runner.ok(['rev-parse', '-q', '--verify', 'MERGE_HEAD'], cwd)
+  }
+
+  /** The current branch of one checkout, or null when detached or unborn. */
+  private async branchAt(cwd: string): Promise<string | null> {
+    const raw = await this.ports.runner.runSoft(['symbolic-ref', '--short', 'HEAD'], cwd, {
+      timeoutMs: STATUS_TIMEOUT_MS,
+    })
+    return raw === null ? null : raw.trim() || null
+  }
+
+  /** The comparison base this plugin uses without a panel override. */
+  private async worktreeBaseName(repo: RepoRef): Promise<string | null> {
+    return resolveWorktreeBase({
+      defaultBranch: await this.defaultBranch(repo),
+      primaryBranch: await this.primaryBranch(repo),
+    }).name
+  }
+
+  /** One described worktree by path, or a named missing-path failure. */
+  private async worktreeEntry(repo: RepoRef, path: string): Promise<WorktreeInfo> {
+    const raw = await this.ports.runner.runOk(['worktree', 'list', '--porcelain'], repo.root, {
+      timeoutMs: STATUS_TIMEOUT_MS,
+    })
+    const parsed = parseWorktreeList(raw)
+    const index = parsed.findIndex((entry) => this.samePath(entry.path, path))
+    if (index < 0) throw new GitError({ code: 'path-missing', detail: path })
+    return describeWorktrees(parsed, {})[index]!
+  }
+
+  /** Path equality that tolerates separator and trailing-slash differences. */
+  private samePath(a: string, b: string): boolean {
+    const norm = (value: string): string => value.replace(/\\/g, '/').replace(/\/+$/, '')
+    return norm(a) === norm(b)
   }
 
   /** Refuse any path outside the repository, so a request cannot target /etc. */

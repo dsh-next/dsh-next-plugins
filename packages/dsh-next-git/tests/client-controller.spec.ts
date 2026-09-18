@@ -36,7 +36,9 @@ function state(overrides: Partial<PanelState> = {}): PanelState {
       ignoredTruncated: false,
     },
     worktrees: [],
+    worktreeBase: { name: 'origin/main', source: 'default-branch', candidates: ['main'] },
     branches: [{ name: 'main', current: true, oid: 'aaaaaaaa', upstream: 'origin/main', remote: false }],
+    tags: [],
     identity: { name: 'A', email: 'a@b' },
     cwd: '/repo',
     ...overrides,
@@ -488,7 +490,7 @@ describe('writes', () => {
       },
     })
     await panel.start()
-    await panel.worktreeAdd('feature')
+    await panel.worktreeAdd({ mode: 'new', name: 'feature' })
     expect(panel.getSnapshot().setup).toEqual({ slug: 'feature', report: { ran: 2, failed: true, output: 'boom' } })
     expect(panel.getSnapshot().notice).toBe('setup-failed')
     panel.dismissNotice()
@@ -508,7 +510,7 @@ describe('writes', () => {
       },
     })
     await panel.start()
-    await panel.worktreeAdd('x')
+    await panel.worktreeAdd({ mode: 'new', name: 'x' })
     expect(panel.getSnapshot().setup).toBeNull()
     panel.dispose()
   })
@@ -683,6 +685,64 @@ describe('lifecycle', () => {
     const panel = new PanelStore(double.api, 's1', (code) => reported.push(code))
     await panel.start()
     expect(reported).toEqual(['dirty-tree'])
+    panel.dispose()
+  })
+})
+
+describe('worktree verbs', () => {
+  it('re-reads with the base the panel picked, then clears it', async () => {
+    const { store: panel, calls } = store({ getState: { state: state(), notice: null } })
+    await panel.start()
+    calls.length = 0
+    await panel.setWorktreeBase('origin/main')
+    expect(calls.filter((call) => call.method === 'getState').at(-1)?.args).toMatchObject({
+      base: 'origin/main',
+    })
+    calls.length = 0
+    await panel.setWorktreeBase(null)
+    expect(calls.filter((call) => call.method === 'getState').at(-1)?.args).not.toHaveProperty('base')
+    panel.dispose()
+  })
+
+  it('dispatches ref-mode create, unlock and prune', async () => {
+    const { store: panel, calls } = store({
+      getState: { state: state(), notice: null },
+      worktreeAdd: {
+        plan: { slug: 'feature' },
+        state: state(),
+        setup: { ran: 0, failed: false, output: '' },
+        notice: null,
+      },
+      worktreeUnlock: state(),
+      worktreePrune: state(),
+    })
+    await panel.start()
+    await panel.worktreeAdd({ mode: 'ref', ref: 'feature', refKind: 'branch' })
+    expect(calls.find((call) => call.method === 'worktreeAdd')?.args).toMatchObject({
+      mode: 'ref',
+      ref: 'feature',
+      refKind: 'branch',
+    })
+    await panel.worktreeUnlock('/repo/.worktrees/x')
+    expect(calls.find((call) => call.method === 'worktreeUnlock')?.args).toMatchObject({
+      path: '/repo/.worktrees/x',
+    })
+    await panel.worktreePrune()
+    expect(calls.some((call) => call.method === 'worktreePrune')).toBe(true)
+    panel.dispose()
+  })
+
+  it('passes a chosen base to worktree update', async () => {
+    const { store: panel, calls } = store({
+      getState: { state: state(), notice: null },
+      worktreeUpdate: state(),
+    })
+    await panel.start()
+    await panel.worktreeUpdate('/repo/.worktrees/x', 'release')
+    expect(calls.find((call) => call.method === 'worktreeUpdate')?.args).toMatchObject({
+      path: '/repo/.worktrees/x',
+      base: 'release',
+    })
     panel.dispose()
   })
 })

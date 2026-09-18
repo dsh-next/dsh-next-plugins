@@ -187,7 +187,9 @@ describe('agent verb payloads', () => {
       ignoredTruncated: false,
     },
     worktrees: [],
+    worktreeBase: { name: null, source: 'none', candidates: [] },
     branches: [],
+    tags: [],
     identity: { name: 'a', email: 'b' },
     cwd: '/repo',
   }

@@ -696,6 +696,56 @@
   padding-top: 10px;
 }
 
+/* The start point and the comparison base sit under the create row: both change
+   what the list means, so both stay in the open instead of moving into a menu. */
+.contextRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px 6px 10px;
+}
+
+.contextButton {
+  display: inline-flex;
+  /* Content width, never squeezed. The max-width is deliberately a pixel value
+     on the label, not a percentage here: the button's containing block is the
+     Menu primitive's shrink-to-fit wrapper, and a percentage against an
+     indefinite box resolves to nearly nothing, collapsing the label. */
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  cursor: pointer;
+}
+
+.contextButtonLabel {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contextButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.contextButton:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: -1px;
+}
+
+.contextButton:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 /* The message box carries the generate action in its own corner, the way an
    SCM view does, so drafting never costs a second row. */
 .messageWrap {

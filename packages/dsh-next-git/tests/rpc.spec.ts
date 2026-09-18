@@ -370,6 +370,32 @@ describe('write envelopes', () => {
     expect((await mounted.call('worktreeRemove', { path: ready, force: true })).json).toMatchObject({ ok: true })
   })
 
+  it('worktreeAdd creates from a picked ref, and the base override rides getState', async () => {
+    const fixture = open('clean')
+    fixture.gitOk(['branch', 'wk-existing'])
+    const mounted = mount(serviceFor(fixture.dir))
+    const created = (await mounted.call('worktreeAdd', {
+      mode: 'ref',
+      ref: 'wk-existing',
+      refKind: 'branch',
+    })).json as { value: { plan: { slug: string; branch: string } } }
+    expect(created.value.plan).toMatchObject({ slug: 'wk-existing', branch: 'wk-existing' })
+
+    const read = (await mounted.call('getState', { base: 'main' })).json as {
+      value: { state: { worktreeBase: { name: string; source: string } } }
+    }
+    expect(read.value.state.worktreeBase).toMatchObject({ name: 'main', source: 'panel' })
+  })
+
+  it('worktreeUnlock and worktreePrune round-trip', async () => {
+    const fixture = open('worktrees')
+    const mounted = mount(serviceFor(fixture.dir))
+    const ready = `${fixture.dir}/.worktrees/ready`
+    fixture.gitOk(['worktree', 'lock', ready])
+    expect((await mounted.call('worktreeUnlock', { path: ready })).json).toMatchObject({ ok: true })
+    expect((await mounted.call('worktreePrune', {})).json).toMatchObject({ ok: true })
+  })
+
   it('discard deletes an untracked file', async () => {
     const fixture = open('untracked')
     const { json } = await mount(serviceFor(fixture.dir)).call('discard', { paths: ['docs/notes.md'] })
@@ -397,6 +423,8 @@ describe('method inventory', () => {
       ['worktreeRemove', { path: `${fixture.dir}/.worktrees/inventory-one`, force: true }],
       ['worktreeMerge', { path: `${fixture.dir}/.worktrees/inventory-one` }],
       ['worktreeUpdate', { path: `${fixture.dir}/.worktrees/inventory-one` }],
+      ['worktreePrune', {}],
+      ['worktreeUnlock', { path: `${fixture.dir}/.worktrees/inventory-one` }],
       ['branchCreate', { name: 'inventory-branch' }],
       ['branchSwitch', { name: 'inventory-branch' }],
       ['branchRename', { from: 'inventory-branch', to: 'inventory-branch-2' }],

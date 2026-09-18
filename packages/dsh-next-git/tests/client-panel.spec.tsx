@@ -47,10 +47,14 @@ function panelState(overrides: Partial<PanelState> = {}): PanelState {
         branch: 'main',
         primary: true,
         locked: false,
+        lockedReason: null,
+        prunable: false,
+        detached: false,
         managed: false,
         slug: null,
         clean: true,
         ahead: 0,
+        behind: 0,
         merged: false,
       },
       {
@@ -59,17 +63,23 @@ function panelState(overrides: Partial<PanelState> = {}): PanelState {
         branch: 'dsh-git/feature',
         primary: false,
         locked: false,
+        lockedReason: null,
+        prunable: false,
+        detached: false,
         managed: true,
         slug: 'feature',
         clean: false,
         ahead: 2,
+        behind: 1,
         merged: false,
       },
     ],
+    worktreeBase: { name: 'origin/main', source: 'default-branch', candidates: ['main', 'feature'] },
     branches: [
       { name: 'main', current: true, oid: 'aaaa', upstream: 'origin/main', remote: false },
       { name: 'feature', current: false, oid: 'bbbb', upstream: null, remote: false },
     ],
+    tags: [],
     identity: { name: 'A', author: undefined, email: 'a@b' } as PanelState['identity'],
     cwd: '/repo',
     ...overrides,
@@ -130,7 +140,13 @@ afterEach(() => {
 })
 
 /** Render the panel for one scripted API and settle the first read. */
-async function renderPanel(script: Record<string, unknown>, extra: { sendPrompt?: (prompt: string) => void } = {}) {
+async function renderPanel(
+  script: Record<string, unknown>,
+  extra: {
+    sendPrompt?: (prompt: string) => void
+    openWorktreeSession?: (path: string) => Promise<void>
+  } = {},
+) {
   const double = apiDouble({ getState: { state: panelState(), notice: null }, ...script })
   setPanelApi(() => double.api)
   // One store per render: a second renderPanel in the same test must get the
@@ -144,6 +160,7 @@ async function renderPanel(script: Record<string, unknown>, extra: { sendPrompt?
         useTabInfo,
         t,
         ...(extra.sendPrompt === undefined ? {} : { sendPrompt: extra.sendPrompt }),
+        ...(extra.openWorktreeSession === undefined ? {} : { openWorktreeSession: extra.openWorktreeSession }),
       }),
     )
     await Promise.resolve()
@@ -856,5 +873,132 @@ describe('git chip title', () => {
     act(() => {
       unbornTitle.root.unmount()
     })
+  })
+})
+
+describe('worktrees section', () => {
+  const readState = { getHistory: { commits: [], lanes: [], hasMore: false } }
+
+  it('names each row by its branch and measures it against the base', async () => {
+    await renderPanel(readState)
+    const rows = all('worktree')
+    expect(rows[0]?.textContent).toContain('main')
+    expect(rows[1]?.textContent).toContain('dsh-git/feature')
+    const meta = rows[1]?.querySelector('[data-dsh-git="worktree-meta"]')?.textContent ?? ''
+    expect(meta).toContain('2 ahead')
+    expect(meta).toContain('1 behind')
+    expect(marker('worktree-base')?.textContent).toContain('origin/main')
+  })
+
+  it('merges only a row whose branch differs from the checkout', async () => {
+    const base = panelState()
+    await renderPanel({
+      ...readState,
+      getState: {
+        state: panelState({
+          worktrees: [
+            base.worktrees[0]!,
+            { ...base.worktrees[1]!, branch: 'main', slug: 'on-main' },
+          ],
+        }),
+        notice: null,
+      },
+    })
+    expect(byText(en['worktrees.merge'].replace('{branch}', 'main'))).toBeUndefined()
+  })
+
+  it('switches the comparison base through the base menu', async () => {
+    const { double } = await renderPanel(readState)
+    await act(async () => {
+      ;(marker('worktree-base') as HTMLButtonElement).click()
+    })
+    const item = [...document.querySelectorAll('[role="menuitem"]')].find((el) => el.textContent === 'feature')
+    expect(item).toBeDefined()
+    await act(async () => {
+      ;(item as HTMLButtonElement).click()
+    })
+    const reads = double.calls.filter((call) => call.method === 'getState')
+    expect(reads.at(-1)?.args).toMatchObject({ base: 'feature' })
+  })
+
+  it('creates from a ref picked in the source menu', async () => {
+    const { double } = await renderPanel({
+      ...readState,
+      worktreeAdd: {
+        plan: { slug: 'feature', path: '/repo/.worktrees/feature', branch: 'feature', base: 'feature', setup: [] },
+        state: panelState(),
+        setup: { ran: 0, failed: false, output: '' },
+        notice: null,
+      },
+    })
+    await act(async () => {
+      ;(marker('worktree-source') as HTMLButtonElement).click()
+    })
+    const item = [...document.querySelectorAll('[role="menuitem"]')].find((el) => el.textContent === 'feature')
+    await act(async () => {
+      ;(item as HTMLButtonElement).click()
+    })
+    expect((marker('worktree-name') as HTMLInputElement).value).toBe('feature')
+    await act(async () => {
+      ;(byText(en['worktrees.create']) as HTMLButtonElement).click()
+    })
+    expect(double.calls.find((call) => call.method === 'worktreeAdd')?.args).toMatchObject({
+      mode: 'ref',
+      ref: 'feature',
+      refKind: 'branch',
+    })
+  })
+
+  it('offers prune for a missing folder and unlock for a locked worktree', async () => {
+    const base = panelState()
+    const locked = panelState({
+      worktrees: [
+        base.worktrees[0]!,
+        { ...base.worktrees[1]!, locked: true, lockedReason: 'manual', prunable: true },
+      ],
+    })
+    const { double } = await renderPanel({
+      ...readState,
+      getState: { state: locked, notice: null },
+      worktreePrune: locked,
+      worktreeUnlock: locked,
+    })
+    const meta = all('worktree')[1]?.querySelector('[data-dsh-git="worktree-meta"]')?.textContent ?? ''
+    expect(meta).toContain('manual')
+    expect(meta).toContain(en['worktrees.prunable'])
+    await act(async () => {
+      ;(byText(en['worktrees.unlock']) as HTMLButtonElement).click()
+    })
+    expect(double.calls.find((call) => call.method === 'worktreeUnlock')?.args).toMatchObject({
+      path: '/repo/.worktrees/feature',
+    })
+    await act(async () => {
+      ;(byText(en['worktrees.prune']) as HTMLButtonElement).click()
+    })
+    expect(double.calls.some((call) => call.method === 'worktreePrune')).toBe(true)
+  })
+
+  it('opens a session in the row folder and names a failure', async () => {
+    const opened: string[] = []
+    await renderPanel(readState, {
+      openWorktreeSession: async (path) => {
+        opened.push(path)
+      },
+    })
+    await act(async () => {
+      ;(marker('worktree-open-session') as HTMLButtonElement).click()
+    })
+    expect(opened).toEqual(['/repo/.worktrees/feature'])
+
+    await renderPanel(readState, {
+      openWorktreeSession: async () => {
+        throw new Error('no workspace navigation')
+      },
+    })
+    await act(async () => {
+      ;(marker('worktree-open-session') as HTMLButtonElement).click()
+      await Promise.resolve()
+    })
+    expect(container.textContent).toContain(en['worktrees.openFailed'])
   })
 })

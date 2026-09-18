@@ -79,6 +79,8 @@ export class PanelStore {
   private requestId = 0
   private readonly sessionId: string
   private disposed = false
+  /** A worktree comparison base the user picked; null means the default. */
+  private worktreeBase: string | null = null
   /** The window the history section is showing, so a refresh keeps it. */
   private historyLimit = 30
 
@@ -214,7 +216,10 @@ export class PanelStore {
   private async load(reason: RefreshReason): Promise<{ changed: boolean }> {
     this.patch({ reason, ...(this.snapshot.state === null ? { phase: 'loading' as const } : {}) })
     try {
-      const payload = await this.api.call<StatePayload>('getState', { sessionId: this.sessionId })
+      const payload = await this.api.call<StatePayload>('getState', {
+        sessionId: this.sessionId,
+        ...(this.worktreeBase === null ? {} : { base: this.worktreeBase }),
+      })
       const changed = payload.state.head.oid !== this.snapshot.state?.head.oid
         || payload.state.changes.staged.length !== this.snapshot.state?.changes.staged.length
         || payload.state.changes.unstaged.length !== this.snapshot.state?.changes.unstaged.length
@@ -458,13 +463,32 @@ export class PanelStore {
     return this.api.call<T>(method, { sessionId: this.sessionId, ...args })
   }
 
+  /** The comparison base the rows are measured against; null resets to default. */
+  async setWorktreeBase(branch: string | null): Promise<void> {
+    if (this.worktreeBase === branch) return
+    this.worktreeBase = branch
+    await this.scheduler.request('manual', true)
+  }
+
   /** Create a worktree and surface its setup outcome. */
-  async worktreeAdd(name: string): Promise<void> {
+  async worktreeAdd(options: {
+    mode: 'new' | 'ref'
+    name?: string
+    ref?: string
+    refKind?: 'branch' | 'remote' | 'tag'
+    base?: string
+  }): Promise<void> {
     this.patch({ busy: 'busy.worktree-create', failure: null, notice: null, setup: null })
     try {
       const result = await this.worktree<
         { plan: { slug: string }; state: PanelState; setup: SetupReport; notice: string | null }
-      >('worktreeAdd', { name })
+      >('worktreeAdd', {
+        mode: options.mode,
+        ...(options.name === undefined ? {} : { name: options.name }),
+        ...(options.ref === undefined ? {} : { ref: options.ref }),
+        ...(options.refKind === undefined ? {} : { refKind: options.refKind }),
+        ...(options.base === undefined ? {} : { base: options.base }),
+      })
       if (this.disposed) return
       this.patch({
         state: result.state,
@@ -490,8 +514,18 @@ export class PanelStore {
     await this.reloadHistory()
   }
 
-  worktreeUpdate(path: string): Promise<void> {
-    return this.write('busy.worktree-update', () => this.worktree<PanelState>('worktreeUpdate', { path }))
+  worktreeUpdate(path: string, base?: string): Promise<void> {
+    return this.write('busy.worktree-update', () =>
+      this.worktree<PanelState>('worktreeUpdate', { path, ...(base === undefined ? {} : { base }) }),
+    )
+  }
+
+  worktreeUnlock(path: string): Promise<void> {
+    return this.write('busy.worktree-unlock', () => this.worktree<PanelState>('worktreeUnlock', { path }))
+  }
+
+  worktreePrune(): Promise<void> {
+    return this.write('busy.worktree-prune', () => this.worktree<PanelState>('worktreePrune', {}))
   }
 
   branchSwitch(name: string, remote?: string): Promise<void> {

@@ -37,6 +37,7 @@ import {
   unblankCurrentSession,
   waitForTurnIdle,
 } from './git-helpers.ts'
+import { createFixture } from '../../packages/dsh-next-git/tests/git-fixture.ts'
 
 /** Live-model lane: the official DeepSeek route has a real DEEPSEEK_API_KEY. */
 const LIVE = process.env.DSH_E2E_LIVE === '1'
@@ -526,6 +527,137 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await page.waitForTimeout(300)
   },
 
+  // The Git tab is a right-sidebar tab type, so the marker drives the real
+  // seat: the Start guide capsule opens it, and every operation it performs is
+  // read back from disk with git afterwards (a DOM-only assertion could pass
+  // while the host quietly did nothing).
+  'dsh-next-git': async (page) => {
+    const workspaceA = process.env.DSH_E2E_WORKSPACE_A
+    if (!workspaceA) {
+      throw new Error('DSH_E2E_WORKSPACE_A is not set — run through scripts/e2e-mount.sh')
+    }
+    // The same deterministic fixture the unit suites use, seeded into the
+    // workspace the smoke already registered as a session root.
+    const fixture = createFixture('untracked', { dir: workspaceA })
+    fixture.write('src/git-panel/store.ts', [
+      'export interface PanelState {',
+      "  readonly branch: string",
+      '}',
+      '',
+      'export function branchOf(state: PanelState): string {',
+      '  return state.branch',
+      '}',
+      '',
+    ].join('\n'))
+    fixture.write('src/app.ts', 'export const app = 2\n')
+    try {
+      await dismissOnboarding(page)
+      await closeDialogs(page)
+      await openWorkspaceSession(page, 'workspace-a')
+
+      // The right column can start collapsed; reveal it before looking for the
+      // Start guide capsule. Wait for whichever control mounts first (the
+      // expand button or the capsule itself) instead of sampling once.
+      const expand = page.getByRole('button', { name: /Open right sidebar/i }).first()
+      const capsule = page.getByRole('button', { name: /Source control/ }).first()
+      // The column starts collapsed and paints a beat after the conversation
+      // frame; the control that opens it can appear after the first paint, and
+      // a click landing mid-mount does nothing. Retry until the guide shows.
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        if (await capsule.isVisible().catch(() => false)) break
+        if ((await expand.count()) > 0) {
+          await expand.click({ force: true }).catch(() => {})
+        }
+        await page.waitForTimeout(600)
+      }
+      await expect(capsule).toBeVisible({ timeout: 25_000 })
+
+      // The guide lists one capsule per registered tab type; picking ours opens
+      // the Git tab in the guide's place.
+      await capsule.click({ force: true })
+
+      const panel = page.locator('[data-dsh-git="panel"]')
+      await expect(panel).toBeVisible({ timeout: 20_000 })
+      await expect(page.locator('[data-dsh-git="branch-button"]')).toContainText('main', { timeout: 20_000 })
+
+      // Capture only the column, cropped to the control the README shows, in
+      // the dark theme the package READMEs use.
+      await page.emulateMedia({ colorScheme: 'dark' })
+      const capture = async (name: string): Promise<void> => {
+        const box = await panel.boundingBox()
+        if (box === null) return
+        await page.screenshot({
+          path: join('test-results', `git-${name}.png`),
+          clip: { x: box.x, y: box.y, width: box.width, height: Math.min(box.height, 860) },
+        })
+      }
+
+      // Changes: the modified and untracked files are listed, and opening one
+      // renders a native diff.
+      const row = page.locator('[data-dsh-git="row"][data-path="src/git-panel/store.ts"]')
+      await expect(row).toBeVisible({ timeout: 20_000 })
+      await capture('changes')
+      await row.click()
+      await expect(page.locator('[data-dsh-git="diff"]')).toBeVisible({ timeout: 15_000 })
+      await page.locator('[data-dsh-git="diff-back"]').click()
+
+      // Stage through the panel, then read the index back from disk.
+      await row.hover()
+      await row.locator('button[aria-label="Stage"]').click()
+      await expect.poll(() => git(workspaceA, ['diff', '--cached', '--name-only']), { timeout: 15_000 })
+        .toContain('src/git-panel/store.ts')
+
+      // Commit through the panel and assert the subject on disk.
+      const subject = `feat: add the git panel store`
+      await page.locator('[data-dsh-git="commit-message"]').fill(subject)
+      await page.getByRole('button', { name: 'Commit', exact: true }).click()
+      await expect.poll(() => git(workspaceA, ['log', '-1', '--pretty=%s']).trim(), { timeout: 20_000 })
+        .toBe(subject)
+
+      // Worktree lifecycle: create one through the panel, then assert the
+      // checkout, its branch and the local-only exclude entry on disk.
+      const slug = `panel-${Date.now().toString(36)}`
+      await page.locator('[data-dsh-git="worktree-name"]').fill(slug)
+      await page.getByRole('button', { name: 'Create', exact: true }).click()
+      await expect.poll(() => existsSync(join(workspaceA, '.worktrees', slug)), { timeout: 30_000 }).toBe(true)
+      expect(gitOk(workspaceA, ['rev-parse', '--verify', `dsh-git/${slug}`])).toBe(true)
+      expect(readFileSync(join(workspaceA, '.git', 'info', 'exclude'), 'utf8')).toContain('.worktrees/')
+      const worktreeRow = page.locator('[data-dsh-git="worktree"]').filter({ hasText: slug })
+      await expect(worktreeRow).toBeVisible({ timeout: 20_000 })
+      await worktreeRow.scrollIntoViewIfNeeded()
+      await capture('worktrees')
+
+      // History: the commit made above is listed with its actions, without a
+      // remount (the panel re-reads the section after a commit).
+      await expect(page.locator('[data-dsh-git="commit-row"]').filter({ hasText: subject })).toBeVisible({ timeout: 20_000 })
+      await page.locator('[data-dsh-git="history"]').scrollIntoViewIfNeeded()
+      await capture('history')
+
+      // Recovery state: leave a real conflicted merge behind, refresh the panel
+      // and assert the banner names the operation.
+      fixture.gitOk(['checkout', '-q', '-b', 'e2e-conflict'])
+      fixture.commit('src/app.ts', 'export const app = 100\n', 'feat: conflict side')
+      fixture.gitOk(['checkout', '-q', 'main'])
+      fixture.commit('src/app.ts', 'export const app = 200\n', 'feat: main side')
+      fixture.git(['merge', '--no-edit', 'e2e-conflict'])
+      await page.locator('[data-dsh-git="refresh"]').click()
+      await expect(page.locator('[data-dsh-git="operation"]')).toBeVisible({ timeout: 20_000 })
+      await page.locator('[data-dsh-git="body"]').evaluate((element) => {
+        element.scrollTop = 0
+      })
+      await capture('conflict')
+      // Abort through the panel, then prove the merge state is gone on disk.
+      await page.getByRole('button', { name: 'Abort', exact: true }).click()
+      await expect.poll(() => gitOk(workspaceA, ['rev-parse', '-q', '--verify', 'MERGE_HEAD']), { timeout: 20_000 })
+        .toBe(false)
+      // Restore the shell's own theme for any marker that runs after this one.
+      await page.emulateMedia({ colorScheme: 'light' })
+    } finally {
+      fixture.dispose()
+    }
+  },
+
+  // provider and its catalog are seeded into the scratch home only.
   // Establish a known session; a missing tab or panel must fail, not skip.
   // Detailed capture/rewind and Git mutations live in checkpoints.e2e.ts.
   'dsh-next-checkpoints': async (page) => {

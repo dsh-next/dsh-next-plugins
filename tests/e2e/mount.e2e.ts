@@ -625,6 +625,24 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
       const worktreeRow = page.locator('[data-dsh-git="worktree"]').filter({ hasText: slug })
       await expect(worktreeRow).toBeVisible({ timeout: 20_000 })
 
+      // Every trailing control shares one right line: the section pill, a row's
+      // status letter and a row's action button must land within 2px of each
+      // other (the regression this guards: 100%-wide rows padding themselves
+      // past the section bands).
+      const rightInset = async (selector: string): Promise<number | null> => {
+        const panelBox = await panel.boundingBox()
+        const box = await page.locator(selector).first().boundingBox()
+        return panelBox === null || box === null ? null : panelBox.x + panelBox.width - (box.x + box.width)
+      }
+      const insets = [
+        await rightInset('[data-dsh-git="changes"] [data-dsh-git="section-count"]'),
+        await rightInset('[data-dsh-git="row"][data-path="src/git-panel/store.ts"] [data-dsh-git="status"]'),
+        await rightInset('[data-dsh-git="commit-row"] button'),
+      ]
+      expect(insets.every((inset) => inset !== null)).toBe(true)
+      expect(Math.max(...insets.map((inset) => inset ?? 0)) - Math.min(...insets.map((inset) => inset ?? 0)))
+        .toBeLessThanOrEqual(2)
+
       // The sections are accordion headers: collapsing one hides its body and
       // leaves the others alone, and expanding brings it back.
       const worktreesToggle = page.locator('[data-dsh-git="section-toggle"][data-section="worktrees"]')

@@ -94,6 +94,23 @@ git service. The package is `"private": true` until release is intended.
   the message box. The platform is read from `navigator.platform`, which jsdom
   leaves empty, so the fallback is `Ctrl` in tests.
 
+### Layout contract
+
+The panel keeps one grid, stated at the top of `panel.module.css` and guarded
+by the mount marker: the body insets its content 8px from each panel edge,
+every box in that flow (row, section band, commit card, group header, diff
+header) spans that content width exactly, and controls inside a box are inset a
+further 10px so they land on an 18px line on both sides. Two consequences are
+easy to regress and are therefore asserted:
+
+- `box-sizing: border-box` on anything sized `100%` with padding — a
+  content-box row overflows the panel by its own padding, which is what made
+  the right edge look ragged (rows and their hover actions ran 10px past the
+  section bands);
+- a change row's hover actions float over its status letter instead of
+  reserving space, so the letter sits on the same trailing line as the section
+  count pill and the commit row's menu button.
+
 ## Deviations and follow-ups
 
 - **Committed-diff handoff.** "Open file" hands the path to the stock viewer

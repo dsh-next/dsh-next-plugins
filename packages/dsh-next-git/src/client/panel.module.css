@@ -1,6 +1,19 @@
 /*
  * Git panel chrome.
  *
+ * Layout contract, so every element lines up on one grid:
+ *
+ * - the body insets its content 8px from the panel's left and right edges;
+ * - every box in that flow (a row, a section band, the commit card, a group
+ *   header, the diff header) spans that content width exactly;
+ * - text and controls inside such a box are inset a further 10px, so they land
+ *   on an 18px line from the panel edge on both sides;
+ * - the tab header's own controls align their glyphs to that same 18px line.
+ *
+ * That needs `box-sizing: border-box` on anything sized 100% with padding:
+ * rows and fields otherwise overflow the panel by their own padding, which is
+ * exactly the uneven right edge this contract removes.
+ *
  * Values are copied from the Files tab, the closest list-centered precedent in
  * the right sidebar, so the panel reads as one of the shell's own tabs: 38px
  * header, 8px body inset, 10px-radius rows at 5px/10px, 12px captions.
@@ -22,7 +35,9 @@
   align-items: center;
   height: 38px;
   flex: 0 0 auto;
-  padding: 0 6px 0 16px;
+  /* Icon buttons are 26px boxes around 16px glyphs, so 12px puts the glyph on
+     the same 18px line the body content uses. */
+  padding: 0 12px;
   gap: 4px;
   border-bottom: 0.5px solid var(--dsw-alias-border-l3);
 }
@@ -128,8 +143,7 @@
 .body {
   flex: 1 1 auto;
   min-height: 0;
-  padding: 8px 0 8px 8px;
-  margin-right: 2px;
+  padding: 8px;
   scrollbar-gutter: stable;
   overflow: auto;
 }
@@ -143,7 +157,7 @@
   align-items: center;
   gap: 4px;
   min-height: 28px;
-  padding: 3px 8px 3px 10px;
+  padding: 3px 10px;
   /* An SCM section band: hairlines top and bottom, a slightly lifted fill, and
      sticky so the title stays reachable while its own section scrolls. */
   position: sticky;
@@ -251,6 +265,8 @@
 }
 
 .row {
+  box-sizing: border-box;
+  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -386,6 +402,23 @@
   opacity: 1;
 }
 
+/* A change row's actions float over its status letter instead of reserving
+   space: the letter then sits on the same right line as every other trailing
+   control, and the icons take its place while the row is hovered or focused. */
+.rowActionsOverlay {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  background: var(--dsw-alias-interactive-bg-hover);
+  border-radius: 8px;
+}
+
+.row:hover .statusLetter,
+.row:focus-within .statusLetter {
+  opacity: 0;
+}
+
 .badge {
   flex: 0 0 auto;
 }
@@ -401,7 +434,7 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 12px 16px 16px 16px;
+  padding: 12px 10px 14px 10px;
 }
 
 .emptyTitle {
@@ -474,13 +507,14 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin: 0 8px 12px 0;
-  padding: 8px;
+  margin: 0 0 12px 0;
+  padding: 10px;
   border-radius: 10px;
   border: 1px solid var(--dsw-alias-border-l2);
 }
 
 .textarea {
+  box-sizing: border-box;
   width: 100%;
   min-height: 56px;
   resize: vertical;
@@ -534,7 +568,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 8px 6px 10px;
+  padding: 6px 10px;
   border-bottom: 0.5px solid var(--dsw-alias-border-l3);
 }
 
@@ -565,7 +599,7 @@
 }
 
 .diffBody {
-  padding: 4px 8px 12px 8px;
+  padding: 4px 10px 12px 10px;
 }
 
 .patchBlock {
@@ -618,6 +652,7 @@
 }
 
 .menuItem {
+  box-sizing: border-box;
   display: block;
   width: 100%;
   padding: 6px 10px;

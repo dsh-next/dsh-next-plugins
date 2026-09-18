@@ -1007,7 +1007,7 @@ function Group(props: {
           >
             {statusLetter(entry)}
           </span>
-          <div className={classes.rowActions}>
+          <div className={`${classes.rowActions} ${classes.rowActionsOverlay}`}>
             {props.readonly === true ? null : side === 'staged' ? (
               <HoverCard
                 anchor={
@@ -1469,7 +1469,7 @@ function DiffPane(props: {
 
   return (
     <div data-dsh-git="diff">
-      <div className={classes.diffHeader}>
+      <div className={classes.diffHeader} data-dsh-git="diff-header">
         <button
           type="button"
           className={classes.iconButton}
@@ -1507,7 +1507,7 @@ function DiffPane(props: {
           {copied ? <IconCheckOutline16 size={14} /> : <IconCopyOutline16 size={14} />}
         </button>
       </div>
-      <div className={classes.diffBody}>
+      <div className={classes.diffBody} data-dsh-git="diff-body">
         {snapshot.diffLoading ? <div className={classes.caption}>{t('diff.loading')}</div> : null}
         {!snapshot.diffLoading && file === null ? (
           <div className={classes.caption}>{t('diff.empty')}</div>

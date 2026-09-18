@@ -624,6 +624,18 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
       expect(readFileSync(join(workspaceA, '.git', 'info', 'exclude'), 'utf8')).toContain('.worktrees/')
       const worktreeRow = page.locator('[data-dsh-git="worktree"]').filter({ hasText: slug })
       await expect(worktreeRow).toBeVisible({ timeout: 20_000 })
+
+      // The sections are accordion headers: collapsing one hides its body and
+      // leaves the others alone, and expanding brings it back.
+      const worktreesToggle = page.locator('[data-dsh-git="section-toggle"][data-section="worktrees"]')
+      await worktreesToggle.click()
+      await expect(worktreesToggle).toHaveAttribute('aria-expanded', 'false')
+      await expect(page.locator('[data-dsh-git="worktree"]')).toHaveCount(0)
+      await expect(page.locator('[data-dsh-git="row"][data-path="src/app.ts"]')).toBeVisible()
+      await worktreesToggle.click()
+      await expect(worktreesToggle).toHaveAttribute('aria-expanded', 'true')
+      await expect(worktreeRow).toBeVisible()
+
       await worktreeRow.scrollIntoViewIfNeeded()
       await capture('worktrees')
 

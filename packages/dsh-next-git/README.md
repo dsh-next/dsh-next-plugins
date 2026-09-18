@@ -13,10 +13,12 @@ to leave the GUI for the everyday git loop.
    **Source control**. The tab opens in its place.
 2. The header shows the branch you are on and how far ahead or behind its
    upstream you are. Click the branch name to switch branches.
-3. Under **Changes**, click any row to read its diff. Hover a row for
-   **Stage**, **Unstage** and **Discard**.
-4. Type a commit message — or press **Draft message** to have one derived from
-   the change list — then press **Commit**.
+3. Type a commit message — or press **Draft message** to have one derived from
+   the change list — then press **Commit** (or `Cmd`/`Ctrl` + `Enter` from the
+   message box).
+4. Under **Changes**, click any row to read its diff. Hover a row for
+   **Stage**, **Unstage** and **Discard**, or use the section header to stage,
+   unstage or discard everything. Click a section title to fold it away.
 5. Under **Worktrees**, name a worktree and press **Create** to get a fresh
    checkout at `.worktrees/<name>` on branch `dsh-git/<name>`, without leaving
    this repository.

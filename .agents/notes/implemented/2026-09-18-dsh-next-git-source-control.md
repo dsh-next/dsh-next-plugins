@@ -29,10 +29,14 @@ git service. The package is `"private": true` until release is intended.
   worktree/slug/setup/include/compose grammar, version gating, address building,
   the commit-message draft, and the agent-verb payload contract.
 - **Browser half** (`src/client/`) — tab type plus keyed body and title
-  registrations, the guide capsule, the section stack, the diff pane, the
-  danger confirmations, the hook-output section, and the refresh model
-  (open, window focus, tab visibility, agent turn end, manual, after every
-  write).
+  registrations, the guide capsule, the accordion section stack, the diff
+  pane, the danger confirmations, the hook-output section, and the refresh
+  model (open, window focus, tab visibility, agent turn end, manual, after
+  every write). The layout follows the reference surface users already know:
+  the message box and its Commit action sit above the change list, each
+  section is a sticky band with hairline borders, a count pill and its own
+  bulk actions, and a file row is one line of type glyph, name, muted
+  directory and a status letter colored by what the change means.
 - **Tests** — one shared real-git fixture module
   (`tests/git-fixture.ts`, 18 scenarios, determinism self-test) used by both
   the vitest suites and the mount marker; 367 package tests; the RPC contract
@@ -71,6 +75,24 @@ git service. The package is `"private": true` until release is intended.
 - **A conflicted worktree update is named, not silent.** The merge happens in
   another working tree, which this panel is not showing, so a conflict there
   raises `operation-in-progress` naming that path.
+
+## UI decisions
+
+- **Sections are independent accordions, not a single-open one.** Opening
+  History does not close Changes: a commit needs the change list and the
+  message together. The header is a real button with `aria-expanded` and
+  `aria-controls`, its actions sit beside it (a button cannot nest in a
+  button), and a collapsed History section does not read the log until it is
+  expanded.
+- **Bulk actions moved into the section header** as icon buttons (stage all,
+  unstage all, discard all) so the list keeps the width; discard all still runs
+  through the danger confirmation naming every affected path.
+- **Status marks are git's own letters, colored** (`M` amber, `A`/`U` green,
+  `D` and conflicts red) rather than pill badges, so a row scans in one line.
+- **The commit box takes the branch and the platform chord**
+  (`Message (Cmd/Ctrl+Enter to commit on "main")`), and the chord commits from
+  the message box. The platform is read from `navigator.platform`, which jsdom
+  leaves empty, so the fallback is `Ctrl` in tests.
 
 ## Deviations and follow-ups
 

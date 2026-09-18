@@ -480,15 +480,76 @@ describe('git panel body', () => {
     })
   })
 
-  it('drafts a message into the composer', async () => {
+  it('drafts a message into the composer from the field action', async () => {
     const { double } = await renderPanel({
       getHistory: { commits: [], lanes: [], hasMore: false },
       draftMessage: 'Update src: app.ts',
     })
     await act(async () => {
-      ;(byText(en['commit.draft']) as HTMLButtonElement).click()
+      ;(marker('draft-message') as HTMLButtonElement).click()
     })
     expect(double.calls.some((call) => call.method === 'draftMessage')).toBe(true)
+  })
+
+  it('offers the commit commands behind the split button chevron', async () => {
+    const { double } = await renderPanel({
+      getHistory: { commits: [], lanes: [], hasMore: false },
+      commit: panelState({ changes: { ...panelState().changes, staged: [] } }),
+    })
+    const textarea = marker('commit-message') as HTMLTextAreaElement
+    await act(async () => {
+      typeInto(textarea, 'feat: from the menu')
+    })
+    const chevron = marker('commit-menu') as HTMLButtonElement
+    expect(chevron.getAttribute('aria-haspopup')).toBe('menu')
+    await act(async () => {
+      chevron.click()
+    })
+    const rows = [...document.querySelectorAll('[role="menuitem"]')].map((row) => row.textContent)
+    expect(rows).toEqual([en['commit.button'], en['commit.amend'], en['commit.all']])
+
+    const amendRow = [...document.querySelectorAll('[role="menuitem"]')].find((row) =>
+      row.textContent?.includes(en['commit.amend']),
+    ) as HTMLButtonElement
+    await act(async () => {
+      amendRow.click()
+    })
+    expect(double.calls.find((call) => call.method === 'commit')?.args).toMatchObject({
+      message: 'feat: from the menu',
+      amend: true,
+    })
+  })
+
+  it('commits everything from the menu when only unstaged work exists', async () => {
+    const { double } = await renderPanel({
+      getHistory: { commits: [], lanes: [], hasMore: false },
+      getState: {
+        state: panelState({ changes: { ...panelState().changes, staged: [] } }),
+        notice: null,
+      },
+      stage: panelState(),
+      commit: panelState({ changes: { ...panelState().changes, staged: [], unstaged: [], untracked: [] } }),
+    })
+    const textarea = marker('commit-message') as HTMLTextAreaElement
+    await act(async () => {
+      typeInto(textarea, 'feat: all of it')
+    })
+    await act(async () => {
+      ;(marker('commit-menu') as HTMLButtonElement).click()
+    })
+    const allRow = [...document.querySelectorAll('[role="menuitem"]')].find((row) =>
+      row.textContent?.includes(en['commit.all']),
+    ) as HTMLButtonElement
+    await act(async () => {
+      allRow.click()
+    })
+    // Staging every change first is what makes the commit possible.
+    expect(double.calls.find((call) => call.method === 'stage')?.args).toMatchObject({
+      paths: ['src/app.ts', 'docs/new.md'],
+    })
+    expect(double.calls.find((call) => call.method === 'commit')?.args).toMatchObject({
+      message: 'feat: all of it',
+    })
   })
 
   it('creates a worktree from the name field and validates the name first', async () => {

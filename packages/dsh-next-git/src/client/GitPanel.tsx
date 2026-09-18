@@ -14,7 +14,6 @@
 import * as React from 'react'
 import {
   Button,
-  Checkbox,
   DiffBlock,
   HoverCard,
   IconBranchOutline16,
@@ -35,6 +34,7 @@ import {
   Modal,
   StateDot,
   Tag,
+  Tooltip,
   writeClipboard,
   type MenuEntry,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -1083,55 +1083,106 @@ function CommitBox(props: {
 }): React.ReactElement | null {
   const { snapshot, t, store } = props
   const state = snapshot.state
-  const [amend, setAmend] = React.useState(false)
+  const [menuOpen, setMenuOpen] = React.useState(false)
   if (state === null) return null
-  const staged = state.changes.staged.length
-  const canCommit = staged > 0 && !snapshot.busy
   const branch = state.head.branch ?? 'HEAD'
   const placeholder = t('commit.placeholder', { mod: commitModifier(), branch })
+  const message = snapshot.message.trim()
+  const busy = snapshot.busy !== null
+  const staged = state.changes.staged.filter((entry) => entry.unmerged === undefined).length
+  const unstaged = state.changes.unstaged.filter((entry) => entry.unmerged === undefined).length
+  const untracked = state.changes.untracked.length
+  const canCommit = staged > 0 && !busy && message !== ''
+  const canCommitAll = staged + unstaged + untracked > 0 && !busy && message !== ''
+
+  // The commit button's menu: the same verbs VS Code puts behind its chevron,
+  // minus the ones this panel cannot honestly do (it never pushes).
+  const items: MenuEntry[] = [
+    { id: 'commit', label: t('commit.button'), disabled: !canCommit },
+    { id: 'amend', label: t('commit.amend'), disabled: !canCommit },
+    { id: 'all', label: t('commit.all'), disabled: !canCommitAll },
+  ]
+
   const submit = (): void => {
-    if (!canCommit || snapshot.message.trim() === '') return
-    void store.commit(snapshot.message, amend)
+    if (!canCommit) return
+    void store.commit(snapshot.message, false)
   }
 
   return (
     <div className={classes.commit} data-dsh-git="commit">
-      <textarea
-        className={classes.textarea}
-        placeholder={placeholder}
-        aria-label={t('commit.placeholder', { mod: '', branch })}
-        value={snapshot.message}
-        onChange={(event) => store.setMessage(event.target.value)}
-        // VS Code's own chord: the message commits without reaching the mouse.
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-            event.preventDefault()
-            submit()
-          }
-        }}
-        data-dsh-git="commit-message"
-      />
-      <Checkbox checked={amend} onChange={setAmend} label={t('commit.amend')} />
-      <div className={classes.bannerActions}>
+      <div className={classes.messageWrap}>
+        <textarea
+          className={classes.textarea}
+          placeholder={placeholder}
+          aria-label={t('commit.placeholder', { mod: '', branch })}
+          value={snapshot.message}
+          onChange={(event) => store.setMessage(event.target.value)}
+          // VS Code's own chord: the message commits without reaching the mouse.
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault()
+              submit()
+            }
+          }}
+          data-dsh-git="commit-message"
+        />
+        <Tooltip label={t('commit.draft')} side="bottom">
+          <button
+            type="button"
+            className={classes.messageAction}
+            aria-label={t('commit.draft')}
+            data-dsh-git="draft-message"
+            disabled={busy}
+            onClick={() => void store.draftMessage()}
+          >
+            <IconSparkle16 size={14} />
+          </button>
+        </Tooltip>
+      </div>
+      <div className={classes.commitSplit}>
         <Button
           className={classes.commitPrimary}
           size="sm"
           variant="primary"
-          disabled={!canCommit || snapshot.message.trim() === ''}
+          disabled={!canCommit}
           onClick={submit}
         >
           {t('commit.button')}
         </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={snapshot.busy !== null}
-          onClick={() => void store.draftMessage()}
-        >
-          {t('commit.draft')}
-        </Button>
+        <Menu
+          open={menuOpen}
+          className={classes.commitMenuAnchor}
+          anchor={
+            <Button
+              className={classes.commitDropdown}
+              size="sm"
+              variant="primary"
+              aria-label={t('commit.more')}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              data-dsh-git="commit-menu"
+              onClick={() => setMenuOpen(!menuOpen)}
+            >
+              <IconChevronDownOutline14 size={12} />
+            </Button>
+          }
+          items={items}
+          onSelect={(id) => {
+            setMenuOpen(false)
+            if (id === 'commit') void store.commit(snapshot.message, false)
+            if (id === 'amend') void store.commit(snapshot.message, true)
+            if (id === 'all') void store.commitAll(snapshot.message)
+          }}
+          onClose={() => setMenuOpen(false)}
+          align="end"
+          portal
+        />
       </div>
-      {staged === 0 ? <span className={classes.commitHint}>{t('commit.nothingStaged')}</span> : null}
+      {staged === 0 ? (
+        <span className={classes.commitHint}>
+          {unstaged + untracked > 0 ? t('commit.nothingStagedButChanges') : t('commit.nothingStaged')}
+        </span>
+      ) : null}
     </div>
   )
 }

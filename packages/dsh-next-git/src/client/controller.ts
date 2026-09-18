@@ -384,6 +384,30 @@ export class PanelStore {
     }
   }
 
+  /**
+   * Stage every change the panel can stage, then commit it.
+   *
+   * A conflicted path is left alone: `git commit` cannot commit one, and the
+   * resolution belongs to whoever is resolving, not to a bulk action.
+   */
+  async commitAll(message: string): Promise<void> {
+    const state = this.snapshot.state
+    if (state === null) return
+    const paths = [
+      ...new Set([
+        ...state.changes.staged.map((entry) => entry.path),
+        ...state.changes.unstaged.filter((entry) => entry.unmerged === undefined).map((entry) => entry.path),
+        ...state.changes.untracked.map((entry) => entry.path),
+      ]),
+    ]
+    if (paths.length > 0) {
+      await this.write('busy.stage', () =>
+        this.api.call<PanelState>('stage', { sessionId: this.sessionId, paths }),
+      )
+    }
+    await this.commit(message)
+  }
+
   /** Cancel a commit whose hook is hanging. */
   async cancelCommit(): Promise<void> {
     try {

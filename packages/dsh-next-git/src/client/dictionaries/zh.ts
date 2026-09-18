@@ -67,7 +67,10 @@ export const zh: Record<MessageKey, string> = {
   'commit.placeholder': '提交信息（{mod}+Enter 提交到“{branch}”）',
   'commit.button': '提交',
   'commit.draft': '生成信息草稿',
-  'commit.amend': '修补上一次提交',
+  'commit.amend': '提交（修补）',
+  'commit.all': '提交全部更改',
+  'commit.more': '更多提交命令',
+  'commit.nothingStagedButChanges': '请先暂存更改，或使用“提交全部更改”。',
   'commit.nothingStaged': '请先暂存更改再提交。',
 
   // Hooks ------------------------------------------------------------------

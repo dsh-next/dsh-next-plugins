@@ -661,9 +661,72 @@
   padding: 4px 10px 8px 10px;
 }
 
-/* The commit action is the panel's primary one, so it takes the row. */
+/* The message box carries the generate action in its own corner, the way an
+   SCM view does, so drafting never costs a second row. */
+.messageWrap {
+  position: relative;
+}
+
+.messageAction {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.messageAction:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.messageAction:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: -1px;
+}
+
+.messageAction:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Split commit control: the action and its command menu share one capsule,
+   separated by a hairline punched out of the fill. */
+.commitSplit {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+}
+
+.commitMenuAnchor {
+  /* The Menu primitive measures its wrapper to place the portaled list, so the
+     wrapper has to be a laid-out box; `display: contents` would anchor the
+     menu to the viewport corner. */
+  display: flex;
+  flex: 0 0 auto;
+  align-items: stretch;
+}
+
 .commitPrimary {
   flex: 1 1 auto;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.commitDropdown {
+  flex: 0 0 auto;
+  padding: 0 8px;
+  border-left: 1px solid var(--dsw-alias-bg-base);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
 }
 
 .commitHint {

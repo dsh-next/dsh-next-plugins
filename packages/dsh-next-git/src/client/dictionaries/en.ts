@@ -75,7 +75,10 @@ export const en = {
   'commit.placeholder': 'Message ({mod}+Enter to commit on "{branch}")',
   'commit.button': 'Commit',
   'commit.draft': 'Draft message',
-  'commit.amend': 'Amend last commit',
+  'commit.amend': 'Commit (Amend)',
+  'commit.all': 'Commit All Changes',
+  'commit.more': 'More commit commands',
+  'commit.nothingStagedButChanges': 'Stage something, or use Commit All Changes.',
   'commit.nothingStaged': 'Stage something to commit.',
 
   // Hooks ------------------------------------------------------------------

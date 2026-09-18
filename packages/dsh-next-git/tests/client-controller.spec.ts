@@ -349,6 +349,42 @@ describe('writes', () => {
     panel.dispose()
   })
 
+  it('stages every stageable path before committing all', async () => {
+    const { store: panel, calls } = store({
+      getState: { state: state(), notice: null },
+      stage: state(),
+      commit: state({ changes: { ...state().changes, staged: [], unstaged: [], untracked: [] } }),
+    })
+    await panel.start()
+    await panel.commitAll('feat: everything')
+    expect(calls.map((call) => call.method)).toEqual(['getState', 'stage', 'commit'])
+    expect(calls[1]!.args).toMatchObject({ paths: ['a.ts', 'b.ts'] })
+    expect(calls[2]!.args).toMatchObject({ message: 'feat: everything' })
+    panel.dispose()
+  })
+
+  it('leaves a conflicted path out of a commit-all', async () => {
+    const conflicted = state({
+      changes: {
+        ...state().changes,
+        conflicts: [{ path: 'c.ts', xy: 'UU', untracked: false, ignored: false, index: 'unmerged', worktree: 'unmerged', unmerged: 'both-modified' }],
+        unstaged: [
+          ...state().changes.unstaged,
+          { path: 'c.ts', xy: 'UU', untracked: false, ignored: false, index: 'unmerged', worktree: 'unmerged', unmerged: 'both-modified' },
+        ],
+      },
+    })
+    const { store: panel, calls } = store({
+      getState: { state: conflicted, notice: null },
+      stage: conflicted,
+      commit: conflicted,
+    })
+    await panel.start()
+    await panel.commitAll('feat: everything')
+    expect(calls.find((call) => call.method === 'stage')?.args).toMatchObject({ paths: ['a.ts', 'b.ts'] })
+    panel.dispose()
+  })
+
   it('ignores an empty commit message', async () => {
     const { store: panel, calls } = store({ getState: { state: state(), notice: null } })
     await panel.start()

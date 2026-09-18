@@ -13,9 +13,11 @@ to leave the GUI for the everyday git loop.
    **Source control**. The tab opens in its place.
 2. The header shows the branch you are on and how far ahead or behind its
    upstream you are. Click the branch name to switch branches.
-3. Type a commit message — or press **Draft message** to have one derived from
-   the change list — then press **Commit** (or `Cmd`/`Ctrl` + `Enter` from the
-   message box).
+3. Type a commit message — or press the sparkle in the message box to have one
+   derived from the change list — then press **Commit** (or `Cmd`/`Ctrl` +
+   `Enter` from the box). The chevron beside **Commit** offers the other
+   commands: **Commit (Amend)** and **Commit All Changes**, which stages
+   everything first.
 4. Under **Changes**, click any row to read its diff. Hover a row for
    **Stage**, **Unstage** and **Discard**, or use the section header to stage,
    unstage or discard everything. Click a section title to fold it away.
@@ -33,6 +35,8 @@ diff primitive; a file past the size cap falls back to line counts plus a
 copyable patch instead of a wall of text.
 
 ![The Changes section with staged and unstaged files](media/changes.webp)
+
+![The commit commands behind the split button](media/commit-menu.webp)
 
 **Guardrails by blast radius.** Staging, unstaging and committing act
 immediately. Anything that can lose work — discard, delete a worktree, switch

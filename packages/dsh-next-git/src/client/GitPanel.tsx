@@ -60,15 +60,26 @@ import classes from './panel.module.css'
 /** The translator the slot framework injects for this package's namespace. */
 export type Translate = (key: MessageKey, params?: Record<string, string | number>) => string
 
+/**
+ * The enclosing tab face, as the slot framework binds it.
+ *
+ * Reading it is the panel's one call into a platform hook, and that hook
+ * throws while the tab record is not committed — a state the shell passes
+ * through transiently. It stays optional so a seat that hands no hook (a
+ * partial share, which this seat does produce) leaves the rest of the panel
+ * intact.
+ */
+export interface GitTabInfo {
+  readonly tab: {
+    readonly title: string
+    readonly actions: { openResource(address: string, options?: unknown): void }
+  }
+}
+
 /** Props the panel body needs beyond the framework's own shares. */
 export interface GitPanelProps {
   readonly sessionId: string
-  readonly useTabInfo: () => {
-    readonly tab: {
-      readonly title: string
-      readonly actions: { openResource(address: string, options?: unknown): void }
-    }
-  }
+  readonly useTabInfo?: (() => GitTabInfo) | undefined
   readonly t: Translate
   /**
    * Queue a prompt into the current session; the client entry wires this to
@@ -156,22 +167,148 @@ function dirName(path: string): string {
   return at <= 0 ? '' : path.slice(0, at)
 }
 
+/* -------------------------------------------------------------- resilience */
+
+/** The guard's state: the crash it caught, or none. */
+interface PanelBoundaryState {
+  readonly error: Error | null
+}
+
+/**
+ * A crash guard for one subtree of this plugin.
+ *
+ * The slot runtime retires a registration that lets a render error escape:
+ * the abdication is one-shot and final, the cell goes empty, and the tab stays
+ * blank for the rest of the page's life while its chip keeps working. Every
+ * crash therefore has to stay inside this plugin. The fallback is a render
+ * function rather than an element because it reports what happened.
+ *
+ * `resetKey` clears a caught error when the surrounding content changes, so a
+ * transient failure — a tab record not yet committed, say — heals on the next
+ * meaningful render instead of pinning the fallback until a reload.
+ */
+export class PanelBoundary extends React.Component<
+  {
+    readonly renderFallback: (error: Error) => React.ReactNode
+    readonly resetKey?: unknown
+    readonly children: React.ReactNode
+  },
+  PanelBoundaryState
+> {
+  state: PanelBoundaryState = { error: null }
+
+  static getDerivedStateFromError(error: Error): PanelBoundaryState {
+    return { error }
+  }
+
+  componentDidCatch(error: Error): void {
+    // The fallback names the failure for the user; the console keeps the stack.
+    console.error('[dsh-next-git] panel render failed', error)
+  }
+
+  componentDidUpdate(previous: { readonly resetKey?: unknown }): void {
+    if (this.state.error !== null && previous.resetKey !== this.props.resetKey) {
+      this.setState({ error: null })
+    }
+  }
+
+  render(): React.ReactNode {
+    const { error } = this.state
+    return error === null ? this.props.children : this.props.renderFallback(error)
+  }
+}
+
+/**
+ * The panel's face when a render failed: what happened, and a way back.
+ *
+ * Showing the message here is deliberate — a silent blank pane is what this
+ * whole guard exists to prevent, and the message is what makes the failure
+ * reportable.
+ */
+export function PanelCrashed(props: {
+  t: Translate
+  error: Error
+  onRetry: () => void
+}): React.ReactElement {
+  const detail = props.error.message.trim()
+  return (
+    <div className={classes.root} data-dsh-git="panel">
+      <div className={classes.body} data-dsh-git="body">
+        <div className={classes.banner} data-dsh-git="crashed">
+          <div className={`${classes.bannerTitle} ${classes.bannerError}`}>
+            <IconWarningOutline16 size={16} />
+            <span>{props.t('state.renderFailed')}</span>
+          </div>
+          <div className={classes.bannerBody}>{props.t('state.renderFailedFix')}</div>
+          {detail === '' ? null : <pre className={classes.hookOutput}>{detail}</pre>}
+          <div className={classes.bannerActions}>
+            <Button size="sm" variant="primary" onClick={props.onRetry}>
+              {props.t('state.retry')}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The panel's face when the seat handed it no session to read.
+ *
+ * A registered seat that renders nothing leaves an empty pane, so this state
+ * still says what is happening rather than looking like a broken panel.
+ */
+export function GitPanelUnavailable(props: { t: Translate }): React.ReactElement {
+  return (
+    <div className={classes.root} data-dsh-git="panel">
+      <div className={classes.body} data-dsh-git="body">
+        <div className={classes.banner} data-dsh-git="no-session">
+          <div className={`${classes.bannerTitle} ${classes.bannerWarn}`}>
+            <IconWarningOutline16 size={16} />
+            <span>{props.t('state.noSession')}</span>
+          </div>
+          <div className={classes.bannerBody}>{props.t('state.noSessionFix')}</div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ------------------------------------------------------------------- panel */
 
 export function GitPanel(props: GitPanelProps): React.ReactElement {
-  const { sessionId, useTabInfo, t } = props
+  // One crash must not cost the tab: the slot runtime retires a registration
+  // that lets an error escape, and a retired registration renders an empty
+  // cell for the rest of the page's life. Retry remounts the guard.
+  const [attempt, setAttempt] = React.useState(0)
+  return (
+    <PanelBoundary
+      key={attempt}
+      renderFallback={(error) => (
+        <PanelCrashed t={props.t} error={error} onRetry={() => setAttempt(attempt + 1)} />
+      )}
+    >
+      <GitPanelBody {...props} />
+    </PanelBoundary>
+  )
+}
+
+function GitPanelBody(props: GitPanelProps): React.ReactElement {
+  const { sessionId, t } = props
   const store = usePanelStore(sessionId)
   const snapshot = React.useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   const [confirmation, setConfirmation] = React.useState<Confirmation | null>(null)
   const [branchOpen, setBranchOpen] = React.useState(false)
   const [toolsOpen, setToolsOpen] = React.useState(false)
-  const tabInfo = useTabInfo()
 
-  // The live chip title reads the same store; the body keeps it alive.
+  // The live chip title reads the same store; the body keeps it alive, and
+  // announces membership so the chip gets there without waiting for a repaint.
   React.useEffect(() => {
+    announceStores()
     void store.start(getWindow())
     return () => {
       releaseStore(sessionId)
+      announceStores()
     }
   }, [store, sessionId])
 
@@ -237,12 +374,10 @@ export function GitPanel(props: GitPanelProps): React.ReactElement {
 
   // "Open file" hands off to the stock text viewer through its resource
   // address; the repository root and the session workspace need not coincide,
-  // so the path is rebased first.
-  const openFile = (path: string): void => {
-    if (state === null) return
-    const target = workspacePathFor(state.cwd, state.root, path)
-    tabInfo.tab.actions.openResource(targetFileAddress(sessionId, target))
-  }
+  // so the path is rebased first. The tab hook itself is read in the button,
+  // not here, so a throw from it cannot take the panel down.
+  const fileAddress = (path: string): string | null =>
+    state === null ? null : targetFileAddress(sessionId, workspacePathFor(state.cwd, state.root, path))
 
   return (
     <div className={classes.root} data-dsh-git="panel">
@@ -275,11 +410,20 @@ export function GitPanel(props: GitPanelProps): React.ReactElement {
             snapshot={snapshot}
             t={t}
             onBack={() => store.closeDiff()}
-            onOpenFile={openFile}
+            addressFor={fileAddress}
+            {...(props.useTabInfo === undefined ? {} : { useTabInfo: props.useTabInfo })}
           />
         ) : (
           <>
-            {state === null ? null : (
+            {state === null ? (
+              // A read that never settled stays visible as a read in flight.
+              // Rendering nothing here reads as a broken panel.
+              snapshot.phase === 'loading' ? (
+                <div className={classes.empty} data-dsh-git="loading">
+                  <span className={classes.emptyHint}>{t('state.loading')}</span>
+                </div>
+              ) : null
+            ) : (
               <>
                 <CommitBox snapshot={snapshot} t={t} store={store} />
                 <ChangesSection
@@ -352,6 +496,37 @@ export function GitPanel(props: GitPanelProps): React.ReactElement {
 
 /** Stores are shared between the body and the live chip title. */
 const stores = new Map<string, { store: PanelStore; refs: number; release: (() => void) | null }>()
+
+/**
+ * Registry revision, and who listens to it.
+ *
+ * The chip title is a separate seat from the body, and the strip usually
+ * renders before the body does, so the chip's first render has no store to
+ * read and would keep the type label until something else re-rendered it. The
+ * body announces the store joining (and leaving) the registry, and the chip
+ * re-reads it.
+ */
+let registryVersion = 0
+const registryListeners = new Set<() => void>()
+
+/** The registry's current revision. */
+export function storesVersion(): number {
+  return registryVersion
+}
+
+/** Subscribe to stores joining and leaving the registry. */
+export function subscribeStores(listener: () => void): () => void {
+  registryListeners.add(listener)
+  return () => {
+    registryListeners.delete(listener)
+  }
+}
+
+/** Publish one registry membership change. */
+function announceStores(): void {
+  registryVersion += 1
+  for (const listener of registryListeners) listener()
+}
 
 /** The API factory the panel uses; overridden in tests through `setPanelApi`. */
 let apiFactory: () => GitApiLike = () => createDefaultApi()
@@ -1658,17 +1833,52 @@ function CommitGraph(props: { lane: number; width: number }): React.ReactElement
 
 /* -------------------------------------------------------------------- diff */
 
+/**
+ * The diff header's "open in the viewer" control.
+ *
+ * This is the panel's only read of the enclosing tab's framework hook, and
+ * that hook throws while the tab record is not committed — a state the shell
+ * passes through during a session switch or a layout restore. Keeping the read
+ * in its own component, under a null-fallback guard, means such a throw costs
+ * one button instead of the whole panel, and never retires the tab's
+ * registration.
+ */
+function OpenFileButton(props: {
+  t: Translate
+  useTabInfo: () => GitTabInfo
+  address: string
+}): React.ReactElement {
+  const { t, useTabInfo, address } = props
+  const tabInfo = useTabInfo()
+  return (
+    <button
+      type="button"
+      className={classes.iconButton}
+      aria-label={t('changes.open')}
+      title={t('changes.open')}
+      data-dsh-git="diff-open-file"
+      onClick={() => tabInfo.tab.actions.openResource(address)}
+    >
+      <IconFolderOpen16 size={14} />
+    </button>
+  )
+}
+
 function DiffPane(props: {
   snapshot: PanelSnapshot
   t: Translate
   onBack: () => void
-  onOpenFile: (path: string) => void
+  /** Resource address of one changed path, or null while there is no state. */
+  addressFor: (path: string) => string | null
+  useTabInfo?: (() => GitTabInfo) | undefined
 }): React.ReactElement {
-  const { snapshot, t, onBack, onOpenFile } = props
+  const { snapshot, t, onBack, addressFor } = props
   const view = snapshot.view
   const path = view.kind === 'diff' ? view.path : ''
   const [copied, setCopied] = React.useState(false)
   const file = snapshot.diff?.file ?? null
+  const readTabInfo = props.useTabInfo
+  const openAddress = readTabInfo === undefined ? null : addressFor(path)
 
   React.useEffect(() => {
     setCopied(false)
@@ -1690,16 +1900,11 @@ function DiffPane(props: {
         <span className={classes.diffTitle} title={file?.displayPath ?? path}>
           {baseName(file?.displayPath ?? path)}
         </span>
-        <button
-          type="button"
-          className={classes.iconButton}
-          aria-label={t('changes.open')}
-          title={t('changes.open')}
-          data-dsh-git="diff-open-file"
-          onClick={() => onOpenFile(path)}
-        >
-          <IconFolderOpen16 size={14} />
-        </button>
+        {openAddress === null || readTabInfo === undefined ? null : (
+          <PanelBoundary renderFallback={() => null} resetKey={openAddress}>
+            <OpenFileButton t={t} useTabInfo={readTabInfo} address={openAddress} />
+          </PanelBoundary>
+        )}
         <button
           type="button"
           className={classes.iconButton}
@@ -1772,6 +1977,8 @@ function DiffPane(props: {
  */
 export function GitTitle(props: { t: Translate; sessionId?: string }): React.ReactElement {
   const { t } = props
+  // The body registers this session's store a beat after the strip paints.
+  React.useSyncExternalStore(subscribeStores, storesVersion, storesVersion)
   const store = peekStore(props.sessionId)
   const snapshot = React.useSyncExternalStore(
     store?.subscribe ?? (() => () => {}),

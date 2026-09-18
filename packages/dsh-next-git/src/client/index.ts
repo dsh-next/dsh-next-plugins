@@ -22,7 +22,14 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import * as React from 'react'
 import { createApi } from './api.ts'
-import { configurePanelApi, GitPanel, GitTitle, BranchGlyph, type GitPanelProps } from './GitPanel.tsx'
+import {
+  configurePanelApi,
+  GitPanel,
+  GitPanelUnavailable,
+  GitTitle,
+  BranchGlyph,
+  type GitPanelProps,
+} from './GitPanel.tsx'
 import { en, englishTranslate, NS, zh, type MessageKey } from './dictionaries.ts'
 
 /** The tab kind this package owns. */
@@ -132,11 +139,16 @@ export function apply(ctx: Context): void {
               sessionId?: string
               useTabInfo?: GitPanelProps['useTabInfo']
             }
-            if (share.sessionId === undefined || share.useTabInfo === undefined) return null
+            // Never return null: a registered seat that renders nothing leaves
+            // an empty pane, and this seat does hand a partial share. Without a
+            // session there is nothing to read, so say that instead.
+            if (share.sessionId === undefined) {
+              return React.createElement(GitPanelUnavailable, { t })
+            }
             const sendPrompt = makePromptSender(sessions, share.sessionId)
             return React.createElement(GitPanel, {
               sessionId: share.sessionId,
-              useTabInfo: share.useTabInfo,
+              ...(share.useTabInfo === undefined ? {} : { useTabInfo: share.useTabInfo }),
               t,
               ...(sendPrompt === undefined ? {} : { sendPrompt }),
               ...(openWorktreeSession === undefined ? {} : { openWorktreeSession }),

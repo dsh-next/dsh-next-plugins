@@ -51,6 +51,11 @@ export const en = {
   'state.permissionFix': 'Check the repository directory permissions and try again.',
   'state.empty': 'Nothing to commit, working tree clean',
   'state.emptyHint': 'Edit a file in this workspace and it will show up here.',
+  'state.noSession': 'This tab has no session to read',
+  'state.noSessionFix': 'Open a session, then open Source control again.',
+  'state.renderFailed': 'The Source control panel failed to render',
+  'state.renderFailedFix': 'Retry; if that does not bring it back, reload the page.',
+  'state.retry': 'Retry',
 
   // Changes ----------------------------------------------------------------
   'changes.title': 'Changes',

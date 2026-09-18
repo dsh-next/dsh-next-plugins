@@ -43,6 +43,11 @@ export const zh: Record<MessageKey, string> = {
   'state.permissionFix': '请检查仓库目录权限后重试。',
   'state.empty': '没有可提交的内容，工作树干净',
   'state.emptyHint': '在此工作区修改文件后，更改会显示在这里。',
+  'state.noSession': '此标签页没有可读取的会话',
+  'state.noSessionFix': '请先打开一个会话，再打开源代码管理。',
+  'state.renderFailed': '源代码管理面板渲染失败',
+  'state.renderFailedFix': '请重试；如果重试无效，请重新加载页面。',
+  'state.retry': '重试',
 
   // Changes ----------------------------------------------------------------
   'changes.title': '更改',

@@ -9,7 +9,17 @@ import * as React from 'react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { GitApiError } from '../src/client/api.ts'
-import { GitPanel, GitTitle, releaseStore, setPanelApi, type GitApiLike } from '../src/client/GitPanel.tsx'
+import {
+  GitPanel,
+  GitPanelUnavailable,
+  GitTitle,
+  PanelBoundary,
+  PanelCrashed,
+  releaseStore,
+  setPanelApi,
+  type GitApiLike,
+  type GitTabInfo,
+} from '../src/client/GitPanel.tsx'
 import { en, interpolate, type MessageKey } from '../src/client/dictionaries.ts'
 import type { PanelState } from '../src/core/types.ts'
 
@@ -145,6 +155,8 @@ async function renderPanel(
   extra: {
     sendPrompt?: (prompt: string) => void
     openWorktreeSession?: (path: string) => Promise<void>
+    /** Replace the tab hook, or omit it entirely with `null`. */
+    tabHook?: (() => GitTabInfo) | null
   } = {},
 ) {
   const double = apiDouble({ getState: { state: panelState(), notice: null }, ...script })
@@ -157,7 +169,7 @@ async function renderPanel(
     root.render(
       React.createElement(GitPanel, {
         sessionId,
-        useTabInfo,
+        ...(extra.tabHook === null ? {} : { useTabInfo: extra.tabHook ?? useTabInfo }),
         t,
         ...(extra.sendPrompt === undefined ? {} : { sendPrompt: extra.sendPrompt }),
         ...(extra.openWorktreeSession === undefined ? {} : { openWorktreeSession: extra.openWorktreeSession }),
@@ -852,6 +864,30 @@ describe('git chip title', () => {
     })
   })
 
+  it('moves off the type label when the body registers the store later', async () => {
+    // The strip paints before the body, so the chip starts without a store.
+    const title = await renderTitle({ sessionId: 'late-store' })
+    expect(title.title()).toBe(en['type.label'])
+    setPanelApi(() =>
+      apiDouble({
+        getState: { state: panelState(), notice: null },
+        getHistory: { commits: [], lanes: [], hasMore: false },
+      }).api,
+    )
+    await act(async () => {
+      root.render(React.createElement(GitPanel, { sessionId: 'late-store', useTabInfo, t }))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+    // The body's registry announcement reaches the chip without another render.
+    expect(title.title()).toBe('main')
+    act(() => {
+      title.root.unmount()
+    })
+  })
+
   it('names a detached HEAD and a branchless change count', async () => {
     const base = panelState()
     const detached = await renderPanel({
@@ -1002,3 +1038,122 @@ describe('worktrees section', () => {
     expect(container.textContent).toContain(en['worktrees.openFailed'])
   })
 })
+
+/**
+ * Resilience: a blank Source control pane is the bug being pinned here.
+ *
+ * The slot runtime retires a registration whose render throws, and a seat that
+ * renders nothing is an empty pane, so both failure paths have to stay inside
+ * this plugin and say what happened.
+ */
+describe('panel resilience', () => {
+  /** A failing read: the state never settles, so the panel stays loading. */
+  const stalled = (): Promise<unknown> => new Promise(() => {})
+
+  /** One non-empty diff over the row the fixtures stage. */
+  const diffScript = {
+    getDiff: {
+      path: 'src/app.ts',
+      side: 'unstaged',
+      empty: false,
+      file: {
+        path: 'src/app.ts',
+        displayPath: 'src/app.ts',
+        hunks: [],
+        added: 1,
+        removed: 1,
+        binary: false,
+        tooLarge: false,
+        patch: '@@ -1,1 +1,1 @@',
+      },
+    },
+  }
+
+  beforeEach(() => {
+    // React logs the contained error; the assertions are the point.
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  async function openDiff(): Promise<void> {
+    const row = all('row').find((candidate) => candidate.getAttribute('data-path') === 'src/app.ts')!
+    await act(async () => {
+      row.click()
+    })
+  }
+
+  it('shows the read in flight instead of an empty body', async () => {
+    await renderPanel({ getState: stalled })
+    expect(marker('panel')).not.toBeNull()
+    expect(marker('body')).not.toBeNull()
+    expect(marker('loading')?.textContent).toContain(en['state.loading'])
+  })
+
+  it('renders the panel when the seat hands no tab hook', async () => {
+    await renderPanel(diffScript, { tabHook: null })
+    expect(marker('panel')).not.toBeNull()
+    await openDiff()
+    expect(marker('diff')).not.toBeNull()
+    // Everything but the hand-off to the stock viewer survives.
+    expect(marker('diff-open-file')).toBeNull()
+    expect(marker('diff-back')).not.toBeNull()
+  })
+
+  it('loses only the open-file button when the tab hook throws', async () => {
+    const throwing = (): GitTabInfo => {
+      throw new Error('sidebarRight: tab "t1" is not committed in session "s1"')
+    }
+    await renderPanel(diffScript, { tabHook: throwing })
+    await openDiff()
+    // The throw is contained: the panel, the header and the diff all survive.
+    expect(marker('panel')).not.toBeNull()
+    expect(marker('diff')).not.toBeNull()
+    expect(marker('diff-open-file')).toBeNull()
+  })
+
+  it('contains a crash, names it, and retries on demand', async () => {
+    function Boom(): React.ReactElement {
+      throw new Error('kaboom')
+    }
+    const retries: number[] = []
+    function Harness({ attempt }: { attempt: number }): React.ReactElement {
+      return (
+        <PanelBoundary
+          resetKey={attempt}
+          renderFallback={(error) => (
+            <PanelCrashed t={t} error={error} onRetry={() => retries.push(attempt)} />
+          )}
+        >
+          {attempt === 0 ? <Boom /> : <p data-dsh-git="recovered">ok</p>}
+        </PanelBoundary>
+      )
+    }
+    await act(async () => {
+      root.render(<Harness attempt={0} />)
+    })
+    expect(marker('crashed')?.textContent).toContain(en['state.renderFailed'])
+    expect(container.textContent).toContain('kaboom')
+    await act(async () => {
+      ;(byText(en['state.retry']) as HTMLButtonElement).click()
+    })
+    expect(retries).toEqual([0])
+    // A changed reset key clears the caught error and re-renders the subtree.
+    await act(async () => {
+      root.render(<Harness attempt={1} />)
+    })
+    expect(marker('recovered')).not.toBeNull()
+    expect(marker('crashed')).toBeNull()
+  })
+
+  it('names the no-session state instead of rendering nothing', async () => {
+    await act(async () => {
+      root.render(<GitPanelUnavailable t={t} />)
+    })
+    expect(marker('panel')).not.toBeNull()
+    expect(marker('no-session')?.textContent).toContain(en['state.noSession'])
+  })
+})
+

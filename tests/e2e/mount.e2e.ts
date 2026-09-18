@@ -581,6 +581,16 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
       await expect(page.locator('[data-dsh-git="branch-button"]')).toContainText('main', { timeout: 20_000 })
       // The tab chip never goes blank, however early the seat renders.
       await expect(page.locator('[data-dsh-git="chip-title"]')).toHaveText(/\S/, { timeout: 20_000 })
+      // A registered seat that renders nothing is an empty pane, and a crash
+      // that escapes the plugin retires the registration for the rest of the
+      // page's life. The body must always say something, and the seat must
+      // never be left as a dead cell.
+      await expect
+        .poll(async () => (await page.locator('[data-dsh-git="body"]').textContent())?.trim() ?? '', {
+          timeout: 20_000,
+        })
+        .not.toBe('')
+      await expect(page.locator('[data-slot-error="sidebar.right.pane.tab"]')).toHaveCount(0)
 
       // Capture only the column, cropped to the control the README shows, in
       // the dark theme the package READMEs use.

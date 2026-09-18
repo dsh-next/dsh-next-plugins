@@ -85,6 +85,9 @@ bare repository, permission denied, a missing commit identity, or another git
 process holding `index.lock` each get a named state and the fix, instead of a
 stderr dump. The session's own agent runs git in the same repository, so
 mutations serialize per repository and lock collisions retry automatically.
+The pane never goes blank either: a read in flight, a tab with no session, and
+a render that failed each say what they are, and a failed render stays
+contained and retryable instead of retiring the tab.
 
 ## Install
 

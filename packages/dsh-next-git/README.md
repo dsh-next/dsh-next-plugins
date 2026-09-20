@@ -17,7 +17,9 @@ to leave the GUI for the everyday git loop.
    derived from the change list — then press **Commit** (or `Cmd`/`Ctrl` +
    `Enter` from the box). The chevron beside **Commit** offers the other
    commands: **Commit (Amend)** and **Commit All Changes**, which stages
-   everything first.
+   everything first. Every AI action first asks where the work should happen:
+   **this session** or a **new session**, and the payload is shown before it is
+   sent.
 4. Under **Changes**, click any row to read its diff. Hover a row for
    **Stage**, **Unstage** and **Discard**, or use the section header to stage,
    unstage or discard everything. The sections start folded: click a section
@@ -25,11 +27,21 @@ to leave the GUI for the everyday git loop.
 5. Under **Worktrees**, use the start-point button to choose what the new
    checkout gets: a fresh `dsh-git/<name>` branch from the base, or an existing
    branch, a remote branch or a tag. Press **Create** and it lands at
-   `.worktrees/<name>` without leaving this repository. The button under it
-   picks the **comparison base** every row is measured against, and the folder
-   icon on a row opens a session in that checkout.
-6. Under **History**, pick any commit's `⋯` menu to copy its hash, check it
-   out, revert it, or cherry-pick it.
+   `.worktrees/<name>` without leaving this repository. If the project
+   declares create-time work, a confirmation lists the exact commands and
+   paths and asks for each of them separately; nothing runs and nothing is
+   copied unless you tick it. The button under it picks the **comparison base**
+   every row is measured against, and the folder icon on a row opens a session
+   in that checkout.
+6. Under **History**, tick commits to plan an operation: **squash**,
+   **fixup**, **reorder**, **reword**, **cherry-pick** or **revert**. The plan
+   is previewed, published history is called out, and every rewrite keeps a
+   backup ref and a journal you can return to. The `⋯` menu on one commit
+   still offers copy hash, check out, revert and cherry-pick.
+7. Conflicted files open the conflict editor: base, current and incoming side
+   by side with the result, per-hunk choices, **Save**, then an explicit
+   **Mark resolved**. A stopped merge, rebase, cherry-pick or revert is a
+   banner with **Continue**, **Skip this step** and **Abort**.
 
 ## Features
 
@@ -49,8 +61,15 @@ first, names the affected files, and refuses when git cannot do it safely
 (dirty tree, operation in progress, detached HEAD).
 
 **A recoverable state for the stuck cases.** A merge, rebase, cherry-pick or
-revert in progress gets its own banner with **Continue** and **Abort**, so a
-conflict is never a dead end.
+revert in progress gets its own banner with **Continue**, **Skip this step**
+(for anything with a skippable step, after a confirmation) and **Abort**, so a
+conflict is never a dead end. Conflicted paths open a real conflict editor:
+the base, current and incoming versions next to the result, per-hunk choices,
+a draft that survives a repository change, and a separate **Mark resolved**
+that stages only what you saved. Git's own `conflict-marker-size` attribute is
+honored, and workflows the raw editor cannot represent (custom
+`working-tree-encoding`, Git filters, submodules, oversized blobs) are refused
+with the reason instead of being silently rewritten.
 
 ![Merge conflict banner with Continue and Abort](media/conflict.webp)
 
@@ -70,16 +89,32 @@ config).
 
 ![The Worktrees section with clean, dirty and merged worktrees](media/worktrees.webp)
 
-**History you can act on.** A bounded-depth graph column, per-commit actions
-(copy hash, check out, revert, cherry-pick), and a Refresh that re-reads on
-open, on window focus, and when the agent finishes a turn.
+**History you can act on.** A bounded-depth graph column with search, author
+and date filters, multi-select (click, `Shift`+click, keyboard), and
+**squash**, **fixup**, **reorder**, **reword**, **cherry-pick** and **revert**
+planned from the selection. A plan is previewed before it runs; rewrites refuse
+topologies they cannot replay exactly, require an explicit acknowledgment when
+the history is published, and keep a journal plus `refs/dsh/history-backups/*`
+so a completed or interrupted operation can be continued, skipped, aborted or
+restored from the History section. Refresh re-reads on open, on window focus,
+and when the agent finishes a turn.
 
 ![History section with the commit action menu](media/history.webp)
 
 **The agent as a collaborator.** Review changes, Explain diff, Draft commit
-message, and Resolve in this session send the change set to the current
-session — file list, counts, and the diff itself, truncated to fit the prompt
-budget and always naming how much was left out.
+message, Resolve, and the history and conflict actions all open the same
+chooser first: send to **this session** or start a **new session**, with the
+file list (or commit count), the checkout and branch, and the exact prompt
+shown before anything is submitted. Sensitive-looking files are left out unless
+you tick them, the payload is truncated to the prompt budget and always names
+how much was left out, and a finished answer is offered back as a commit
+message only when the repository has not moved since it was asked.
+
+**Repository actions.** A workspace for the operations that are not a working
+tree edit: fetch (with prune), push of the current branch, stash save and
+apply, and create, rename or delete a branch. Each one previews what it will do
+and what it will fetch, push or drop first; a non-fast-forward push or an
+unmerged branch delete needs a second, explicit confirmation.
 
 **Honest failure states.** No git on PATH, git too old, not a repository, a
 bare repository, permission denied, a missing commit identity, or another git
@@ -102,9 +137,15 @@ dsh plugin --profile <name> add @dsh-next/dsh-next-git
 
 - Requires git 2.31 or newer. Without git, or outside a repository, the tab
   explains what to do rather than failing to open.
-- Whole files are the staging unit; there is no per-hunk staging.
-- Rebase, cherry-pick series, and anything that rewrites history are never
-  one-click — the panel offers the non-rewriting set only.
+- You can stage or unstage individual hunks from a file's diff, and fall back
+  to the whole file when a hunk cannot be represented exactly.
+- History rewrites (squash, fixup, reorder, reword) are planned, previewed and
+  journaled, and refuse merge commits, non-contiguous selections and other
+  topologies they cannot replay exactly. A published-history rewrite needs an
+  explicit acknowledgment; nothing is pushed for you.
+- Setup commands and copied files are per-create decisions. The plugin never
+  runs `.worktrees.json` or copies `.worktreeinclude` on its own, and a copy
+  never follows a symbolic link or replaces a file that is already there.
 - Worktree sessions: scope inheritance for skills and Claude plugins is not
   part of this plugin.
 - Contributors: see [CONTRIBUTING.md](https://github.com/dsh-next/dsh-next-plugins/blob/main/CONTRIBUTING.md).

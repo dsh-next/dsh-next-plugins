@@ -22,7 +22,7 @@ export interface PreflightInput {
   readonly action: PreflightAction
   /** Operation in progress, or null when at rest. */
   readonly operation: OperationKind | null
-  /** Dirty tracked paths (unstaged changes). */
+  /** Dirty tracked paths, including staged and unstaged changes. */
   readonly modified: readonly string[]
   /** Untracked paths. */
   readonly untracked: readonly string[]

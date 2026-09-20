@@ -15,8 +15,12 @@ export interface OperationMarkers {
   readonly mergeHead: string | null
   /** `rebase-merge/` exists (interactive or merge-backend rebase). */
   readonly rebaseMerge: boolean
-  /** `rebase-apply/` exists (am-style rebase). */
+  /** `rebase-apply/` exists (apply-backend rebase or git am). */
   readonly rebaseApply: boolean
+  /** `rebase-apply/applying` exists: standalone git am, not rebase. */
+  readonly rebaseApplyApplying?: boolean
+  /** `rebase-apply/rebasing` exists: apply-backend rebase. */
+  readonly rebaseApplyRebasing?: boolean
   /** `CHERRY_PICK_HEAD` content, or null when absent. */
   readonly cherryPickHead: string | null
   /** `REVERT_HEAD` content, or null when absent. */
@@ -45,11 +49,15 @@ export function atRestMarkers(): OperationMarkers {
  *
  * Precedence follows git's own: a rebase directory outranks the others
  * because `git rebase` leaves `CHERRY_PICK_HEAD` from the conflicted pick
- * it is mid-way through. `am` is reported as `rebase`, which is what the
- * user's Continue/Abort controls do anyway.
+ * it is mid-way through. Standalone git am is identified by its applying
+ * marker; older collectors without that evidence retain the rebase fallback.
  */
 export function operationKindOf(markers: OperationMarkers): OperationKind | null {
-  if (markers.rebaseMerge || markers.rebaseApply) return 'rebase'
+  if (markers.rebaseMerge) return 'rebase'
+  if (markers.rebaseApply) {
+    if (markers.rebaseApplyApplying && !markers.rebaseApplyRebasing) return 'am'
+    return 'rebase'
+  }
   if (markers.mergeHead !== null) return 'merge'
   if (markers.cherryPickHead !== null) return 'cherry-pick'
   if (markers.revertHead !== null) return 'revert'

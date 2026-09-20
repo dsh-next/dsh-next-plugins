@@ -1,4 +1,4 @@
-import { readFileSync, existsSync, rmSync, writeFileSync } from 'node:fs'
+import { readFileSync, existsSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createFixture, createNonRepository, MAIN_BRANCH, type GitFixture } from './git-fixture.ts'
@@ -311,7 +311,7 @@ describe('history contract', () => {
     // `git log` fails with no commits; the service must not throw for a read.
     const fixture = createFixture('unborn')
     const service = serviceFor(fixture)
-    await expect(service.history({ cwd: fixture.dir })).rejects.toBeInstanceOf(GitError)
+    expect(await service.history({ cwd: fixture.dir })).toEqual({ commits: [], lanes: [], hasMore: false })
   })
 })
 
@@ -563,18 +563,29 @@ describe('branch operations', () => {
 })
 
 describe('worktree lifecycle', () => {
-  it('creates a worktree, hides it locally, and copies .worktreeinclude', async () => {
+  it('creates a worktree without running project commands or copying files', async () => {
     const fixture = createFixture('clean')
     fixture.write('.worktreeinclude', '# local files\n.env\nmissing.txt\n')
+    fixture.write('.worktrees.json', JSON.stringify({ 'setup-worktree': ['echo one'] }))
     fixture.write('.env', 'SECRET=1\n')
-    const service = serviceFor(fixture)
+    const ran: string[] = []
+    const setupExec: SetupExec = async () => {
+      ran.push('step')
+      return { code: 0, output: 'ok' }
+    }
+    const service = serviceFor(fixture, { setupExec })
     const result = await service.worktreeAdd({ cwd: fixture.dir, name: 'My Feature' })
     expect(result.plan.slug).toBe('my-feature')
     expect(result.plan.branch).toBe('dsh-git/my-feature')
     expect(result.plan.path).toBe(join(fixture.dir, '.worktrees', 'my-feature'))
+    expect(result.plan.setup).toEqual([])
     expect(result.state.worktrees.map((worktree) => worktree.slug)).toContain('my-feature')
-    expect(existsSync(join(result.plan.path, '.env'))).toBe(true)
+    // The declaration is inert until it is approved, in either direction.
+    expect(ran).toEqual([])
+    expect(result.copied).toEqual([])
+    expect(existsSync(join(result.plan.path, '.env'))).toBe(false)
     expect(existsSync(join(result.plan.path, 'missing.txt'))).toBe(false)
+    expect(result.notice).toBe('setup-skipped')
     // Local-only ignore, never the committed .gitignore.
     expect(readFileSync(join(fixture.gitDir, 'info', 'exclude'), 'utf8')).toContain('.worktrees/')
     expect(existsSync(join(fixture.dir, '.gitignore'))).toBe(false)
@@ -582,7 +593,46 @@ describe('worktree lifecycle', () => {
     expect(fixture.gitOk(['status', '--porcelain'])).not.toContain('.worktrees/')
   })
 
-  it('runs .worktrees.json setup and reports it', async () => {
+  it('previews the resolved setup and applies only the approval given', async () => {
+    const fixture = createFixture('clean')
+    fixture.write('.worktrees.json', JSON.stringify({ 'setup-worktree': ['echo one', 'echo two'] }))
+    fixture.write('.worktreeinclude', '# comment\nmissing.txt\n.env\n')
+    fixture.write('.env', 'SECRET=1\n')
+    const ran: string[] = []
+    const setupExec: SetupExec = async () => {
+      ran.push('step')
+      return { code: 0, output: 'ok' }
+    }
+    const service = serviceFor(fixture, { setupExec })
+    const preview = await service.worktreeSetup({ cwd: fixture.dir, name: 'setup-happy' })
+    expect(preview.root).toBe(fixture.dir)
+    expect(preview.slug).toBe('setup-happy')
+    expect(preview.path).toBe(join(fixture.dir, '.worktrees', 'setup-happy'))
+    expect(preview.steps.map((step) => (step.kind === 'command' ? step.command : 'sh ' + step.path)))
+      .toEqual(['echo one', 'echo two'])
+    expect(preview.includePaths).toEqual(['missing.txt', '.env'])
+    expect(preview.baseOid).toMatch(/^[0-9a-f]{40}$/)
+    expect(preview.version).not.toBe('')
+    expect(preview.notice).toBeNull()
+    // A preview writes nothing.
+    expect(existsSync(preview.path)).toBe(false)
+
+    const result = await service.worktreeAdd({
+      cwd: fixture.dir,
+      name: 'setup-happy',
+      copyApproved: true,
+      expectedSetupVersion: preview.version,
+    })
+    expect(ran).toEqual([])
+    expect(result.plan.setup).toEqual([])
+    expect(result.copied).toEqual(['.env'])
+    expect(existsSync(join(result.plan.path, '.env'))).toBe(true)
+    expect(existsSync(join(result.plan.path, 'missing.txt'))).toBe(false)
+    expect(result.setup).toEqual({ ran: 0, failed: false, output: '' })
+    expect(result.notice).toBe('setup-skipped')
+  })
+
+  it('runs approved .worktrees.json setup and reports it', async () => {
     const fixture = createFixture('clean')
     fixture.write('.worktrees.json', JSON.stringify({ 'setup-worktree': ['echo one', 'echo two'] }))
     const calls: string[] = []
@@ -591,12 +641,65 @@ describe('worktree lifecycle', () => {
       return { code: 0, output: 'ok' }
     }
     const service = serviceFor(fixture, { setupExec })
-    const result = await service.worktreeAdd({ cwd: fixture.dir, name: 'setup-happy' })
+    const preview = await service.worktreeSetup({ cwd: fixture.dir, name: 'setup-happy' })
+    const result = await service.worktreeAdd({
+      cwd: fixture.dir,
+      name: 'setup-happy',
+      setupApproved: true,
+      expectedSetupVersion: preview.version,
+    })
     expect(calls).toHaveLength(2)
     expect(calls[0]).toContain('command:echo one')
+    expect(result.plan.setup).toEqual(preview.steps)
     expect(result.setup).toEqual({ ran: 2, failed: false, output: 'ok' })
     expect(result.notice).toBeNull()
     expect(service.setupReportFor(result.plan.path).ran).toBe(2)
+  })
+
+  it('refuses an approval recorded against a different setup definition', async () => {
+    const fixture = createFixture('clean')
+    fixture.write('.worktrees.json', JSON.stringify({ 'setup-worktree': ['echo safe'] }))
+    const ran: string[] = []
+    const setupExec: SetupExec = async () => {
+      ran.push('step')
+      return { code: 0, output: 'ok' }
+    }
+    const service = serviceFor(fixture, { setupExec })
+    const preview = await service.worktreeSetup({ cwd: fixture.dir, name: 'swap' })
+    // The repository changes between the preview and the approval.
+    fixture.write('.worktrees.json', JSON.stringify({ 'setup-worktree': ['echo replaced'] }))
+    await expectGitError(
+      service.worktreeAdd({
+        cwd: fixture.dir,
+        name: 'swap',
+        setupApproved: true,
+        expectedSetupVersion: preview.version,
+      }),
+      'setup-stale',
+    )
+    expect(ran).toEqual([])
+    expect(existsSync(join(fixture.dir, '.worktrees', 'swap'))).toBe(false)
+  })
+
+  it('never overwrites or follows an included path', async () => {
+    const fixture = createFixture('clean')
+    const tracked = readFileSync(join(fixture.dir, 'README.md'), 'utf8')
+    fixture.write('.worktreeinclude', 'README.md\nsecret-link.txt\n')
+    fixture.write('README.md', 'local edit\n')
+    fixture.write('.env.local', 'SECRET=1\n')
+    symlinkSync(join(fixture.dir, '.env.local'), join(fixture.dir, 'secret-link.txt'))
+    const service = serviceFor(fixture)
+    const preview = await service.worktreeSetup({ cwd: fixture.dir, name: 'copy-guard' })
+    const result = await service.worktreeAdd({
+      cwd: fixture.dir,
+      name: 'copy-guard',
+      copyApproved: true,
+      expectedSetupVersion: preview.version,
+    })
+    expect(result.copied).toEqual([])
+    expect(readFileSync(join(result.plan.path, 'README.md'), 'utf8')).toBe(tracked)
+    expect(existsSync(join(result.plan.path, 'secret-link.txt'))).toBe(false)
+    expect(result.notice).toBe('copy-skipped')
   })
 
   it('reports a failed setup without failing the create', async () => {
@@ -604,7 +707,13 @@ describe('worktree lifecycle', () => {
     fixture.write('.worktrees.json', JSON.stringify({ 'setup-worktree': ['false'] }))
     const setupExec: SetupExec = async () => ({ code: 1, output: 'boom' })
     const service = serviceFor(fixture, { setupExec })
-    const result = await service.worktreeAdd({ cwd: fixture.dir, name: 'setup-broken' })
+    const preview = await service.worktreeSetup({ cwd: fixture.dir, name: 'setup-broken' })
+    const result = await service.worktreeAdd({
+      cwd: fixture.dir,
+      name: 'setup-broken',
+      setupApproved: true,
+      expectedSetupVersion: preview.version,
+    })
     expect(result.setup).toEqual({ ran: 1, failed: true, output: 'boom' })
     expect(result.notice).toBe('setup-failed')
     expect(existsSync(result.plan.path)).toBe(true)
@@ -615,6 +724,9 @@ describe('worktree lifecycle', () => {
     fixture.write('.worktrees.json', '{ not json')
     const setupExec: SetupExec = async () => ({ code: 0, output: '' })
     const service = serviceFor(fixture, { setupExec })
+    const preview = await service.worktreeSetup({ cwd: fixture.dir, name: 'setup-invalid' })
+    expect(preview.steps).toEqual([])
+    expect(preview.notice).toBe('setup-invalid')
     const result = await service.worktreeAdd({ cwd: fixture.dir, name: 'setup-invalid' })
     expect(result.notice).toBe('setup-invalid')
     expect(result.setup.ran).toBe(0)
@@ -740,6 +852,8 @@ describe('worktree lifecycle', () => {
     const fixture = createFixture('clean')
     fixture.gitOk(['branch', 'wk-manual'])
     const target = fixture.addWorktreeOnBranch('manual', 'wk-manual')
+    // Keep the primary checkout clean for the host's enforced merge preconditions.
+    fixture.write('.git/info/exclude', '.worktrees/\n')
     fixture.gitOk(['-C', target, 'commit', '-q', '--allow-empty', '-m', 'feat: manual work'])
     const service = serviceFor(fixture)
     // The old shape looked for a `dsh-git/manual` branch; the real one is `wk-manual`.

@@ -190,6 +190,40 @@ describe('cancellation registry', () => {
   })
 })
 
+describe('cancellation ownership', () => {
+  it('does not let an old request clean up its replacement', () => {
+    const registry = new CancellationRegistry()
+    const first = registry.begin('commit')
+    const second = registry.begin('commit')
+    registry.end('commit', first)
+    expect(registry.cancel('commit')).toBe(true)
+    expect(second.aborted).toBe(true)
+  })
+
+  it('isolates equal request ids by session and refuses unscoped cancellation', () => {
+    const registry = new CancellationRegistry()
+    const a = registry.begin('commit', 'A')
+    const b = registry.begin('commit', 'B')
+    expect(a.aborted).toBe(false)
+    registry.end('commit', a, 'A')
+    expect(registry.cancel('commit', 'A')).toBe(false)
+    expect(registry.cancel('commit')).toBe(false)
+    expect(registry.cancel('commit', 'B')).toBe(true)
+    expect(b.aborted).toBe(true)
+    expect(a.aborted).toBe(false)
+  })
+
+  it('preserves legacy end while scoped identity cleanup only removes its owner', () => {
+    const registry = new CancellationRegistry()
+    registry.begin('legacy')
+    registry.end('legacy')
+    expect(registry.cancel('legacy')).toBe(false)
+    const owned = registry.begin('owned', 'session')
+    registry.end('owned', owned, 'session')
+    expect(registry.cancel('owned', 'session')).toBe(false)
+  })
+})
+
 describe('git child environment', () => {
   it('disables prompts, pager and editor', () => {
     const env = gitEnv({ PATH: '/usr/bin', GIT_PAGER: 'less' })
@@ -199,6 +233,23 @@ describe('git child environment', () => {
     expect(env.GIT_EDITOR).toBe('true')
     expect(env.GIT_OPTIONAL_LOCKS).toBe('0')
     expect(env.LC_ALL).toBe('C')
+  })
+
+  it('does not inherit pathspec modes that reinterpret explicit literal paths', () => {
+    const env = gitEnv({ GIT_LITERAL_PATHSPECS: '1', GIT_GLOB_PATHSPECS: '1', GIT_NOGLOB_PATHSPECS: '1', GIT_ICASE_PATHSPECS: '1' })
+    for (const key of ['GIT_LITERAL_PATHSPECS', 'GIT_GLOB_PATHSPECS', 'GIT_NOGLOB_PATHSPECS', 'GIT_ICASE_PATHSPECS']) {
+      expect(env[key]).toBeUndefined()
+    }
+  })
+
+  it('overrides inherited askpass and SSH commands with noninteractive hardening', () => {
+    const env = gitEnv({ GIT_ASKPASS: 'prompt', SSH_ASKPASS: 'prompt', SSH_ASKPASS_REQUIRE: 'force', GIT_SSH: 'custom', GIT_SSH_COMMAND: 'unsafe', GIT_SSH_VARIANT: 'plink' })
+    expect(env.GIT_ASKPASS).toBe('true')
+    expect(env.SSH_ASKPASS).toBe('true')
+    expect(env.SSH_ASKPASS_REQUIRE).toBe('never')
+    expect(env.GIT_SSH_COMMAND).toBe('ssh -o BatchMode=yes -o StrictHostKeyChecking=yes')
+    expect(env.GIT_SSH_VARIANT).toBe('ssh')
+    expect(env.GIT_SSH).toBeUndefined()
   })
 
   it('drops undefined values', () => {

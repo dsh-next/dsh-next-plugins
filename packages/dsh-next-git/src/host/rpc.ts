@@ -12,16 +12,31 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { GitService } from './git-service.ts'
-import { isGitError } from './git-runner.ts'
+import { contextFingerprint } from './context-fingerprint.ts'
+import { GitError, isGitError } from './git-runner.ts'
 import type { DegradedState, DiffSide, GitFailure, PreflightAction } from '../core/types.ts'
+import type { HistoryAction } from '../core/history-plan.ts'
+import type { RepositoryActionRequest } from '../core/repository-actions.ts'
 
 /** Route the client posts to. */
 export const RPC_PATH = '/dsh-next-git/rpc'
 
 /** Largest request body accepted. */
-const MAX_BODY_BYTES = 1 << 20
+const MAX_BODY_BYTES = 16 << 20
 
 type Handler = (args: Record<string, unknown>) => unknown | Promise<unknown>
+
+function repositoryRequest(input: unknown): RepositoryActionRequest {
+  const value = record(input)
+  const action = value.action
+  const keys = action === 'fetch' ? ['action', 'remote', 'prune'] : action === 'push' ? ['action', 'remote', 'branch'] : action === 'stash-save' ? ['action', 'includeUntracked', 'message'] : action === 'stash-apply' ? ['action', 'stashOid'] : []
+  if (keys.length === 0 || Object.keys(value).some(key => !keys.includes(key))) throw new GitError({ code: 'invalid-name', detail: 'Unknown repository action or option' })
+  if (action === 'fetch' && typeof value.remote === 'string' && typeof value.prune === 'boolean') return { action, remote: value.remote, prune: value.prune }
+  if (action === 'push' && typeof value.remote === 'string' && typeof value.branch === 'string') return { action, remote: value.remote, branch: value.branch }
+  if (action === 'stash-save' && typeof value.includeUntracked === 'boolean' && (value.message === undefined || typeof value.message === 'string')) return { action, includeUntracked: value.includeUntracked, ...(value.message === undefined ? {} : { message: value.message }) }
+  if (action === 'stash-apply' && typeof value.stashOid === 'string') return { action, stashOid: value.stashOid }
+  throw new GitError({ code: 'invalid-name', detail: 'Invalid repository action arguments' })
+}
 
 function record(input: unknown): Record<string, unknown> {
   return input !== null && typeof input === 'object' && !Array.isArray(input)
@@ -39,7 +54,8 @@ function optStr(input: unknown): string | undefined {
 
 function strList(input: unknown): string[] {
   if (!Array.isArray(input)) return []
-  return input.filter((item): item is string => typeof item === 'string' && item !== '')
+  const strings = input.filter((item): item is string => typeof item === 'string' && item !== '')
+  return strings.length === input.length ? strings : []
 }
 
 function num(input: unknown): number | undefined {
@@ -48,6 +64,40 @@ function num(input: unknown): number | undefined {
 
 function bool(input: unknown): boolean {
   return input === true
+}
+
+/**
+ * Parse a worktree create/preview request.
+ *
+ * The approval fields are copied only when the client sent an explicit
+ * `true`: an absent or malformed value means "not approved", which is the
+ * safe reading for a field that authorizes running project commands.
+ */
+function worktreeRequest(input: Record<string, unknown>): {
+  mode: 'new' | 'ref'
+  name: string
+  ref?: string
+  refKind?: 'branch' | 'remote' | 'tag'
+  base?: string
+  setupApproved?: boolean
+  copyApproved?: boolean
+  expectedSetupVersion?: string
+} {
+  const kind = str(input.refKind)
+  const refKind = kind === 'branch' || kind === 'remote' || kind === 'tag' ? kind : undefined
+  const ref = optStr(input.ref)
+  const base = optStr(input.base)
+  const version = optStr(input.expectedSetupVersion)
+  return {
+    mode: str(input.mode) === 'ref' ? 'ref' : 'new',
+    name: str(input.name),
+    ...(ref === undefined ? {} : { ref }),
+    ...(refKind === undefined ? {} : { refKind }),
+    ...(base === undefined ? {} : { base }),
+    ...(bool(input.setupApproved) ? { setupApproved: true } : {}),
+    ...(bool(input.copyApproved) ? { copyApproved: true } : {}),
+    ...(version === undefined ? {} : { expectedSetupVersion: version }),
+  }
 }
 
 /**
@@ -89,6 +139,11 @@ export function registerRpc(ctx: Context, service: GitService): void {
         ...source(a),
         ...(num(a.limit) === undefined ? {} : { limit: num(a.limit) }),
         ...(num(a.skip) === undefined ? {} : { skip: num(a.skip) }),
+        ...(optStr(a.ref) === undefined ? {} : { ref: optStr(a.ref) }),
+        ...(optStr(a.search) === undefined ? {} : { search: optStr(a.search) }),
+        ...(optStr(a.author) === undefined ? {} : { author: optStr(a.author) }),
+        ...(optStr(a.since) === undefined ? {} : { since: optStr(a.since) }),
+        ...(optStr(a.until) === undefined ? {} : { until: optStr(a.until) }),
       })
     },
     preflight: (args) => {
@@ -119,26 +174,30 @@ export function registerRpc(ctx: Context, service: GitService): void {
         ...(optStr(a.requestId) === undefined ? {} : { requestId: optStr(a.requestId) }),
       })
     },
-    cancelCommit: (args) => ({ cancelled: service.cancel(str(record(args).requestId)) }),
+    commitAll: (args) => {
+      const a = record(args)
+      const paths = strList(a.paths)
+      return service.commitAll({
+        ...source(a),
+        message: str(a.message),
+        amend: bool(a.amend),
+        ...(a.paths === undefined ? {} : { paths }),
+        ...(optStr(a.requestId) === undefined ? {} : { requestId: optStr(a.requestId) }),
+      })
+    },
+    cancelCommit: (args) => ({ cancelled: service.cancel(str(args.requestId), optStr(args.sessionId)) }),
     draftMessage: (args) => service.draftMessage(source(args)),
     agentFiles: (args) => {
       const a = record(args)
       const paths = strList(a.paths)
-      return service.agentFiles({ ...source(a), ...(paths.length === 0 ? {} : { paths }) })
-    },
-    worktreeAdd: (args) => {
-      const a = record(args)
-      const kind = str(a.refKind)
-      const refKind = kind === 'branch' || kind === 'remote' || kind === 'tag' ? kind : undefined
-      return service.worktreeAdd({
-        ...source(a),
-        mode: str(a.mode) === 'ref' ? 'ref' : 'new',
-        name: str(a.name),
-        ...(optStr(a.ref) === undefined ? {} : { ref: optStr(a.ref) }),
-        ...(refKind === undefined ? {} : { refKind }),
-        ...(optStr(a.base) === undefined ? {} : { base: optStr(a.base) }),
+      return service.agentFiles({ ...source(a), ...(a.paths === undefined ? {} : { paths }),
+        ...(a.side === 'staged' || a.side === 'unstaged' ? { side: a.side } : {}),
+        ...(optStr(a.verb) === undefined ? {} : { verb: optStr(a.verb) }),
+        includeSensitive: a.includeSensitive === true,
       })
     },
+    worktreeSetup: (args) => service.worktreeSetup({ ...source(args), ...worktreeRequest(record(args)) }),
+    worktreeAdd: (args) => service.worktreeAdd({ ...source(args), ...worktreeRequest(record(args)) }),
     worktreeRemove: (args) => {
       const a = record(args)
       return service.worktreeRemove({
@@ -180,14 +239,74 @@ export function registerRpc(ctx: Context, service: GitService): void {
     },
     branchRename: (args) => {
       const a = record(args)
-      return service.branchRename({ ...source(a), from: str(a.from), to: str(a.to) })
+      return service.branchRename({ ...source(a), from: str(a.from), to: str(a.to), ...(optStr(a.expectedOid) === undefined ? {} : { expectedOid: optStr(a.expectedOid) }) })
     },
     branchDelete: (args) => {
       const a = record(args)
-      return service.branchDelete({ ...source(a), name: str(a.name), force: bool(a.force) })
+      return service.branchDelete({ ...source(a), name: str(a.name), force: bool(a.force), ...(optStr(a.expectedOid) === undefined ? {} : { expectedOid: optStr(a.expectedOid) }) })
     },
+    repositoryInventory: args => service.repositoryActions.inventory(source(args)),
+    previewRepositoryAction: args => service.repositoryActions.preview(source(args), repositoryRequest(args.request)),
+    executeRepositoryAction: args => {
+      if (args.approved !== true) throw new GitError({ code: 'invalid-name', detail: 'Approve the action preview first' })
+      return service.repositoryActions.execute(source(args), { request: repositoryRequest(args.request), version: str(args.version), approved: true })
+    },
+    getHunks: args => {
+      if (args.side !== 'staged' && args.side !== 'unstaged') throw new GitError({ code: 'invalid-name', detail: 'Choose a valid index side' })
+      return service.repositoryActions.inspectHunks(source(args), { path: str(args.path), side: args.side })
+    },
+    applyHunks: args => {
+      if (args.approved !== true || args.side !== 'staged' && args.side !== 'unstaged') throw new GitError({ code: 'invalid-name', detail: 'Approve selected hunks on a valid index side' })
+      return service.repositoryActions.applyHunks(source(args), { path: str(args.path), side: args.side, version: str(args.version), hunkIds: strList(args.hunkIds), approved: true })
+    },
+    getCommitDetails: (args) => service.historyRead.inspect(source(args), str(args.hash)),
+    getCommitDiff: (args) => service.historyRead.diff(source(args), str(args.hash), str(args.path), optStr(args.oldPath)),
+    compareCommits: (args) => service.historyRead.compare(source(args), str(args.from), str(args.to)),
+    historyAgentContext: async (args) => {
+      const result = { ...(await service.state(source(args))), ...(await service.historyRead.context(source(args), strList(args.commits))) }
+      return { ...result, fingerprint: contextFingerprint(result) }
+    },
+    previewHistory: (args) => {
+      const action = str(args.action)
+      if (!['cherry-pick', 'revert', 'squash', 'fixup', 'reorder', 'reword'].includes(action)) throw new GitError({ code: 'invalid-name', detail: 'Unknown history action' })
+      return service.historyOperations.preview(source(args), { action: action as HistoryAction, commits: strList(args.commits),
+        ...(args.order === undefined ? {} : { order: strList(args.order) }),
+        ...(args.message === undefined ? {} : { message: str(args.message) }),
+      })
+    },
+    executeHistory: (args) => {
+      if (args.approved !== true) throw new GitError({ code: 'invalid-name', detail: 'Approve the preview before applying it' })
+      return service.historyOperations.execute(source(args), str(args.operationId), { approved: true, acknowledgePublishedHistory: args.acknowledgePublishedHistory === true })
+    },
+    historyOperationStatus: (args) => service.historyOperations.status(source(args), str(args.operationId)),
+    recoverHistory: (args) => {
+      const id = str(args.operationId)
+      if (args.action === 'cancel' || args.action === 'continue' || args.action === 'skip') return service.historyOperations.recover(source(args), id, { action: args.action })
+      if (args.action === 'abort' && args.discardResolutionEdits === true) return service.historyOperations.recover(source(args), id, { action: 'abort', discardResolutionEdits: true })
+      if (args.action === 'restore' && args.approved === true) return service.historyOperations.recover(source(args), id, { action: 'restore', approved: true })
+      throw new GitError({ code: 'invalid-name', detail: 'Unknown or unapproved history recovery action' })
+    },
+    getConflict: (args) => service.conflicts.inspect(source(args), str(args.path)),
+    saveConflict: (args) => {
+      if (typeof args.content !== 'string') throw new GitError({ code: 'invalid-name', detail: 'Resolution content must be text' })
+      return service.conflicts.save(source(args), { path: str(args.path), expectedVersion: str(args.expectedVersion), content: args.content })
+    },
+    chooseConflict: (args) => {
+      const side = str(args.side)
+      if (side !== 'base' && side !== 'current' && side !== 'incoming' && side !== 'delete') {
+        throw new GitError({ code: 'invalid-name', detail: 'Unknown conflict choice' })
+      }
+      return service.conflicts.choose(source(args), { path: str(args.path), expectedVersion: str(args.expectedVersion), side })
+    },
+    markConflictResolved: (args) => service.conflicts.markResolved(source(args), {
+      path: str(args.path), expectedVersion: str(args.expectedVersion),
+    }),
     operationContinue: (args) => service.operationContinue(source(args)),
     operationAbort: (args) => service.operationAbort(source(args)),
+    operationSkip: (args) => {
+      if (args.approved !== true) throw new GitError({ code: 'invalid-name', detail: 'Confirm skipping this step first' })
+      return service.operationSkip(source(args))
+    },
     updateFromBranch: (args) => service.updateFromBranch(source(args)),
     revert: (args) => {
       const a = record(args)
@@ -214,19 +333,25 @@ export function registerRpc(ctx: Context, service: GitService): void {
         res.end('method not allowed')
         return
       }
-      let raw = ''
+      const chunks: Buffer[] = []
+      let bytes = 0
       req.on('data', (chunk: Buffer | string) => {
-        raw += chunk
-        if (raw.length > MAX_BODY_BYTES) {
+        if (res.writableEnded) return
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+        bytes += buffer.length
+        if (bytes > MAX_BODY_BYTES) {
           res.writeHead(413)
           res.end()
           req.destroy()
+          return
         }
+        chunks.push(buffer)
       })
       req.on('end', () => {
         if (res.writableEnded) return
         let body: Record<string, unknown>
         try {
+          const raw = Buffer.concat(chunks).toString('utf8')
           body = record(JSON.parse(raw === '' ? '{}' : raw))
         } catch {
           res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' })

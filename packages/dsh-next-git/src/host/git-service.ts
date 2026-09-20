@@ -6,9 +6,9 @@
  * - `resolveRepo` finds the repository a session runs in, and classifies the
  *   ways there may not be one (no git, not a repository, bare, denied).
  * - The read methods (`state`, `diff`, `history`) never mutate.
- * - The write methods assume their preflight already ran; each is wrapped in
- *   the runner's per-repository mutation lock, so the panel and the session's
- *   own agent can never interleave an index update.
+ * - Writes recheck host safety conditions under a common-repository queue.
+ *   This serializes plugin requests, not arbitrary external Git processes;
+ *   Git's index lock and ref checks remain the final protection against those.
  *
  * Parsing lives in `core/`; this file runs processes and assembles envelopes.
  */
@@ -58,8 +58,16 @@ import {
   worktreePathFor,
   type WorktreeEnrichment,
 } from '../core/worktree.ts'
-import { GitError, GitRunner, STATUS_TIMEOUT_MS, WRITE_TIMEOUT_MS, type CancellationRegistry } from './git-runner.ts'
+import { GitError, GitProcessShutdownError, GitRunner, STATUS_TIMEOUT_MS, WRITE_TIMEOUT_MS, type CancellationRegistry } from './git-runner.ts'
 import type { FsPorts } from './fs-adapter.ts'
+import { ConflictService } from './conflict-service.ts'
+import { HistoryOperations } from './history-operations.ts'
+import { HistoryRead } from './history-read.ts'
+import { captureIndexSnapshot, restoreIndexSnapshot } from './index-rollback.ts'
+import { contextFingerprint } from './context-fingerprint.ts'
+import { isSensitiveAgentPath } from '../core/agent-verbs.ts'
+import type { WorktreeCreateOptions, WorktreeSetupPreview } from '../core/worktree-create.ts'
+import { RepositoryActions } from './repository-actions.ts'
 import { runSetupSteps, type SetupExec } from './setup-exec.ts'
 import type {
   BranchInfo,
@@ -124,6 +132,14 @@ export interface SourceRef {
   readonly cwd?: string
 }
 
+/** Host commit inputs; paths restrict bulk staging or a path-specific commit. */
+export interface CommitInput extends SourceRef {
+  readonly message: string
+  readonly amend?: boolean
+  readonly paths?: readonly string[]
+  readonly requestId?: string
+}
+
 /**
  * The service.
  *
@@ -134,7 +150,17 @@ export class GitService {
   /** Reports of the last setup run per worktree path. */
   private readonly setupReports = new Map<string, SetupReport>()
 
-  constructor(private readonly ports: GitServicePorts) {}
+  readonly conflicts: ConflictService
+  readonly historyOperations: HistoryOperations
+  readonly historyRead: HistoryRead
+  readonly repositoryActions: RepositoryActions
+
+  constructor(private readonly ports: GitServicePorts) {
+    this.conflicts = new ConflictService({ runner: ports.runner, resolveRepo: (source) => this.repoFor(source) })
+    this.historyOperations = new HistoryOperations({ runner: ports.runner, resolveRepo: (source) => this.repoFor(source) })
+    this.historyRead = new HistoryRead({ runner: ports.runner, resolveRepo: (source) => this.repoFor(source) })
+    this.repositoryActions = new RepositoryActions({ runner: ports.runner, resolveRepo: (source) => this.repoFor(source) })
+  }
 
   /* ----------------------------------------------------------- discovery */
 
@@ -207,7 +233,8 @@ export class GitService {
       ? gitDirOutcome.stdout.trim()
       : join(toplevel, '.git')
 
-    const root = basename(commonDir) === '.git' ? dirname(commonDir) : commonDir
+    const worktrees = await this.ports.runner.runOk(['worktree', 'list', '--porcelain'], toplevel, { signal })
+    const root = parseWorktreeList(worktrees)[0]?.path ?? (basename(commonDir) === '.git' ? dirname(commonDir) : commonDir)
     return { root, toplevel, gitDir, commonDir, cwd }
   }
 
@@ -255,7 +282,7 @@ export class GitService {
     const statusRaw = await this.ports.runner.runOk(
       // `--branch` is what makes porcelain v2 emit the `# branch.*` headers.
       ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all', '--ignored=matching'],
-      repo.cwd,
+      repo.toplevel,
       { timeoutMs: STATUS_TIMEOUT_MS, ...(signal === undefined ? {} : { signal }) },
     )
     const report = parsePorcelainV2(statusRaw)
@@ -269,7 +296,7 @@ export class GitService {
 
     const markers = await this.readOperationMarkers(repo.gitDir)
     const operation = detectOperation(markers, report.entries)
-    const branches = await this.readBranches(repo.cwd, signal)
+    const branches = await this.readBranches(repo.toplevel, signal)
     const worktreeBase = resolveWorktreeBase({
       defaultBranch: await this.defaultBranch(repo, signal),
       primaryBranch: await this.primaryBranch(repo, signal),
@@ -281,7 +308,7 @@ export class GitService {
     const identity = await this.readIdentity(repo.toplevel, signal)
 
     return {
-      root: repo.root,
+      root: repo.toplevel,
       gitDir: repo.gitDir,
       bare: false,
       head: report.head,
@@ -304,17 +331,18 @@ export class GitService {
     const repo = await this.repoFor(input, options.signal)
     const side = input.side
     const path = input.path
+    validatePaths(input.oldPath === undefined ? [path] : [input.oldPath, path])
     const base = side === 'staged' ? ['diff', '--cached'] : ['diff']
     const signalArgs = options.signal === undefined ? {} : { signal: options.signal }
     // A rename needs both paths in the pathspec: limiting to the new path
     // makes git drop rename detection and report a plain add instead.
-    const pathspec = input.oldPath === undefined ? ['--', path] : ['--', input.oldPath, path]
+    const pathspec = ['--', ...(input.oldPath === undefined ? [path] : [input.oldPath, path]).map(literalPath)]
 
-    const patch = await this.ports.runner.runSoft([...base, ...pathspec], repo.cwd, {
+    const patch = await this.ports.runner.runSoft([...base, ...pathspec], repo.toplevel, {
       timeoutMs: STATUS_TIMEOUT_MS,
       ...signalArgs,
     })
-    const numstat = await this.ports.runner.runSoft([...base, '--numstat', '-z', ...pathspec], repo.cwd, {
+    const numstat = await this.ports.runner.runSoft([...base, '--numstat', '-z', ...pathspec], repo.toplevel, {
       timeoutMs: STATUS_TIMEOUT_MS,
       ...signalArgs,
     })
@@ -337,37 +365,59 @@ export class GitService {
   /** Synthesize the diff of an untracked file, or null when it is not untracked. */
   private async syntheticUntracked(repo: RepoRef, path: string, signal?: AbortSignal): Promise<DiffFile | null> {
     const statusRaw = await this.ports.runner.runSoft(
-      ['status', '--porcelain=v2', '-z', '--untracked-files=all', '--', path],
-      repo.cwd,
+      ['status', '--porcelain=v2', '-z', '--untracked-files=all', '--', literalPath(path)],
+      repo.toplevel,
       { timeoutMs: STATUS_TIMEOUT_MS, ...(signal === undefined ? {} : { signal }) },
     )
     if (statusRaw === null) return null
     const entry = parsePorcelainV2(statusRaw).entries.find((candidate) => candidate.path === path)
     if (entry === undefined || !entry.untracked) return null
-    const absolute = isAbsolute(path) ? path : join(repo.root, path)
-    const contents = await this.ports.fs.readText(absolute)
-    if (contents === null) return null
-    if (contents.includes('\u0000')) return addedFileDiff(path, '', { binary: true })
-    return addedFileDiff(path, contents)
+    const content = await this.ports.fs.readWorktree(repo.toplevel, path)
+    if (content === null) return null
+    if (content.kind === 'binary') return addedFileDiff(path, '', { binary: true })
+    if (content.kind === 'oversize') return { ...addedFileDiff(path, ''), tooLarge: true, byteLimited: true, hunks: [], patch: 'File content omitted: exceeds the safe byte limit.' }
+    const diff = addedFileDiff(path, content.text)
+    return content.kind === 'symlink' ? { ...diff, patch: diff.patch.replace('new file mode 100644', 'new file mode 120000') } : diff
   }
 
   /** A page of history with computed graph lanes. */
   async history(
-    input: SourceRef & { limit?: number; skip?: number },
+    input: SourceRef & { limit?: number; skip?: number; ref?: string; search?: string; author?: string; since?: string; until?: string },
     options: ReadOptions = {},
   ): Promise<HistoryPage> {
     const repo = await this.repoFor(input, options.signal)
-    const limit = Math.max(1, Math.min(input.limit ?? 50, 500))
-    const skip = Math.max(0, input.skip ?? 0)
+    const head = await this.ports.runner.run(['rev-parse', '--verify', 'HEAD'], repo.toplevel, options)
+    if (head.code !== 0) {
+      // Only an unborn symbolic HEAD is an empty history; other failures remain errors.
+      const status = await this.ports.runner.runOk(['status', '--porcelain=v2', '--branch', '-z'], repo.toplevel, options)
+      if (parsePorcelainV2(status).head.unborn) return buildHistory([], { limit: 1 })
+      throw new GitError(classifyGitFailure(head))
+    }
+    const revision = input.ref === undefined ? head.stdout.trim() : await this.resolveCommit(repo, input.ref)
+    const filters: string[] = ['--fixed-strings']
+    for (const [field, flag] of [['search', '--grep'], ['author', '--author']] as const) {
+      const value = input[field]?.trim()
+      if (value && value.length > 500) throw new GitError({ code: 'invalid-name', detail: 'History filter exceeds 500 characters' })
+      if (value) filters.push(flag + '=' + value)
+    }
+    for (const field of ['since', 'until'] as const) {
+      const value = input[field]
+      if (!value) continue
+      const time = Date.parse(value)
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(time) || new Date(time).toISOString().slice(0, 10) !== value) throw new GitError({ code: 'invalid-name', detail: 'Invalid history date' })
+      filters.push('--' + field + '=' + value + (field === 'since' ? 'T00:00:00Z' : 'T23:59:59Z'))
+    }
+    const limit = Math.max(1, Math.min(Math.floor(input.limit ?? 50), 500))
+    const skip = Math.max(0, Math.floor(input.skip ?? 0))
     const raw = await this.ports.runner.runOk(
-      ['log', '-z', `--pretty=format:${LOG_FORMAT}`, '-n', String(limit + 1), '--skip', String(skip)],
-      repo.cwd,
+      ['log', '-z', `--pretty=format:${LOG_FORMAT}`, '-n', String(limit + 1), '--skip', String(skip), ...filters, revision, '--'],
+      repo.toplevel,
       { timeoutMs: STATUS_TIMEOUT_MS, ...(options.signal === undefined ? {} : { signal: options.signal }) },
     )
     // One extra row is fetched so the page can say whether more exist; the
     // window itself is still exactly `limit`.
     const page = buildHistory(parseLog(raw), { limit })
-    return { ...page, commits: page.commits.slice(0, limit), lanes: page.lanes.slice(0, limit) }
+    return { ...page, anchor: revision, commits: page.commits.slice(0, limit), lanes: page.lanes.slice(0, limit) }
   }
 
   /* -------------------------------------------------------- classification */
@@ -383,9 +433,9 @@ export class GitService {
 
   /** Assemble the model's input from a read state. */
   preflightInput(state: PanelState, action: PreflightAction, target?: string): PreflightInput {
-    const modified = state.changes.unstaged
+    const modified = [...new Set([...state.changes.staged, ...state.changes.unstaged]
       .filter((entry) => entry.unmerged === undefined)
-      .map((entry) => entry.path)
+      .map((entry) => entry.path))]
     const untracked = state.changes.untracked.map((entry) => entry.path)
     const conflicts = state.changes.conflicts.map((entry) => entry.path)
     const branch = target === undefined ? undefined : state.branches.find((candidate) => candidate.name === target)
@@ -408,27 +458,28 @@ export class GitService {
   /** Stage the given paths (adds, modifications and deletions alike). */
   async stage(input: SourceRef & { paths: readonly string[] }): Promise<PanelState> {
     const repo = await this.repoFor(input)
-    if (input.paths.length === 0) throw new GitError({ code: 'path-missing', detail: 'no paths given' })
-    await this.ports.runner.mutate(repo.root, async () => {
-      const outcome = await this.ports.runner.run(['add', '--', ...input.paths], repo.cwd, {
+    validatePaths(input.paths)
+    return this.ports.runner.mutate(repo.commonDir, async () => {
+      await this.assertResolved(repo, undefined, input.paths)
+      const outcome = await this.ports.runner.run(['add', '--', ...input.paths.map(literalPath)], repo.toplevel, {
         timeoutMs: WRITE_TIMEOUT_MS,
         lockRetries: 4,
       })
       throwOnFailure(outcome)
+      return this.readState(repo, false)
     })
-    return this.readState(repo, false)
   }
 
   /** Unstage the given paths, also in a repository with no commits. */
   async unstage(input: SourceRef & { paths: readonly string[] }): Promise<PanelState> {
     const repo = await this.repoFor(input)
-    if (input.paths.length === 0) throw new GitError({ code: 'path-missing', detail: 'no paths given' })
-    await this.ports.runner.mutate(repo.root, async () => {
-      const hasHead = await this.ports.runner.ok(['rev-parse', '--verify', 'HEAD'], repo.cwd)
+    validatePaths(input.paths)
+    await this.ports.runner.mutate(repo.commonDir, async () => {
+      const hasHead = await this.ports.runner.ok(['rev-parse', '--verify', 'HEAD'], repo.toplevel)
       const args = hasHead
-        ? ['reset', '-q', 'HEAD', '--', ...input.paths]
-        : ['rm', '-r', '--cached', '--quiet', '--', ...input.paths]
-      const outcome = await this.ports.runner.run(args, repo.cwd, {
+        ? ['reset', '-q', 'HEAD', '--', ...input.paths.map(literalPath)]
+        : ['rm', '-r', '--cached', '--quiet', '--', ...input.paths.map(literalPath)]
+      const outcome = await this.ports.runner.run(args, repo.toplevel, {
         timeoutMs: WRITE_TIMEOUT_MS,
         lockRetries: 4,
       })
@@ -445,29 +496,26 @@ export class GitService {
    */
   async discard(input: SourceRef & { paths: readonly string[] }): Promise<PanelState> {
     const repo = await this.repoFor(input)
-    if (input.paths.length === 0) throw new GitError({ code: 'path-missing', detail: 'no paths given' })
-    const statusRaw = await this.ports.runner.runOk(
-      ['status', '--porcelain=v2', '-z', '--untracked-files=all', '--ignored=no'],
-      repo.cwd,
-      { timeoutMs: STATUS_TIMEOUT_MS },
-    )
-    const entries = parsePorcelainV2(statusRaw).entries
-    const untracked = new Set(entries.filter((entry) => entry.untracked).map((entry) => entry.path))
-    const tracked = input.paths.filter((path) => !untracked.has(path))
-    const deletes = input.paths.filter((path) => untracked.has(path))
+    validatePaths(input.paths)
+    await this.ports.runner.mutate(repo.commonDir, async () => {
+      const statusRaw = await this.ports.runner.runOk(
+        ['status', '--porcelain=v2', '-z', '--untracked-files=all', '--ignored=no'],
+        repo.toplevel,
+        { timeoutMs: STATUS_TIMEOUT_MS },
+      )
+      const entries = parsePorcelainV2(statusRaw).entries
+      const untracked = new Set(entries.filter((entry) => entry.untracked).map((entry) => entry.path))
+      const tracked = input.paths.filter((path) => !untracked.has(path))
+      const deletes = input.paths.filter((path) => untracked.has(path))
 
-    await this.ports.runner.mutate(repo.root, async () => {
       if (tracked.length > 0) {
-        const outcome = await this.ports.runner.run(['restore', '--worktree', '--', ...tracked], repo.cwd, {
+        const outcome = await this.ports.runner.run(['restore', '--worktree', '--', ...tracked.map(literalPath)], repo.toplevel, {
           timeoutMs: WRITE_TIMEOUT_MS,
           lockRetries: 4,
         })
         throwOnFailure(outcome)
       }
-      for (const path of deletes) {
-        if (isUnsafeRelativePath(path)) continue
-        await this.ports.fs.remove(join(repo.root, path))
-      }
+      for (const path of deletes) await this.ports.fs.remove(join(repo.toplevel, path))
     })
     return this.readState(repo, false)
   }
@@ -480,47 +528,84 @@ export class GitService {
    * named state carrying the hook's output, which is what the panel's Retry
    * and Cancel act on.
    */
-  async commit(
-    input: SourceRef & { message: string; amend?: boolean; paths?: readonly string[]; requestId?: string },
-  ): Promise<PanelState> {
+  async commit(input: CommitInput): Promise<PanelState> {
+    return this.commitTransaction(input, false)
+  }
+
+  /** Stage and commit under one queue lease; never add unresolved paths. */
+  async commitAll(input: CommitInput): Promise<PanelState> {
+    return this.commitTransaction(input, true)
+  }
+
+  private async commitTransaction(input: CommitInput, all: boolean): Promise<PanelState> {
     const repo = await this.repoFor(input)
     const message = input.message.trim()
     if (message === '') throw new GitError({ code: 'nothing-to-commit', detail: 'empty commit message' })
-    const signal = input.requestId === undefined ? undefined : this.ports.cancellations?.begin(input.requestId)
+    if (input.paths !== undefined) validatePaths(input.paths)
+    const signal = input.requestId === undefined
+      ? undefined
+      : this.ports.cancellations?.begin(input.requestId, input.sessionId)
     try {
-      await this.ports.runner.mutate(repo.root, async () => {
-        const args = ['commit', '-m', message]
-        if (input.amend === true) args.push('--amend')
-        if (input.paths !== undefined && input.paths.length > 0) args.push('--', ...input.paths)
-        const outcome = await this.ports.runner.run(args, repo.cwd, {
-          timeoutMs: WRITE_TIMEOUT_MS,
-          lockRetries: 4,
-          ...(signal === undefined ? {} : { signal }),
-        })
-        if (outcome.code === 0) return
-        if (outcome.killed === true && signal?.aborted === true) {
-          throw new GitError({ code: 'hook-cancelled', detail: 'commit cancelled' })
-        }
-        const failure = classifyGitFailure(outcome)
-        const hookOutput = `${outcome.stdout}\n${outcome.stderr}`.trim()
-        if (failure.code === 'hook-failed' || (failure.code === 'git-failed' && hookOutput !== '')) {
-          throw new GitError({
-            code: 'hook-failed',
-            detail: hookOutput.slice(-4000),
-            exitCode: outcome.code,
+      return await this.ports.runner.mutate(repo.commonDir, async () => {
+        await this.assertResolved(repo, signal)
+        const previousIndex = all ? await captureIndexSnapshot(this.ports.runner, repo) : null
+        let stagedTree: string | undefined
+        try {
+          if (all) {
+            // Git add uses its own index lock and does not install a partial index on failure.
+            const paths = input.paths === undefined ? ['.'] : input.paths.map(literalPath)
+            const added = await this.ports.runner.run(['add', '-A', '--', ...paths], repo.toplevel, {
+              timeoutMs: WRITE_TIMEOUT_MS, lockRetries: 4, signal,
+            })
+            throwOnFailure(added)
+            // Capture the installed tree even if cancellation arrived as add finished.
+            stagedTree = (await this.ports.runner.runOk(['write-tree'], repo.toplevel)).trim()
+          }
+          await this.assertResolved(repo, signal)
+          const args = ['commit', '-m', message]
+          if (input.amend === true) args.push('--amend')
+          if (!all && input.paths !== undefined) args.push('--', ...input.paths.map(literalPath))
+          const outcome = await this.ports.runner.run(args, repo.toplevel, {
+            timeoutMs: WRITE_TIMEOUT_MS, lockRetries: 4, signal,
           })
+          if (outcome.code !== 0) {
+            if (signal?.aborted) throw new GitError({ code: 'hook-cancelled', detail: 'commit cancelled' })
+            const failure = classifyGitFailure(outcome)
+            const hookOutput = `${outcome.stdout}\n${outcome.stderr}`.trim()
+            if (failure.code === 'hook-failed' || (failure.code === 'git-failed' && hookOutput !== '')) {
+              throw new GitError({ code: 'hook-failed', detail: hookOutput.slice(-4000), exitCode: outcome.code })
+            }
+            throw new GitError(failure)
+          }
+        } catch (error) {
+          const shutdownUnconfirmed = error instanceof GitProcessShutdownError
+          if (!shutdownUnconfirmed && previousIndex !== null && stagedTree !== undefined) {
+            await restoreIndexSnapshot(this.ports.runner, repo, previousIndex, stagedTree)
+          }
+          throw error
         }
-        throw new GitError(failure)
+        return this.readState(repo, false)
       })
+    } catch (error) {
+      if (error instanceof GitProcessShutdownError) throw error
+      if (signal?.aborted) throw new GitError({ code: 'hook-cancelled', detail: 'commit cancelled' })
+      throw error
     } finally {
-      if (input.requestId !== undefined) this.ports.cancellations?.end(input.requestId)
+      if (input.requestId !== undefined) this.ports.cancellations?.end(input.requestId, signal, input.sessionId)
     }
-    return this.readState(repo, false)
   }
 
-  /** Cancel an in-flight commit (a hanging pre-commit hook). */
-  cancel(requestId: string): boolean {
-    return this.ports.cancellations?.cancel(requestId) ?? false
+  /** Refuse unresolved index stages even when a caller would stage them first. */
+  private async assertResolved(repo: RepoRef, signal?: AbortSignal, paths?: readonly string[]): Promise<void> {
+    const args = ['ls-files', '--unmerged', '-z']
+    if (paths !== undefined) args.push('--', ...paths.map(literalPath))
+    const unmerged = await this.ports.runner.runOk(args, repo.toplevel, { signal })
+    if (unmerged !== '') throw new GitError({ code: 'operation-in-progress', detail: 'Resolve and explicitly stage conflicted files before committing.' })
+  }
+
+  /** Cancel only a request owned by the supplied session (unscoped callers remain supported). */
+  cancel(requestId: string, sessionId?: string): boolean {
+    return this.ports.cancellations?.cancel(requestId, sessionId) ?? false
   }
 
   /* ------------------------------------------------------------ worktrees */
@@ -653,7 +738,7 @@ export class GitService {
     const markers = await this.readOperationMarkers(repo.gitDir)
     const statusRaw = await this.ports.runner.runSoft(
       ['status', '--porcelain=v2', '-z', '--untracked-files=no'],
-      repo.cwd,
+      repo.toplevel,
       { timeoutMs: STATUS_TIMEOUT_MS, ...(signal === undefined ? {} : { signal }) },
     )
     const entries = statusRaw === null ? [] : parsePorcelainV2(statusRaw).entries
@@ -664,13 +749,15 @@ export class GitService {
   private async readOperationMarkers(gitDir: string): Promise<OperationMarkers> {
     const read = (name: string): Promise<string | null> => this.ports.fs.readText(join(gitDir, name))
     const exists = (name: string): Promise<boolean> => this.ports.fs.exists(join(gitDir, name))
-    const [mergeHead, cherryPickHead, revertHead, message, rebaseMerge, rebaseApply] = await Promise.all([
+    const [mergeHead, cherryPickHead, revertHead, message, rebaseMerge, rebaseApply, rebaseApplyApplying, rebaseApplyRebasing] = await Promise.all([
       read('MERGE_HEAD'),
       read('CHERRY_PICK_HEAD'),
       read('REVERT_HEAD'),
       read('MERGE_MSG'),
       exists('rebase-merge'),
       exists('rebase-apply'),
+      exists('rebase-apply/applying'),
+      exists('rebase-apply/rebasing'),
     ])
     let rebaseStep: OperationMarkers['rebaseStep'] = null
     if (rebaseMerge) {
@@ -688,6 +775,8 @@ export class GitService {
       message,
       rebaseMerge,
       rebaseApply,
+      rebaseApplyApplying,
+      rebaseApplyRebasing,
       rebaseStep,
     }
   }
@@ -697,12 +786,12 @@ export class GitService {
   /** The primary branch name, used as the default base for a new worktree. */
   async defaultBase(repo: RepoRef, signal?: AbortSignal): Promise<string> {
     const signalArgs = signal === undefined ? {} : { signal }
-    const symbolic = await this.ports.runner.runSoft(['symbolic-ref', '--short', 'HEAD'], repo.cwd, {
+    const symbolic = await this.ports.runner.runSoft(['symbolic-ref', '--short', 'HEAD'], repo.toplevel, {
       timeoutMs: STATUS_TIMEOUT_MS,
       ...signalArgs,
     })
     if (symbolic !== null && symbolic.trim() !== '') return symbolic.trim()
-    const remoteHead = await this.ports.runner.runSoft(['rev-parse', '--abbrev-ref', 'origin/HEAD'], repo.cwd, {
+    const remoteHead = await this.ports.runner.runSoft(['rev-parse', '--abbrev-ref', 'origin/HEAD'], repo.toplevel, {
       timeoutMs: STATUS_TIMEOUT_MS,
       ...signalArgs,
     })
@@ -718,59 +807,127 @@ export class GitService {
    * `worktree add` creates the branch, and a failed create throws rather than
    * leaving a half-made worktree behind.
    */
-  async worktreeAdd(input: SourceRef & {
-    /** `new` starts a fresh branch; `ref` checks out an existing one. */
-    mode?: 'new' | 'ref'
-    /** Slug/name for a new branch. */
-    name?: string
-    /** Existing ref for `ref` mode: a local branch, remote branch or tag. */
-    ref?: string
-    /** What kind of ref `ref` is; decides checkout vs tracking vs detached. */
-    refKind?: 'branch' | 'remote' | 'tag'
-    /** Start point for `new` mode. */
-    base?: string
-  }): Promise<{
+  /**
+   * The setup a create request would perform, before anything is written.
+   *
+   * Read-only: the panel calls it to show the commands and copied paths, and
+   * passes the returned `version` back with whatever the user approved.
+   */
+  async worktreeSetup(input: SourceRef & WorktreeCreateOptions): Promise<WorktreeSetupPreview> {
+    const repo = await this.repoFor(input)
+    const created = await this.resolveWorktreeTarget(repo, input.mode === 'ref' ? 'ref' : 'new', input)
+    return (await this.planCreate(repo, created)).preview
+  }
+
+  /**
+   * Create a worktree for a slug.
+   *
+   * Ordering matters: the exclude entry is written before the directory
+   * exists (so a reader can never observe the worktree in `git status`),
+   * `worktree add` creates the branch, and a failed create throws rather than
+   * leaving a half-made worktree behind.
+   *
+   * Nothing a repository declares happens unless the caller approved it
+   * against the exact preview: `setupApproved` runs `.worktrees.json`,
+   * `copyApproved` copies `.worktreeinclude`. A plain create therefore runs no
+   * project command and copies no local file, and an approval recorded against
+   * a different setup definition is refused before anything runs.
+   */
+  async worktreeAdd(input: SourceRef & WorktreeCreateOptions): Promise<{
     plan: WorktreePlan
     state: PanelState
     setup: SetupReport
+    copied: readonly string[]
     notice: string | null
   }> {
     const repo = await this.repoFor(input)
-    const mode = input.mode === 'ref' ? 'ref' : 'new'
-    const created = await this.resolveWorktreeTarget(repo, mode, input)
+    return this.ports.runner.mutate(repo.commonDir, async () => {
+      const mode = input.mode === 'ref' ? 'ref' : 'new'
+      const created = await this.resolveWorktreeTarget(repo, mode, input)
+      const planned = await this.planCreate(repo, created)
+      const setupApproved = input.setupApproved === true && planned.steps.length > 0
+      const copyApproved = input.copyApproved === true && planned.includePaths.length > 0
+      if ((setupApproved || copyApproved) && input.expectedSetupVersion !== planned.preview.version) {
+        throw new GitError({ code: 'setup-stale', detail: 'setup' })
+      }
+      const plan = planWorktree({
+        root: repo.root,
+        slug: created.slug,
+        base: created.base,
+        branch: created.branch,
+        setup: setupApproved ? planned.steps : [],
+      })
+
+      await this.ensureExcluded(repo)
+      const outcome = await this.ports.runner.run(created.args, repo.root, {
+        timeoutMs: WRITE_TIMEOUT_MS,
+        lockRetries: 4,
+      })
+      if (outcome.code !== 0) throw new GitError(classifyGitFailure(outcome))
+      const path = created.path
+
+      // Copy before setup: a setup command may need a copied file, and the
+      // copy never replaces what the checkout just wrote.
+      const copiedResult = copyApproved
+        ? await this.copyWorktreeInclude(repo, path, planned.includePaths)
+        : { copied: [] as string[], skipped: false }
+
+      let report: SetupReport = { ran: 0, failed: false, output: '' }
+      if (setupApproved) {
+        report = await runSetupSteps(planned.steps, path, repo.root, {
+          parentEnv: this.ports.env,
+          ...(this.ports.setupExec === undefined ? {} : { exec: this.ports.setupExec }),
+        })
+        this.setupReports.set(path, report)
+      }
+
+      const skippedSetup = planned.steps.length > 0 && !setupApproved
+      const skippedCopy = planned.includePaths.length > 0 && !copyApproved
+      return {
+        plan,
+        state: await this.readState(repo, false),
+        setup: report,
+        copied: copiedResult.copied,
+        notice: planned.notice
+          ?? (report.failed ? 'setup-failed'
+            : copiedResult.skipped ? 'copy-skipped'
+              : skippedSetup || skippedCopy ? 'setup-skipped' : null),
+      }
+    })
+  }
+
+  /** Resolve the setup a create request would perform, its preview included. */
+  private async planCreate(
+    repo: RepoRef,
+    created: { slug: string; path: string; branch: string | null; base: string; oid: string },
+  ): Promise<{ steps: SetupStep[]; includePaths: string[]; notice: string | null; preview: WorktreeSetupPreview }> {
     const setup = await this.planSetup(repo)
-    const plan = planWorktree({
+    const includePaths = await this.planIncludes(repo)
+    const preview: WorktreeSetupPreview = {
       root: repo.root,
       slug: created.slug,
-      base: created.base,
+      path: created.path,
       branch: created.branch,
-      setup: setup.steps,
-    })
-
-    await this.ensureExcluded(repo)
-    const outcome = await this.ports.runner.run(created.args, repo.root, {
-      timeoutMs: WRITE_TIMEOUT_MS,
-      lockRetries: 4,
-    })
-    if (outcome.code !== 0) throw new GitError(classifyGitFailure(outcome))
-    const path = created.path
-
-    let report: SetupReport = { ran: 0, failed: false, output: '' }
-    if (setup.steps.length > 0) {
-      report = await runSetupSteps(setup.steps, path, repo.root, {
-        parentEnv: this.ports.env,
-        ...(this.ports.setupExec === undefined ? {} : { exec: this.ports.setupExec }),
-      })
-      this.setupReports.set(path, report)
+      base: created.base,
+      baseOid: created.oid,
+      version: '',
+      steps: setup.steps,
+      includePaths,
+      notice: setup.error,
     }
-    await this.copyWorktreeInclude(repo, path)
-
-    return {
-      plan,
-      state: await this.readState(repo, false),
-      setup: report,
-      notice: setup.error ?? (report.failed ? 'setup-failed' : null),
-    }
+    const version = contextFingerprint({
+      root: repo.root,
+      slug: created.slug,
+      path: created.path,
+      branch: created.branch,
+      base: created.base,
+      baseOid: created.oid,
+      platform: setupPlatform(this.ports.platform),
+      steps: setup.steps,
+      includePaths,
+      notice: setup.error,
+    })
+    return { steps: setup.steps, includePaths, notice: setup.error, preview: { ...preview, version } }
   }
 
   /**
@@ -784,7 +941,7 @@ export class GitService {
     repo: RepoRef,
     mode: 'new' | 'ref',
     input: { name?: string; ref?: string; refKind?: 'branch' | 'remote' | 'tag'; base?: string },
-  ): Promise<{ slug: string; path: string; branch: string | null; base: string; args: string[] }> {
+  ): Promise<{ slug: string; path: string; branch: string | null; base: string; oid: string; args: string[] }> {
     if (mode === 'new') {
       const slug = normalizeSlug(input.name ?? '')
       const verdict = validateSlug(slug)
@@ -796,12 +953,14 @@ export class GitService {
         throw new GitError({ code: 'branch-exists', detail: branch })
       }
       const base = input.base ?? (await this.defaultBase(repo))
-      return { slug, path, branch, base, args: ['worktree', 'add', '-b', branch, path, base] }
+      const hash = await this.resolveCommit(repo, base)
+      return { slug, path, branch, base, oid: hash, args: ['worktree', 'add', '-b', branch, path, hash] }
     }
 
     const ref = (input.ref ?? '').trim()
     const kind = input.refKind ?? 'branch'
-    if (ref === '') throw new GitError({ code: 'invalid-name', detail: 'ref' })
+    const refIssue = validateBranchName(ref)
+    if (refIssue !== null) throw new GitError({ code: 'invalid-name', detail: refIssue })
     const slug = slugForRef(ref)
     if (slug === '') throw new GitError({ code: 'invalid-name', detail: ref })
     const path = worktreePathFor(repo.root, slug)
@@ -811,7 +970,8 @@ export class GitService {
       if (!(await this.ports.runner.ok(['rev-parse', '--verify', `refs/tags/${ref}`], repo.root))) {
         throw new GitError({ code: 'path-missing', detail: ref })
       }
-      return { slug, path, branch: null, base: ref, args: ['worktree', 'add', '--detach', path, ref] }
+      const hash = await this.resolveCommit(repo, 'refs/tags/' + ref)
+      return { slug, path, branch: null, base: ref, oid: hash, args: ['worktree', 'add', '--detach', path, hash] }
     }
     if (kind === 'remote') {
       if (!(await this.ports.runner.ok(['rev-parse', '--verify', `refs/remotes/${ref}`], repo.root))) {
@@ -822,12 +982,14 @@ export class GitService {
       if (await this.ports.runner.ok(['rev-parse', '--verify', `refs/heads/${branch}`], repo.root)) {
         throw new GitError({ code: 'branch-exists', detail: branch })
       }
-      return { slug, path, branch, base: ref, args: ['worktree', 'add', '--track', '-b', branch, path, ref] }
+      const oid = await this.resolveCommit(repo, 'refs/remotes/' + ref)
+      return { slug, path, branch, base: ref, oid, args: ['worktree', 'add', '--track', '-b', branch, path, 'refs/remotes/' + ref] }
     }
     if (!(await this.ports.runner.ok(['rev-parse', '--verify', `refs/heads/${ref}`], repo.root))) {
       throw new GitError({ code: 'path-missing', detail: ref })
     }
-    return { slug, path, branch: ref, base: ref, args: ['worktree', 'add', path, ref] }
+    const oid = await this.resolveCommit(repo, 'refs/heads/' + ref)
+    return { slug, path, branch: ref, base: ref, oid, args: ['worktree', 'add', path, ref] }
   }
 
   /** Refuse a path a worktree already occupies, in git or on disk. */
@@ -863,18 +1025,36 @@ export class GitService {
     if (next !== null) await this.ports.fs.writeText(path, next)
   }
 
-  /** Copy `.worktreeinclude` entries from the primary checkout into a worktree. */
-  private async copyWorktreeInclude(repo: RepoRef, worktreePath: string): Promise<string[]> {
+  /** Resolve `.worktreeinclude` for the primary checkout. */
+  private async planIncludes(repo: RepoRef): Promise<string[]> {
     const raw = await this.ports.fs.readText(join(repo.root, INCLUDE_FILE))
-    if (raw === null) return []
+    return raw === null ? [] : parseWorktreeInclude(raw)
+  }
+
+  /**
+   * Copy approved `.worktreeinclude` paths from the primary checkout.
+   *
+   * The copy is deliberately the safe one: it refuses a symbolic link, a path
+   * that grew past the size cap, and an existing destination, so a fresh
+   * worktree can never have a tracked file silently replaced or a link
+   * followed out of the checkout. A declined path is reported, not retried
+   * through a weaker API.
+   */
+  private async copyWorktreeInclude(
+    repo: RepoRef,
+    worktreePath: string,
+    entries: readonly string[],
+  ): Promise<{ copied: string[]; skipped: boolean }> {
     const copied: string[] = []
-    for (const entry of parseWorktreeInclude(raw)) {
-      const from = join(repo.root, entry)
-      if (!(await this.ports.fs.exists(from))) continue
-      await this.ports.fs.copy(from, join(worktreePath, entry))
-      copied.push(entry)
+    let skipped = false
+    for (const entry of entries) {
+      // A declaration is a wish list: an entry that is simply not there is
+      // normal, while a path that exists and was refused is worth reporting.
+      if (!(await this.ports.fs.exists(join(repo.root, entry)))) continue
+      if (await this.ports.fs.copyWorktree(repo.root, entry, worktreePath)) copied.push(entry)
+      else skipped = true
     }
-    return copied
+    return { copied, skipped }
   }
 
   /**
@@ -889,35 +1069,37 @@ export class GitService {
     input: SourceRef & { path: string; force?: boolean; deleteBranch?: boolean },
   ): Promise<PanelState> {
     const repo = await this.repoFor(input)
-    // The primary checkout is the repository root, which the containment check
-    // below deliberately excludes, so it is named first.
-    if (this.samePath(resolvePath(input.path), repo.root)) {
-      throw new GitError({ code: 'worktree-primary', detail: input.path })
-    }
-    const target = this.containedWorktreePath(repo, input.path)
-    const entry = await this.worktreeEntry(repo, target)
-    if (entry.primary) throw new GitError({ code: 'worktree-primary', detail: target })
-    if (this.samePath(target, repo.toplevel)) {
-      throw new GitError({ code: 'worktree-current', detail: target })
-    }
-    const args = ['worktree', 'remove']
-    if (input.force === true) args.push('--force')
-    if (entry.locked) args.push('--force')
-    args.push(target)
-    const outcome = await this.ports.runner.run(args, repo.root, {
-      timeoutMs: WRITE_TIMEOUT_MS,
-      lockRetries: 4,
-    })
-    if (outcome.code !== 0) throw new GitError(classifyGitFailure(outcome))
-    // Only a branch this plugin named is deleted with the worktree: a worktree
-    // created from an existing branch does not own that branch.
-    if (input.deleteBranch === true && slugFromBranch(entry.branch) !== null && entry.branch !== null) {
-      await this.ports.runner.run(['branch', '-D', entry.branch], repo.root, {
+    return this.ports.runner.mutate(repo.commonDir, async () => {
+      // The primary checkout is the repository root, which the containment check
+      // below deliberately excludes, so it is named first.
+      if (this.samePath(resolvePath(input.path), repo.root)) {
+        throw new GitError({ code: 'worktree-primary', detail: input.path })
+      }
+      const target = this.containedWorktreePath(repo, input.path)
+      const entry = await this.worktreeEntry(repo, target)
+      if (entry.primary) throw new GitError({ code: 'worktree-primary', detail: target })
+      if (this.samePath(target, repo.toplevel)) {
+        throw new GitError({ code: 'worktree-current', detail: target })
+      }
+      const args = ['worktree', 'remove']
+      if (input.force === true) args.push('--force')
+      if (entry.locked) args.push('--force')
+      args.push(target)
+      const outcome = await this.ports.runner.run(args, repo.root, {
         timeoutMs: WRITE_TIMEOUT_MS,
         lockRetries: 4,
       })
-    }
-    return this.readState(repo, false)
+      if (outcome.code !== 0) throw new GitError(classifyGitFailure(outcome))
+      // Only a branch this plugin named is deleted with the worktree: a worktree
+      // created from an existing branch does not own that branch.
+      if (input.deleteBranch === true && slugFromBranch(entry.branch) !== null && entry.branch !== null) {
+        await this.ports.runner.run(['branch', '-D', entry.branch], repo.root, {
+          timeoutMs: WRITE_TIMEOUT_MS,
+          lockRetries: 4,
+        })
+      }
+      return this.readState(repo, false)
+    })
   }
 
   /**
@@ -929,20 +1111,24 @@ export class GitService {
    */
   async worktreeMerge(input: SourceRef & { path: string }): Promise<PanelState> {
     const repo = await this.repoFor(input)
-    const target = this.containedWorktreePath(repo, input.path)
-    const entry = await this.worktreeEntry(repo, target)
-    if (entry.branch === null) throw new GitError({ code: 'detached-head', detail: target })
-    if ((await this.branchAt(repo.cwd)) === entry.branch) {
-      throw new GitError({ code: 'current-branch', detail: entry.branch })
-    }
-    const outcome = await this.ports.runner.run(['merge', '--no-edit', entry.branch], repo.cwd, {
-      timeoutMs: WRITE_TIMEOUT_MS,
-      lockRetries: 4,
+    return this.ports.runner.mutate(repo.commonDir, async () => {
+      const target = this.containedWorktreePath(repo, input.path)
+      const entry = await this.worktreeEntry(repo, target)
+      if (entry.branch === null) throw new GitError({ code: 'detached-head', detail: target })
+      if ((await this.branchAt(repo.toplevel)) === entry.branch) {
+        throw new GitError({ code: 'current-branch', detail: entry.branch })
+      }
+      await this.assertPreconditions(repo, 'merge')
+      const hash = await this.resolveCommit(repo, 'refs/heads/' + entry.branch)
+      const outcome = await this.ports.runner.run(['merge', '--no-edit', hash], repo.toplevel, {
+        timeoutMs: WRITE_TIMEOUT_MS,
+        lockRetries: 4,
+      })
+      if (outcome.code !== 0 && !(await this.merging(repo.toplevel))) {
+        throw new GitError(classifyGitFailure(outcome))
+      }
+      return this.readState(repo, false)
     })
-    if (outcome.code !== 0 && !(await this.merging(repo.cwd))) {
-      throw new GitError(classifyGitFailure(outcome))
-    }
-    return this.readState(repo, false)
   }
 
   /**
@@ -953,48 +1139,58 @@ export class GitService {
    */
   async worktreeUpdate(input: SourceRef & { path: string; base?: string }): Promise<PanelState> {
     const repo = await this.repoFor(input)
-    const target = this.containedWorktreePath(repo, input.path)
-    const base = input.base ?? (await this.worktreeBaseName(repo))
-    if (base === null) throw new GitError({ code: 'no-upstream', detail: target })
-    const outcome = await this.ports.runner.run(['merge', '--no-edit', base], target, {
-      timeoutMs: WRITE_TIMEOUT_MS,
-      lockRetries: 4,
-    })
-    // The merge happens in another working tree, which this panel is not
-    // showing: a conflict there is a named state naming the path, not a silent
-    // success, and it stays recoverable in that worktree.
-    if (outcome.code !== 0) {
-      if (await this.merging(target)) {
-        throw new GitError({ code: 'operation-in-progress', detail: target })
+    return this.ports.runner.mutate(repo.commonDir, async () => {
+      const target = this.containedWorktreePath(repo, input.path)
+      const base = input.base ?? (await this.worktreeBaseName(repo))
+      if (base === null) throw new GitError({ code: 'no-upstream', detail: target })
+      await this.worktreeEntry(repo, target)
+      const targetRepo = await this.resolveRepo(target)
+      await this.assertPreconditions(targetRepo, 'merge')
+      const hash = await this.resolveCommit(repo, base)
+      const outcome = await this.ports.runner.run(['merge', '--no-edit', hash], target, {
+        timeoutMs: WRITE_TIMEOUT_MS,
+        lockRetries: 4,
+      })
+      // The merge happens in another working tree, which this panel is not
+      // showing: a conflict there is a named state naming the path, not a silent
+      // success, and it stays recoverable in that worktree.
+      if (outcome.code !== 0) {
+        if (await this.merging(target)) {
+          throw new GitError({ code: 'operation-in-progress', detail: target })
+        }
+        throw new GitError(classifyGitFailure(outcome))
       }
-      throw new GitError(classifyGitFailure(outcome))
-    }
-    return this.readState(repo, false)
+      return this.readState(repo, false)
+    })
   }
 
   /** Drop git's records for worktrees whose directories are gone. */
   async worktreePrune(input: SourceRef): Promise<PanelState> {
     const repo = await this.repoFor(input)
-    const outcome = await this.ports.runner.run(['worktree', 'prune', '--expire', 'now'], repo.root, {
-      timeoutMs: WRITE_TIMEOUT_MS,
-      lockRetries: 4,
+    return this.ports.runner.mutate(repo.commonDir, async () => {
+      const outcome = await this.ports.runner.run(['worktree', 'prune', '--expire', 'now'], repo.root, {
+        timeoutMs: WRITE_TIMEOUT_MS,
+        lockRetries: 4,
+      })
+      if (outcome.code !== 0) throw new GitError(classifyGitFailure(outcome))
+      return this.readState(repo, false)
     })
-    if (outcome.code !== 0) throw new GitError(classifyGitFailure(outcome))
-    return this.readState(repo, false)
   }
 
   /** Release a worktree lock so git will move, delete or prune it again. */
   async worktreeUnlock(input: SourceRef & { path: string }): Promise<PanelState> {
     const repo = await this.repoFor(input)
-    const target = this.containedWorktreePath(repo, input.path)
-    const entry = await this.worktreeEntry(repo, target)
-    if (!entry.locked) return this.readState(repo, false)
-    const outcome = await this.ports.runner.run(['worktree', 'unlock', target], repo.root, {
-      timeoutMs: WRITE_TIMEOUT_MS,
-      lockRetries: 4,
+    return this.ports.runner.mutate(repo.commonDir, async () => {
+      const target = this.containedWorktreePath(repo, input.path)
+      const entry = await this.worktreeEntry(repo, target)
+      if (!entry.locked) return this.readState(repo, false)
+      const outcome = await this.ports.runner.run(['worktree', 'unlock', target], repo.root, {
+        timeoutMs: WRITE_TIMEOUT_MS,
+        lockRetries: 4,
+      })
+      if (outcome.code !== 0) throw new GitError(classifyGitFailure(outcome))
+      return this.readState(repo, false)
     })
-    if (outcome.code !== 0) throw new GitError(classifyGitFailure(outcome))
-    return this.readState(repo, false)
   }
 
   /** Whether a directory is mid-merge. */
@@ -1046,69 +1242,108 @@ export class GitService {
     return absolute
   }
 
+  /** Recheck live safety conditions inside the mutation lease. */
+  private async assertPreconditions(repo: RepoRef, action: PreflightAction): Promise<void> {
+    const state = await this.readState(repo, false)
+    const decision = decidePreflight(this.preflightInput(state, action))
+    if (decision.verdict === 'block') throw new GitError({ code: decision.code, detail: decision.detail })
+  }
+
+  /** Resolve a single commit, never letting a ref become an option or path checkout. */
+  private async resolveCommit(repo: RepoRef, ref: string): Promise<string> {
+    if (ref === '' || ref.startsWith('-') || /[\s\u0000-\u001f\u007f]/.test(ref)) {
+      throw new GitError({ code: 'invalid-name', detail: ref })
+    }
+    const raw = await this.ports.runner.runSoft(['rev-parse', '--verify', '--end-of-options', ref + '^{commit}'], repo.toplevel)
+    const oid = raw?.trim()
+    if (oid === undefined || !/^[a-f0-9]{40,64}$/.test(oid)) throw new GitError({ code: 'path-missing', detail: ref })
+    return oid
+  }
+
   /* ------------------------------------------------------------- branches */
 
   /** Create a branch without checking it out. */
   async branchCreate(input: SourceRef & { name: string; from?: string }): Promise<PanelState> {
     const repo = await this.repoFor(input)
-    const issue = validateBranchName(input.name)
-    if (issue !== null) throw new GitError({ code: 'invalid-name', detail: issue })
-    const args = ['branch', input.name]
-    if (input.from !== undefined && input.from !== '') args.push(input.from)
-    const outcome = await this.ports.runner.run(args, repo.cwd, {
-      timeoutMs: WRITE_TIMEOUT_MS,
-      lockRetries: 4,
+    return this.ports.runner.mutate(repo.commonDir, async () => {
+      const issue = validateBranchName(input.name)
+      if (issue !== null) throw new GitError({ code: 'invalid-name', detail: issue })
+      const args = ['branch', input.name]
+      if (input.from !== undefined && input.from !== '') args.push(await this.resolveCommit(repo, input.from))
+      const outcome = await this.ports.runner.run(args, repo.toplevel, {
+        timeoutMs: WRITE_TIMEOUT_MS,
+        lockRetries: 4,
+      })
+      if (outcome.code !== 0) {
+        const failure = classifyGitFailure(outcome)
+        if (/already exists/i.test(failure.detail)) throw new GitError({ code: 'branch-exists', detail: input.name })
+        throw new GitError(failure)
+      }
+      return this.readState(repo, false)
     })
-    if (outcome.code !== 0) {
-      const failure = classifyGitFailure(outcome)
-      if (/already exists/i.test(failure.detail)) throw new GitError({ code: 'branch-exists', detail: input.name })
-      throw new GitError(failure)
-    }
-    return this.readState(repo, false)
   }
 
   /** Switch to a branch, creating it from a remote-tracking branch when asked. */
   async branchSwitch(input: SourceRef & { name: string; remote?: string }): Promise<PanelState> {
     const repo = await this.repoFor(input)
-    const issue = validateBranchName(input.name)
-    if (issue !== null) throw new GitError({ code: 'invalid-name', detail: issue })
-    const args =
-      input.remote === undefined ? ['switch', input.name] : ['switch', '-c', input.name, input.remote]
-    const outcome = await this.ports.runner.run(args, repo.cwd, {
-      timeoutMs: WRITE_TIMEOUT_MS,
-      lockRetries: 4,
+    return this.ports.runner.mutate(repo.commonDir, async () => {
+      await this.assertPreconditions(repo, 'switch-branch')
+      const issue = validateBranchName(input.name)
+      if (issue !== null) throw new GitError({ code: 'invalid-name', detail: issue })
+      if (input.remote !== undefined) {
+        const remoteIssue = validateBranchName(input.remote)
+        if (remoteIssue !== null) throw new GitError({ code: 'invalid-name', detail: remoteIssue })
+        await this.resolveCommit(repo, 'refs/remotes/' + input.remote)
+      }
+      const args = input.remote === undefined
+        ? ['switch', '--no-overwrite-ignore', '--', input.name]
+        : ['switch', '--no-overwrite-ignore', '--track', '-c', input.name, 'refs/remotes/' + input.remote]
+      const outcome = await this.ports.runner.run(args, repo.toplevel, {
+        timeoutMs: WRITE_TIMEOUT_MS,
+        lockRetries: 4,
+      })
+      if (outcome.code !== 0) throw new GitError(classifyGitFailure(outcome))
+      return this.readState(repo, false)
     })
-    if (outcome.code !== 0) throw new GitError(classifyGitFailure(outcome))
-    return this.readState(repo, false)
   }
 
   /** Rename a local branch. */
-  async branchRename(input: SourceRef & { from: string; to: string }): Promise<PanelState> {
+  async branchRename(input: SourceRef & { from: string; to: string; expectedOid?: string }): Promise<PanelState> {
     const repo = await this.repoFor(input)
-    const issue = validateBranchName(input.to)
-    if (issue !== null) throw new GitError({ code: 'invalid-name', detail: issue })
-    const outcome = await this.ports.runner.run(['branch', '-m', input.from, input.to], repo.cwd, {
-      timeoutMs: WRITE_TIMEOUT_MS,
-      lockRetries: 4,
+    return this.ports.runner.mutate(repo.commonDir, async () => {
+      await this.assertPreconditions(repo, 'switch-branch')
+      const issue = validateBranchName(input.from) ?? validateBranchName(input.to)
+      if (issue !== null) throw new GitError({ code: 'invalid-name', detail: issue })
+      if (input.expectedOid !== undefined && await this.resolveCommit(repo, 'refs/heads/' + input.from) !== input.expectedOid) throw new GitError({ code: 'dirty-tree', detail: 'Branch changed; review its current tip before renaming' })
+      const outcome = await this.ports.runner.run(['branch', '-m', input.from, input.to], repo.toplevel, {
+        timeoutMs: WRITE_TIMEOUT_MS,
+        lockRetries: 4,
+      })
+      if (outcome.code !== 0) throw new GitError(classifyGitFailure(outcome))
+      return this.readState(repo, false)
     })
-    if (outcome.code !== 0) throw new GitError(classifyGitFailure(outcome))
-    return this.readState(repo, false)
   }
 
   /** Delete a local branch; `force` selects `-D` over `-d`. */
-  async branchDelete(input: SourceRef & { name: string; force?: boolean }): Promise<PanelState> {
+  async branchDelete(input: SourceRef & { name: string; force?: boolean; expectedOid?: string }): Promise<PanelState> {
     const repo = await this.repoFor(input)
-    const outcome = await this.ports.runner.run(
-      ['branch', input.force === true ? '-D' : '-d', input.name],
-      repo.cwd,
-      { timeoutMs: WRITE_TIMEOUT_MS, lockRetries: 4 },
-    )
-    if (outcome.code !== 0) {
-      const failure = classifyGitFailure(outcome)
-      if (failure.code === 'not-merged') throw new GitError({ code: 'not-merged', detail: input.name })
-      throw new GitError(failure)
-    }
-    return this.readState(repo, false)
+    return this.ports.runner.mutate(repo.commonDir, async () => {
+      await this.assertPreconditions(repo, 'delete-branch')
+      const issue = validateBranchName(input.name)
+      if (issue !== null) throw new GitError({ code: 'invalid-name', detail: issue })
+      if (input.expectedOid !== undefined && await this.resolveCommit(repo, 'refs/heads/' + input.name) !== input.expectedOid) throw new GitError({ code: 'dirty-tree', detail: 'Branch changed; review its current tip before deleting' })
+      const outcome = await this.ports.runner.run(
+        ['branch', input.force === true ? '-D' : '-d', '--', input.name],
+        repo.toplevel,
+        { timeoutMs: WRITE_TIMEOUT_MS, lockRetries: 4 },
+      )
+      if (outcome.code !== 0) {
+        const failure = classifyGitFailure(outcome)
+        if (failure.code === 'not-merged') throw new GitError({ code: 'not-merged', detail: input.name })
+        throw new GitError(failure)
+      }
+      return this.readState(repo, false)
+    })
   }
 
   /* ------------------------------------------------------ history writes */
@@ -1116,50 +1351,72 @@ export class GitService {
   /** Continue the in-progress operation. */
   async operationContinue(input: SourceRef): Promise<PanelState> {
     const repo = await this.repoFor(input)
-    const state = await this.readState(repo, false)
-    const kind = state.operation.kind
-    if (kind === null) throw new GitError({ code: 'operation-in-progress', detail: 'no operation in progress' })
-    const args =
-      kind === 'merge'
-        ? ['commit', '--no-edit']
-        : kind === 'rebase'
-          ? ['rebase', '--continue']
-          : [`${kind}`, '--continue']
-    const outcome = await this.ports.runner.run(args, repo.cwd, {
-      timeoutMs: WRITE_TIMEOUT_MS,
-      lockRetries: 4,
+    return this.ports.runner.mutate(repo.commonDir, async () => {
+      await this.assertResolved(repo)
+      const state = await this.readState(repo, false)
+      const kind = state.operation.kind
+      if (kind === null) throw new GitError({ code: 'operation-in-progress', detail: 'no operation in progress' })
+      const args =
+        kind === 'merge'
+          ? ['commit', '--no-edit']
+          : kind === 'rebase'
+            ? ['rebase', '--continue']
+            : [`${kind}`, '--continue']
+      const outcome = await this.ports.runner.run(args, repo.toplevel, {
+        timeoutMs: WRITE_TIMEOUT_MS,
+        lockRetries: 4,
+      })
+      if (outcome.code !== 0) throw new GitError(classifyGitFailure(outcome))
+      return this.readState(repo, false)
     })
-    if (outcome.code !== 0) throw new GitError(classifyGitFailure(outcome))
-    return this.readState(repo, false)
+  }
+
+  /** Skip one stopped replay step. Git itself owns the remaining sequence. */
+  async operationSkip(input: SourceRef): Promise<PanelState> {
+    const repo = await this.repoFor(input)
+    return this.ports.runner.mutate(repo.commonDir, async () => {
+      const state = await this.readState(repo, false)
+      const kind = state.operation.kind
+      if (kind === null || kind === 'merge') throw new GitError({ code: 'operation-in-progress', detail: 'This operation has no skippable step' })
+      const outcome = await this.ports.runner.run([kind, '--skip'], repo.toplevel, { timeoutMs: WRITE_TIMEOUT_MS })
+      if (outcome.code !== 0) throw new GitError(classifyGitFailure(outcome))
+      return this.readState(repo, false)
+    })
   }
 
   /** Abort the in-progress operation. */
   async operationAbort(input: SourceRef): Promise<PanelState> {
     const repo = await this.repoFor(input)
-    const state = await this.readState(repo, false)
-    const kind = state.operation.kind
-    if (kind === null) throw new GitError({ code: 'operation-in-progress', detail: 'no operation in progress' })
-    const args = kind === 'merge' ? ['merge', '--abort'] : [kind, '--abort']
-    const outcome = await this.ports.runner.run(args, repo.cwd, {
-      timeoutMs: WRITE_TIMEOUT_MS,
-      lockRetries: 4,
+    return this.ports.runner.mutate(repo.commonDir, async () => {
+      const state = await this.readState(repo, false)
+      const kind = state.operation.kind
+      if (kind === null) throw new GitError({ code: 'operation-in-progress', detail: 'no operation in progress' })
+      const args = kind === 'merge' ? ['merge', '--abort'] : [kind, '--abort']
+      const outcome = await this.ports.runner.run(args, repo.toplevel, {
+        timeoutMs: WRITE_TIMEOUT_MS,
+        lockRetries: 4,
+      })
+      if (outcome.code !== 0) throw new GitError(classifyGitFailure(outcome))
+      return this.readState(repo, false)
     })
-    if (outcome.code !== 0) throw new GitError(classifyGitFailure(outcome))
-    return this.readState(repo, false)
   }
 
   /** Merge the current branch's upstream into it. */
   async updateFromBranch(input: SourceRef): Promise<PanelState> {
     const repo = await this.repoFor(input)
-    const outcome = await this.ports.runner.run(['merge', '--no-edit', '@{u}'], repo.cwd, {
-      timeoutMs: WRITE_TIMEOUT_MS,
-      lockRetries: 4,
+    return this.ports.runner.mutate(repo.commonDir, async () => {
+      await this.assertPreconditions(repo, 'update')
+      const upstream = await this.resolveCommit(repo, '@{u}')
+      const outcome = await this.ports.runner.run(['merge', '--no-edit', upstream], repo.toplevel, {
+        timeoutMs: WRITE_TIMEOUT_MS,
+        lockRetries: 4,
+      })
+      // A conflicted merge is a recoverable state, not an error.
+      if (outcome.code !== 0 && !(await this.merging(repo.toplevel))) {
+        throw new GitError(classifyGitFailure(outcome))
+      }
+      return this.readState(repo, false)
     })
-    // A conflicted merge is a recoverable state, not an error.
-    if (outcome.code !== 0 && !(await this.merging(repo.cwd))) {
-      throw new GitError(classifyGitFailure(outcome))
-    }
-    return this.readState(repo, false)
   }
 
   /** Revert one commit (non-rewriting, may conflict). */
@@ -1175,26 +1432,35 @@ export class GitService {
   /** Check out a commit detached (the panel warns first). */
   async checkoutCommit(input: SourceRef & { hash: string }): Promise<PanelState> {
     const repo = await this.repoFor(input)
-    const outcome = await this.ports.runner.run(['checkout', input.hash], repo.cwd, {
-      timeoutMs: WRITE_TIMEOUT_MS,
-      lockRetries: 4,
+    return this.ports.runner.mutate(repo.commonDir, async () => {
+      await this.assertPreconditions(repo, 'checkout-commit')
+      const hash = await this.resolveCommit(repo, input.hash)
+      const outcome = await this.ports.runner.run(['checkout', '--no-overwrite-ignore', '--detach', hash], repo.toplevel, {
+        timeoutMs: WRITE_TIMEOUT_MS,
+        lockRetries: 4,
+      })
+      if (outcome.code !== 0) throw new GitError(classifyGitFailure(outcome))
+      return this.readState(repo, false)
     })
-    if (outcome.code !== 0) throw new GitError(classifyGitFailure(outcome))
-    return this.readState(repo, false)
   }
 
   /** Shared path for revert/cherry-pick, where conflicts are recoverable. */
   private async runHistoryWrite(input: SourceRef, args: readonly string[]): Promise<PanelState> {
     const repo = await this.repoFor(input)
-    const outcome = await this.ports.runner.run(args, repo.cwd, {
-      timeoutMs: WRITE_TIMEOUT_MS,
-      lockRetries: 4,
+    return this.ports.runner.mutate(repo.commonDir, async () => {
+      await this.assertPreconditions(repo, args[0] as 'revert' | 'cherry-pick')
+      const hash = await this.resolveCommit(repo, args[args.length - 1]!)
+      const safeArgs = [...args.slice(0, -1), hash]
+      const outcome = await this.ports.runner.run(safeArgs, repo.toplevel, {
+        timeoutMs: WRITE_TIMEOUT_MS,
+        lockRetries: 4,
+      })
+      if (outcome.code !== 0) {
+        const markers = await this.readOperationMarkers(repo.gitDir)
+        if (detectOperation(markers).kind === null) throw new GitError(classifyGitFailure(outcome))
+      }
+      return this.readState(repo, false)
     })
-    if (outcome.code !== 0) {
-      const markers = await this.readOperationMarkers(repo.gitDir)
-      if (detectOperation(markers).kind === null) throw new GitError(classifyGitFailure(outcome))
-    }
-    return this.readState(repo, false)
   }
 
   /* -------------------------------------------------------------- reclaim */
@@ -1241,42 +1507,68 @@ export class GitService {
     return draftCommitMessage(state.changes)
   }
 
-  /** Resolve every changed path with its patch, for the agent verbs. */
-  async agentFiles(input: SourceRef & { paths?: readonly string[] }): Promise<{
+  /** Collect scope before limits, preserving both sides of partially staged paths. */
+  async agentFiles(input: SourceRef & { paths?: readonly string[]; side?: DiffSide; verb?: string; includeSensitive?: boolean }): Promise<{
     state: PanelState
-    files: {
-      path: string
-      patch: string
-      added: number
-      removed: number
-      binary: boolean
-      staged: boolean
-    }[]
+    files: { path: string; patch: string; added: number; removed: number; binary: boolean; staged: boolean }[]
+    omittedPaths: readonly string[]
+    fingerprint: string
+    repositoryVersion: string
+    availableFiles: readonly string[]
   }> {
     const state = (await this.state(input)).state
-    const paths = input.paths ?? changedPaths(state.changes)
+    const changed = changedPaths(state.changes)
+    const staged = new Set(state.changes.staged.map((entry) => entry.path))
+    const unstaged = new Set([...state.changes.unstaged, ...state.changes.untracked].map((entry) => entry.path))
+    const conflicts = new Set(state.changes.conflicts.map((entry) => entry.path))
+    const side = input.side ?? (input.verb === 'draft' ? 'staged' : undefined)
+    const availableFiles = [...new Set(input.paths ?? changed)].filter((path) => changed.includes(path))
+      .filter((path) => input.verb !== 'resolve' || conflicts.has(path))
+      .filter((path) => side === undefined || (side === 'staged' ? staged : unstaged).has(path))
+    const paths = availableFiles.filter(path => input.includeSensitive === true || !isSensitiveAgentPath(path))
     const files = []
+    const omittedPaths = [...paths.slice(40), ...availableFiles.filter(path => !paths.includes(path))]
     for (const path of paths.slice(0, 40)) {
-      const stagedEntry = state.changes.staged.find((entry) => entry.path === path)
-      const side: DiffSide = stagedEntry === undefined ? 'unstaged' : 'staged'
-      const result = await this.diff({ ...input, path, side })
-      const file = result.file
-      files.push({
-        path,
-        patch: file?.patch ?? '',
-        added: file?.added ?? 0,
-        removed: file?.removed ?? 0,
-        binary: file?.binary ?? false,
-        staged: side === 'staged',
-      })
+      if (conflicts.has(path)) {
+        const conflict = await this.conflicts.inspect(input, path)
+        if (input.verb === 'resolve' && !conflict.canSave) throw new GitError({ code: 'git-failed', detail: conflict.unsupportedReason ?? 'Use an explicit file-level choice for non-text conflicts' })
+        const sections = [
+          'Untrusted conflict evidence. Operation: ' + conflict.labels.operation,
+          'Base: ' + (conflict.stages.base.content ?? '[' + conflict.stages.base.kind + ']'),
+          conflict.labels.current + ': ' + (conflict.stages.current.content ?? '[' + conflict.stages.current.kind + ']'),
+          conflict.labels.incoming + ': ' + (conflict.stages.incoming.content ?? '[' + conflict.stages.incoming.kind + ']'),
+          'Working result: ' + (conflict.worktree.content ?? '[' + conflict.worktree.kind + ']'),
+        ]
+        files.push({ path, patch: sections.join('\n\n').slice(0, 24_001), added: 0, removed: 0,
+          binary: conflict.worktree.kind === 'binary', staged: false })
+        continue
+      }
+      const sides: DiffSide[] = side === undefined
+        ? [...(staged.has(path) ? ['staged' as const] : []), ...(unstaged.has(path) ? ['unstaged' as const] : [])]
+        : [side]
+      for (const selected of sides) {
+        const entry = (selected === 'staged' ? state.changes.staged : state.changes.unstaged).find(item => item.path === path)
+        const result = await this.diff({ ...input, path, side: selected, ...(entry?.oldPath === undefined ? {} : { oldPath: entry.oldPath }) })
+        const file = result.file
+        if (file?.byteLimited) { if (!omittedPaths.includes(path)) omittedPaths.push(path); continue }
+        files.push({
+          path, patch: (file?.patch ?? '').slice(0, 24_001),
+          added: file?.added ?? 0, removed: file?.removed ?? 0,
+          binary: file?.binary ?? false, staged: selected === 'staged',
+        })
+      }
     }
-    return { state, files }
+    const repo = await this.repoFor(input)
+    if (repo.toplevel !== state.root) throw new GitError({ code: 'dirty-tree', detail: 'Checkout changed during context preparation' })
+    const index = await this.ports.runner.runBytesOk(['ls-files', '--stage', '-z'], repo.toplevel)
+    const repositoryVersion = contextFingerprint([state.root, state.cwd, state.head.oid, Buffer.from(index).toString('base64')])
+    return { state, files, omittedPaths, availableFiles, repositoryVersion, fingerprint: contextFingerprint({ root: state.root, cwd: state.cwd, head: state.head, operation: state.operation, files, omittedPaths }) }
   }
 
   /** Remote-tracking branches a checkout could create a local branch from. */
   async remoteCheckoutCandidates(input: SourceRef): Promise<(BranchInfo & { local: string })[]> {
     const repo = await this.repoFor(input)
-    const branches = await this.readBranches(repo.cwd)
+    const branches = await this.readBranches(repo.toplevel)
     return branches
       .filter((branch) => branch.remote)
       .map((branch) => ({ ...branch, local: localNameForRemote(branch.name) }))
@@ -1286,13 +1578,28 @@ export class GitService {
   /** Local branches only, for the switch/delete UI. */
   async localBranchNames(input: SourceRef): Promise<string[]> {
     const repo = await this.repoFor(input)
-    return localBranches(await this.readBranches(repo.cwd)).map((branch) => branch.name)
+    return localBranches(await this.readBranches(repo.toplevel)).map((branch) => branch.name)
   }
 
   /** The degraded state for a terminal failure, for the RPC layer. */
   static degradedFor(error: GitError): ReturnType<typeof degradedFrom> {
     return degradedFrom(error.failure)
   }
+}
+
+/** Git paths are root-relative filenames, never directories or pathspec expressions. */
+function validatePaths(paths: readonly string[]): void {
+  if (paths.length === 0) throw new GitError({ code: 'path-missing', detail: 'no paths given' })
+  for (const path of paths) {
+    if (path === '' || path.includes('\0') || isAbsolute(path) || isUnsafeRelativePath(path)
+      || path.split('/').some((part) => part === '' || part === '.' || part.toLowerCase() === '.git')) {
+      throw new GitError({ code: 'path-missing', detail: 'Expected a repository-relative file path.' })
+    }
+  }
+}
+
+function literalPath(path: string): string {
+  return `:(literal)${path}`
 }
 
 /** Run git from a safe directory when no repository is known yet. */

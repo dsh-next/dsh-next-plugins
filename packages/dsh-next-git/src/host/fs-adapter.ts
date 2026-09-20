@@ -7,10 +7,15 @@
  */
 
 import { mkdir, readFile, rm, stat, unlink, writeFile, copyFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
+import { readWorktreeText, type WorktreeText } from './worktree-read.ts'
+import { copyWorktreeFile } from './worktree-copy.ts'
 
 /** Filesystem operations the service needs. */
 export interface FsPorts {
+  copyWorktree(root: string, path: string, target: string): Promise<boolean>
+  /** Bounded checkout read: symlinks yield link text, never target bytes. */
+  readWorktree(root: string, path: string): Promise<WorktreeText | null>
   /** Read a UTF-8 file, or null when it does not exist / is unreadable. */
   readText(path: string): Promise<string | null>
   /** Write a UTF-8 file, creating parent directories. */
@@ -28,6 +33,8 @@ export interface FsPorts {
 /** Production {@link FsPorts} over `node:fs/promises`. */
 export function nodeFs(): FsPorts {
   return {
+    readWorktree: readWorktreeText,
+    copyWorktree: copyWorktreeFile,
     async readText(path) {
       try {
         return await readFile(path, 'utf8')
@@ -74,6 +81,19 @@ export function memoryFs(initial: Readonly<Record<string, string>> = {}): FsPort
   const dirs = new Set<string>()
   const self = {
     files,
+    async copyWorktree(root: string, path: string, target: string): Promise<boolean> {
+      if (path.startsWith('/') || path.split(/[\\/]/).some(part => part === '..' || part === '.git')) return false
+      const from = files.get(join(root, path)), to = join(target, path)
+      if (from === undefined || files.has(to)) return false
+      files.set(to, from)
+      return true
+    },
+    async readWorktree(root: string, path: string): Promise<WorktreeText | null> {
+      const text = files.get(join(root, path))
+      if (text === undefined) return null
+      if (Buffer.byteLength(text) > 2 * 1024 * 1024) return { kind: 'oversize', text: '' }
+      return text.includes('\u0000') ? { kind: 'binary', text: '' } : { kind: 'text', text }
+    },
     async readText(path: string) {
       return files.get(path) ?? null
     },

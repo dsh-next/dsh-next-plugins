@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import { createFixture, createNonRepository, type GitFixture } from './git-fixture.ts'
-import { GitRunner } from '../src/host/git-runner.ts'
+import { CancellationRegistry, GitRunner } from '../src/host/git-runner.ts'
 import { GitService } from '../src/host/git-service.ts'
 import { nodeFs } from '../src/host/fs-adapter.ts'
 import { envelopeFor, registerRpc, RPC_PATH } from '../src/host/rpc.ts'
@@ -30,7 +30,7 @@ interface Route {
 /** Register the route over a service and return a caller for it. */
 function mount(service: GitService): {
   call: (method: string, args?: Record<string, unknown>) => Promise<{ status: number; json: unknown; raw: string }>
-  raw: (options: { method?: string; body?: string; explode?: boolean; huge?: boolean }) => Promise<FakeResponse>
+  raw: (options: { method?: string; body?: string; chunks?: readonly Buffer[]; explode?: boolean; huge?: boolean }) => Promise<FakeResponse>
   routes: Route[]
 } {
   const routes: Route[] = []
@@ -50,6 +50,7 @@ function mount(service: GitService): {
   const raw = async (options: {
     method?: string
     body?: string
+    chunks?: readonly Buffer[]
     explode?: boolean
     huge?: boolean
   }): Promise<FakeResponse> => {
@@ -82,12 +83,14 @@ function mount(service: GitService): {
     // `end` must run after the body arrived.
     route.handler(req, res as unknown as FakeResponse)
     const payload = options.huge === true
-      ? 'x'.repeat(2 * 1024 * 1024)
+      ? 'x'.repeat(16 * 1024 * 1024 + 1)
       : options.explode === true
         ? '{'
         : (options.body ?? '')
     if (!response.writableEnded) {
-      for (const listener of listeners.data ?? []) listener(payload)
+      for (const chunk of options.chunks ?? [payload]) {
+        for (const listener of listeners.data ?? []) listener(chunk)
+      }
       if (!response.writableEnded) {
         for (const listener of listeners.end ?? []) listener()
       }
@@ -334,6 +337,41 @@ describe('write envelopes', () => {
     expect(value.notice).toBeNull()
   })
 
+  it('worktreeSetup previews the declaration and worktreeAdd honors the approval', async () => {
+    const fixture = open('clean')
+    fixture.write('.worktrees.json', JSON.stringify({ 'setup-worktree': ['echo one'] }))
+    fixture.write('.worktreeinclude', '.env\n')
+    fixture.write('.env', 'SECRET=1\n')
+    const mounted = mount(serviceFor(fixture.dir))
+    const preview = (await mounted.call('worktreeSetup', { name: 'setup-one' })).json as {
+      value: { version: string; steps: unknown[]; includePaths: string[]; path: string; baseOid: string }
+    }
+    expect(preview.value.steps).toEqual([{ kind: 'command', command: 'echo one' }])
+    expect(preview.value.includePaths).toEqual(['.env'])
+    expect(preview.value.baseOid).toMatch(/^[0-9a-f]{40}$/)
+    expect(preview.value.version).not.toBe('')
+
+    const created = (await mounted.call('worktreeAdd', {
+      name: 'setup-one',
+      copyApproved: true,
+      expectedSetupVersion: preview.value.version,
+    })).json as { value: { copied: string[]; setup: { ran: number }; notice: string | null } }
+    expect(created.value.copied).toEqual(['.env'])
+    expect(created.value.setup.ran).toBe(0)
+    expect(created.value.notice).toBe('setup-skipped')
+  })
+
+  it('refuses an approval that carries no setup version', async () => {
+    const fixture = open('clean')
+    fixture.write('.worktrees.json', JSON.stringify({ 'setup-worktree': ['echo one'] }))
+    const failed = (await mount(serviceFor(fixture.dir)).call('worktreeAdd', {
+      name: 'stale',
+      setupApproved: true,
+    })).json as { ok: boolean; failure: { code: string } }
+    expect(failed.ok).toBe(false)
+    expect(failed.failure.code).toBe('setup-stale')
+  })
+
   it('operation and history writes round-trip', async () => {
     const fixture = open('merge-conflict')
     const mounted = mount(serviceFor(fixture.dir))
@@ -403,6 +441,38 @@ describe('write envelopes', () => {
   })
 })
 
+describe('host safety RPC contracts', () => {
+  it('commits all changes through one host call and returns a PanelState', async () => {
+    const fixture = open('unstaged')
+    const mounted = mount(serviceFor(fixture.dir))
+    const result = await mounted.call('commitAll', { message: 'atomic bulk', requestId: 'client-unique' })
+    expect(result.status).toBe(200)
+    expect(result.json).toMatchObject({ ok: true, value: { root: fixture.dir, changes: { staged: [], unstaged: [] } } })
+    expect(fixture.gitOk(['log', '-1', '--format=%s']).trim()).toBe('atomic bulk')
+  })
+
+  it('returns named failures for unresolved bulk commits and explicit empty path lists', async () => {
+    const fixture = open('merge-conflict')
+    const mounted = mount(serviceFor(fixture.dir))
+    expect((await mounted.call('commitAll', { message: 'unsafe' })).json).toMatchObject({ ok: false, failure: { code: 'operation-in-progress' }, degraded: null })
+    expect((await mounted.call('commitAll', { message: 'empty', paths: [] })).json).toMatchObject({ ok: false, failure: { code: 'path-missing' }, degraded: null })
+    expect((await mounted.call('commitAll', { message: 'bad path type', paths: 'README.md' })).json).toMatchObject({ ok: false, failure: { code: 'path-missing' }, degraded: null })
+    expect(fixture.gitOk(['ls-files', '--unmerged'])).not.toBe('')
+  })
+
+  it('forwards cancellation session ownership without an unscoped fallback', async () => {
+    const fixture = open('clean')
+    const cancellations = new CancellationRegistry()
+    const git = new GitService({ runner: new GitRunner(), fs: nodeFs(), cwdOf: () => fixture.dir, platform: process.platform, env: process.env, cancellations })
+    const signal = cancellations.begin('commit', 'owner')
+    const mounted = mount(git)
+    expect((await mounted.call('cancelCommit', { requestId: 'commit', sessionId: 'other' })).json).toEqual({ ok: true, value: { cancelled: false } })
+    expect(signal.aborted).toBe(false)
+    expect((await mounted.call('cancelCommit', { requestId: 'commit', sessionId: 'owner' })).json).toEqual({ ok: true, value: { cancelled: true } })
+    expect(signal.aborted).toBe(true)
+  })
+})
+
 describe('method inventory', () => {
   it('dispatches every documented method', async () => {
     const fixture = open('clean')
@@ -416,6 +486,7 @@ describe('method inventory', () => {
       ['unstage', { paths: ['README.md'] }],
       ['discard', { paths: ['README.md'] }],
       ['commit', { message: 'chore: nothing' }],
+      ['commitAll', { message: 'chore: nothing' }],
       ['cancelCommit', { requestId: 'x' }],
       ['draftMessage', {}],
       ['agentFiles', {}],
@@ -451,7 +522,7 @@ describe('method inventory', () => {
     const args = { path: 42, paths: 'nope', message: 7, name: null, hash: 9 }
     // A write with no usable arguments is a named failure, never a silent
     // success with nothing done.
-    for (const method of ['stage', 'unstage', 'discard', 'commit', 'worktreeAdd', 'branchCreate', 'revert']) {
+    for (const method of ['stage', 'unstage', 'discard', 'commit', 'commitAll', 'worktreeAdd', 'branchCreate', 'revert']) {
       const { status, json } = await mounted.call(method, args)
       expect(status, method).toBe(200)
       expect(json, method).toMatchObject({ ok: false })
@@ -460,6 +531,42 @@ describe('method inventory', () => {
     // Reads degrade to an empty answer rather than an error envelope.
     expect(await mounted.call('getDiff', args)).toMatchObject({ status: 200 })
     expect(await mounted.call('getHistory', args)).toMatchObject({ status: 200 })
+  })
+})
+
+describe('conflict workspace RPC contracts', () => {
+  it('preserves split UTF-8 resolution bytes, versions, and explicit staging', async () => {
+    const fixture = createFixture('merge-conflict')
+    try {
+      const mounted = mount(serviceFor(fixture.dir))
+      const inspected = (await mounted.call('getConflict', { path: 'src/app.ts' })).json as { ok: boolean; value: import('../src/core/conflict-types.ts').ConflictWorkspace }
+      expect(inspected.ok).toBe(true)
+      expect(inspected.value).toMatchObject({ path: 'src/app.ts', canSave: true, canMarkResolved: false })
+      const content = 'export const message = "résolution"\n'
+      const body = Buffer.from(JSON.stringify({ method: 'saveConflict', args: { sessionId: 'test-session', path: 'src/app.ts', expectedVersion: inspected.value.version, content } }))
+      const split = body.indexOf(Buffer.from('é')) + 1
+      const response = await mounted.raw({ chunks: [body.subarray(0, split), body.subarray(split)] })
+      const saved = JSON.parse(response.body) as { ok: boolean; value: import('../src/core/conflict-types.ts').ConflictWriteResult }
+      expect(saved).toMatchObject({ ok: true, value: { workspace: { worktree: { content }, canMarkResolved: true }, backupId: expect.any(String) } })
+      expect(fixture.gitOk(['ls-files', '-u'])).not.toBe('')
+      expect(await mounted.call('markConflictResolved', { path: 'src/app.ts', expectedVersion: saved.value.workspace.version })).toMatchObject({ json: { ok: true, value: { resolved: true, path: 'src/app.ts', backupId: expect.any(String) } } })
+      expect(fixture.gitOk(['show', ':0:src/app.ts'])).toBe(content)
+      expect(fixture.gitOk(['ls-files', '-u'])).toBe('')
+    } finally { fixture.dispose() }
+  })
+
+  it('rejects stale writes and invalid content/side without changing files', async () => {
+    const fixture = createFixture('merge-conflict')
+    try {
+      const mounted = mount(serviceFor(fixture.dir))
+      const inspected = (await mounted.call('getConflict', { path: 'src/app.ts' })).json as { value: import('../src/core/conflict-types.ts').ConflictWorkspace }
+      const args = { path: 'src/app.ts', expectedVersion: inspected.value.version }
+      expect(await mounted.call('saveConflict', { ...args, content: 42 })).toMatchObject({ json: { ok: false, failure: { code: 'invalid-name' } } })
+      expect(await mounted.call('chooseConflict', { ...args, side: 'anything' })).toMatchObject({ json: { ok: false, failure: { code: 'invalid-name' } } })
+      const chosen = (await mounted.call('chooseConflict', { ...args, side: 'incoming' })).json as { ok: boolean; value: import('../src/core/conflict-types.ts').ConflictWriteResult }
+      expect(chosen).toMatchObject({ ok: true, value: { workspace: { canMarkResolved: true } } })
+      expect(await mounted.call('saveConflict', { ...args, content: 'stale' })).toMatchObject({ json: { ok: false, failure: { code: 'dirty-tree' } } })
+    } finally { fixture.dispose() }
   })
 })
 

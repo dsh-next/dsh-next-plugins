@@ -177,7 +177,7 @@ export interface IdentityState {
 
 /** The per-repository read model one panel refresh produces. */
 export interface PanelState {
-  /** Absolute repository root (the primary worktree). */
+  /** Absolute active checkout root; not necessarily the primary worktree. */
   readonly root: string
   /** Absolute git directory (`rev-parse --absolute-git-dir`). */
   readonly gitDir: string
@@ -234,6 +234,8 @@ export interface GraphEdge {
 
 /** History page: commits plus their computed lanes. */
 export interface HistoryPage {
+  /** Immutable revision used by this window, for stable cursor reads. */
+  readonly anchor?: string
   readonly commits: readonly CommitSummary[]
   readonly lanes: readonly GraphLane[]
   /** Whether the requested window was fully served (false when a limit clipped it). */
@@ -256,6 +258,8 @@ export interface DiffFile {
   readonly binary: boolean
   /** Whether the file crossed the size cap and only `patch` is usable. */
   readonly tooLarge: boolean
+  /** No file bytes were read past the host safety budget; line counts are unknown. */
+  readonly byteLimited?: boolean
   /** The raw unified patch, always present so the panel can copy it. */
   readonly patch: string
 }
@@ -299,6 +303,7 @@ export type GitFailureCode =
   | 'branch-exists'
   | 'worktree-exists'
   | 'invalid-name'
+  | 'setup-stale'
   | 'no-upstream'
   | 'nothing-to-commit'
   | 'path-missing'

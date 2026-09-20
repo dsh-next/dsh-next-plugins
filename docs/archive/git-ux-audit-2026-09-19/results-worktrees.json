@@ -1,0 +1,203 @@
+{
+  "results": [
+    {
+      "name": "Worktree update from comparison base and base selection",
+      "status": "pass",
+      "detail": [
+        "Default branch",
+        "audit-linked-external",
+        "bulk-conflict",
+        "conflict-topic",
+        "dsh-git/audit-linked",
+        "feature",
+        "main"
+      ]
+    },
+    {
+      "name": "Locked worktree displays reason and unlock works",
+      "status": "pass"
+    },
+    {
+      "name": "Remote branch menu fails to create tracking branch",
+      "status": "pass",
+      "detail": "git failed\nRun the same git command in a terminal to see the full output.\nfatal: a branch is expected, got remote branch 'origin/remote-only'\nhint: If you want to detach HEAD at the commit, try again with the --detach option."
+    },
+    {
+      "name": "Create worktree from existing branch and tag",
+      "status": "pass",
+      "detail": "worktree /Users/rokgrabnar/Projects/dsh-next-plugins/tmp/git-ux-audit/scratch/dsh-next-dev-wpIYT5/workspace-a\nHEAD ec598ff7f2bdc30dcb788674b66585d5b061ec74\nbranch refs/heads/main\n\nworktree /Users/rokgrabnar/Projects/dsh-next-plugins/tmp/git-ux-audit/scratch/dsh-next-dev-wpIYT5/workspace-a/.worktrees/audit-existing\nHEAD ec598ff7f2bdc30dcb788674b66585d5b061ec74\nbranch refs/heads/audit-existing\n\nworktree /Users/rokgrabnar/Projects/dsh-next-plugins/tmp/git-ux-audit/scratch/dsh-next-dev-wpIYT5/workspace-a/.worktrees/audit-linked\nHEAD ec598ff7f2bdc30dcb788674b66585d5b061ec74\nbranch refs/heads/dsh-git/audit-linked\n\nworktree /Users/rokgrabnar/Projects/dsh-next-plugins/tmp/git-ux-audit/scratch/dsh-next-dev-wpIYT5/workspace-a/.worktrees/v1.0\nHEAD 96249152a5b565381bf261b5dc7be364a23d4726\ndetached\n\nworktree /Users/rokgrabnar/Projects/dsh-next-plugins/tmp/git-ux-audit/scratch/dsh-next-dev-wpIYT5/workspace-b\nHEAD ec598ff7f2bdc30dcb788674b66585d5b061ec74\nbranch refs/heads/audit-linked-external"
+    },
+    {
+      "name": "Create worktree from remote start point",
+      "status": "pass",
+      "detail": "worktree /Users/rokgrabnar/Projects/dsh-next-plugins/tmp/git-ux-audit/scratch/dsh-next-dev-wpIYT5/workspace-a\nHEAD ec598ff7f2bdc30dcb788674b66585d5b061ec74\nbranch refs/heads/main\n\nworktree /Users/rokgrabnar/Projects/dsh-next-plugins/tmp/git-ux-audit/scratch/dsh-next-dev-wpIYT5/workspace-a/.worktrees/audit-existing\nHEAD ec598ff7f2bdc30dcb788674b66585d5b061ec74\nbranch refs/heads/audit-existing\n\nworktree /Users/rokgrabnar/Projects/dsh-next-plugins/tmp/git-ux-audit/scratch/dsh-next-dev-wpIYT5/workspace-a/.worktrees/audit-linked\nHEAD ec598ff7f2bdc30dcb788674b66585d5b061ec74\nbranch refs/heads/dsh-git/audit-linked\n\nworktree /Users/rokgrabnar/Projects/dsh-next-plugins/tmp/git-ux-audit/scratch/dsh-next-dev-wpIYT5/workspace-a/.worktrees/remote-only\nHEAD ec598ff7f2bdc30dcb788674b66585d5b061ec74\nbranch refs/heads/remote-only\n\nworktree /Users/rokgrabnar/Projects/dsh-next-plugins/tmp/git-ux-audit/scratch/dsh-next-dev-wpIYT5/workspace-a/.worktrees/v1.0\nHEAD 96249152a5b565381bf261b5dc7be364a23d4726\ndetached\n\nworktree /Users/rokgrabnar/Projects/dsh-next-plugins/tmp/git-ux-audit/scratch/dsh-next-dev-wpIYT5/workspace-b\nHEAD ec598ff7f2bdc30dcb788674b66585d5b061ec74\nbranch refs/heads/audit-linked-external"
+    },
+    {
+      "name": "Delete worktree cancel and confirm",
+      "status": "pass"
+    },
+    {
+      "name": "Missing worktree prune removes registration",
+      "status": "pass"
+    },
+    {
+      "name": "Update upstream from header merges cached remote ref",
+      "status": "pass"
+    }
+  ],
+  "noise": [],
+  "rpc": [
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "worktreeUpdate",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "path": "/Users/rokgrabnar/Projects/dsh-next-plugins/tmp/git-ux-audit/scratch/dsh-next-dev-wpIYT5/workspace-a/.worktrees/audit-linked",
+        "base": "main"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "base": "feature"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "base": "main"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "base": "main"
+      }
+    },
+    {
+      "method": "worktreeUnlock",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "path": "/Users/rokgrabnar/Projects/dsh-next-plugins/tmp/git-ux-audit/scratch/dsh-next-dev-wpIYT5/workspace-a/.worktrees/audit-linked"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "base": "main"
+      }
+    },
+    {
+      "method": "branchSwitch",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "name": "origin/remote-only"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "base": "main"
+      }
+    },
+    {
+      "method": "worktreeAdd",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "mode": "ref",
+        "ref": "audit-existing",
+        "refKind": "branch"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "base": "main"
+      }
+    },
+    {
+      "method": "worktreeAdd",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "mode": "ref",
+        "ref": "v1.0",
+        "refKind": "tag"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "base": "main"
+      }
+    },
+    {
+      "method": "worktreeAdd",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "mode": "ref",
+        "ref": "origin/remote-only",
+        "refKind": "remote"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "base": "main"
+      }
+    },
+    {
+      "method": "worktreeRemove",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "path": "/Users/rokgrabnar/Projects/dsh-next-plugins/tmp/git-ux-audit/scratch/dsh-next-dev-wpIYT5/workspace-a/.worktrees/audit-existing",
+        "force": false,
+        "deleteBranch": true
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "base": "main"
+      }
+    },
+    {
+      "method": "worktreePrune",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "base": "main"
+      }
+    },
+    {
+      "method": "updateFromBranch",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    }
+  ]
+}

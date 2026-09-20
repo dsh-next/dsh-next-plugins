@@ -1,0 +1,130 @@
+{
+  "results": [
+    {
+      "name": "All four AI verbs appear in current chat without destination chooser",
+      "status": "pass",
+      "detail": {
+        "actions": [
+          {
+            "name": "Review changes",
+            "dialogs": 0,
+            "sameUrl": true
+          },
+          {
+            "name": "Explain diff",
+            "dialogs": 0,
+            "sameUrl": true
+          },
+          {
+            "name": "Draft commit message",
+            "dialogs": 0,
+            "sameUrl": true
+          },
+          {
+            "name": "Resolve in this session",
+            "dialogs": 0,
+            "sameUrl": true
+          }
+        ],
+        "noticeVisible": 0,
+        "modelExecution": "Intentionally unavailable: fake credential"
+      }
+    },
+    {
+      "name": "Critical: Commit All writes unresolved conflict markers into commit",
+      "status": "pass",
+      "detail": {
+        "committedMarkers": "<<<<<<< HEAD\nbulk main\n=======\nbulk topic\n>>>>>>> bulk-conflict",
+        "unmergedIndex": "",
+        "mergeInProgress": false
+      }
+    },
+    {
+      "name": "Critical: linked worktree diff and discard target primary file",
+      "status": "fail",
+      "detail": "locator.click: Timeout 10000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('[data-dsh-git=\"worktree\"]').filter({ hasText: 'dsh-git/audit-linked' }).locator('[data-dsh-git=\"worktree-open-session\"]')\u001b[22m\n"
+    }
+  ],
+  "noise": [],
+  "rpc": [
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "agentFiles",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "agentFiles",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "agentFiles",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "agentFiles",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "stage",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "paths": [
+          "app.txt",
+          "extra-bulk.txt"
+        ]
+      }
+    },
+    {
+      "method": "commit",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "message": "UNRESOLVED BULK AUDIT",
+        "amend": false,
+        "requestId": "commit"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    }
+  ]
+}

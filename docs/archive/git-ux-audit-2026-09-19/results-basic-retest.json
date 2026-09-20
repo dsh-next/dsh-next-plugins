@@ -1,0 +1,312 @@
+{
+  "results": [
+    {
+      "name": "Collapsed defaults and keyboard expansion",
+      "status": "pass"
+    },
+    {
+      "name": "Tracked and untracked diff, patch clipboard",
+      "status": "pass"
+    },
+    {
+      "name": "Stage one, unstage one, stage all, unstage all",
+      "status": "pass"
+    },
+    {
+      "name": "Inline draft is heuristic, not AI session workflow",
+      "status": "pass",
+      "detail": {
+        "message": "Add new.txt",
+        "methods": [
+          "draftMessage"
+        ],
+        "dialogs": 0
+      }
+    },
+    {
+      "name": "Discard cancel and restore with confusing Delete anyway label",
+      "status": "pass",
+      "detail": "Discard changes\n\nDiscard changes in 1 file(s)? This cannot be undone. Untracked files are deleted from disk.\n\nCancel\nDelete anyway"
+    },
+    {
+      "name": "Commit all succeeds but history stays stale after Refresh",
+      "status": "pass",
+      "detail": {
+        "staleAfterCommit": false,
+        "staleAfterRefresh": false
+      }
+    },
+    {
+      "name": "Regular commit keyboard shortcut and amend",
+      "status": "pass"
+    },
+    {
+      "name": "History pagination and copy hash; no multiselect or commit details",
+      "status": "pass",
+      "detail": {
+        "checkboxes": 0,
+        "diffOpened": 0
+      }
+    },
+    {
+      "name": "Revert runs immediately without confirmation",
+      "status": "pass",
+      "detail": {
+        "dialogs": 0,
+        "methods": [
+          "revert"
+        ]
+      }
+    },
+    {
+      "name": "Branch switch and cherry-pick without preflight dialog",
+      "status": "fail",
+      "detail": "expect(received).toBe(expected) // Object.is equality\n\nExpected: \"Amended commit\"\nReceived: \"History sample 32\"\n\nCall Log:\n- Timeout 5000ms exceeded while waiting on the predicate"
+    },
+    {
+      "name": "Checkout confirmation and detached HEAD",
+      "status": "pass"
+    }
+  ],
+  "noise": [],
+  "rpc": [
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "getDiff",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "path": "app.txt",
+        "side": "unstaged"
+      }
+    },
+    {
+      "method": "getDiff",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "path": "new.txt",
+        "side": "unstaged"
+      }
+    },
+    {
+      "method": "stage",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "paths": [
+          "app.txt"
+        ]
+      }
+    },
+    {
+      "method": "unstage",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "paths": [
+          "app.txt"
+        ]
+      }
+    },
+    {
+      "method": "stage",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "paths": [
+          "app.txt",
+          "new.txt"
+        ]
+      }
+    },
+    {
+      "method": "unstage",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "paths": [
+          "app.txt",
+          "new.txt"
+        ]
+      }
+    },
+    {
+      "method": "draftMessage",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "discard",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "paths": [
+          "app.txt"
+        ]
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 30
+      }
+    },
+    {
+      "method": "stage",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "paths": [
+          "new.txt"
+        ]
+      }
+    },
+    {
+      "method": "commit",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "message": "Audit commit all",
+        "amend": false,
+        "requestId": "commit"
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 30
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "stage",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "paths": [
+          "other.txt"
+        ]
+      }
+    },
+    {
+      "method": "commit",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "message": "Keyboard commit",
+        "amend": false,
+        "requestId": "commit"
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 30
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "stage",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "paths": [
+          "other.txt"
+        ]
+      }
+    },
+    {
+      "method": "commit",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "message": "Amended commit",
+        "amend": true,
+        "requestId": "commit"
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 60
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 60
+      }
+    },
+    {
+      "method": "revert",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "hash": "76e7ea3040768f4db78e6699af00327013fe920e"
+      }
+    },
+    {
+      "method": "branchSwitch",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "name": "feature"
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 60
+      }
+    },
+    {
+      "method": "cherryPick",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "hash": "96249152a5b565381bf261b5dc7be364a23d4726"
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 60
+      }
+    },
+    {
+      "method": "checkoutCommit",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "hash": "480ff5056402fc0c0201f3387e256fe59713207a"
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 60
+      }
+    },
+    {
+      "method": "branchSwitch",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "name": "main"
+      }
+    }
+  ]
+}

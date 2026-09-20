@@ -1,0 +1,89 @@
+{
+  "results": [
+    {
+      "name": "Keyboard Stage action bubbles into row and opens diff instead",
+      "status": "pass",
+      "detail": {
+        "openedDiff": true,
+        "staged": ""
+      }
+    },
+    {
+      "name": "Draft and expansion state are lost when switching away and back",
+      "status": "pass",
+      "detail": {
+        "messageAfterRemount": "",
+        "historyExpanded": "false"
+      }
+    },
+    {
+      "name": "Open file hands off to stock viewer",
+      "status": "pass",
+      "detail": {
+        "tabs": [
+          "Chat",
+          "Trajectory",
+          "Source control",
+          "Start",
+          "app.txt"
+        ]
+      }
+    }
+  ],
+  "noise": [],
+  "rpc": [
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "getDiff",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "path": "app.txt",
+        "side": "unstaged"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 30
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "getDiff",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "path": "app.txt",
+        "side": "unstaged"
+      }
+    }
+  ]
+}

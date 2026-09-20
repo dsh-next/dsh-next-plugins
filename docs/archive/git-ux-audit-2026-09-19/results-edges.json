@@ -1,0 +1,375 @@
+{
+  "results": [
+    {
+      "name": "Binary and oversized untracked diffs have fallbacks",
+      "status": "pass"
+    },
+    {
+      "name": "External change leaves open diff stale after toolbar Refresh",
+      "status": "pass",
+      "detail": {
+        "stale": true
+      }
+    },
+    {
+      "name": "External commit and branch switch leave history stale until its own Refresh",
+      "status": "pass",
+      "detail": {
+        "old": "cb9619b565754b985761d73693f6d31b39401332",
+        "afterExternal": "cb9619b565754b985761d73693f6d31b39401332",
+        "afterSwitch": "cb9619b565754b985761d73693f6d31b39401332"
+      }
+    },
+    {
+      "name": "Single cherry-pick replays reverted ancestor immediately",
+      "status": "pass",
+      "detail": {
+        "dialogCount": 0
+      }
+    },
+    {
+      "name": "Rebase conflict banner and Abort",
+      "status": "pass",
+      "detail": "Rebase in progress\nStep 1/1\n1 conflicted file(s)\nContinue\nAbort"
+    },
+    {
+      "name": "Cherry-pick conflict Continue after external resolution",
+      "status": "pass"
+    },
+    {
+      "name": "History Load more stalls at 500 commits",
+      "status": "pass",
+      "detail": {
+        "count": 500,
+        "loadMoreStillVisible": true
+      }
+    },
+    {
+      "name": "Dark and narrow pane visuals without page exceptions",
+      "status": "pass",
+      "detail": {
+        "pageErrors": [],
+        "deadSlots": 0
+      }
+    }
+  ],
+  "noise": [],
+  "rpc": [
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "getDiff",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "path": "image.bin",
+        "side": "unstaged"
+      }
+    },
+    {
+      "method": "getDiff",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "path": "large.txt",
+        "side": "unstaged"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "getDiff",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "path": "app.txt",
+        "side": "unstaged"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 30
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 30
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "branchSwitch",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "name": "feature"
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 30
+      }
+    },
+    {
+      "method": "branchSwitch",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "name": "main"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 30
+      }
+    },
+    {
+      "method": "cherryPick",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "hash": "11ca46a2752546910dc3913b3dd4a6de2cc35acb"
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 30
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "operationAbort",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "operationContinue",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 30
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 30
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 60
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 90
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 120
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 150
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 180
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 210
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 240
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 270
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 300
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 330
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 360
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 390
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 420
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 450
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 480
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 510
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 530
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "limit": 530
+      }
+    }
+  ]
+}

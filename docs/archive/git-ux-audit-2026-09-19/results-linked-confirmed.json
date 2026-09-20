@@ -1,0 +1,45 @@
+{
+  "results": [
+    {
+      "name": "Linked-worktree wrong-file diff and discard reproduced through UI",
+      "status": "pass",
+      "detail": {
+        "shown": "1 added\n0 removed\nCopy\ncollision.txt\nPRIMARY CONTENT - must not be touched\n└ +1 -0 · 1 file(s)",
+        "primaryExists": false,
+        "linkedExists": true
+      }
+    }
+  ],
+  "noise": [],
+  "rpc": [
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-9f48d35a-d0b6-458a-adf9-737cb467536e"
+      }
+    },
+    {
+      "method": "getDiff",
+      "args": {
+        "sessionId": "session-9f48d35a-d0b6-458a-adf9-737cb467536e",
+        "path": "collision.txt",
+        "side": "unstaged"
+      }
+    },
+    {
+      "method": "discard",
+      "args": {
+        "sessionId": "session-9f48d35a-d0b6-458a-adf9-737cb467536e",
+        "paths": [
+          "collision.txt"
+        ]
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    }
+  ]
+}

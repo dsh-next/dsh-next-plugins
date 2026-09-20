@@ -1,0 +1,249 @@
+{
+  "run": "/Users/rokgrabnar/Projects/dsh-next-plugins/tmp/git-ux-audit/host-probes/run-kaBxfj",
+  "versions": {
+    "node": "v22.23.2",
+    "git": "git version 2.50.1 (Apple Git-155)"
+  },
+  "nested": {
+    "cwd": "/Users/rokgrabnar/Projects/dsh-next-plugins/tmp/git-ux-audit/host-probes/run-kaBxfj/nested/src",
+    "path": "src/a.txt",
+    "actualDiff": "diff --git a/src/a.txt b/src/a.txt\nindex df967b9..5ea2ed4 100644\n--- a/src/a.txt\n+++ b/src/a.txt\n@@ -1 +1 @@\n-base\n+changed",
+    "returnedDiff": {
+      "path": "src/a.txt",
+      "side": "unstaged",
+      "file": null,
+      "empty": true
+    },
+    "stageFailure": {
+      "code": "path-missing",
+      "detail": "warning: could not open directory 'src/src/': No such file or directory\nfatal: pathspec 'src/a.txt' did not match any files",
+      "exitCode": 128
+    },
+    "index": "",
+    "commands": [
+      {
+        "sessionCwd": "/Users/rokgrabnar/Projects/dsh-next-plugins/tmp/git-ux-audit/host-probes/run-kaBxfj/nested/src",
+        "args": [
+          "diff",
+          "--",
+          "src/a.txt"
+        ],
+        "code": 0,
+        "stdout": "",
+        "stderr": ""
+      },
+      {
+        "sessionCwd": "/Users/rokgrabnar/Projects/dsh-next-plugins/tmp/git-ux-audit/host-probes/run-kaBxfj/nested/src",
+        "args": [
+          "diff",
+          "--numstat",
+          "-z",
+          "--",
+          "src/a.txt"
+        ],
+        "code": 0,
+        "stdout": "",
+        "stderr": ""
+      },
+      {
+        "sessionCwd": "/Users/rokgrabnar/Projects/dsh-next-plugins/tmp/git-ux-audit/host-probes/run-kaBxfj/nested/src",
+        "args": [
+          "add",
+          "--",
+          "src/a.txt"
+        ],
+        "code": 128,
+        "stdout": "",
+        "stderr": "warning: could not open directory 'src/src/': No such file or directory\nfatal: pathspec 'src/a.txt' did not match any files\n"
+      }
+    ]
+  },
+  "cap": {
+    "statusCount": 41,
+    "returnedFiles": 40,
+    "first": "f00.txt",
+    "last": "f39.txt",
+    "included": 40,
+    "dropped": [],
+    "truncated": false,
+    "notice": null,
+    "omittedPathInPrompt": false
+  },
+  "partial": {
+    "status": "MM a.txt",
+    "actualStaged": "diff --git a/a.txt b/a.txt\nindex df967b9..37a2c05 100644\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-base\n+STAGED_ONLY",
+    "actualUnstaged": "diff --git a/a.txt b/a.txt\nindex 37a2c05..73f40fb 100644\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-STAGED_ONLY\n+UNSTAGED_ONLY",
+    "files": [
+      {
+        "path": "a.txt",
+        "patch": "diff --git a/a.txt b/a.txt\nindex df967b9..37a2c05 100644\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-base\n+STAGED_ONLY\n",
+        "added": 1,
+        "removed": 1,
+        "binary": false,
+        "staged": true
+      }
+    ]
+  },
+  "commitAll": {
+    "before": "909a525157ba0941a2bb1b6ac740e6341b775704",
+    "after": "7efbdf783a98767c1ddaa834662579ca05fa724e",
+    "committedFiles": "a.txt",
+    "subject": "audit commit all",
+    "remainingStatus": "M b.txt",
+    "remainingDiff": "diff --git a/b.txt b/b.txt\nindex df967b9..3310de6 100644\n--- a/b.txt\n+++ b/b.txt\n@@ -1 +1 @@\n-base\n+UNCOMMITTED_CHANGE",
+    "calls": [
+      {
+        "method": "getState",
+        "args": {
+          "sessionId": "all"
+        },
+        "ok": true
+      },
+      {
+        "method": "stage",
+        "args": {
+          "sessionId": "all",
+          "paths": [
+            "a.txt",
+            "b.txt",
+            "vanished.txt"
+          ]
+        },
+        "ok": false,
+        "failure": {
+          "code": "path-missing",
+          "detail": "fatal: pathspec 'vanished.txt' did not match any files",
+          "exitCode": 128
+        }
+      },
+      {
+        "method": "commit",
+        "args": {
+          "sessionId": "all",
+          "message": "audit commit all",
+          "amend": false,
+          "requestId": "commit"
+        },
+        "ok": true
+      }
+    ],
+    "commands": [
+      {
+        "sessionCwd": "/Users/rokgrabnar/Projects/dsh-next-plugins/tmp/git-ux-audit/host-probes/run-kaBxfj/commit-all",
+        "args": [
+          "add",
+          "--",
+          "a.txt",
+          "b.txt",
+          "vanished.txt"
+        ],
+        "code": 128,
+        "stdout": "",
+        "stderr": "fatal: pathspec 'vanished.txt' did not match any files\n"
+      },
+      {
+        "sessionCwd": "/Users/rokgrabnar/Projects/dsh-next-plugins/tmp/git-ux-audit/host-probes/run-kaBxfj/commit-all",
+        "args": [
+          "commit",
+          "-m",
+          "audit commit all"
+        ],
+        "code": 0,
+        "stdout": "[main 7efbdf7] audit commit all\n 1 file changed, 1 insertion(+), 1 deletion(-)\n",
+        "stderr": ""
+      }
+    ],
+    "finalFailure": null,
+    "finalMessage": ""
+  },
+  "cancellation": {
+    "calls": [
+      {
+        "method": "commit",
+        "args": {
+          "sessionId": "A",
+          "message": "commit A",
+          "amend": false,
+          "requestId": "commit"
+        },
+        "ok": false,
+        "failure": {
+          "code": "hook-cancelled",
+          "detail": "commit cancelled"
+        }
+      },
+      {
+        "method": "commit",
+        "args": {
+          "sessionId": "B",
+          "message": "commit B",
+          "amend": false,
+          "requestId": "commit"
+        },
+        "ok": true
+      },
+      {
+        "method": "cancelCommit",
+        "args": {
+          "requestId": "commit"
+        },
+        "ok": true
+      }
+    ],
+    "cancelReply": {
+      "cancelled": false
+    },
+    "hookA": {
+      "hook": "pre-commit",
+      "output": "commit cancelled",
+      "exitCode": 1,
+      "message": "commit A"
+    },
+    "hookB": null,
+    "headA": "baseline",
+    "headB": "commit B",
+    "commands": [
+      {
+        "sessionCwd": "/Users/rokgrabnar/Projects/dsh-next-plugins/tmp/git-ux-audit/host-probes/run-kaBxfj/cancel-a",
+        "args": [
+          "commit",
+          "-m",
+          "commit A"
+        ],
+        "code": 130,
+        "stdout": "",
+        "stderr": "",
+        "killed": true
+      },
+      {
+        "sessionCwd": "/Users/rokgrabnar/Projects/dsh-next-plugins/tmp/git-ux-audit/host-probes/run-kaBxfj/cancel-b",
+        "args": [
+          "commit",
+          "-m",
+          "commit B"
+        ],
+        "code": 0,
+        "stdout": "[main 5a7abb9] commit B\n 1 file changed, 1 insertion(+), 1 deletion(-)\n",
+        "stderr": ""
+      }
+    ]
+  },
+  "freshness": {
+    "scope": "source PanelStore, not mounted browser",
+    "original": "d5be192bb22916f4526d51021aebd8a00c33420c",
+    "external": {
+      "head": "9d2e2f77ba60a15b0e4617928db8bcfe95e2059d",
+      "history": "d5be192bb22916f4526d51021aebd8a00c33420c",
+      "calls": [
+        "getState",
+        "getHistory",
+        "getState"
+      ]
+    },
+    "own": {
+      "head": "ddd4cfe926de257e756f5dd1239b35435600931a",
+      "history": "ddd4cfe926de257e756f5dd1239b35435600931a",
+      "subject": "own commit"
+    }
+  }
+}

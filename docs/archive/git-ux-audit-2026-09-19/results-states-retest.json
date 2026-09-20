@@ -1,0 +1,74 @@
+{
+  "results": [
+    {
+      "name": "Identity missing is explained",
+      "status": "pass"
+    },
+    {
+      "name": "No repository and unborn history states",
+      "status": "pass",
+      "detail": {
+        "noRepo": "This session is not in a git repository\nOpen a session in a folder that is inside a git working tree, or run git init there.",
+        "unborn": "git failed\nRun the same git command in a terminal to see the full output.\nfatal: your current branch 'main' does not have any commits yet"
+      }
+    }
+  ],
+  "noise": [],
+  "rpc": [
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-9f48d35a-d0b6-458a-adf9-737cb467536e"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-9f48d35a-d0b6-458a-adf9-737cb467536e"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-9f48d35a-d0b6-458a-adf9-737cb467536e"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-9f48d35a-d0b6-458a-adf9-737cb467536e"
+      }
+    },
+    {
+      "method": "getHistory",
+      "args": {
+        "sessionId": "session-9f48d35a-d0b6-458a-adf9-737cb467536e",
+        "limit": 30
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    }
+  ]
+}

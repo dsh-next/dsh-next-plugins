@@ -1,0 +1,179 @@
+{
+  "results": [
+    {
+      "name": "Failed hook output and successful Retry",
+      "status": "pass"
+    },
+    {
+      "name": "Create worktree and start-point menus",
+      "status": "pass",
+      "detail": [
+        "New branch from main",
+        "feature",
+        "main",
+        "v1.0"
+      ]
+    },
+    {
+      "name": "Worktree clean merge runs without confirmation",
+      "status": "pass",
+      "detail": {
+        "confirmation": 0
+      }
+    },
+    {
+      "name": "AI four menu actions send to current session without chooser",
+      "status": "fail",
+      "detail": "expect(locator).toContainText(expected) failed\n\nLocator: locator('[data-dsh-git=\"notice\"]')\nExpected substring: \"Sent to this session\"\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"to.have.text\" with timeout 5000ms\n  - waiting for locator('[data-dsh-git=\"notice\"]')\n"
+    },
+    {
+      "name": "Discard all includes untracked deletion",
+      "status": "pass"
+    },
+    {
+      "name": "Merge conflict banner, empty diff, premature Continue and Abort",
+      "status": "pass",
+      "detail": {
+        "buttons": [
+          "Discard"
+        ],
+        "continueEnabled": true,
+        "diff": "No changes on this side"
+      }
+    },
+    {
+      "name": "Merge resolved externally then Continue",
+      "status": "pass"
+    }
+  ],
+  "noise": [],
+  "rpc": [
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "stage",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "paths": [
+          "other.txt"
+        ]
+      }
+    },
+    {
+      "method": "commit",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "message": "Hook recovery",
+        "amend": false,
+        "requestId": "commit"
+      }
+    },
+    {
+      "method": "commit",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "message": "Hook recovery",
+        "amend": false,
+        "requestId": "commit"
+      }
+    },
+    {
+      "method": "worktreeAdd",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "mode": "new",
+        "name": "audit-linked",
+        "base": "main"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "worktreeMerge",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "path": "/Users/rokgrabnar/Projects/dsh-next-plugins/tmp/git-ux-audit/scratch/dsh-next-dev-wpIYT5/workspace-a/.worktrees/audit-linked"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "agentFiles",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "discard",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "paths": [
+          "app.txt",
+          "discard-me.txt"
+        ]
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "getDiff",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f",
+        "path": "app.txt",
+        "side": "unstaged"
+      }
+    },
+    {
+      "method": "operationContinue",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "operationAbort",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "getState",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    },
+    {
+      "method": "operationContinue",
+      "args": {
+        "sessionId": "session-3f14f4dd-3397-48ef-ad6d-c31b5210084f"
+      }
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+.card.card { width: min(760px, calc(100vw - 48px)); max-height: calc(100dvh - 48px); overflow: auto; }
+.body { display: flex; flex-direction: column; gap: 12px; min-width: 0; font-size: 13px; line-height: 20px; }
+.body p { margin: 0; }
+.path { overflow-wrap: anywhere; color: var(--dsw-alias-label-secondary); }
+.tabs { display: flex; flex-wrap: wrap; gap: 8px; border-bottom: 0.5px solid var(--dsw-alias-border-l3); }
+.tabs button { border: 0; border-bottom: 2px solid transparent; padding: 8px; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; cursor: pointer; }
+.tabs button[aria-selected="true"] { color: var(--dsw-alias-label-primary); border-bottom-color: var(--dsw-alias-label-primary); }
+.form { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.form label { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.form input:not([type="checkbox"]), .form select { height: 34px; min-width: 0; flex: 1; border: 0.5px solid var(--dsw-alias-border-l3); border-radius: 8px; padding: 4px 8px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); font: inherit; box-sizing: border-box; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.hint { color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
+.error { color: var(--dsw-alias-label-error); }
+.body :is(input,select,button):focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: 2px; }
+.body :disabled { opacity: 0.4; }

@@ -1,0 +1,30 @@
+/* Native Modal owns the elevated surface and its 24px body padding. */
+.card.card { width: min(1120px, 100%); max-height: calc(100dvh - 48px); min-width: 0; }
+.scroll { min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.body { display: flex; flex-direction: column; gap: 12px; min-width: 0; color: var(--dsw-alias-label-primary); font-size: 13px; line-height: 20px; }
+.body p, .body h3 { margin: 0; overflow-wrap: anywhere; }
+.body h3 { font-size: 15px; line-height: 21px; font-weight: 500; }
+.actions, .files { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.actions > button { max-width: 100%; height: auto; min-height: 36px; padding-top: 7px; padding-bottom: 7px; white-space: normal; overflow-wrap: anywhere; }
+.actions [aria-pressed="true"] { background: var(--dsw-alias-interactive-bg-hover); }
+.body label { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.body select, .body textarea { box-sizing: border-box; width: 100%; padding: 8px 12px; border: 0.5px solid var(--dsw-alias-border-l3); border-radius: 8px; background: var(--dsw-alias-bg-layer-2); color: inherit; font: inherit; }
+.body textarea { min-height: 120px; resize: vertical; }
+.body .check { flex-direction: row; align-items: flex-start; gap: 8px; }
+.endpoints { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.files { max-height: 160px; overflow: auto; }
+.files button { max-width: 100%; padding: 8px 12px; border: 0.5px solid var(--dsw-alias-border-l3); border-radius: 8px; background: transparent; color: inherit; font: inherit; text-align: start; overflow-wrap: anywhere; cursor: pointer; }
+.files [aria-current], .files button:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.patch { margin: 0; max-height: 320px; overflow: auto; padding: 8px; border: 0.5px solid var(--dsw-alias-border-l3); border-radius: 8px; white-space: pre; font-size: 12px; line-height: 18px; }
+.hint, .order code { color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; }
+.order { display: flex; flex-direction: column; gap: 8px; margin: 0; padding-left: 24px; max-height: 240px; overflow: auto; }
+.order li { padding-left: 4px; overflow-wrap: anywhere; }
+.order code { display: block; }
+.preview, .confirmation { display: flex; flex-direction: column; gap: 12px; }
+.error { color: var(--dsw-alias-label-error); }
+.warning { color: var(--dsw-alias-state-warn-label); }
+.danger.danger { border: 1px solid var(--dsw-alias-label-error); color: var(--dsw-alias-label-error); }
+.danger.danger:hover { background: var(--dsw-alias-interactive-bg-hover-danger); }
+.body :disabled { opacity: 0.4; cursor: not-allowed; }
+.card :is(button, input, select, textarea, pre):focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: 2px; }
+@media (max-width: 720px) { .endpoints { grid-template-columns: minmax(0, 1fr); } .actions > button { flex: 1 1 160px; } }

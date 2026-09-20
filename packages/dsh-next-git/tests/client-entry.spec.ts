@@ -82,12 +82,14 @@ describe('tab seats', () => {
 describe('worktree session opener', () => {
   it('registers the folder as a workspace and opens a session in it', async () => {
     const create = vi.fn(async (input: { path: string }) => ({ workspaceId: 'ws-1', path: input.path }))
-    const openWorkspace = vi.fn(async () => {})
-    const opener = makeWorktreeOpener(contextWith({ workspaces: { create }, uiWorkspace: { openWorkspace } }))
+    const openSession = vi.fn()
+    const createSession = vi.fn(async () => 'fresh-session')
+    const opener = makeWorktreeOpener(contextWith({ workspaces: { create }, sessions: { create: createSession }, uiWorkspace: { openSession } }))
     expect(opener).toBeDefined()
     await opener?.('/repo/.worktrees/feature')
     expect(create).toHaveBeenCalledWith({ path: '/repo/.worktrees/feature' })
-    expect(openWorkspace).toHaveBeenCalledWith('ws-1')
+    expect(createSession).toHaveBeenCalledWith({ workspaceId: 'ws-1' })
+    expect(openSession).toHaveBeenCalledWith('fresh-session')
   })
 
   it('is absent when the host cannot navigate workspaces', () => {
@@ -101,7 +103,8 @@ describe('worktree session opener', () => {
   it('fails loudly when a service disappears after the check', async () => {
     const services: Record<string, unknown> = {
       workspaces: { create: async () => ({ workspaceId: 'a' }) },
-      uiWorkspace: { openWorkspace: async () => {} },
+      uiWorkspace: { openSession: () => {} },
+      sessions: { create: async () => 'fresh-session' },
     }
     const opener = makeWorktreeOpener(contextWith(services))
     delete services.workspaces

@@ -15,6 +15,13 @@
  * `ctx.sessions` resolves the session face and queues the payload as a turn.
  */
 import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-api-session-controller/client'
+import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
+import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import { createSessionBridge } from './ai/session-bridge.ts'
+import { createAiTaskResults, type AiTaskResults } from './ai/task-results.ts'
+import type { AgentSessionControls } from './ai/action-dialog.tsx'
 // Type-only: pulls the sidebar-right Context merge (ctx.sidebarRight,
 // ctx.sidebarRightTabs), the slots SlotMap merges for the two keyed seats this
 // package registers into, and the session standard-props merge (sessionId).
@@ -39,7 +46,7 @@ export const GIT_KIND = 'git'
 export const GIT_ID = '@dsh-next/dsh-next-git'
 
 /** Services required before registration. */
-export const inject = ['slots', 'locale', 'sidebarRightTabs', 'sessions'] as const
+export const inject = ['slots', 'locale', 'sidebarRightTabs', 'sessions', 'workspaces', 'uiWorkspace'] as const
 
 /** The tab type's static face. */
 export function gitDefinition(t: (key: MessageKey, params?: Record<string, string | number>) => string) {
@@ -60,50 +67,19 @@ export function gitDefinition(t: (key: MessageKey, params?: Record<string, strin
   }
 }
 
-/** One session face surface this entry needs for the agent verbs. */
-interface SessionFaceLike {
-  prompt(content: unknown[], mode: 'queue' | 'steer'): Promise<unknown>
-}
-
-/** The workspace registry face, as much of it as this entry needs. */
-interface WorkspacesFaceLike {
-  create(input: { path: string }): Promise<{ workspaceId: string }>
-}
-
-/** The workspace navigation face, as much of it as this entry needs. */
-interface UiWorkspaceFaceLike {
-  openWorkspace(workspaceId: string): Promise<void>
-}
-
-/**
- * Build the "open a session in this worktree" action.
- *
- * Registers the worktree as a workspace (idempotent) and navigates to a session
- * in it. Both services are resolved through the context rather than declared as
- * hard dependencies: the action is a convenience, and a host that does not
- * offer workspace navigation should still mount the panel.
- *
- * @param ctx - the client context.
- * @returns the action, or undefined when the host cannot navigate workspaces.
- */
+/** Register the folder, then create a genuinely new session in that checkout. */
 export function makeWorktreeOpener(ctx: Context): ((path: string) => Promise<void>) | undefined {
-  const available = (): boolean =>
-    ctx.get('workspaces') !== undefined && ctx.get('uiWorkspace') !== undefined
-  if (!available()) return undefined
+  const workspaces = ctx.get('workspaces')
+  const sessions = ctx.get('sessions')
+  const navigation = ctx.get('uiWorkspace')
+  if (workspaces === undefined || sessions === undefined || navigation === undefined) return undefined
   return async (path: string): Promise<void> => {
-    const workspaces = ctx.get('workspaces') as WorkspacesFaceLike | undefined
-    const uiWorkspace = ctx.get('uiWorkspace') as UiWorkspaceFaceLike | undefined
-    if (workspaces === undefined || uiWorkspace === undefined) {
-      throw new Error('workspace navigation is unavailable')
-    }
-    const view = await workspaces.create({ path })
-    await uiWorkspace.openWorkspace(view.workspaceId)
+    const workspaces = ctx.get('workspaces'), sessions = ctx.get('sessions'), navigation = ctx.get('uiWorkspace')
+    if (workspaces === undefined || sessions === undefined || navigation === undefined) throw new Error('workspace navigation is unavailable')
+    const workspace = await workspaces.create({ path })
+    const sessionId = await sessions.create({ workspaceId: workspace.workspaceId })
+    navigation.openSession(sessionId)
   }
-}
-
-interface SessionsFace {
-  scope?(id: string): unknown
-  sessionOf?(ctx: unknown): SessionFaceLike | undefined
 }
 
 export function apply(ctx: Context): void {
@@ -126,8 +102,34 @@ export function apply(ctx: Context): void {
 
   ctx.effect(() => ctx.sidebarRightTabs.register(gitDefinition(t)), 'dsh-next-git: git tab type')
 
-  const sessions = ctx.get('sessions') as SessionsFace | undefined
+  const sessions = ctx.get('sessions')
+  const workspaces = ctx.get('workspaces')
+  const uiWorkspace = ctx.get('uiWorkspace')
+  const bridge = sessions !== undefined && workspaces !== undefined && uiWorkspace !== undefined
+    ? createSessionBridge({ sessions, workspaces, uiWorkspace }) : undefined
   const openWorktreeSession = makeWorktreeOpener(ctx)
+  const controls = new Map<SessionId, AgentSessionControls>()
+  const results = new Map<string, AiTaskResults>()
+  const controlsFor = (sourceSessionId: SessionId): AgentSessionControls | undefined => {
+    if (bridge === undefined || sessions === undefined || uiWorkspace === undefined) return undefined
+    const existing = controls.get(sourceSessionId)
+    if (existing !== undefined) return existing
+    const bound: AgentSessionControls = {
+      getSource: () => bridge.getSource(sourceSessionId),
+      createDelivery: input => bridge.createDelivery({ ...input, sourceSessionId }),
+      subscribeRefresh: refresh => bridge.subscribeTurnEnd(sourceSessionId, refresh),
+      openSession: target => uiWorkspace.openSession(target),
+      taskResults: root => {
+        const key = JSON.stringify([sourceSessionId, root])
+        let value = results.get(key)
+        if (value === undefined) { value = createAiTaskResults({ sessions, sourceSessionId, root }); results.set(key, value) }
+        return value
+      },
+    }
+    controls.set(sourceSessionId, bound)
+    return bound
+  }
+  ctx.effect(() => () => { for (const result of results.values()) result.dispose(); results.clear(); controls.clear() }, 'dsh-next-git: AI task results')
 
   ctx.effect(
     () =>
@@ -136,7 +138,7 @@ export function apply(ctx: Context): void {
           { name: 'sidebar.right.pane.tab', key: GIT_ID, locale: NS },
           (props: unknown) => {
             const share = props as {
-              sessionId?: string
+              sessionId?: SessionId
               useTabInfo?: GitPanelProps['useTabInfo']
             }
             // Never return null: a registered seat that renders nothing leaves
@@ -145,12 +147,12 @@ export function apply(ctx: Context): void {
             if (share.sessionId === undefined) {
               return React.createElement(GitPanelUnavailable, { t })
             }
-            const sendPrompt = makePromptSender(sessions, share.sessionId)
+            const agentSessions = controlsFor(share.sessionId)
             return React.createElement(GitPanel, {
               sessionId: share.sessionId,
               ...(share.useTabInfo === undefined ? {} : { useTabInfo: share.useTabInfo }),
               t,
-              ...(sendPrompt === undefined ? {} : { sendPrompt }),
+              ...(agentSessions === undefined ? {} : { agentSessions }),
               ...(openWorktreeSession === undefined ? {} : { openWorktreeSession }),
             })
           },
@@ -180,23 +182,4 @@ export function apply(ctx: Context): void {
   )
 }
 
-/**
- * Build the prompt sender for one session, or undefined when the session face
- * cannot be resolved (the panel then hides the agent verbs rather than
- * offering an action that does nothing).
- */
-export function makePromptSender(
-  sessions: SessionsFace | undefined,
-  sessionId: string,
-): ((prompt: string) => Promise<void>) | undefined {
-  if (sessions === undefined || typeof sessions.scope !== 'function' || typeof sessions.sessionOf !== 'function') {
-    return undefined
-  }
-  const scoped = sessions.scope(sessionId)
-  if (scoped === undefined) return undefined
-  const face = sessions.sessionOf(scoped)
-  if (face === undefined || typeof face.prompt !== 'function') return undefined
-  return async (prompt: string) => {
-    await face.prompt([{ type: 'text', text: prompt }], 'queue')
-  }
-}
+

@@ -1,0 +1,14 @@
+.body { display: flex; flex-direction: column; gap: 12px; min-width: 0; font-size: 13px; line-height: 20px; }
+.body p { margin: 0; }
+.choices { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; border: 0; }
+.choices label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.choices input:focus-visible, .body summary:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: 2px; }
+.choices:disabled { opacity: 0.4; }
+.hint { color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; }
+.context { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; margin: 0; }
+.context dt { color: var(--dsw-alias-label-secondary); }
+.context dd { margin: 0; overflow-wrap: anywhere; }
+.preview { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 18px; }
+.error { color: var(--dsw-alias-label-error); }
+.fileChoices { margin: 0; padding: 8px; border: 0.5px solid var(--dsw-alias-border-l3); border-radius: 8px; max-height: 180px; overflow: auto; }
+.fileChoices label { display: flex; gap: 8px; align-items: center; overflow-wrap: anywhere; }

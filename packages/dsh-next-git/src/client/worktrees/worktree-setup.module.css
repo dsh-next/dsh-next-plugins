@@ -1,0 +1,13 @@
+.body { display: flex; flex-direction: column; gap: 12px; min-width: 0; font-size: 13px; line-height: 20px; }
+.body p { margin: 0; }
+.context { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; margin: 0; }
+.context dt { color: var(--dsw-alias-label-secondary); }
+.context dd { margin: 0; overflow-wrap: anywhere; }
+.choice { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 8px; border: 0.5px solid var(--dsw-alias-border-l3); border-radius: 8px; }
+.choice label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.choice input:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: 2px; }
+.choice:disabled { opacity: 0.4; }
+.caption { color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; }
+.list { margin: 0; padding: 0; max-height: 180px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 18px; }
+.paths { margin: 0; padding-left: 18px; max-height: 180px; overflow: auto; overflow-wrap: anywhere; }
+.hint { color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; }

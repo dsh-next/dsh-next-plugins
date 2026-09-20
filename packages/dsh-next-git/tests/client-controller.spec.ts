@@ -317,7 +317,7 @@ describe('writes', () => {
     await panel.commit('feat: thing')
     expect(calls.find((call) => call.method === 'commit')?.args).toMatchObject({
       message: 'feat: thing',
-      requestId: 'commit',
+      requestId: expect.any(String),
     })
     expect(panel.getSnapshot().message).toBe('')
     panel.dispose()
@@ -351,21 +351,19 @@ describe('writes', () => {
     panel.dispose()
   })
 
-  it('stages every stageable path before committing all', async () => {
+  it('sends the complete path snapshot to the atomic host bulk commit', async () => {
     const { store: panel, calls } = store({
       getState: { state: state(), notice: null },
-      stage: state(),
-      commit: state({ changes: { ...state().changes, staged: [], unstaged: [], untracked: [] } }),
+      commitAll: state({ changes: { ...state().changes, staged: [], unstaged: [], untracked: [] } }),
     })
     await panel.start()
     await panel.commitAll('feat: everything')
-    expect(calls.map((call) => call.method)).toEqual(['getState', 'stage', 'commit'])
-    expect(calls[1]!.args).toMatchObject({ paths: ['a.ts', 'b.ts'] })
-    expect(calls[2]!.args).toMatchObject({ message: 'feat: everything' })
+    expect(calls.map((call) => call.method)).toEqual(['getState', 'commitAll'])
+    expect(calls[1]!.args).toMatchObject({ paths: ['a.ts', 'b.ts'], message: 'feat: everything' })
     panel.dispose()
   })
 
-  it('leaves a conflicted path out of a commit-all', async () => {
+  it('refuses bulk commit while any path remains conflicted', async () => {
     const conflicted = state({
       changes: {
         ...state().changes,
@@ -383,7 +381,8 @@ describe('writes', () => {
     })
     await panel.start()
     await panel.commitAll('feat: everything')
-    expect(calls.find((call) => call.method === 'stage')?.args).toMatchObject({ paths: ['a.ts', 'b.ts'] })
+    expect(calls.map((call) => call.method)).toEqual(['getState'])
+    expect(panel.getSnapshot().failure?.code).toBe('operation-in-progress')
     panel.dispose()
   })
 
@@ -445,14 +444,25 @@ describe('writes', () => {
     panel.dispose()
   })
 
-  it('cancels an in-flight commit', async () => {
+  it('cancels only its in-flight operation and sends its session ownership', async () => {
+    let release!: (value: PanelState) => void
     const { store: panel, calls } = store({
       getState: { state: state(), notice: null },
+      commit: () => new Promise<PanelState>((resolve) => { release = resolve }),
       cancelCommit: { cancelled: true },
-    })
+    }, 'cancel-session')
     await panel.start()
     await panel.cancelCommit()
-    expect(calls.find((call) => call.method === 'cancelCommit')?.args).toEqual({ requestId: 'commit' })
+    expect(calls.some((call) => call.method === 'cancelCommit')).toBe(false)
+    const pending = panel.commit('feat: cancellable')
+    await panel.cancelCommit()
+    const commitId = calls.find((call) => call.method === 'commit')!.args.requestId
+    expect(commitId).toMatch(/^cancel-session:/)
+    expect(calls.find((call) => call.method === 'cancelCommit')?.args).toEqual({ sessionId: 'cancel-session', requestId: commitId })
+    release(state())
+    await pending
+    await panel.cancelCommit()
+    expect(calls.filter((call) => call.method === 'cancelCommit')).toHaveLength(1)
     panel.dispose()
   })
 
@@ -492,10 +502,83 @@ describe('writes', () => {
     await panel.start()
     await panel.worktreeAdd({ mode: 'new', name: 'feature' })
     expect(panel.getSnapshot().setup).toEqual({ slug: 'feature', report: { ran: 2, failed: true, output: 'boom' } })
-    expect(panel.getSnapshot().notice).toBe('setup-failed')
+    // The host reports a machine code; the panel shows a dictionary key.
+    expect(panel.getSnapshot().notice).toBe('notice.setupFailed')
     panel.dismissNotice()
     expect(panel.getSnapshot().notice).toBeNull()
     expect(panel.getSnapshot().setup).toBeNull()
+    panel.dispose()
+  })
+
+  it('previews the declared setup and forwards only the approvals given', async () => {
+    const preview = {
+      root: '/repo',
+      slug: 'feature',
+      path: '/repo/.worktrees/feature',
+      branch: 'dsh-git/feature',
+      base: 'main',
+      baseOid: 'a'.repeat(40),
+      version: 'setup-v9',
+      steps: [{ kind: 'command', command: 'pnpm install' }],
+      includePaths: ['.env'],
+      notice: null,
+    }
+    const { store: panel, calls } = store({
+      getState: { state: state(), notice: null },
+      worktreeSetup: preview,
+      worktreeAdd: {
+        plan: { slug: 'feature' },
+        state: state(),
+        setup: { ran: 0, failed: false, output: '' },
+        copied: [],
+        notice: 'setup-skipped',
+      },
+    })
+    await panel.start()
+    expect(await panel.worktreeSetup({ mode: 'new', name: 'feature' })).toEqual(preview)
+    const created = await panel.worktreeAdd({
+      mode: 'new',
+      name: 'feature',
+      setupApproved: true,
+      expectedSetupVersion: 'setup-v9',
+    })
+    expect(created).toBe(true)
+    expect(calls.find((call) => call.method === 'worktreeAdd')?.args).toMatchObject({
+      name: 'feature',
+      setupApproved: true,
+      expectedSetupVersion: 'setup-v9',
+    })
+    // An approval that was not given never reaches the host.
+    expect(calls.find((call) => call.method === 'worktreeAdd')?.args).not.toHaveProperty('copyApproved')
+    expect(panel.getSnapshot().notice).toBe('notice.setupSkipped')
+    panel.dispose()
+  })
+
+  it('reports a failed create without clearing the panel state', async () => {
+    const { store: panel } = store({
+      getState: { state: state(), notice: null },
+      worktreeAdd: new GitApiError({ code: 'setup-stale', detail: 'setup' }, null),
+    })
+    await panel.start()
+    const created = await panel.worktreeAdd({ mode: 'new', name: 'feature', setupApproved: true })
+    expect(created).toBe(false)
+    expect(panel.getSnapshot().failure?.code).toBe('setup-stale')
+    panel.dispose()
+  })
+
+  it('drops an unknown setup notice code instead of rendering a raw key', async () => {
+    const { store: panel } = store({
+      getState: { state: state(), notice: null },
+      worktreeAdd: {
+        plan: { slug: 'x' },
+        state: state(),
+        setup: { ran: 0, failed: false, output: '' },
+        notice: 'setup-not-object',
+      },
+    })
+    await panel.start()
+    await panel.worktreeAdd({ mode: 'new', name: 'x' })
+    expect(panel.getSnapshot().notice).toBeNull()
     panel.dispose()
   })
 
@@ -590,7 +673,7 @@ describe('writes', () => {
 })
 
 describe('agent verbs', () => {
-  it('builds a payload and queues it into the session', async () => {
+  it('prepares context without performing an AI submission', async () => {
     const { store: panel } = store({
       getState: { state: state(), notice: null },
       agentFiles: {
@@ -599,13 +682,11 @@ describe('agent verbs', () => {
       },
     })
     await panel.start()
-    const sent: string[] = []
-    const payload = await panel.runAgentVerb('review', (prompt) => {
-      sent.push(prompt)
-    })
-    expect(payload.verb).toBe('review')
-    expect(sent[0]).toContain('Repository: /repo')
-    expect(sent[0]).toContain('- a.ts (staged, +1/-1)')
+    const prepared = await panel.prepareAgentAction('review')
+    expect(prepared.payload.verb).toBe('review')
+    expect(prepared.payload.prompt).toContain('Repository: /repo')
+    expect(prepared.payload.prompt).toContain('- a.ts (staged, +1/-1)')
+    expect(prepared.fingerprint).toContain('aaaaaaaa')
     expect(panel.getSnapshot().busy).toBeNull()
     panel.dispose()
   })
@@ -624,8 +705,9 @@ describe('agent verbs', () => {
       agentFiles: { state: state(), files },
     })
     await panel.start()
-    await panel.runAgentVerb('explain', () => {})
-    expect(panel.getSnapshot().notice).toBe('notice.truncated')
+    const prepared = await panel.prepareAgentAction('explain')
+    expect(prepared.payload.truncated).toBe(true)
+    expect(prepared.payload.droppedFiles).toHaveLength(5)
     panel.dispose()
   })
 
@@ -635,8 +717,9 @@ describe('agent verbs', () => {
       agentFiles: new GitApiError({ code: 'git-failed', detail: 'no files' }, null),
     })
     await panel.start()
-    await expect(panel.runAgentVerb('draft', () => {})).rejects.toBeInstanceOf(GitApiError)
-    expect(panel.getSnapshot().failure?.detail).toBe('no files')
+    await expect(panel.prepareAgentAction('draft')).rejects.toBeInstanceOf(GitApiError)
+    // The chooser owns presentation; collection cannot mutate the panel or submit.
+    expect(panel.getSnapshot().failure).toBeNull()
     expect(panel.getSnapshot().busy).toBeNull()
     panel.dispose()
   })
@@ -746,3 +829,130 @@ describe('worktree verbs', () => {
     panel.dispose()
   })
 })
+
+describe('audited safety and freshness regressions', () => {
+  it('never follows a failed bulk transaction with an ordinary commit', async () => {
+    const { store: panel, calls } = store({
+      getState: { state: state(), notice: null },
+      commitAll: new GitApiError({ code: 'path-missing', detail: 'staging failed' }, null),
+    })
+    await panel.start()
+    panel.setMessage('all changes')
+    await panel.commitAll('all changes')
+    expect(calls.filter((call) => call.method === 'commitAll')).toHaveLength(1)
+    expect(calls.some((call) => call.method === 'commit' || call.method === 'stage')).toBe(false)
+    expect(panel.getSnapshot()).toMatchObject({ message: 'all changes', failure: { code: 'path-missing' }, busy: null })
+    panel.dispose()
+  })
+
+  it('gives each attempt a unique ID and refuses a second commit while busy', async () => {
+    let release!: (value: PanelState) => void
+    const { store: panel, calls } = store({
+      getState: { state: state(), notice: null },
+      commit: () => new Promise<PanelState>((resolve) => { release = resolve }),
+    })
+    await panel.start()
+    const first = panel.commit('one')
+    await panel.commit('duplicate')
+    expect(calls.filter((call) => call.method === 'commit')).toHaveLength(1)
+    release(state())
+    await first
+    const second = panel.commit('two')
+    release(state())
+    await second
+    const ids = calls.filter((call) => call.method === 'commit').map((call) => call.args.requestId)
+    expect(new Set(ids).size).toBe(2)
+    panel.dispose()
+  })
+
+  it('restores drafts and collapse preferences after remount without retaining a live store', async () => {
+    const id = 'persistent-' + Math.random()
+    const first = store({ getState: { state: state(), notice: null } }, id).store
+    await first.start()
+    first.setMessage('keep this draft')
+    first.toggleSection('history')
+    first.dispose()
+    const second = store({ getState: { state: state(), notice: null } }, id).store
+    await second.start()
+    expect(second.getSnapshot()).toMatchObject({ message: 'keep this draft', collapsed: { history: false, changes: true } })
+    second.dispose()
+    const other = store({ getState: { state: state({ root: '/other' }), notice: null } }, id).store
+    await other.start()
+    expect(other.getSnapshot()).toMatchObject({ message: '', collapsed: { history: true } })
+    other.dispose()
+  })
+
+  it('refreshes a visible diff and loaded history after an external change', async () => {
+    const { store: panel, calls } = store({
+      getState: { state: state(), notice: null },
+      getHistory: { commits: [], lanes: [], hasMore: false },
+      getDiff: { path: 'new.ts', side: 'unstaged', file: null, empty: true },
+    })
+    await panel.start()
+    await panel.loadHistory()
+    await panel.openDiff('new.ts', 'unstaged', 'old.ts')
+    calls.length = 0
+    await panel.refresh()
+    expect(calls.map((call) => call.method)).toEqual(['getState', 'getHistory', 'getDiff'])
+    expect(calls[2]!.args.oldPath).toBe('old.ts')
+    panel.dispose()
+  })
+
+  it('re-reads operation state after a mutation fails while preserving the failure', async () => {
+    const conflicted = state({ operation: { kind: 'merge', step: null, message: null, conflicts: ['a.ts'] } })
+    const { store: panel } = store({
+      getState: { state: conflicted, notice: null },
+      worktreeMerge: new GitApiError({ code: 'git-failed', detail: 'merge stopped' }, null),
+    })
+    await panel.start()
+    await panel.worktreeMerge('/repo/.worktrees/x')
+    expect(panel.getSnapshot()).toMatchObject({ state: { operation: { kind: 'merge' } }, failure: { detail: 'merge stopped' }, busy: null })
+    panel.dispose()
+  })
+
+  it('does not replace a newer history read with an older reply', async () => {
+    const releases: ((value: unknown) => void)[] = []
+    const { store: panel } = store({
+      getState: { state: state(), notice: null },
+      getHistory: () => new Promise((resolve) => { releases.push(resolve) }),
+    })
+    await panel.start()
+    const old = panel.loadHistory(10)
+    const current = panel.loadHistory(20)
+    releases[1]!({ commits: [], lanes: [], hasMore: false })
+    await current
+    releases[0]!({ commits: [], lanes: [], hasMore: true })
+    await old
+    expect(panel.getSnapshot().history?.hasMore).toBe(false)
+    panel.dispose()
+  })
+
+  it('appends beyond 500 and refreshes the loaded window in bounded requests', async () => {
+    const commits = Array.from({ length: 535 }, (_, i) => ({ hash: String(i), short: String(i), parents: [String(i + 1)], subject: 'Commit ' + i, author: 'A', timestamp: i, refs: [] }))
+    const calls: Record<string, unknown>[] = []
+    const panel = new PanelStore({
+      async call<T>(method: string, args: Record<string, unknown>): Promise<T> {
+        if (method === 'getState') return { state: state(), notice: null } as T
+        calls.push(args)
+        const skip = Number(args.skip ?? 0), limit = Number(args.limit)
+        const page = commits.slice(skip, skip + limit)
+        return { commits: page, lanes: [], hasMore: skip + page.length < commits.length } as T
+      },
+    }, 'pagination')
+    await panel.start()
+    await panel.loadHistory(500)
+    await panel.loadMoreHistory()
+    expect(panel.getSnapshot().history?.commits).toHaveLength(530)
+    expect(calls.at(-1)).toMatchObject({ skip: 500, limit: 30, ref: 'aaaaaaaa' })
+    await panel.refresh()
+    expect(panel.getSnapshot().history?.commits).toHaveLength(530)
+    expect(calls.every((args) => Number(args.limit) <= 500)).toBe(true)
+    await panel.loadMoreHistory()
+    expect(panel.getSnapshot().history).toMatchObject({ commits, hasMore: false })
+    const before = calls.length
+    await panel.loadMoreHistory()
+    expect(calls).toHaveLength(before)
+    panel.dispose()
+  })
+})
+

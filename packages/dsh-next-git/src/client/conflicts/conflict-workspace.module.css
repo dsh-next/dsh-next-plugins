@@ -1,0 +1,35 @@
+/* Native Modal owns r24, layer-2, prominent elevation and 24px body padding. */
+.card.card { width: min(1120px, 100%); max-height: calc(100dvh - 48px); min-width: 0; }
+.scroll { min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.body { display: flex; flex-direction: column; gap: 12px; min-width: 0; font-size: 13px; line-height: 20px; color: var(--dsw-alias-label-primary); }
+.body p, .body h3, .body h4 { margin: 0; overflow-wrap: anywhere; }
+.body h3 { font-size: 15px; line-height: 21px; font-weight: 500; }
+.body h4, .hunk legend { font-size: 13px; line-height: 20px; font-weight: 500; }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.actions > button { max-width: 100%; height: auto; min-height: 36px; padding-top: 7px; padding-bottom: 7px; white-space: normal; overflow-wrap: anywhere; }
+.files { display: flex; flex-wrap: wrap; gap: 4px; max-height: 160px; overflow: auto; }
+.file { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; max-width: 100%; padding: 8px 12px; border: 0.5px solid var(--dsw-alias-border-l3); border-radius: 8px; background: transparent; color: var(--dsw-alias-label-primary); font: inherit; text-align: start; overflow-wrap: anywhere; cursor: pointer; }
+.file[aria-current], .file:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }
+.file:disabled { opacity: 0.4; cursor: not-allowed; }
+.heading { display: flex; flex-direction: column; gap: 4px; }
+.panes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.pane { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ref, .hint { color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
+.preview, .hunkSides pre { margin: 0; max-height: 200px; overflow: auto; padding: 8px; border: 0.5px solid var(--dsw-alias-border-l3); border-radius: 8px; white-space: pre; font-size: 12px; line-height: 18px; }
+.hunk { min-width: 0; margin: 0; padding: 8px 0; border: 0; border-top: 0.5px solid var(--dsw-alias-border-l3); }
+.hunk legend { padding-right: 8px; }
+.hunkSides { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 8px; }
+.result { display: flex; flex-direction: column; gap: 8px; }
+.result textarea { box-sizing: border-box; width: 100%; min-height: 220px; padding: 12px; resize: vertical; border: 0.5px solid var(--dsw-alias-border-l3); border-radius: 8px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); font-family: monospace; font-size: 13px; line-height: 20px; tab-size: 2; }
+.result textarea:disabled { opacity: 0.4; }
+.error { color: var(--dsw-alias-label-error); }
+.warning { color: var(--dsw-alias-state-warn-label); }
+.backup { overflow-wrap: anywhere; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-secondary); }
+.danger.danger { border: 1px solid var(--dsw-alias-label-error); color: var(--dsw-alias-label-error); }
+.danger.danger:hover { background: var(--dsw-alias-interactive-bg-hover-danger); }
+.card button:focus-visible, .body textarea:focus-visible, .body pre:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: 2px; }
+@media (max-width: 720px) {
+  .panes, .hunkSides { grid-template-columns: minmax(0, 1fr); }
+  .actions > button { flex: 1 1 180px; }
+  .preview { max-height: 140px; }
+}

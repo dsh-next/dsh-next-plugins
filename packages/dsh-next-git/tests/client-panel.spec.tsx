@@ -22,6 +22,7 @@ import {
 } from '../src/client/GitPanel.tsx'
 import { en, interpolate, type MessageKey } from '../src/client/dictionaries.ts'
 import type { PanelState } from '../src/core/types.ts'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -149,6 +150,23 @@ afterEach(() => {
   container.remove()
 })
 
+/**
+ * The preview a repository with no create-time work reports. The panel asks for
+ * one before every create, so tests that are not about setup get this.
+ */
+const emptySetupPreview = {
+  root: '/repo',
+  slug: 'worktree',
+  path: '/repo/.worktrees/worktree',
+  branch: 'dsh-git/worktree',
+  base: 'main',
+  baseOid: '0'.repeat(40),
+  version: 'setup-v0',
+  steps: [],
+  includePaths: [],
+  notice: null,
+}
+
 /** Render the panel for one scripted API and settle the first read. */
 async function renderPanel(
   script: Record<string, unknown>,
@@ -161,7 +179,11 @@ async function renderPanel(
   /** Keep the sections in their collapsed-by-default state. */
   options: { keepCollapsed?: boolean } = {},
 ) {
-  const double = apiDouble({ getState: { state: panelState(), notice: null }, ...script })
+  const double = apiDouble({
+    getState: { state: panelState(), notice: null },
+    worktreeSetup: emptySetupPreview,
+    ...script,
+  })
   setPanelApi(() => double.api)
   // One store per render: a second renderPanel in the same test must get the
   // new double, not the memoized store of the first.
@@ -173,7 +195,15 @@ async function renderPanel(
         sessionId,
         ...(extra.tabHook === null ? {} : { useTabInfo: extra.tabHook ?? useTabInfo }),
         t,
-        ...(extra.sendPrompt === undefined ? {} : { sendPrompt: extra.sendPrompt }),
+        ...(extra.sendPrompt === undefined ? {} : { agentSessions: {
+          getSource: () => ({ sessionId: sessionId as SessionId, title: 'Test session', cwd: '/repo' }),
+          subscribeRefresh: () => () => {},
+          createDelivery: (input: { text: string }) => ({
+            getSnapshot: () => ({ accepted: false, opened: false }),
+            send: async () => { extra.sendPrompt!(input.text); return { accepted: true, opened: false } },
+            open: () => ({ accepted: true, opened: true }),
+          }),
+        } }),
         ...(extra.openWorktreeSession === undefined ? {} : { openWorktreeSession: extra.openWorktreeSession }),
       }),
     )
@@ -335,7 +365,7 @@ describe('git panel body', () => {
     expect(dialog?.textContent).toContain('1 file')
     expect(double.calls.some((call) => call.method === 'discard')).toBe(false)
     const confirmButton = [...document.querySelectorAll('button')].find((button) =>
-      button.textContent?.includes(en['confirm.force']),
+      button.textContent === en['changes.discard'],
     ) as HTMLButtonElement
     await act(async () => {
       confirmButton.click()
@@ -377,7 +407,7 @@ describe('git panel body', () => {
     })
     expect(double.calls.some((call) => call.method === 'discard')).toBe(false)
     const confirmButton = [...document.querySelectorAll('button')].find((button) =>
-      button.textContent?.includes(en['confirm.force']),
+      button.textContent === en['changes.discard'],
     ) as HTMLButtonElement
     await act(async () => {
       confirmButton.click()
@@ -526,15 +556,19 @@ describe('git panel body', () => {
     })
   })
 
-  it('drafts a message into the composer from the field action', async () => {
+  it('asks for a destination before AI drafting from the field action', async () => {
+    const sent = vi.fn()
     const { double } = await renderPanel({
       getHistory: { commits: [], lanes: [], hasMore: false },
-      draftMessage: 'Update src: app.ts',
-    })
+      agentFiles: { state: panelState(), files: [] },
+    }, { sendPrompt: sent })
     await act(async () => {
       ;(marker('draft-message') as HTMLButtonElement).click()
     })
-    expect(double.calls.some((call) => call.method === 'draftMessage')).toBe(true)
+    expect(document.querySelector('[data-dsh-git="agent-dialog"]')).not.toBeNull()
+    expect(double.calls.some((call) => call.method === 'draftMessage')).toBe(false)
+    expect(double.calls.find((call) => call.method === 'agentFiles')?.args).toMatchObject({ verb: 'draft', side: 'staged' })
+    expect(sent).not.toHaveBeenCalled()
   })
 
   it('offers the commit commands behind the split button chevron', async () => {
@@ -573,8 +607,7 @@ describe('git panel body', () => {
         state: panelState({ changes: { ...panelState().changes, staged: [] } }),
         notice: null,
       },
-      stage: panelState(),
-      commit: panelState({ changes: { ...panelState().changes, staged: [], unstaged: [], untracked: [] } }),
+      commitAll: panelState({ changes: { ...panelState().changes, staged: [], unstaged: [], untracked: [] } }),
     })
     const textarea = marker('commit-message') as HTMLTextAreaElement
     await act(async () => {
@@ -589,13 +622,11 @@ describe('git panel body', () => {
     await act(async () => {
       allRow.click()
     })
-    // Staging every change first is what makes the commit possible.
-    expect(double.calls.find((call) => call.method === 'stage')?.args).toMatchObject({
-      paths: ['src/app.ts', 'docs/new.md'],
+    // The host owns staging and commit as one guarded operation.
+    expect(double.calls.find((call) => call.method === 'commitAll')?.args).toMatchObject({
+      paths: ['src/app.ts', 'docs/new.md'], message: 'feat: all of it',
     })
-    expect(double.calls.find((call) => call.method === 'commit')?.args).toMatchObject({
-      message: 'feat: all of it',
-    })
+    expect(double.calls.some((call) => call.method === 'stage' || call.method === 'commit')).toBe(false)
   })
 
   it('creates a worktree from the name field and validates the name first', async () => {
@@ -665,6 +696,193 @@ describe('git panel body', () => {
     expect(double.calls.some((call) => call.method === 'worktreeAdd')).toBe(false)
   })
 
+  it('asks for the declared setup and runs only what the dialog is told to', async () => {
+    const { double } = await renderPanel({
+      getHistory: { commits: [], lanes: [], hasMore: false },
+      worktreeSetup: {
+        ...emptySetupPreview,
+        slug: 'setup-one',
+        path: '/repo/.worktrees/setup-one',
+        version: 'setup-v1',
+        steps: [{ kind: 'command', command: 'pnpm install' }],
+        includePaths: ['.env'],
+      },
+      worktreeAdd: {
+        plan: { slug: 'setup-one', path: '/repo/.worktrees/setup-one', branch: 'dsh-git/setup-one', base: 'main', setup: [{ kind: 'command', command: 'pnpm install' }] },
+        state: panelState(),
+        setup: { ran: 1, failed: false, output: 'ok' },
+        copied: ['.env'],
+        notice: null,
+      },
+    })
+    const input = marker('worktree-name') as HTMLInputElement
+    await act(async () => {
+      typeInto(input, 'Setup One')
+    })
+    await act(async () => {
+      ;(byText(en['worktrees.create']) as HTMLButtonElement).click()
+    })
+    // The declaration is shown for an explicit decision; nothing is created yet.
+    const dialog = document.querySelector('[data-dsh-git="worktree-setup"]')
+    expect(dialog).not.toBeNull()
+    expect(dialog?.textContent).toContain('pnpm install')
+    expect(dialog?.textContent).toContain('.env')
+    expect(double.calls.some((call) => call.method === 'worktreeAdd')).toBe(false)
+
+    const checkboxes = [...document.querySelectorAll<HTMLInputElement>('[data-dsh-git="worktree-setup"] input[type="checkbox"]')]
+    expect(checkboxes).toHaveLength(2)
+    expect(checkboxes.every((box) => !box.checked)).toBe(true)
+    await act(async () => {
+      checkboxes[0]!.click()
+    })
+    const confirm = [...document.querySelectorAll('button')]
+      .find((button) => button.textContent === en['worktrees.setupConfirm']) as HTMLButtonElement
+    await act(async () => {
+      confirm.click()
+    })
+    const args = double.calls.find((call) => call.method === 'worktreeAdd')?.args
+    expect(args).toMatchObject({
+      name: 'setup-one',
+      setupApproved: true,
+      expectedSetupVersion: 'setup-v1',
+    })
+    // The unchecked copy consent never reaches the host as an approval.
+    expect(args?.copyApproved).toBeUndefined()
+  })
+
+  it('creates without any approval when the dialog is confirmed untouched', async () => {
+    const { double } = await renderPanel({
+      getHistory: { commits: [], lanes: [], hasMore: false },
+      worktreeSetup: {
+        ...emptySetupPreview,
+        slug: 'copy-one',
+        version: 'setup-v2',
+        includePaths: ['.env'],
+      },
+      worktreeAdd: {
+        plan: { slug: 'copy-one', path: '/repo/.worktrees/copy-one', branch: 'dsh-git/copy-one', base: 'main', setup: [] },
+        state: panelState(),
+        setup: { ran: 0, failed: false, output: '' },
+        copied: [],
+        notice: 'setup-skipped',
+      },
+    })
+    const input = marker('worktree-name') as HTMLInputElement
+    await act(async () => {
+      typeInto(input, 'Copy One')
+    })
+    await act(async () => {
+      ;(byText(en['worktrees.create']) as HTMLButtonElement).click()
+    })
+    const confirm = [...document.querySelectorAll('button')]
+      .find((button) => button.textContent === en['worktrees.setupConfirm']) as HTMLButtonElement
+    await act(async () => {
+      confirm.click()
+    })
+    const args = double.calls.find((call) => call.method === 'worktreeAdd')?.args
+    expect(args).toMatchObject({ name: 'copy-one', expectedSetupVersion: 'setup-v2' })
+    expect(args?.setupApproved).toBeUndefined()
+    expect(args?.copyApproved).toBeUndefined()
+    // The host's skip notice is translated, never rendered as a raw code.
+    expect(container.textContent).toContain(en['notice.setupSkipped'])
+  })
+
+  it('merges only after the host preflight allows it', async () => {
+    const { double } = await renderPanel({
+      getHistory: { commits: [], lanes: [], hasMore: false },
+      preflight: { verdict: 'allow' },
+      worktreeMerge: panelState(),
+    })
+    const merge = byText(en['worktrees.merge'].replace('{branch}', 'main')) as HTMLButtonElement
+    await act(async () => {
+      merge.click()
+    })
+    expect(double.calls.find((call) => call.method === 'preflight')?.args).toMatchObject({
+      action: 'merge',
+      target: '/repo/.worktrees/feature',
+    })
+    expect(double.calls.some((call) => call.method === 'worktreeMerge')).toBe(true)
+  })
+
+  it('shows a blocked merge as the named failure without calling git', async () => {
+    const { double } = await renderPanel({
+      getHistory: { commits: [], lanes: [], hasMore: false },
+      preflight: { verdict: 'block', code: 'dirty-tree', paths: ['src/app.ts'], detail: 'merge' },
+    })
+    const merge = byText(en['worktrees.merge'].replace('{branch}', 'main')) as HTMLButtonElement
+    await act(async () => {
+      merge.click()
+    })
+    expect(double.calls.some((call) => call.method === 'worktreeMerge')).toBe(false)
+    expect(container.textContent).toContain(en['failure.dirtyTree'])
+    expect(container.textContent).toContain(en['failure.fix.dirtyTree'])
+  })
+
+  it('skips a stopped step only after a confirmation', async () => {
+    const { double } = await renderPanel({
+      getHistory: { commits: [], lanes: [], hasMore: false },
+      getState: {
+        state: panelState({
+          operation: { kind: 'rebase', step: '2/5', message: null, conflicts: [] },
+        }),
+        notice: null,
+      },
+      operationSkip: panelState({ operation: { kind: null, step: null, message: null, conflicts: [] } }),
+    })
+    const skip = marker('operation-skip') as HTMLButtonElement
+    expect(skip).not.toBeNull()
+    await act(async () => {
+      skip.click()
+    })
+    // The button opens the confirmation; the step is not skipped yet.
+    expect(double.calls.some((call) => call.method === 'operationSkip')).toBe(false)
+    const proceed = document.querySelector<HTMLButtonElement>('[data-dsh-git="confirm-proceed"]')
+    expect(proceed).not.toBeNull()
+    await act(async () => {
+      proceed!.click()
+    })
+    expect(double.calls.find((call) => call.method === 'operationSkip')?.args).toMatchObject({ approved: true })
+  })
+
+  it('offers no skip while a merge is in progress', async () => {
+    await renderPanel({
+      getHistory: { commits: [], lanes: [], hasMore: false },
+      getState: {
+        state: panelState({
+          operation: { kind: 'merge', step: null, message: null, conflicts: [] },
+        }),
+        notice: null,
+      },
+    })
+    expect(marker('operation-skip')).toBeNull()
+    expect(marker('operation')).not.toBeNull()
+  })
+
+  it('cancelling the setup dialog creates nothing', async () => {
+    const { double } = await renderPanel({
+      getHistory: { commits: [], lanes: [], hasMore: false },
+      worktreeSetup: {
+        ...emptySetupPreview,
+        slug: 'cancel-one',
+        version: 'setup-v3',
+        steps: [{ kind: 'command', command: 'pnpm install' }],
+      },
+    })
+    const input = marker('worktree-name') as HTMLInputElement
+    await act(async () => {
+      typeInto(input, 'Cancel One')
+    })
+    await act(async () => {
+      ;(byText(en['worktrees.create']) as HTMLButtonElement).click()
+    })
+    const cancel = [...document.querySelectorAll('button')]
+      .find((button) => button.textContent === en['confirm.cancel']) as HTMLButtonElement
+    await act(async () => {
+      cancel.click()
+    })
+    expect(double.calls.some((call) => call.method === 'worktreeAdd')).toBe(false)
+  })
+
   it('refuses an impossible worktree name without calling the host', async () => {
     const { double } = await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } })
     const input = marker('worktree-name') as HTMLInputElement
@@ -719,6 +937,7 @@ describe('git panel body', () => {
     })
     expect(marker('operation')).not.toBeNull()
     expect(container.textContent).toContain(en['operation.merge'])
+    expect((byText(en['operation.continue']) as HTMLButtonElement).disabled).toBe(true)
     await act(async () => {
       ;(byText(en['operation.abort']) as HTMLButtonElement).click()
     })
@@ -782,6 +1001,11 @@ describe('git panel body', () => {
       await Promise.resolve()
     })
     expect(double.calls.some((call) => call.method === 'agentFiles')).toBe(true)
+    expect(sent).toEqual([])
+    const current = document.querySelector<HTMLInputElement>('input[name="git-agent-target"][value="current"]')!
+    await act(async () => { current.click() })
+    const start = [...document.querySelectorAll('button')].find((button) => button.textContent === en['agent.start'])!
+    await act(async () => { start.click() })
     expect(sent[0]).toContain('Review the uncommitted changes')
   })
 

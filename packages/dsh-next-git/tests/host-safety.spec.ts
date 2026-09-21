@@ -214,16 +214,6 @@ describe('session commit ownership', () => {
 })
 
 describe('mutation preconditions and ref safety', () => {
-  it('includes staged-only dirt in preflight and blocks history mutations', async () => {
-    const repo = fixture('staged')
-    const git = service(repo)
-    const head = repo.gitOk(['rev-parse', 'HEAD']).trim()
-    expect(await git.preflight({ cwd: repo.dir, action: 'revert' })).toMatchObject({ verdict: 'block', code: 'dirty-tree', paths: ['src/app.ts'] })
-    await expect(git.revert({ cwd: repo.dir, hash: head })).rejects.toMatchObject(failure('dirty-tree'))
-    await expect(git.cherryPick({ cwd: repo.dir, hash: head })).rejects.toMatchObject(failure('dirty-tree'))
-    expect(repo.gitOk(['rev-parse', 'HEAD']).trim()).toBe(head)
-  })
-
   it('blocks merges and updates on staged-only dirt in either target checkout', async () => {
     const repo = fixture('worktrees')
     const git = service(repo)
@@ -245,7 +235,6 @@ describe('mutation preconditions and ref safety', () => {
     const git = service(repo)
     await expect(git.checkoutCommit({ cwd: repo.dir, hash: '--force' })).rejects.toMatchObject(failure('invalid-name'))
     await expect(git.checkoutCommit({ cwd: repo.dir, hash: 'README.md' })).rejects.toMatchObject(failure('path-missing'))
-    await expect(git.revert({ cwd: repo.dir, hash: '--abort' })).rejects.toMatchObject(failure('invalid-name'))
     await expect(git.branchDelete({ cwd: repo.dir, name: '--all', force: true })).rejects.toMatchObject(failure('invalid-name'))
     await expect(git.branchRename({ cwd: repo.dir, from: '--force', to: 'new' })).rejects.toMatchObject(failure('invalid-name'))
     await expect(git.worktreeAdd({ cwd: repo.dir, name: 'bad-base', base: '--detach' })).rejects.toMatchObject(failure('invalid-name'))

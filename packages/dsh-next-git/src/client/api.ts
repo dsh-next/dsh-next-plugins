@@ -74,6 +74,16 @@ export function createApi(path: string = RPC_PATH, fetchImpl?: FetchLike): GitAp
         body: JSON.stringify({ method, args }),
         ...(signal === undefined ? {} : { signal }),
       })
+      if (response.status === 404) {
+        // The route answers 404 only for a method this host build does not
+        // implement, which is what a page running a newer client half than the
+        // loaded host half sees: the plugin's two halves load at different
+        // times, so name it instead of reporting a generic failure.
+        throw new GitApiError(
+          { code: 'host-outdated', detail: method },
+          null,
+        )
+      }
       if (!response.ok) {
         throw new GitApiError(
           { code: 'git-failed', detail: `HTTP ${response.status}` },

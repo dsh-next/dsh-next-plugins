@@ -1,16 +1,5 @@
 import type { CommitSummary } from './types.ts'
 
-/** Literal search filters. A selected ref is resolved once per history window. */
-export interface HistoryQuery {
-  readonly ref: string | null
-  readonly search: string
-  readonly author: string
-  readonly since: string
-  readonly until: string
-}
-
-export const emptyHistoryQuery: HistoryQuery = { ref: null, search: '', author: '', since: '', until: '' }
-
 export interface CommitFile {
   readonly path: string
   readonly status: string
@@ -31,4 +20,9 @@ export interface CommitComparison {
   readonly summary: string
   readonly patch: string
   readonly truncated: boolean
+}
+
+/** Immutable inspection and pagination accept only full SHA-1 or SHA-256 IDs. */
+export function isHistoryOid(value: string): boolean {
+  return /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(value)
 }

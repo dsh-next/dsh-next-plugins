@@ -43,6 +43,64 @@ export function isFileAddress(address: string): boolean {
   return address.startsWith(FILE_ADDRESS_PREFIX)
 }
 
+/**
+ * The scheme-typed address of this plugin's own change view.
+ *
+ * The platform's resource model leaves a protocol's grammar to its owner, and
+ * this plugin owns `git-changes`: the tab that reads a whole changed file with
+ * its changed lines marked. The session is part of the address for the same
+ * reason the stock file viewer keeps it there — the tab keeps meaning while the
+ * pane shows another session.
+ */
+export const CHANGES_ADDRESS_PREFIX = 'dsh-resource://git-changes/'
+
+/**
+ * Build the change-view address of one changed path.
+ *
+ * @param sessionId - the session whose workspace resolves the repository.
+ * @param path - repository-relative path.
+ * @param side - which side of the index the view shows.
+ * @returns `dsh-resource://git-changes/session/<id>/<side>/<path>`.
+ */
+export function changeFileAddress(sessionId: string, path: string, side: 'staged' | 'unstaged'): string {
+  const normalized = path.replace(/\\/g, '/').replace(/^(?:\.\/)+/, '')
+  return `${CHANGES_ADDRESS_PREFIX}session/${encodeSegment(sessionId)}/${side}/${encodePath(normalized)}`
+}
+
+/**
+ * Read one change-view address back.
+ *
+ * @param address - any address string.
+ * @returns the parsed parts, or null when this is not one of ours.
+ */
+export function parseChangeFileAddress(
+  address: string,
+): { sessionId: string; side: 'staged' | 'unstaged'; path: string } | null {
+  if (!address.startsWith(CHANGES_ADDRESS_PREFIX)) return null
+  const rest = address.slice(CHANGES_ADDRESS_PREFIX.length)
+  const parts = rest.split('/')
+  const [scope, session, side, ...path] = parts
+  if (scope !== 'session' || session === undefined || side === undefined || path.length === 0) return null
+  if (side !== 'staged' && side !== 'unstaged') return null
+  const decoded = path.map(segment => {
+    try {
+      return decodeURIComponent(segment)
+    } catch {
+      return null
+    }
+  })
+  if (decoded.some(segment => segment === null || segment === '')) return null
+  return { sessionId: decodeURIComponent(session), side, path: decoded.join('/') }
+}
+
+/** The last path segment of an address, decoded, for a tab chip. */
+export function changeFileTitle(address: string): string {
+  const parsed = parseChangeFileAddress(address)
+  if (parsed === null) return address
+  const name = parsed.path.slice(parsed.path.lastIndexOf('/') + 1)
+  return parsed.side === 'staged' ? `${name} (staged)` : name
+}
+
 /** Normalize separators and collapse `.` / `..` segments. */
 export function normalizePosix(path: string): string {
   const parts: string[] = []

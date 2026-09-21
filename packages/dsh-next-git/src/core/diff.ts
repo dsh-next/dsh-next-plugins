@@ -91,11 +91,27 @@ export function parseUnifiedDiff(
     if (!line.startsWith('@@')) continue
 
     const header = line.slice(2).replace(/ @@.*$/, '')
-    const hunk: { header: string; oldText: string[]; newText: string[]; seen: number } = {
+    // The hunk header's `+start` is where the block begins in the new file,
+    // which is the numbering a whole-file view decorates.
+    const start = /\+(\d+)/.exec(header)
+    const hunk: {
+      header: string
+      oldText: string[]
+      newText: string[]
+      seen: number
+      /** New-file line numbers this hunk adds. */
+      addedLines: number[]
+      /** New-file line numbers a deletion sits **before** (1 = the file's head). */
+      removedAt: number[]
+      next: number
+    } = {
       header: header.trim(),
       oldText: [],
       newText: [],
       seen: 0,
+      addedLines: [],
+      removedAt: [],
+      next: start === null ? 1 : Number.parseInt(start[1]!, 10),
     }
     index += 1
     for (; index < lines.length; index += 1) {
@@ -112,13 +128,20 @@ export function parseUnifiedDiff(
       const marker = body[0]
       if (marker === '+') {
         hunk.newText.push(body.slice(1))
+        hunk.addedLines.push(hunk.next)
+        hunk.next += 1
         current.added += 1
       } else if (marker === '-') {
         hunk.oldText.push(body.slice(1))
+        // A deletion occupies no line in the new file: it is recorded as a
+        // marker before the next surviving line, so the view can show that
+        // content was removed there.
+        if (hunk.removedAt.at(-1) !== hunk.next) hunk.removedAt.push(hunk.next)
         current.removed += 1
       } else if (marker === ' ') {
         hunk.oldText.push(body.slice(1))
         hunk.newText.push(body.slice(1))
+        hunk.next += 1
       } else if (marker === '\\') {
         // `\ No newline at end of file`: not a content line.
         current.lines -= 1
@@ -133,6 +156,8 @@ export function parseUnifiedDiff(
       header: hunk.header,
       oldText: hunk.oldText.join('\n'),
       newText: hunk.newText.join('\n'),
+      addedLines: hunk.addedLines,
+      removedAt: hunk.removedAt,
     })
   }
   flush()
@@ -294,6 +319,9 @@ export function addedFileDiff(
     header: `-0,0 +1,${lines.length}`,
     oldText: '',
     newText: lines.join('\n'),
+    // A brand-new file adds every line and removes none.
+    addedLines: lines.map((_, index) => index + 1),
+    removedAt: [],
   }
   const patch = [
     `diff --git a/${path} b/${path}`,

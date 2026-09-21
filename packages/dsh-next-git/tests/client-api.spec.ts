@@ -63,6 +63,16 @@ describe('rpc client', () => {
     })
   })
 
+  it('names a method this host build does not implement', async () => {
+    // The route answers 404 only for an unknown method, which is what a page
+    // running a newer client half than the loaded host half sees.
+    const double = fetchReturning({ ok: false, status: 404, body: {} })
+    const api = createApi(RPC_PATH, double.fetch)
+    await expect(api.call('getFileChanges', {})).rejects.toMatchObject({
+      failure: { code: 'host-outdated', detail: 'getFileChanges' },
+    })
+  })
+
   it('rejects a malformed or empty envelope', async () => {
     const empty = createApi(RPC_PATH, fetchReturning({ ok: true, status: 200, body: null }).fetch)
     await expect(empty.call('getState', {})).rejects.toMatchObject({

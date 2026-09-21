@@ -87,8 +87,8 @@ function panelState(overrides: Partial<PanelState> = {}): PanelState {
     ],
     worktreeBase: { name: 'origin/main', source: 'default-branch', candidates: ['main', 'feature'] },
     branches: [
-      { name: 'main', current: true, oid: 'aaaa', upstream: 'origin/main', remote: false },
-      { name: 'feature', current: false, oid: 'bbbb', upstream: null, remote: false },
+      { name: 'main', current: true, oid: 'aaaa', upstream: 'origin/main', remote: false, author: 'A', committedAt: 1, ahead: 0, behind: 0, subject: 'tip' },
+      { name: 'feature', current: false, oid: 'bbbb', upstream: null, remote: false, author: 'A', committedAt: 1, ahead: 0, behind: 0, subject: 'tip' },
     ],
     tags: [],
     identity: { name: 'A', author: undefined, email: 'a@b' } as PanelState['identity'],
@@ -173,6 +173,8 @@ async function renderPanel(
   extra: {
     sendPrompt?: (prompt: string) => void
     openWorktreeSession?: (path: string) => Promise<void>
+    registerCreatedWorktree?: (path: string) => Promise<void>
+    unregisterDeletedWorktree?: (path: string) => Promise<void>
     /** Replace the tab hook, or omit it entirely with `null`. */
     tabHook?: (() => GitTabInfo) | null
   } = {},
@@ -205,6 +207,8 @@ async function renderPanel(
           }),
         } }),
         ...(extra.openWorktreeSession === undefined ? {} : { openWorktreeSession: extra.openWorktreeSession }),
+        ...(extra.registerCreatedWorktree === undefined ? {} : { registerCreatedWorktree: extra.registerCreatedWorktree }),
+        ...(extra.unregisterDeletedWorktree === undefined ? {} : { unregisterDeletedWorktree: extra.unregisterDeletedWorktree }),
       }),
     )
     await Promise.resolve()
@@ -214,18 +218,16 @@ async function renderPanel(
   })
   // Sections ship collapsed; tests that need a section's content open it
   // through the real toggle, so the header stays exercised.
-  if (!options.keepCollapsed) {
-    await act(async () => {
-      for (const section of ['changes', 'worktrees', 'history'] as const) {
-        const toggle = container.querySelector<HTMLButtonElement>(
-          `[data-dsh-git="section-toggle"][data-section="${section}"]`,
-        )
-        toggle?.click()
-      }
-      await Promise.resolve()
-    })
-  }
+  if (!options.keepCollapsed) await openSection('changes')
   return { double, sessionId }
+}
+
+async function openSection(section: 'changes' | 'worktrees' | 'history'): Promise<void> {
+  await act(async () => {
+    const toggle = container.querySelector<HTMLButtonElement>(`[data-dsh-git="section-toggle"][data-section="${section}"]`)
+    if (toggle?.getAttribute('aria-expanded') === 'false') toggle.click()
+    await Promise.resolve()
+  })
 }
 
 /**
@@ -244,12 +246,54 @@ function typeInto(element: HTMLInputElement | HTMLTextAreaElement, value: string
 
 /** Query helpers over stable DOM markers. */
 const marker = (name: string): HTMLElement | null => container.querySelector(`[data-dsh-git="${name}"]`)
+/** Without a tab host, clicking a file retains the in-panel diff fallback. */
+const pathRow = (path: string): HTMLElement => all('row').find((row) => row.getAttribute('data-path') === path)!
+const clickFile = async (row: HTMLElement): Promise<void> => {
+  await act(async () => {
+    row.click()
+  })
+}
+/** Dialogs portal onto the document body, so their markers live outside the panel. */
+const dialog = (name: string): HTMLElement | null => document.querySelector(`[data-dsh-git="${name}"]`)
 const all = (name: string): HTMLElement[] =>
   [...container.querySelectorAll<HTMLElement>(`[data-dsh-git="${name}"]`)]
 const byText = (text: string, tag = 'button'): HTMLElement | undefined =>
   [...container.querySelectorAll(tag)].find((element) => element.textContent?.includes(text)) as HTMLElement | undefined
 
 describe('git panel body', () => {
+  it('omits the redundant Review hunks action from change rows', async () => {
+    await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } })
+    expect(all('row').length).toBeGreaterThan(0)
+    expect(container.querySelector('[data-dsh-git="row-hunks"]')).toBeNull()
+    expect(container.querySelector('button[aria-label="Review hunks"]')).toBeNull()
+  })
+  it('opens Sync from the shortcut before the branch selector without executing it', async () => {
+    const { double } = await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } })
+    const sync = marker('sync') as HTMLButtonElement
+    expect(sync.getAttribute('aria-label')).toBe('Sync')
+    expect(sync.disabled).toBe(false)
+    expect(sync.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
+    expect(sync.querySelector('path')?.getAttribute('d')).not.toBe(marker('refresh')?.querySelector('path')?.getAttribute('d'))
+    expect(sync.compareDocumentPosition(marker('branch-button')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    await act(async () => sync.click())
+    expect(document.querySelector('[data-dsh-git="repository-command"]')?.getAttribute('data-command')).toBe('sync')
+    expect(double.calls.some(call => call.method === 'executeRepositoryCommand')).toBe(false)
+  })
+  it('ends the header row with the repository actions menu', async () => {
+    await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } }, { sendPrompt: () => {} })
+    const order = ['new-worktree', 'agent-menu', 'refresh', 'repository-menu']
+      .map((name) => marker(name))
+    expect(order.every((node) => node !== null)).toBe(true)
+    for (let index = 1; index < order.length; index += 1) {
+      expect(order[index - 1]!.compareDocumentPosition(order[index]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    }
+    // Nothing trails the three dots: they are the row's last control.
+    expect(order.at(-1)!.nextElementSibling).toBeNull()
+  })
+  it('disables Sync when the repository is unavailable', async () => {
+    await renderPanel({ getState: new GitApiError({ code: 'not-a-repository', detail: '' }, null) })
+    expect((marker('sync') as HTMLButtonElement).disabled).toBe(true)
+  })
   it('renders the panel, header and sections from the envelope', async () => {
     await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } })
     expect(marker('panel')).not.toBeNull()
@@ -260,8 +304,10 @@ describe('git panel body', () => {
     expect(marker('changes')).not.toBeNull()
     expect(marker('commit')).not.toBeNull()
     expect(marker('worktrees')).not.toBeNull()
-    expect(container.textContent).toContain('feature')
     expect(container.textContent).toContain('3 ignored')
+    await openSection('worktrees')
+    expect(container.textContent).toContain('feature')
+    expect(container.querySelector('[data-dsh-git="section-body"][data-section="changes"]')).toBeNull()
   })
 
   it('renders one row per changed path with its status badge', async () => {
@@ -291,6 +337,47 @@ describe('git panel body', () => {
     expect(all('section-body')).toHaveLength(0)
     expect(all('row')).toHaveLength(0)
     expect(marker('commit-row')).toBeNull()
+  })
+
+  it.each(['changes', 'worktrees', 'history'])('toggles %s from header whitespace and title without double toggles', async section => {
+    await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } }, {}, { keepCollapsed: true })
+    const toggle = container.querySelector<HTMLButtonElement>(`[data-dsh-git="section-toggle"][data-section="${section}"]`)!
+    const header = toggle.parentElement!
+    await act(async () => header.click())
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    await act(async () => (toggle.nextElementSibling as HTMLElement).click())
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    await act(async () => toggle.querySelector('span')!.click())
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    const count = header.querySelector<HTMLElement>('[data-dsh-git="section-count"]')
+    if (count) {
+      await act(async () => count.click())
+      expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    }
+  })
+
+  it('keeps header actions independent from accordion toggling', async () => {
+    const { double } = await renderPanel({
+      getHistory: { commits: [], lanes: [], hasMore: false },
+      stage: panelState(),
+    }, {}, { keepCollapsed: true })
+    await act(async () => (marker('stage-all') as HTMLButtonElement).click())
+    expect(double.calls.some(call => call.method === 'stage')).toBe(true)
+    await act(async () => (marker('history-refresh') as HTMLButtonElement).click())
+    expect(double.calls.some(call => call.method === 'getHistory')).toBe(true)
+    for (const toggle of container.querySelectorAll('[data-dsh-git="section-toggle"]')) {
+      expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    }
+  })
+
+  it('closes the previous accordion when another header is expanded', async () => {
+    await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } })
+    for (const section of ['worktrees', 'history', 'changes'] as const) {
+      const toggle = container.querySelector<HTMLButtonElement>(`[data-dsh-git="section-toggle"][data-section="${section}"]`)!
+      await act(async () => toggle.parentElement!.click())
+      expect(all('section-body').map(body => body.dataset.section)).toEqual([section])
+      expect(container.querySelectorAll('[data-dsh-git="section-toggle"][aria-expanded="true"]')).toHaveLength(1)
+    }
   })
 
   it('expands one section without opening the others, and collapses it back', async () => {
@@ -356,7 +443,7 @@ describe('git panel body', () => {
       discard: panelState(),
     })
     const row = all('row').find((candidate) => candidate.getAttribute('data-path') === 'src/app.ts')!
-    const discardButton = row.querySelector('button[aria-label="Discard"]') as HTMLButtonElement
+    const discardButton = row.querySelector('button[aria-label="' + en['changes.discard'] + '"]') as HTMLButtonElement
     await act(async () => {
       discardButton.click()
     })
@@ -364,9 +451,7 @@ describe('git panel body', () => {
     const dialog = document.querySelector('[role="dialog"]')
     expect(dialog?.textContent).toContain('1 file')
     expect(double.calls.some((call) => call.method === 'discard')).toBe(false)
-    const confirmButton = [...document.querySelectorAll('button')].find((button) =>
-      button.textContent === en['changes.discard'],
-    ) as HTMLButtonElement
+    const confirmButton = document.querySelector('[data-dsh-git="confirm-proceed"]') as HTMLButtonElement
     await act(async () => {
       confirmButton.click()
     })
@@ -435,11 +520,8 @@ describe('git panel body', () => {
           patch: '@@ -1,1 +1,1 @@',
         },
       },
-    })
-    const row = all('row').find((candidate) => candidate.getAttribute('data-path') === 'src/app.ts')!
-    await act(async () => {
-      row.click()
-    })
+    }, { tabHook: null })
+    await clickFile(pathRow('src/app.ts'))
     expect(marker('diff')).not.toBeNull()
     expect(double.calls.find((call) => call.method === 'getDiff')?.args).toMatchObject({
       path: 'src/app.ts',
@@ -451,6 +533,31 @@ describe('git panel body', () => {
     })
     expect(marker('diff')).toBeNull()
     expect(marker('changes')).not.toBeNull()
+  })
+
+  it('opens the change-view tab for a row, and falls back to the panel without one', async () => {
+    const first = await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } })
+    openResourceSpy.mockClear()
+    await act(async () => {
+      pathRow('src/app.ts').click()
+    })
+    expect(openResourceSpy).toHaveBeenCalledWith(
+      `dsh-resource://git-changes/session/${first.sessionId}/unstaged/src/app.ts`,
+    )
+    // The tab is the row's normal outcome, so the panel keeps its sections.
+    expect(marker('diff')).toBeNull()
+
+    // A host whose tab hook is absent (or not committed yet) keeps the diff in
+    // the panel instead of doing nothing with the click.
+    await renderPanel(
+      { getHistory: { commits: [], lanes: [], hasMore: false }, getDiff: { path: 'src/app.ts', side: 'unstaged', empty: false, file: null } },
+      { tabHook: null },
+    )
+    await act(async () => {
+      pathRow('src/app.ts').click()
+    })
+    await act(async () => { await Promise.resolve() })
+    expect(marker('diff')).not.toBeNull()
   })
 
   it('hands a file to the stock viewer through its resource address', async () => {
@@ -471,11 +578,23 @@ describe('git panel body', () => {
           patch: '@@ -1,1 +1,1 @@',
         },
       },
+    }, {
+      // A host that claims no change-file address keeps the click useful with
+      // the in-panel diff, whose own open action still goes through the tab.
+      tabHook: () => ({
+        tab: {
+          title: '',
+          actions: {
+            openResource: (address: string) => {
+              if (address.startsWith('dsh-resource://git-changes/')) throw new Error('no such viewer')
+              openResourceSpy(address)
+            },
+          },
+        },
+      }),
     })
-    const row = all('row').find((candidate) => candidate.getAttribute('data-path') === 'src/app.ts')!
-    await act(async () => {
-      row.click()
-    })
+    const row = pathRow('src/app.ts')
+    await clickFile(row)
     await act(async () => {
       ;(marker('diff-open-file') as HTMLButtonElement).click()
     })
@@ -501,30 +620,197 @@ describe('git panel body', () => {
           patch: 'the whole patch',
         },
       },
-    })
-    await act(async () => {
-      ;(container.querySelector('[data-path="src/app.ts"]') as HTMLElement).click()
-      await Promise.resolve()
-    })
+    }, { tabHook: null })
+    await clickFile(pathRow('src/app.ts'))
     await act(async () => {
       await Promise.resolve()
     })
     expect(container.textContent).toContain('Diff is too large')
   })
 
-  it('commits the composer message', async () => {
+  it('commits the dialog message and closes on success', async () => {
     const { double } = await renderPanel({
       getHistory: { commits: [], lanes: [], hasMore: false },
       commit: panelState({ changes: { ...panelState().changes, staged: [] } }),
     })
-    const textarea = marker('commit-message') as HTMLTextAreaElement
+    expect(dialog('commit-dialog')).toBeNull()
     await act(async () => {
-      typeInto(textarea, 'feat: raise it')
+      ;(marker('commit-open') as HTMLButtonElement).click()
+    })
+    expect(dialog('commit-dialog')).not.toBeNull()
+    await act(async () => {
+      typeInto(dialog('commit-message') as HTMLTextAreaElement, 'feat: raise it')
     })
     await act(async () => {
-      ;(byText(en['commit.button']) as HTMLButtonElement).click()
+      ;(dialog('commit-submit') as HTMLButtonElement).click()
     })
     expect(double.calls.find((call) => call.method === 'commit')?.args).toMatchObject({ message: 'feat: raise it' })
+    expect(dialog('commit-dialog')).toBeNull()
+  })
+
+  it('uses one multiline message field and preserves the summary and body', async () => {
+    const { double } = await renderPanel({
+      getHistory: { commits: [], lanes: [], hasMore: false },
+      commit: panelState({ changes: { ...panelState().changes, staged: [] } }),
+    })
+    await act(async () => {
+      ;(marker('commit-open') as HTMLButtonElement).click()
+    })
+    expect(dialog('commit-dialog')!.querySelectorAll('textarea')).toHaveLength(1)
+    expect(dialog('commit-dialog')!.querySelectorAll('input')).toHaveLength(0)
+    expect(dialog('commit-dialog')!.textContent).not.toContain(en['commit.description'])
+    await act(async () => {
+      typeInto(dialog('commit-message') as HTMLTextAreaElement, 'feat: subject\n\nbody line')
+    })
+    await act(async () => {
+      ;(dialog('commit-submit') as HTMLButtonElement).click()
+    })
+    expect(double.calls.find((call) => call.method === 'commit')?.args).toMatchObject({
+      message: 'feat: subject\n\nbody line',
+    })
+  })
+
+  it('keeps the dialog open and the message intact when the commit fails', async () => {
+    const { double } = await renderPanel({
+      getHistory: { commits: [], lanes: [], hasMore: false },
+      commit: new GitApiError({ code: 'identity-missing', detail: 'no identity' }, null),
+    })
+    await act(async () => {
+      ;(marker('commit-open') as HTMLButtonElement).click()
+    })
+    await act(async () => {
+      typeInto(dialog('commit-message') as HTMLTextAreaElement, 'feat: kept')
+    })
+    await act(async () => {
+      ;(dialog('commit-submit') as HTMLButtonElement).click()
+    })
+    expect(dialog('commit-dialog')).not.toBeNull()
+    expect((dialog('commit-message') as HTMLTextAreaElement).value).toBe('feat: kept')
+    expect(double.calls.some((call) => call.method === 'refreshHistory')).toBe(false)
+  })
+
+  it('keeps the chord, and refuses an empty summary', async () => {
+    const { double } = await renderPanel({
+      getHistory: { commits: [], lanes: [], hasMore: false },
+      commit: panelState({ changes: { ...panelState().changes, staged: [] } }),
+    })
+    await act(async () => {
+      ;(marker('commit-open') as HTMLButtonElement).click()
+    })
+    expect((dialog('commit-submit') as HTMLButtonElement).disabled).toBe(true)
+    const summary = dialog('commit-message') as HTMLTextAreaElement
+    await act(async () => { typeInto(summary, '\n\nBody without a subject') })
+    expect((dialog('commit-submit') as HTMLButtonElement).disabled).toBe(true)
+    await act(async () => { summary.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })) })
+    expect(double.calls.some(call => call.method === 'commit')).toBe(false)
+    await act(async () => {
+      typeInto(summary, 'feat: chord')
+    })
+    await act(async () => {
+      summary.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true }))
+    })
+    expect(double.calls.find((call) => call.method === 'commit')?.args).toMatchObject({ message: 'feat: chord' })
+  })
+
+  // The platform has no minus icon, so the unstage pair uses the plus's own
+  // crossbar geometry; both unstage actions must render that one glyph.
+  it('marks both unstage actions with the minus glyph', async () => {
+    const { double } = await renderPanel({
+      getHistory: { commits: [], lanes: [], hasMore: false },
+      unstage: panelState({ changes: { ...panelState().changes, staged: [] } }),
+    })
+    await openSection('changes')
+    const minus = 'M1.5 7.34961H14.5V8.65039H1.5V7.34961Z'
+    const header = marker('unstage-all')!
+    const row = container.querySelector<HTMLButtonElement>(`button[aria-label="${en['changes.unstage']}"]`)!
+    for (const button of [header, row]) {
+      const paths = button.querySelectorAll('path')
+      expect(paths).toHaveLength(1)
+      expect(paths[0]!.getAttribute('d')).toBe(minus)
+      expect(button.querySelector('svg')?.getAttribute('viewBox')).toBe('0 0 16 16')
+    }
+    await act(async () => {
+      ;(row as HTMLButtonElement).click()
+    })
+    expect(double.calls.find((call) => call.method === 'unstage')?.args).toMatchObject({ paths: ['src/staged.ts'] })
+  })
+
+  it('keeps both writes in the Changes header beside the staging actions', async () => {
+    await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } })
+    await openSection('changes')
+    const header = container.querySelector('[data-dsh-git="changes"] [data-dsh-git="section-toggle"]')!.parentElement!
+    const commit = marker('commit-open') as HTMLButtonElement
+    const stash = marker('stash-open') as HTMLButtonElement
+    const stageAll = marker('stage-all') as HTMLButtonElement
+    expect(header.contains(commit)).toBe(true)
+    expect(header.contains(stash)).toBe(true)
+    // Order: Commit, Stash, then the header's own stage-all action.
+    expect(commit.compareDocumentPosition(stash) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
+    expect(stash.compareDocumentPosition(stageAll) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
+  })
+
+  it('disables both writes without staged work, and offers them with it', async () => {
+    await renderPanel({
+      getHistory: { commits: [], lanes: [], hasMore: false },
+      getState: { state: panelState({ changes: { ...panelState().changes, staged: [] } }), notice: null },
+    })
+    expect((marker('commit-open') as HTMLButtonElement).disabled).toBe(true)
+    expect((marker('stash-open') as HTMLButtonElement).disabled).toBe(true)
+    // The reason rides the disabled tooltip instead of a second row.
+    expect((marker('commit-open') as HTMLButtonElement).title).toBe(en['commit.nothingStagedButChanges'])
+    expect((marker('stash-open') as HTMLButtonElement).title).toBe(en['commit.nothingStagedButChanges'])
+
+    await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } })
+    expect((marker('commit-open') as HTMLButtonElement).disabled).toBe(false)
+    expect((marker('stash-open') as HTMLButtonElement).disabled).toBe(false)
+    expect((marker('commit-open') as HTMLButtonElement).title).toBe(en['commit.button'])
+  })
+
+  it('saves a named stash after the host preview, then refreshes', async () => {
+    const { double } = await renderPanel({
+      getHistory: { commits: [], lanes: [], hasMore: false },
+      previewRepositoryAction: { request: { action: 'stash-save', includeUntracked: false, message: 'wip: panel' }, version: 'v1' },
+      executeRepositoryAction: { status: 'completed', refresh: true, detail: null },
+    })
+    await act(async () => {
+      ;(marker('stash-open') as HTMLButtonElement).click()
+    })
+    expect(dialog('stash-dialog')).not.toBeNull()
+    await act(async () => {
+      typeInto(dialog('stash-name') as HTMLInputElement, 'wip: panel')
+    })
+    await act(async () => {
+      ;(dialog('stash-submit') as HTMLButtonElement).click()
+    })
+    expect(double.calls.find((call) => call.method === 'previewRepositoryAction')?.args).toMatchObject({
+      request: { action: 'stash-save', includeUntracked: false, message: 'wip: panel' },
+    })
+    expect(double.calls.find((call) => call.method === 'executeRepositoryAction')?.args).toMatchObject({
+      request: { action: 'stash-save', includeUntracked: false, message: 'wip: panel' },
+      version: 'v1',
+      approved: true,
+    })
+    expect(dialog('stash-dialog')).toBeNull()
+    expect(double.calls.filter((call) => call.method === 'getState').length).toBeGreaterThan(1)
+  })
+
+  it('stashes without a name and keeps the dialog open when the host refuses', async () => {
+    const { double } = await renderPanel({
+      getHistory: { commits: [], lanes: [], hasMore: false },
+      previewRepositoryAction: { request: { action: 'stash-save', includeUntracked: false }, version: 'v1' },
+      executeRepositoryAction: new GitApiError({ code: 'index-locked', detail: 'lock' }, null),
+    })
+    await act(async () => {
+      ;(marker('stash-open') as HTMLButtonElement).click()
+    })
+    await act(async () => {
+      ;(dialog('stash-submit') as HTMLButtonElement).click()
+    })
+    expect(double.calls.find((call) => call.method === 'previewRepositoryAction')?.args).toMatchObject({
+      request: { action: 'stash-save', includeUntracked: false },
+    })
+    expect(dialog('stash-dialog')).not.toBeNull()
+    expect(container.textContent).toContain(en['failure.indexLocked'])
   })
 
   it('marks each row with a file-type glyph, the muted directory and a status letter', async () => {
@@ -536,380 +822,19 @@ describe('git panel body', () => {
     expect(row.querySelector('[data-dsh-git="status"]')?.textContent).toBe('M')
   })
 
-  it('names the branch and the commit chord, and commits on the chord', async () => {
-    const { double } = await renderPanel({
-      getHistory: { commits: [], lanes: [], hasMore: false },
-      commit: panelState({ changes: { ...panelState().changes, staged: [] } }),
-    })
-    const textarea = marker('commit-message') as HTMLTextAreaElement
-    const placeholder = textarea.getAttribute('placeholder') ?? ''
-    expect(placeholder).toContain('main')
-    expect(placeholder).toMatch(/(\u2318|Ctrl)\+Enter/)
-    await act(async () => {
-      typeInto(textarea, 'feat: chord')
-    })
-    await act(async () => {
-      textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true }))
-    })
-    expect(double.calls.find((call) => call.method === 'commit')?.args).toMatchObject({
-      message: 'feat: chord',
-    })
-  })
-
-  it('asks for a destination before AI drafting from the field action', async () => {
+  it('replaces the entire multiline commit message without opening an agent dialog', async () => {
     const sent = vi.fn()
     const { double } = await renderPanel({
       getHistory: { commits: [], lanes: [], hasMore: false },
-      agentFiles: { state: panelState(), files: [] },
+      draftInput: 'Generated summary\n\nGenerated description',
     }, { sendPrompt: sent })
-    await act(async () => {
-      ;(marker('draft-message') as HTMLButtonElement).click()
-    })
-    expect(document.querySelector('[data-dsh-git="agent-dialog"]')).not.toBeNull()
-    expect(double.calls.some((call) => call.method === 'draftMessage')).toBe(false)
-    expect(double.calls.find((call) => call.method === 'agentFiles')?.args).toMatchObject({ verb: 'draft', side: 'staged' })
+    await act(async () => { (marker('commit-open') as HTMLButtonElement).click() })
+    await act(async () => { typeInto(dialog('commit-message') as HTMLTextAreaElement, 'Old summary\n\nOld description') })
+    await act(async () => { (dialog('draft-message') as HTMLButtonElement).click() })
+    expect(document.querySelector('[data-dsh-git="agent-dialog"]')).toBeNull()
+    expect(double.calls.find(call => call.method === 'draftInput')?.args).toMatchObject({ kind: 'commit', mode: 'staged', message: 'Old summary\n\nOld description' })
+    expect((dialog('commit-message') as HTMLTextAreaElement).value).toBe('Generated summary\n\nGenerated description')
     expect(sent).not.toHaveBeenCalled()
-  })
-
-  it('offers the commit commands behind the split button chevron', async () => {
-    const { double } = await renderPanel({
-      getHistory: { commits: [], lanes: [], hasMore: false },
-      commit: panelState({ changes: { ...panelState().changes, staged: [] } }),
-    })
-    const textarea = marker('commit-message') as HTMLTextAreaElement
-    await act(async () => {
-      typeInto(textarea, 'feat: from the menu')
-    })
-    const chevron = marker('commit-menu') as HTMLButtonElement
-    expect(chevron.getAttribute('aria-haspopup')).toBe('menu')
-    await act(async () => {
-      chevron.click()
-    })
-    const rows = [...document.querySelectorAll('[role="menuitem"]')].map((row) => row.textContent)
-    expect(rows).toEqual([en['commit.button'], en['commit.amend'], en['commit.all']])
-
-    const amendRow = [...document.querySelectorAll('[role="menuitem"]')].find((row) =>
-      row.textContent?.includes(en['commit.amend']),
-    ) as HTMLButtonElement
-    await act(async () => {
-      amendRow.click()
-    })
-    expect(double.calls.find((call) => call.method === 'commit')?.args).toMatchObject({
-      message: 'feat: from the menu',
-      amend: true,
-    })
-  })
-
-  it('commits everything from the menu when only unstaged work exists', async () => {
-    const { double } = await renderPanel({
-      getHistory: { commits: [], lanes: [], hasMore: false },
-      getState: {
-        state: panelState({ changes: { ...panelState().changes, staged: [] } }),
-        notice: null,
-      },
-      commitAll: panelState({ changes: { ...panelState().changes, staged: [], unstaged: [], untracked: [] } }),
-    })
-    const textarea = marker('commit-message') as HTMLTextAreaElement
-    await act(async () => {
-      typeInto(textarea, 'feat: all of it')
-    })
-    await act(async () => {
-      ;(marker('commit-menu') as HTMLButtonElement).click()
-    })
-    const allRow = [...document.querySelectorAll('[role="menuitem"]')].find((row) =>
-      row.textContent?.includes(en['commit.all']),
-    ) as HTMLButtonElement
-    await act(async () => {
-      allRow.click()
-    })
-    // The host owns staging and commit as one guarded operation.
-    expect(double.calls.find((call) => call.method === 'commitAll')?.args).toMatchObject({
-      paths: ['src/app.ts', 'docs/new.md'], message: 'feat: all of it',
-    })
-    expect(double.calls.some((call) => call.method === 'stage' || call.method === 'commit')).toBe(false)
-  })
-
-  it('creates a worktree from the name field and validates the name first', async () => {
-    const { double } = await renderPanel({
-      getHistory: { commits: [], lanes: [], hasMore: false },
-      worktreeAdd: {
-        plan: { slug: 'feature-two', path: '/repo/.worktrees/feature-two', branch: 'dsh-git/feature-two', base: 'main', setup: [] },
-        state: panelState(),
-        setup: { ran: 0, failed: false, output: '' },
-        notice: null,
-      },
-    })
-    const input = marker('worktree-name') as HTMLInputElement
-    await act(async () => {
-      typeInto(input, 'Feature Two')
-    })
-    await act(async () => {
-      ;(byText(en['worktrees.create']) as HTMLButtonElement).click()
-    })
-    // The slug is folded and validated before the call.
-    expect(double.calls.find((call) => call.method === 'worktreeAdd')?.args).toMatchObject({ name: 'feature-two' })
-  })
-
-  it('creates a worktree when Enter is pressed in the name field', async () => {
-    const { double } = await renderPanel({
-      getHistory: { commits: [], lanes: [], hasMore: false },
-      worktreeAdd: {
-        plan: { slug: 'feature-three', path: '/repo/.worktrees/feature-three', branch: 'dsh-git/feature-three', base: 'main', setup: [] },
-        state: panelState(),
-        setup: { ran: 0, failed: false, output: '' },
-        notice: null,
-      },
-    })
-    const input = marker('worktree-name') as HTMLInputElement
-    await act(async () => {
-      typeInto(input, 'Feature Three')
-    })
-    await act(async () => {
-      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    })
-    expect(double.calls.find((call) => call.method === 'worktreeAdd')?.args).toMatchObject({ name: 'feature-three' })
-  })
-
-  it('refuses an impossible name on Enter without calling the host', async () => {
-    const { double } = await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } })
-    const input = marker('worktree-name') as HTMLInputElement
-    await act(async () => {
-      typeInto(input, '!!!')
-    })
-    await act(async () => {
-      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    })
-    expect(double.calls.some((call) => call.method === 'worktreeAdd')).toBe(false)
-  })
-
-  it('leaves Enter alone while an IME composition is being confirmed', async () => {
-    const { double } = await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } })
-    const input = marker('worktree-name') as HTMLInputElement
-    await act(async () => {
-      typeInto(input, 'Feature Three')
-    })
-    const composing = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })
-    Object.defineProperty(composing, 'isComposing', { value: true })
-    await act(async () => {
-      input.dispatchEvent(composing)
-    })
-    expect(double.calls.some((call) => call.method === 'worktreeAdd')).toBe(false)
-  })
-
-  it('asks for the declared setup and runs only what the dialog is told to', async () => {
-    const { double } = await renderPanel({
-      getHistory: { commits: [], lanes: [], hasMore: false },
-      worktreeSetup: {
-        ...emptySetupPreview,
-        slug: 'setup-one',
-        path: '/repo/.worktrees/setup-one',
-        version: 'setup-v1',
-        steps: [{ kind: 'command', command: 'pnpm install' }],
-        includePaths: ['.env'],
-      },
-      worktreeAdd: {
-        plan: { slug: 'setup-one', path: '/repo/.worktrees/setup-one', branch: 'dsh-git/setup-one', base: 'main', setup: [{ kind: 'command', command: 'pnpm install' }] },
-        state: panelState(),
-        setup: { ran: 1, failed: false, output: 'ok' },
-        copied: ['.env'],
-        notice: null,
-      },
-    })
-    const input = marker('worktree-name') as HTMLInputElement
-    await act(async () => {
-      typeInto(input, 'Setup One')
-    })
-    await act(async () => {
-      ;(byText(en['worktrees.create']) as HTMLButtonElement).click()
-    })
-    // The declaration is shown for an explicit decision; nothing is created yet.
-    const dialog = document.querySelector('[data-dsh-git="worktree-setup"]')
-    expect(dialog).not.toBeNull()
-    expect(dialog?.textContent).toContain('pnpm install')
-    expect(dialog?.textContent).toContain('.env')
-    expect(double.calls.some((call) => call.method === 'worktreeAdd')).toBe(false)
-
-    const checkboxes = [...document.querySelectorAll<HTMLInputElement>('[data-dsh-git="worktree-setup"] input[type="checkbox"]')]
-    expect(checkboxes).toHaveLength(2)
-    expect(checkboxes.every((box) => !box.checked)).toBe(true)
-    await act(async () => {
-      checkboxes[0]!.click()
-    })
-    const confirm = [...document.querySelectorAll('button')]
-      .find((button) => button.textContent === en['worktrees.setupConfirm']) as HTMLButtonElement
-    await act(async () => {
-      confirm.click()
-    })
-    const args = double.calls.find((call) => call.method === 'worktreeAdd')?.args
-    expect(args).toMatchObject({
-      name: 'setup-one',
-      setupApproved: true,
-      expectedSetupVersion: 'setup-v1',
-    })
-    // The unchecked copy consent never reaches the host as an approval.
-    expect(args?.copyApproved).toBeUndefined()
-  })
-
-  it('creates without any approval when the dialog is confirmed untouched', async () => {
-    const { double } = await renderPanel({
-      getHistory: { commits: [], lanes: [], hasMore: false },
-      worktreeSetup: {
-        ...emptySetupPreview,
-        slug: 'copy-one',
-        version: 'setup-v2',
-        includePaths: ['.env'],
-      },
-      worktreeAdd: {
-        plan: { slug: 'copy-one', path: '/repo/.worktrees/copy-one', branch: 'dsh-git/copy-one', base: 'main', setup: [] },
-        state: panelState(),
-        setup: { ran: 0, failed: false, output: '' },
-        copied: [],
-        notice: 'setup-skipped',
-      },
-    })
-    const input = marker('worktree-name') as HTMLInputElement
-    await act(async () => {
-      typeInto(input, 'Copy One')
-    })
-    await act(async () => {
-      ;(byText(en['worktrees.create']) as HTMLButtonElement).click()
-    })
-    const confirm = [...document.querySelectorAll('button')]
-      .find((button) => button.textContent === en['worktrees.setupConfirm']) as HTMLButtonElement
-    await act(async () => {
-      confirm.click()
-    })
-    const args = double.calls.find((call) => call.method === 'worktreeAdd')?.args
-    expect(args).toMatchObject({ name: 'copy-one', expectedSetupVersion: 'setup-v2' })
-    expect(args?.setupApproved).toBeUndefined()
-    expect(args?.copyApproved).toBeUndefined()
-    // The host's skip notice is translated, never rendered as a raw code.
-    expect(container.textContent).toContain(en['notice.setupSkipped'])
-  })
-
-  it('merges only after the host preflight allows it', async () => {
-    const { double } = await renderPanel({
-      getHistory: { commits: [], lanes: [], hasMore: false },
-      preflight: { verdict: 'allow' },
-      worktreeMerge: panelState(),
-    })
-    const merge = byText(en['worktrees.merge'].replace('{branch}', 'main')) as HTMLButtonElement
-    await act(async () => {
-      merge.click()
-    })
-    expect(double.calls.find((call) => call.method === 'preflight')?.args).toMatchObject({
-      action: 'merge',
-      target: '/repo/.worktrees/feature',
-    })
-    expect(double.calls.some((call) => call.method === 'worktreeMerge')).toBe(true)
-  })
-
-  it('shows a blocked merge as the named failure without calling git', async () => {
-    const { double } = await renderPanel({
-      getHistory: { commits: [], lanes: [], hasMore: false },
-      preflight: { verdict: 'block', code: 'dirty-tree', paths: ['src/app.ts'], detail: 'merge' },
-    })
-    const merge = byText(en['worktrees.merge'].replace('{branch}', 'main')) as HTMLButtonElement
-    await act(async () => {
-      merge.click()
-    })
-    expect(double.calls.some((call) => call.method === 'worktreeMerge')).toBe(false)
-    expect(container.textContent).toContain(en['failure.dirtyTree'])
-    expect(container.textContent).toContain(en['failure.fix.dirtyTree'])
-  })
-
-  it('skips a stopped step only after a confirmation', async () => {
-    const { double } = await renderPanel({
-      getHistory: { commits: [], lanes: [], hasMore: false },
-      getState: {
-        state: panelState({
-          operation: { kind: 'rebase', step: '2/5', message: null, conflicts: [] },
-        }),
-        notice: null,
-      },
-      operationSkip: panelState({ operation: { kind: null, step: null, message: null, conflicts: [] } }),
-    })
-    const skip = marker('operation-skip') as HTMLButtonElement
-    expect(skip).not.toBeNull()
-    await act(async () => {
-      skip.click()
-    })
-    // The button opens the confirmation; the step is not skipped yet.
-    expect(double.calls.some((call) => call.method === 'operationSkip')).toBe(false)
-    const proceed = document.querySelector<HTMLButtonElement>('[data-dsh-git="confirm-proceed"]')
-    expect(proceed).not.toBeNull()
-    await act(async () => {
-      proceed!.click()
-    })
-    expect(double.calls.find((call) => call.method === 'operationSkip')?.args).toMatchObject({ approved: true })
-  })
-
-  it('offers no skip while a merge is in progress', async () => {
-    await renderPanel({
-      getHistory: { commits: [], lanes: [], hasMore: false },
-      getState: {
-        state: panelState({
-          operation: { kind: 'merge', step: null, message: null, conflicts: [] },
-        }),
-        notice: null,
-      },
-    })
-    expect(marker('operation-skip')).toBeNull()
-    expect(marker('operation')).not.toBeNull()
-  })
-
-  it('cancelling the setup dialog creates nothing', async () => {
-    const { double } = await renderPanel({
-      getHistory: { commits: [], lanes: [], hasMore: false },
-      worktreeSetup: {
-        ...emptySetupPreview,
-        slug: 'cancel-one',
-        version: 'setup-v3',
-        steps: [{ kind: 'command', command: 'pnpm install' }],
-      },
-    })
-    const input = marker('worktree-name') as HTMLInputElement
-    await act(async () => {
-      typeInto(input, 'Cancel One')
-    })
-    await act(async () => {
-      ;(byText(en['worktrees.create']) as HTMLButtonElement).click()
-    })
-    const cancel = [...document.querySelectorAll('button')]
-      .find((button) => button.textContent === en['confirm.cancel']) as HTMLButtonElement
-    await act(async () => {
-      cancel.click()
-    })
-    expect(double.calls.some((call) => call.method === 'worktreeAdd')).toBe(false)
-  })
-
-  it('refuses an impossible worktree name without calling the host', async () => {
-    const { double } = await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } })
-    const input = marker('worktree-name') as HTMLInputElement
-    await act(async () => {
-      typeInto(input, '!!!')
-    })
-    await act(async () => {
-      ;(byText(en['worktrees.create']) as HTMLButtonElement).click()
-    })
-    expect(double.calls.some((call) => call.method === 'worktreeAdd')).toBe(false)
-  })
-
-  it('puts the worktree create row and its hint directly under the section band', async () => {
-    await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } })
-    const body = container.querySelector<HTMLElement>('[data-dsh-git="section-body"][data-section="worktrees"]')!
-    const field = marker('worktree-name')!
-    const hint = marker('worktrees-hint')!
-    const rows = all('worktree')
-    // The create row is the section body's first child: creating a worktree
-    // never means scrolling past the list to find the field.
-    expect(body.firstElementChild?.contains(field)).toBe(true)
-    expect(rows.length).toBeGreaterThan(0)
-    expect(field.compareDocumentPosition(rows[0]!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
-    // The hint explains where the checkout lands, so it belongs to the create
-    // row rather than to the list under it.
-    expect(field.compareDocumentPosition(hint) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
-    expect(hint.compareDocumentPosition(rows[0]!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
   })
 
   it('shows the degraded state with its fix instead of an empty panel', async () => {
@@ -922,6 +847,51 @@ describe('git panel body', () => {
     expect(marker('degraded')).not.toBeNull()
     expect(container.textContent).toContain(en['state.noRepository'])
     expect(container.textContent).toContain(en['state.noRepositoryFix'])
+  })
+
+  // The bug this pins: a restored tab read state before the host had loaded the
+  // session, and the panel claimed the checkout was not a git repository.
+  it('keeps a loading panel while the session is not loaded yet, then loads it', async () => {
+    vi.useFakeTimers()
+    try {
+      let ready = false
+      const { double } = await renderPanel({
+        getState: () => {
+          if (!ready) throw new GitApiError({ code: 'session-not-ready', detail: 'session has no working directory' }, null)
+          return { state: panelState(), notice: null }
+        },
+      })
+      expect(marker('loading')).not.toBeNull()
+      expect(marker('degraded')).toBeNull()
+      expect(container.textContent).not.toContain(en['state.noRepository'])
+
+      ready = true
+      await act(async () => { await vi.advanceTimersByTimeAsync(4_000) })
+      expect(marker('loading')).toBeNull()
+      expect(marker('changes')).not.toBeNull()
+      expect(double.calls.filter((call) => call.method === 'getState').length).toBeGreaterThan(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('names an unloaded session in the header and in the banner once the budget is spent', async () => {
+    vi.useFakeTimers()
+    try {
+      await renderPanel({ getState: new GitApiError({ code: 'session-not-ready', detail: 'session has no working directory' }, null) })
+      // While it retries the panel says it is reading, never that the folder is
+      // not a repository.
+      expect(container.textContent).toContain(en['state.loading'])
+      expect(container.textContent).not.toContain(en['state.noRepository'])
+      await act(async () => { await vi.advanceTimersByTimeAsync(120_000) })
+      expect(marker('failure')).not.toBeNull()
+      expect(container.textContent).toContain(en['failure.sessionNotReady'])
+      expect(container.textContent).toContain(en['failure.fix.sessionNotReady'])
+      expect(container.textContent).not.toContain(en['state.noRepository'])
+      expect(marker('degraded')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('renders an operation banner with Continue and Abort', async () => {
@@ -955,12 +925,14 @@ describe('git panel body', () => {
       },
       {},
     )
-    const textarea = marker('commit-message') as HTMLTextAreaElement
     await act(async () => {
-      typeInto(textarea, 'feat: hooky')
+      ;(marker('commit-open') as HTMLButtonElement).click()
     })
     await act(async () => {
-      ;(byText(en['commit.button']) as HTMLButtonElement).click()
+      typeInto(dialog('commit-message') as HTMLTextAreaElement, 'feat: hooky')
+    })
+    await act(async () => {
+      ;(dialog('commit-submit') as HTMLButtonElement).click()
     })
     expect(marker('hook')).not.toBeNull()
     expect(container.textContent).toContain('pre-commit')
@@ -1027,6 +999,7 @@ describe('git panel body', () => {
         hasMore: false,
       },
     })
+    await openSection('history')
     expect(all('commit-row')).toHaveLength(1)
     expect(container.textContent).toContain('feat: seed')
     expect(container.textContent).toContain('aaaabbb')
@@ -1063,6 +1036,109 @@ describe('git panel body', () => {
     expect(container.textContent).toBe('')
     // Re-render for the afterEach unmount path.
     root = createRoot(container)
+  })
+})
+
+describe('branch picker', () => {
+  const refRow = (id: string): HTMLElement | null => document.querySelector(`[data-dsh-git="ref-row"][data-ref="${id}"]`)
+
+  it('opens the ref picker from the branch chip instead of a dropdown menu', async () => {
+    await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } })
+    expect(document.querySelector('[data-dsh-git="ref-picker"]')).toBeNull()
+    await act(async () => {
+      ;(marker('branch-button') as HTMLButtonElement).click()
+    })
+    expect(marker('branch-button')?.getAttribute('aria-haspopup')).toBe('dialog')
+    expect(marker('branch-button')?.getAttribute('aria-expanded')).toBe('true')
+    expect(document.querySelector('[data-dsh-git="ref-picker"]')).not.toBeNull()
+    expect(container.querySelector('[role="menu"]')).toBeNull()
+    expect(refRow('branch:main')?.textContent).toContain('main')
+  })
+
+  it('switches to the picked branch and closes the picker', async () => {
+    // A clean tree switches on the pick itself; the dirty case confirms first.
+    const clean = panelState({ changes: { ...panelState().changes, staged: [], unstaged: [], untracked: [] } })
+    const { double } = await renderPanel({
+      getHistory: { commits: [], lanes: [], hasMore: false },
+      getState: { state: clean, notice: null },
+      branchSwitch: panelState(),
+    })
+    await act(async () => {
+      ;(marker('branch-button') as HTMLButtonElement).click()
+    })
+    await act(async () => {
+      ;(refRow('branch:feature') as HTMLElement).click()
+    })
+    expect(double.calls.find((call) => call.method === 'branchSwitch')?.args).toMatchObject({ name: 'feature' })
+    expect(document.querySelector('[data-dsh-git="ref-picker"]')).toBeNull()
+  })
+
+  it('confirms a switch away from a dirty tree before calling the host', async () => {
+    const { double } = await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false }, branchSwitch: panelState() })
+    await act(async () => {
+      ;(marker('branch-button') as HTMLButtonElement).click()
+    })
+    await act(async () => {
+      ;(refRow('branch:feature') as HTMLElement).click()
+    })
+    expect(document.querySelector('[data-dsh-git="confirm-proceed"]')).not.toBeNull()
+    expect(double.calls.some((call) => call.method === 'branchSwitch')).toBe(false)
+    await act(async () => {
+      ;(document.querySelector('[data-dsh-git="confirm-proceed"]') as HTMLButtonElement).click()
+    })
+    expect(double.calls.some((call) => call.method === 'branchSwitch')).toBe(true)
+  })
+
+  it('creates the named branch from the picker and checks it out', async () => {
+    const { double } = await renderPanel({
+      getHistory: { commits: [], lanes: [], hasMore: false },
+      branchCreate: panelState(),
+      branchSwitch: panelState(),
+    })
+    await act(async () => {
+      ;(marker('branch-button') as HTMLButtonElement).click()
+    })
+    await act(async () => {
+      ;(document.querySelector('[data-dsh-git="ref-action"][data-action="create"]') as HTMLElement).click()
+    })
+    const name = document.querySelector('[data-dsh-git="branch-name"]') as HTMLInputElement
+    await act(async () => {
+      typeInto(name, 'feature/beta')
+    })
+    await act(async () => {
+      ;(document.querySelector('[data-dsh-git="branch-create-submit"]') as HTMLButtonElement).click()
+    })
+    expect(double.calls.find((call) => call.method === 'branchCreate')?.args).toMatchObject({ name: 'feature/beta' })
+    expect(double.calls.find((call) => call.method === 'branchSwitch')?.args).toMatchObject({ name: 'feature/beta' })
+    expect(document.querySelector('[data-dsh-git="ref-picker"]')).toBeNull()
+  })
+
+  it('detaches HEAD at the tag picked from the detached list', async () => {
+    const tagged = panelState({
+      branches: [...panelState().branches, { name: 'origin/topic', current: false, oid: 'bbbb', upstream: null, remote: true, author: 'A', committedAt: 1, ahead: 0, behind: 0, subject: 'remote work' }],
+      tags: [{ name: 'v1', oid: 'tag1', author: 'A', committedAt: 1, subject: 'release' }],
+    })
+    const { double } = await renderPanel({
+      getHistory: { commits: [], lanes: [], hasMore: false },
+      getState: { state: tagged, notice: null },
+      checkoutCommit: panelState(),
+    })
+    await act(async () => {
+      ;(marker('branch-button') as HTMLButtonElement).click()
+    })
+    await act(async () => {
+      ;(document.querySelector('[data-dsh-git="ref-action"][data-action="detach"]') as HTMLElement).click()
+    })
+    const filter = document.querySelector('[data-dsh-git="ref-filter"]') as HTMLInputElement
+    expect(filter.placeholder).toBe(en['picker.detachPlaceholder'])
+    await act(async () => {
+      ;(refRow('remote:origin/topic') as HTMLElement).click()
+    })
+    expect(double.calls.some((call) => call.method === 'checkoutCommit')).toBe(false)
+    await act(async () => {
+      ;(document.querySelector('[data-dsh-git="confirm-proceed"]') as HTMLButtonElement).click()
+    })
+    expect(double.calls.find((call) => call.method === 'checkoutCommit')?.args).toMatchObject({ hash: 'bbbb' })
   })
 })
 
@@ -1158,6 +1234,7 @@ describe('worktrees section', () => {
 
   it('names each row by its branch and measures it against the base', async () => {
     await renderPanel(readState)
+    await openSection('worktrees')
     const rows = all('worktree')
     expect(rows[0]?.textContent).toContain('main')
     expect(rows[1]?.textContent).toContain('dsh-git/feature')
@@ -1181,11 +1258,14 @@ describe('worktrees section', () => {
         notice: null,
       },
     })
+    await openSection('worktrees')
+    expect(all('worktree')).toHaveLength(2)
     expect(byText(en['worktrees.merge'].replace('{branch}', 'main'))).toBeUndefined()
   })
 
   it('switches the comparison base through the base menu', async () => {
     const { double } = await renderPanel(readState)
+    await openSection('worktrees')
     await act(async () => {
       ;(marker('worktree-base') as HTMLButtonElement).click()
     })
@@ -1198,7 +1278,7 @@ describe('worktrees section', () => {
     expect(reads.at(-1)?.args).toMatchObject({ base: 'feature' })
   })
 
-  it('creates from a ref picked in the source menu', async () => {
+  it('creates from a ref picked in the source picker', async () => {
     const { double } = await renderPanel({
       ...readState,
       worktreeAdd: {
@@ -1208,12 +1288,13 @@ describe('worktrees section', () => {
         notice: null,
       },
     })
+    await openSection('worktrees')
     await act(async () => {
       ;(marker('worktree-source') as HTMLButtonElement).click()
     })
-    const item = [...document.querySelectorAll('[role="menuitem"]')].find((el) => el.textContent === 'feature')
+    const item = document.querySelector('[data-dsh-git="ref-row"][data-ref="branch:feature"]')
     await act(async () => {
-      ;(item as HTMLButtonElement).click()
+      ;(item as HTMLElement).click()
     })
     expect((marker('worktree-name') as HTMLInputElement).value).toBe('feature')
     await act(async () => {
@@ -1240,6 +1321,7 @@ describe('worktrees section', () => {
       worktreePrune: locked,
       worktreeUnlock: locked,
     })
+    await openSection('worktrees')
     const meta = all('worktree')[1]?.querySelector('[data-dsh-git="worktree-meta"]')?.textContent ?? ''
     expect(meta).toContain('manual')
     expect(meta).toContain(en['worktrees.prunable'])
@@ -1262,6 +1344,7 @@ describe('worktrees section', () => {
         opened.push(path)
       },
     })
+    await openSection('worktrees')
     await act(async () => {
       ;(marker('worktree-open-session') as HTMLButtonElement).click()
     })
@@ -1272,6 +1355,7 @@ describe('worktrees section', () => {
         throw new Error('no workspace navigation')
       },
     })
+    await openSection('worktrees')
     await act(async () => {
       ;(marker('worktree-open-session') as HTMLButtonElement).click()
       await Promise.resolve()
@@ -1397,4 +1481,3 @@ describe('panel resilience', () => {
     expect(marker('no-session')?.textContent).toContain(en['state.noSession'])
   })
 })
-

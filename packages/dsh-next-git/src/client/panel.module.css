@@ -158,6 +158,7 @@
   gap: 4px;
   min-height: 28px;
   padding: 3px 10px;
+  cursor: pointer;
   /* An SCM section band: hairlines top and bottom, a slightly lifted fill, and
      sticky so the title stays reachable while its own section scrolls. */
   position: sticky;
@@ -172,7 +173,7 @@
   margin-top: 6px;
 }
 
-/* The accordion header: the title is the control, the actions sit beside it. */
+/* The title keeps native keyboard activation; the header also handles background clicks. */
 .sectionToggle {
   display: inline-flex;
   align-items: center;
@@ -186,10 +187,6 @@
   color: inherit;
   font: inherit;
   cursor: pointer;
-}
-
-.sectionToggle:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .sectionToggle:focus-visible {
@@ -292,10 +289,6 @@
 
 .rowStatic {
   cursor: default;
-}
-
-.nested {
-  padding-left: 18px;
 }
 
 .rowMain {
@@ -503,33 +496,6 @@
   word-break: break-word;
 }
 
-.commit {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: 0 0 12px 0;
-  padding: 10px;
-  border-radius: 10px;
-  border: 1px solid var(--dsw-alias-border-l2);
-}
-
-.textarea {
-  box-sizing: border-box;
-  width: 100%;
-  min-height: 56px;
-  resize: vertical;
-  padding: 6px 8px;
-  border-radius: 8px;
-  border: 0.5px solid var(--dsw-alias-border-l2);
-  background: var(--dsw-alias-bg-base);
-  color: var(--dsw-alias-label-primary);
-  font: inherit;
-}
-
-.textarea:focus-visible {
-  outline: 2px solid var(--dsw-alias-state-business-primary);
-  outline-offset: 0;
-}
 
 .input {
   flex: 1 1 auto;
@@ -607,67 +573,6 @@
   overflow: auto;
   max-height: 320px;
   white-space: pre;
-}
-
-/* History ----------------------------------------------------------------- */
-
-.commitRow {
-  align-items: flex-start;
-}
-
-.graph {
-  flex: 0 0 auto;
-  color: var(--dsw-alias-label-quaternary);
-  padding-top: 2px;
-}
-
-.commitHash {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.commitSubject {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--dsw-alias-label-primary);
-}
-
-.commitMeta {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.menuItem {
-  box-sizing: border-box;
-  display: block;
-  width: 100%;
-  padding: 6px 10px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.menuItem:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
-.menuItemDanger {
-  color: var(--dsw-alias-label-error);
-}
-
-.menuItemDanger:hover {
-  background: var(--dsw-alias-interactive-bg-hover-danger);
 }
 
 /* Worktrees --------------------------------------------------------------- */
@@ -748,14 +653,7 @@
 
 /* The message box carries the generate action in its own corner, the way an
    SCM view does, so drafting never costs a second row. */
-.messageWrap {
-  position: relative;
-}
-
 .messageAction {
-  position: absolute;
-  top: 5px;
-  right: 5px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -783,42 +681,78 @@
   cursor: default;
 }
 
-/* Split commit control: the action and its command menu share one capsule,
-   separated by a hairline punched out of the fill. */
-.commitSplit {
-  display: flex;
-  align-items: stretch;
-  gap: 0;
-}
-
-.commitMenuAnchor {
-  /* The Menu primitive measures its wrapper to place the portaled list, so the
-     wrapper has to be a laid-out box; `display: contents` would anchor the
-     menu to the viewport corner. */
-  display: flex;
+/* The two writes live in the Changes header: a compact pair that stays on one
+   line with the header's own staging actions. */
+.commitAction {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   flex: 0 0 auto;
-  align-items: stretch;
 }
 
-.commitPrimary {
-  flex: 1 1 auto;
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
+/* One dialog body per write: a labelled field above the value, matching the
+   commit box the fields replaced. */
+.dialogBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
 }
 
-.commitDropdown {
-  flex: 0 0 auto;
-  padding: 0 8px;
-  border-left: 1px solid var(--dsw-alias-bg-base);
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
+.messageEditor {
+  position: relative;
 }
 
-.commitHint {
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-tertiary);
+.messageEditor textarea {
+  display: block;
+  padding-right: 44px;
 }
+
+.messageEditor [data-dsh-git="draft-message"] {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+}
+
+.messageEditor [data-dsh-git="inline-message-ai"] {
+  max-width: none;
+  align-items: flex-start;
+}
+
+.fieldLabel {
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+}
+
+.fieldInput {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.fieldInput::placeholder {
+  color: var(--dsw-alias-label-dimmed);
+}
+
+.fieldBody {
+  min-height: 120px;
+  resize: vertical;
+}
+
+.fieldInput:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 0;
+}
+
 
 /* The destructive second step of the danger grammar: an outline danger
    button, never a filled one. */

@@ -186,6 +186,10 @@ describe('failure classification', () => {
     })
     expect(degradedFrom({ code: 'not-a-repository', detail: '/tmp' })?.code).toBe('not-a-repository')
     expect(degradedFrom({ code: 'dirty-tree', detail: '' })).toBeNull()
+    // A session the host has not loaded yet is retryable, not a verdict about
+    // the folder, so it must never become a degraded state.
+    expect(degradedFrom({ code: 'session-not-ready', detail: 'session has no working directory' })).toBeNull()
+    expect(isDegradedCode('session-not-ready')).toBe(false)
     expect(isDegradedCode('permission-denied')).toBe(true)
     expect(isDegradedCode('dirty-tree')).toBe(false)
   })

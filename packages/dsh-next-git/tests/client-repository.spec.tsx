@@ -8,7 +8,7 @@ import * as React from 'react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { RepositoryWorkspaceView, type RepositoryWorkspaceViewProps } from '../src/client/repository/RepositoryWorkspace.tsx'
+import { RepositoryWorkspaceView, type RepositoryAction, type RepositoryWorkspaceViewProps } from '../src/client/repository/RepositoryWorkspace.tsx'
 import { GitApiError, type GitApi } from '../src/client/api.ts'
 import { en, type MessageKey } from '../src/client/dictionaries/en.ts'
 import type {
@@ -40,8 +40,8 @@ function panelState(overrides: Partial<PanelState> = {}): PanelState {
     worktrees: [worktree({ path: '/repo', branch: 'main', primary: true, managed: false, slug: null })],
     worktreeBase: { name: 'origin/main', source: 'default-branch', candidates: ['main', 'feature'] },
     branches: [
-      { name: 'main', current: true, oid: 'aaaa', upstream: 'origin/main', remote: false },
-      { name: 'feature', current: false, oid: 'bbbb', upstream: null, remote: false },
+      { name: 'main', current: true, oid: 'aaaa', upstream: 'origin/main', remote: false, author: 'A', committedAt: 1, ahead: 0, behind: 0, subject: 'tip' },
+      { name: 'feature', current: false, oid: 'bbbb', upstream: null, remote: false, author: 'A', committedAt: 1, ahead: 0, behind: 0, subject: 'tip' },
     ],
     tags: [],
     identity: { name: 'A', email: 'a@b' },
@@ -144,6 +144,7 @@ let props: RepositoryWorkspaceViewProps
 async function render(overrides: Partial<RepositoryWorkspaceViewProps> = {}): Promise<void> {
   const defaults: RepositoryWorkspaceViewProps = {
     sessionId: 's1',
+    action: 'fetch',
     state: panelState(),
     api: apiDouble({ repositoryInventory: inventory() }).api,
     t,
@@ -162,10 +163,9 @@ const buttonText = (label: string): HTMLButtonElement => {
 }
 const click = async (node: HTMLElement): Promise<void> => { await act(async () => { node.click() }) }
 const clickText = async (label: string): Promise<void> => { await click(buttonText(label)) }
-const clickTab = async (key: MessageKey): Promise<void> => {
-  const found = [...document.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((node) => node.textContent?.trim() === t(key))
-  expect(found, key).toBeDefined()
-  await click(found!)
+async function changeAction(action: RepositoryAction): Promise<void> {
+  props = { ...props, action }
+  await act(async () => { root.render(<RepositoryWorkspaceView {...props} />) })
 }
 const alertText = (): string | null => document.querySelector('[role="alert"]')?.textContent ?? null
 const closeButton = (): HTMLButtonElement => document.querySelector<HTMLButtonElement>('button[aria-label="' + t('confirm.cancel') + '"]')!
@@ -209,6 +209,87 @@ afterEach(async () => {
   document.body.replaceChildren()
 })
 
+describe('single-action repository dialogs', () => {
+  const cases: { action: RepositoryAction; title: MessageKey; labels: MessageKey[] }[] = [
+    { action: 'fetch', title: 'repository.fetch', labels: ['repository.remote', 'repository.prune'] },
+    { action: 'push', title: 'repository.push', labels: ['repository.remote', 'repository.branch'] },
+    { action: 'stash-save', title: 'repository.stash-save', labels: ['repository.message', 'repository.includeUntracked'] },
+    { action: 'stash-apply', title: 'repository.stash-apply', labels: ['repository.stash'] },
+    { action: 'branch-create', title: 'repository.branch.create', labels: ['branches.createPlaceholder', 'repository.startPoint'] },
+    { action: 'branch-rename', title: 'repository.branch.rename', labels: ['repository.branch', 'branches.renamePlaceholder'] },
+    { action: 'branch-delete', title: 'repository.branch.delete', labels: ['repository.branch'] },
+  ]
+
+  it.each(cases)('renders only the $action form without tabs or other actions', async ({ action, title, labels }) => {
+    const double = apiDouble({ repositoryInventory: inventory() })
+    await render({ action, api: double.api })
+    const dialog = document.querySelector('[role="dialog"]')!
+    expect(dialog.textContent).toContain(t(title))
+    expect(dialog.querySelector('[data-action]')?.getAttribute('data-action')).toBe(action)
+    expect(dialog.querySelector('[role="tablist"], [role="tab"]')).toBeNull()
+    expect([...dialog.querySelectorAll('label')].map(label =>
+      [...label.childNodes].filter(node => node.nodeType === Node.TEXT_NODE).map(node => node.textContent).join(''))).toEqual(labels.map(key => t(key)))
+    const actionButtons = buttons().filter(button => [t('branches.create'), t('branches.rename'), t('branches.delete'), t('repository.preview')].includes(button.textContent!.trim()))
+    expect(actionButtons).toHaveLength(1)
+    expect(double.calls).toEqual([{ method: 'repositoryInventory', args: { sessionId: 's1' } }])
+  })
+
+  it('remounts on action changes, clearing inputs, approval, result, errors and branch confirmation', async () => {
+    const request: RepositoryActionRequest = { action: 'fetch', remote: 'mirror', prune: true }
+    const double = apiDouble({
+      repositoryInventory: inventory(), previewRepositoryAction: preview(request), executeRepositoryAction: result(),
+      branchDelete: new GitApiError({ code: 'not-merged', detail: 'feature' }, null),
+    })
+    await render({ api: double.api })
+    await setValue(selectByLabel('repository.remote'), 'mirror')
+    await click(checkboxByLabel('repository.prune'))
+    await clickText(t('repository.preview'))
+    const original = document.querySelector('[data-action]')
+    await changeAction('push')
+    expect(document.querySelector('[data-action]')).not.toBe(original)
+    expect(document.body.textContent).not.toContain('Host preview summary')
+    expect(selectByLabel('repository.remote').value).toBe('origin')
+    await changeAction('fetch')
+    expect(checkboxByLabel('repository.prune').checked).toBe(false)
+    await setValue(selectByLabel('repository.remote'), 'mirror')
+    await click(checkboxByLabel('repository.prune'))
+    await clickText(t('repository.preview'))
+    await clickText(t('repository.apply'))
+    expect(document.body.textContent).toContain('Host result message')
+    await changeAction('branch-delete')
+    expect(document.body.textContent).not.toContain('Host result message')
+    await setValue(selectByLabel('repository.branch'), 'feature')
+    await clickText(t('branches.delete'))
+    await clickText(t('confirm.proceed'))
+    await click(checkboxByLabel('repository.forceBranch'))
+    expect(alertText()).toBe(t('repository.branchFailed'))
+    await changeAction('branch-create')
+    expect(alertText()).toBeNull()
+    expect(document.body.textContent).not.toContain(t('repository.forceBranch'))
+    expect(buttons().some(button => button.textContent === t('confirm.proceed'))).toBe(false)
+    await changeAction('branch-delete')
+    expect(selectByLabel('repository.branch').value).toBe('main')
+    await setValue(selectByLabel('repository.branch'), 'feature')
+    await clickText(t('branches.delete'))
+    expect(buttonText(t('confirm.proceed')).disabled).toBe(false)
+    expect(document.body.textContent).not.toContain(t('repository.forceBranch'))
+    expect(double.calls.filter(call => call.method === 'branchDelete')).toHaveLength(1)
+  })
+
+  it('ignores an old pending preview after the action prop changes', async () => {
+    const gate = deferred<RepositoryActionPreview>()
+    const double = apiDouble({ repositoryInventory: inventory(), previewRepositoryAction: () => gate.promise })
+    await render({ api: double.api })
+    await clickText(t('repository.preview'))
+    await changeAction('stash-save')
+    await act(async () => { gate.resolve(preview({ action: 'fetch', remote: 'origin', prune: false })) })
+    expect(document.body.textContent).not.toContain('Host preview summary')
+    expect(document.body.textContent).not.toContain(t('repository.working'))
+    expect(buttonText(t('repository.preview')).disabled).toBe(false)
+    expect(props.onChanged).not.toHaveBeenCalled()
+  })
+})
+
 describe('repository workspace inventory', () => {
   it('reads the inventory on mount and renders remote and stash choices', async () => {
     const double = apiDouble({ repositoryInventory: inventory() })
@@ -219,7 +300,7 @@ describe('repository workspace inventory', () => {
     expect([...remote.options].map((option) => option.value)).toEqual(['origin', 'mirror'])
     expect(remote.value).toBe('origin')
     expect(document.body.textContent).toContain('https://example.test/repo.git')
-    await clickTab('repository.stash-apply')
+    await changeAction('stash-apply')
     const stash = selectByLabel('repository.stash')
     expect([...stash.options].map((option) => option.value)).toEqual(['stash-1', 'stash-2'])
     expect([...stash.options].map((option) => option.textContent)).toEqual(['WIP on main', 'WIP on feature'])
@@ -278,8 +359,7 @@ describe('repository action preview and execution', () => {
   it('carries the push remote and branch fields', async () => {
     const request: RepositoryActionRequest = { action: 'push', remote: 'mirror', branch: 'topic' }
     const double = apiDouble({ repositoryInventory: inventory(), previewRepositoryAction: preview(request) })
-    await render({ api: double.api })
-    await clickTab('repository.push')
+    await render({ api: double.api, action: 'push' })
     await setValue(selectByLabel('repository.remote'), 'mirror')
     await setValue(inputByLabel('repository.branch'), 'topic')
     await clickText(t('repository.preview'))
@@ -289,8 +369,7 @@ describe('repository action preview and execution', () => {
   it('carries the stash-save includeUntracked and message fields', async () => {
     const request: RepositoryActionRequest = { action: 'stash-save', includeUntracked: true, message: 'wip' }
     const double = apiDouble({ repositoryInventory: inventory(), previewRepositoryAction: preview(request) })
-    await render({ api: double.api })
-    await clickTab('repository.stash-save')
+    await render({ api: double.api, action: 'stash-save' })
     await click(checkboxByLabel('repository.includeUntracked'))
     await setValue(inputByLabel('repository.message'), 'wip')
     await clickText(t('repository.preview'))
@@ -300,8 +379,7 @@ describe('repository action preview and execution', () => {
   it('carries the stash-apply stashOid field', async () => {
     const request: RepositoryActionRequest = { action: 'stash-apply', stashOid: 'stash-2' }
     const double = apiDouble({ repositoryInventory: inventory(), previewRepositoryAction: preview(request) })
-    await render({ api: double.api })
-    await clickTab('repository.stash-apply')
+    await render({ api: double.api, action: 'stash-apply' })
     await setValue(selectByLabel('repository.stash'), 'stash-2')
     await clickText(t('repository.preview'))
     expect(double.calls[1]).toEqual({ method: 'previewRepositoryAction', args: { sessionId: 's1', request } })
@@ -329,15 +407,18 @@ describe('repository action preview and execution', () => {
     expect(document.querySelector('[data-dsh-git="repository-workspace"]')).not.toBeNull()
   })
 
-  it('refuses to execute a preview that no longer matches the current request', async () => {
-    const stale = preview({ action: 'fetch', remote: 'origin', prune: true })
+  it.each([
+    preview({ action: 'fetch', remote: 'origin', prune: true }),
+    preview(fetchRequest, { checkout: '/other-repo' }),
+  ])('refuses approval for a preview with a mismatched request or checkout: %j', async stale => {
     const double = apiDouble({ repositoryInventory: inventory(), previewRepositoryAction: stale, executeRepositoryAction: result() })
     await render({ api: double.api })
     await clickText(t('repository.preview'))
-    expect(document.body.textContent).toContain('Host preview summary')
-    await clickText(t('repository.apply'))
+    expect(alertText()).toBe(t('repository.previewMismatch'))
+    expect(document.body.textContent).not.toContain('Host preview summary')
+    expect(buttons().some(button => button.textContent === t('repository.apply'))).toBe(false)
     expect(double.calls.some((call) => call.method === 'executeRepositoryAction')).toBe(false)
-    expect(document.body.textContent).toContain('Host preview summary')
+    expect(buttonText(t('repository.preview')).disabled).toBe(false)
   })
 
   it('drops an approved preview when an input changes', async () => {
@@ -359,34 +440,46 @@ describe('repository action preview and execution', () => {
     expect(double.calls.some((call) => call.method === 'previewRepositoryAction')).toBe(false)
   })
 
-  it('refreshes the inventory and notifies the parent from the footer', async () => {
+  it('reads fresh inventory when an action is reopened, without a refresh footer', async () => {
     const double = apiDouble({ repositoryInventory: inventory() })
     await render({ api: double.api })
-    await clickText(t('header.refresh'))
+    expect(buttons().some(button => button.textContent === t('header.refresh'))).toBe(false)
+    await act(async () => { root.render(null) })
+    await render({ api: double.api })
     expect(double.calls.filter((call) => call.method === 'repositoryInventory')).toHaveLength(2)
-    expect(props.onChanged).toHaveBeenCalledTimes(1)
+    expect(props.onChanged).not.toHaveBeenCalled()
   })
 
-  it('reports a failed refresh without unmounting the workspace', async () => {
+  it('reports a failed post-action refresh without unmounting the dialog', async () => {
     let reads = 0
     const repositoryInventory = (): RepositoryInventory => {
       reads += 1
       if (reads > 1) throw new GitApiError({ code: 'git-failed', detail: 'refresh' }, null)
       return inventory()
     }
-    const double = apiDouble({ repositoryInventory })
+    const double = apiDouble({ repositoryInventory, previewRepositoryAction: preview(fetchRequest), executeRepositoryAction: result() })
     await render({ api: double.api })
-    await clickText(t('header.refresh'))
-    expect(alertText()).toBe(t('repository.readFailed'))
+    await clickText(t('repository.preview'))
+    await clickText(t('repository.apply'))
+    expect(alertText()).toBe(t('repository.unconfirmed'))
     expect(document.querySelector('[data-dsh-git="repository-workspace"]')).not.toBeNull()
   })
 })
 
 describe('branch operations', () => {
+  it('creates from an explicit tag or commit when the From command is chosen', async () => {
+    const double = apiDouble({ repositoryInventory: inventory(), branchCreate: panelState() })
+    await render({ api: double.api, action: 'branch-create', flexibleStartPoint: true, state: panelState({ tags: [{ name: 'v1', oid: 'aaaa', author: 'A', committedAt: 1, subject: 'tip' }] }) })
+    await setValue(inputByLabel('branches.createPlaceholder'), 'release')
+    await setValue(inputByLabel('commands.ref'), 'refs/tags/v1')
+    expect(document.querySelector('datalist option[value="refs/tags/v1"]')).not.toBeNull()
+    await clickText(t('branches.create'))
+    await clickText(t('confirm.proceed'))
+    expect(double.calls.find(call => call.method === 'branchCreate')?.args).toEqual({ sessionId: 's1', name: 'release', from: 'refs/tags/v1' })
+  })
   it('requires confirmation before creating a branch and sends the start point', async () => {
     const double = apiDouble({ repositoryInventory: inventory(), branchCreate: panelState() })
-    await render({ api: double.api })
-    await clickTab('repository.branches')
+    await render({ api: double.api, action: 'branch-create' })
     await setValue(inputByLabel('branches.createPlaceholder'), 'release')
     await clickText(t('branches.create'))
     expect(double.calls.some((call) => call.method === 'branchCreate')).toBe(false)
@@ -404,12 +497,13 @@ describe('branch operations', () => {
 
   it('requires confirmation before renaming a branch and sends from, to and expectedOid', async () => {
     const double = apiDouble({ repositoryInventory: inventory(), branchRename: panelState() })
-    await render({ api: double.api })
-    await clickTab('repository.branches')
+    await render({ api: double.api, action: 'branch-rename' })
     await setValue(inputByLabel('branches.renamePlaceholder'), 'renamed')
     await clickText(t('branches.rename'))
     expect(double.calls.some((call) => call.method === 'branchRename')).toBe(false)
     expect(document.body.textContent).toContain(t('repository.branchConfirm', { name: 'main', target: 'renamed' }))
+    expect(buttons().filter(button => button.textContent === t('confirm.cancel'))).toHaveLength(0)
+    expect(buttons().some(button => button.textContent === t('header.refresh'))).toBe(false)
     await clickText(t('confirm.proceed'))
     expect(double.calls.find((call) => call.method === 'branchRename')).toEqual({
       method: 'branchRename',
@@ -426,8 +520,7 @@ describe('branch operations', () => {
       return panelState()
     }
     const double = apiDouble({ repositoryInventory: inventory(), branchDelete })
-    await render({ api: double.api })
-    await clickTab('repository.branches')
+    await render({ api: double.api, action: 'branch-delete' })
     await setValue(selectByLabel('repository.branch'), 'feature')
     await clickText(t('branches.delete'))
     expect(double.calls.some((call) => call.method === 'branchDelete')).toBe(false)
@@ -455,8 +548,7 @@ describe('branch operations', () => {
       repositoryInventory: inventory(),
       branchCreate: new GitApiError({ code: 'git-failed', detail: 'refused' }, null),
     })
-    await render({ api: double.api })
-    await clickTab('repository.branches')
+    await render({ api: double.api, action: 'branch-create' })
     await setValue(inputByLabel('branches.createPlaceholder'), 'release')
     await clickText(t('branches.create'))
     await clickText(t('confirm.proceed'))
@@ -469,8 +561,7 @@ describe('branch operations', () => {
   it('disables branch creation in an unborn repository', async () => {
     const unborn = { ...panelState().head, unborn: true }
     const double = apiDouble({ repositoryInventory: inventory() })
-    await render({ api: double.api, state: panelState({ head: unborn }) })
-    await clickTab('repository.branches')
+    await render({ api: double.api, action: 'branch-create', state: panelState({ head: unborn }) })
     await setValue(inputByLabel('branches.createPlaceholder'), 'release')
     expect(buttonText(t('branches.create')).disabled).toBe(true)
   })
@@ -478,20 +569,20 @@ describe('branch operations', () => {
   it('disables every branch action while an operation is in progress', async () => {
     const operation = { kind: 'merge' as const, step: null, message: null, conflicts: [] }
     const double = apiDouble({ repositoryInventory: inventory() })
-    await render({ api: double.api, state: panelState({ operation }) })
-    await clickTab('repository.branches')
+    await render({ api: double.api, action: 'branch-create', state: panelState({ operation }) })
     await setValue(inputByLabel('branches.createPlaceholder'), 'release')
-    await setValue(inputByLabel('branches.renamePlaceholder'), 'renamed')
-    await setValue(selectByLabel('repository.branch'), 'feature')
     expect(buttonText(t('branches.create')).disabled).toBe(true)
+    await changeAction('branch-rename')
+    await setValue(inputByLabel('branches.renamePlaceholder'), 'renamed')
     expect(buttonText(t('branches.rename')).disabled).toBe(true)
+    await changeAction('branch-delete')
+    await setValue(selectByLabel('repository.branch'), 'feature')
     expect(buttonText(t('branches.delete')).disabled).toBe(true)
   })
 
   it('marks a branch checked out in another worktree as undeletable', async () => {
     const double = apiDouble({ repositoryInventory: inventory() })
-    await render({ api: double.api, state: panelState({ worktrees: [worktree({ path: '/repo', branch: 'main', primary: true }), worktree()] }) })
-    await clickTab('repository.branches')
+    await render({ api: double.api, action: 'branch-delete', state: panelState({ worktrees: [worktree({ path: '/repo', branch: 'main', primary: true }), worktree()] }) })
     await setValue(selectByLabel('repository.branch'), 'feature')
     expect(buttonText(t('branches.delete')).disabled).toBe(true)
     expect(document.body.textContent).toContain(t('repository.checkedOut'))
@@ -499,13 +590,14 @@ describe('branch operations', () => {
 })
 
 describe('repository workspace close', () => {
-  it('cancel and the modal close button call onClose without executing', async () => {
+  it('omits repository context and footer buttons; the close icon dismisses without executing', async () => {
     const double = apiDouble({ repositoryInventory: inventory() })
     await render({ api: double.api })
-    await clickText(t('confirm.cancel'))
-    expect(props.onClose).toHaveBeenCalledTimes(1)
+    expect(document.querySelector('[title="/repo"]')).toBeNull()
+    expect(buttons().some(button => button.textContent === t('confirm.cancel'))).toBe(false)
+    expect(buttons().some(button => button.textContent === t('header.refresh'))).toBe(false)
     await click(closeButton())
-    expect(props.onClose).toHaveBeenCalledTimes(2)
+    expect(props.onClose).toHaveBeenCalledTimes(1)
     expect(double.calls.some((call) => call.method === 'executeRepositoryAction')).toBe(false)
     expect(double.calls.some((call) => call.method === 'branchCreate')).toBe(false)
   })

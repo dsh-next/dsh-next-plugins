@@ -5,7 +5,7 @@
  * createAiTaskResults feed, hides reasoning and tool output, waits when there is
  * no answer yet, writes the commit draft only through an explicit Use action
  * (and a confirmation when a draft exists), refuses a stale repository, keeps
- * history-scoped answers out of the commit composer, and disposes its store
+ * non-draft answers out of the commit composer, and disposes its store
  * subscription on unmount. Assertions cover rendered text, the arguments the
  * card passes to the store, and the absence of writes where a write must not
  * happen.
@@ -296,14 +296,15 @@ describe('AI result card', () => {
     expect(alertText()).toBe(en['agent.result.useFailed'])
   })
 
-  it('does not offer a history-scoped result as the commit message', async () => {
-    const task = await settledTask('history-draft')
+  it.each(['review', 'explain', 'resolve', 'unknown-draft'])('does not offer a %s result as the commit message', async (verb) => {
+    const task = await settledTask(verb)
     const store = storeDouble({ record: task.record })
     await render(task.results, store.store)
 
     expect(preview()).toBe(FINAL)
     expect(document.body.textContent).toContain(en['agent.result.phase.needs-review'])
     expect(button(en['agent.result.useMessage'])).toBeUndefined()
+    expect(document.body.textContent).toContain(verb === 'unknown-draft' ? en['agent.title'] : en[('agent.' + verb) as keyof typeof en])
     // Without the affordance nothing reaches the store.
     expect(store.prepareAgentAction).not.toHaveBeenCalled()
     expect(store.setMessage).not.toHaveBeenCalled()

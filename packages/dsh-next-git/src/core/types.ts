@@ -155,7 +155,7 @@ export interface WorktreeBase {
   readonly candidates: readonly string[]
 }
 
-/** One local branch for the branch picker. */
+/** One local or remote-tracking branch, with the tip detail a picker row shows. */
 export interface BranchInfo {
   /** Short branch name. */
   readonly name: string
@@ -167,6 +167,49 @@ export interface BranchInfo {
   readonly upstream: string | null
   /** Whether the branch exists on a remote only (checkout candidate). */
   readonly remote: boolean
+  /** Tip commit author name, empty when git reported none. */
+  readonly author: string
+  /** Tip commit time, epoch seconds; 0 when git reported none. */
+  readonly committedAt: number
+  /** Commits this branch has that its upstream does not; 0 without an upstream. */
+  readonly ahead: number
+  /** Commits the upstream has that this branch does not; 0 without an upstream. */
+  readonly behind: number
+  /** Tip commit subject, bounded. */
+  readonly subject: string
+}
+
+/** One tag, with the peeled commit a detached checkout names. */
+export interface TagInfo {
+  /** Short tag name. */
+  readonly name: string
+  /** The tag's commit: an annotated tag's peeled target, else the tag object. */
+  readonly oid: string
+  /** Tagged commit's author name, empty when git reported none. */
+  readonly author: string
+  /** Tagged commit's time, epoch seconds; 0 when git reported none. */
+  readonly committedAt: number
+  /** Tagged commit's subject, bounded. */
+  readonly subject: string
+}
+
+/**
+ * The ref picker's own read: where the checkout is and every ref it can pick.
+ *
+ * Deliberately smaller than {@link PanelState} — no status, no worktrees, no
+ * history — because naming a branch needs exactly this and nothing else. The
+ * composer's branch chip reads it whenever a session opens, so the surface
+ * that only shows a branch must not pay for the whole panel.
+ */
+export interface RefSummary {
+  /** Absolute active checkout root. */
+  readonly root: string
+  /** HEAD position, with drift taken from the current branch's own row. */
+  readonly head: HeadState
+  /** Local and remote-tracking branches, most recent commit first. */
+  readonly branches: readonly BranchInfo[]
+  /** Tags, newest first. */
+  readonly tags: readonly TagInfo[]
 }
 
 /** Commit identity configuration, surfaced so commit can name its missing half. */
@@ -195,8 +238,8 @@ export interface PanelState {
   readonly worktreeBase: WorktreeBase
   /** Local branches. */
   readonly branches: readonly BranchInfo[]
-  /** Tag names, for the worktree create picker. */
-  readonly tags: readonly string[]
+  /** Tags, for the ref picker and the worktree create picker. */
+  readonly tags: readonly TagInfo[]
   /** Commit identity from git config. */
   readonly identity: IdentityState
   /** Absolute path of the directory the session runs in. */
@@ -270,10 +313,54 @@ export interface DiffHunkText {
   readonly header: string
   readonly oldText: string
   readonly newText: string
+  /** New-file line numbers this hunk adds, in file order. */
+  readonly addedLines: readonly number[]
+  /**
+   * New-file line numbers a deletion sits **before**, ascending; `1` means the
+   * removed lines were at the head of the file. A deletion occupies no line of
+   * the new file, so a whole-file view marks the position rather than a row.
+   */
+  readonly removedAt: readonly number[]
 }
 
 /** Which side of the index a diff is taken against. */
 export type DiffSide = 'staged' | 'unstaged'
+
+/** One decoration the whole-file change view paints on a displayed line. */
+export interface ChangeMarker {
+  /** 1-based line number in the displayed text. */
+  readonly line: number
+  /** `added` is this line; `removed` sits before it. */
+  readonly kind: 'added' | 'removed'
+}
+
+/**
+ * The whole-file view of one changed path.
+ *
+ * The panel's diff answers "what changed" with the hunks alone; this carries the
+ * complete file that those hunks belong to, so the same change can be read in
+ * place with its own line numbering.
+ */
+export interface FileChanges {
+  /** Repository-relative path. */
+  readonly path: string
+  /** Absolute path in the checkout, as the file preview's header shows it. */
+  readonly absolutePath: string
+  /** Which side of the index `text` came from. */
+  readonly side: DiffSide
+  /** Grammar hint for the platform highlighter, or null when the extension has none. */
+  readonly language: string | null
+  /** The displayed side's complete text; empty for binary, oversize or a missing side. */
+  readonly text: string
+  /** The lines to decorate, ascending by line number. */
+  readonly markers: readonly ChangeMarker[]
+  /** Git reports the change as binary, so there is no text to show. */
+  readonly binary: boolean
+  /** The file exceeded the safe read budget and was not read. */
+  readonly truncated: boolean
+  /** The file is gone from this side: `text` is the other side, every line removed. */
+  readonly deleted: boolean
+}
 
 /** Diff result for one path; `binary` and `tooLarge` are terminal states. */
 export interface DiffResult {
@@ -289,6 +376,20 @@ export type GitFailureCode =
   | 'git-unavailable'
   | 'git-too-old'
   | 'not-a-repository'
+  /**
+   * The host cannot resolve the session's working directory yet: a tab restored
+   * after a restart asks for state before the host has loaded that session.
+   * Distinct from `not-a-repository`, which means git itself reported one, and
+   * deliberately not degraded, so the panel retries instead of latching.
+   */
+  | 'session-not-ready'
+  /**
+   * The running host half does not implement a method this page called: the
+   * plugin's halves load at different times (the browser re-fetches its bundle
+   * on refresh, the host only at process start). Restarting the harness is the
+   * fix, so the state says so instead of failing vaguely.
+   */
+  | 'host-outdated'
   | 'bare-repository'
   | 'permission-denied'
   | 'identity-missing'

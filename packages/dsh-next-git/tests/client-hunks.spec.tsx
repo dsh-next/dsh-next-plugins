@@ -225,7 +225,7 @@ describe('hunk controls selection and apply', () => {
     await clickText(t('hunks.stageSelected'))
     expect(applyArgs(double.calls).hunkIds).toEqual(['hunk-a', 'hunk-b'])
     await clickText(t('hunks.selectAll'))
-    await clickText(t('history.clearSelection'))
+    await clickText(t('hunks.clear'))
     expect(buttonText(t('hunks.stageSelected')).disabled).toBe(true)
     expect(checkbox(hunkSelect(1)).checked).toBe(false)
   })

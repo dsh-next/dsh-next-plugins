@@ -7,6 +7,7 @@ import type { HistoryApproval, HistoryBinding, HistoryCommit, HistoryNativeState
 import { GitRunner, WRITE_TIMEOUT_MS } from './git-runner.ts'
 import type { RepoRef } from './git-service.ts'
 import { findUntrackedCollision } from './ignored-guard.ts'
+import { preservesHistoryTree, rewriteHistoryTree } from './history-tree-rewrite.ts'
 
 export interface HistoryOperationsPorts {
   readonly runner: GitRunner
@@ -42,7 +43,7 @@ export class HistoryOperations {
   async preview(source: HistorySource, request: HistoryRequest): Promise<HistoryPreview> {
     return this.scoped(source, async repo => {
       const state = await this.snapshot(repo)
-      this.requireClean(state)
+      this.requireClean(state, preservesHistoryTree(request.action))
       if (!Array.isArray(request.commits) || request.commits.length === 0 || request.commits.length > 100) fail('invalid-selection', 'Select between 1 and 100 commits.')
       if (request.order !== undefined && (!Array.isArray(request.order) || request.order.length > 100)) fail('invalid-order', 'The ordered selection must contain at most 100 commit refs.')
       const selected: HistoryCommit[] = []
@@ -67,11 +68,11 @@ export class HistoryOperations {
         requiresPublishedAcknowledgment: plan.rewrites,
         backupRef: 'refs/dsh/history-backups/' + operationId,
         otherCheckouts, diffSummary, diffMeaning: 'Selected source changes, not a simulation of the final result. Reordering and replay can conflict.',
-        warnings: [publication.warning, 'Repository hooks and commit signing are disabled for this deterministic history operation.', 'Backup refs preserve committed history only, never ignored/untracked bytes. A clean checkout is required; colliding ignored paths must be moved aside.', 'External Git processes do not join the plugin queue; Git locks and state revalidation still apply.', ...(plan.rewrites ? ['All listed descendants are rewritten. Other branches are not moved; no force-push is performed.'] : [])],
+        warnings: [publication.warning, 'Repository hooks and commit signing are disabled for this deterministic history operation.', preservesHistoryTree(plan.action) ? 'The final tree, index and working files are preserved without stashing. Backup refs preserve committed history only. Restore still requires a clean checkout.' : 'Backup refs preserve committed history only, never ignored/untracked bytes. A clean checkout is required; colliding ignored paths must be moved aside.', 'External Git processes do not join the plugin queue; Git locks and state revalidation still apply.', ...(plan.rewrites ? ['All listed descendants are rewritten. Other branches are not moved; no force-push is performed.'] : [])],
         permission: { source: { ...source }, checkout: repo.toplevel, authority: 'apply-approved-history-plan' },
       }
       // A slow preview is also bound to the state it actually inspected.
-      this.requireBinding(await this.snapshot(repo), binding)
+      this.requireBinding(await this.snapshot(repo), binding, preservesHistoryTree(plan.action))
       await this.requireIgnoredSafe(repo, preview)
       await this.privateDirectory(this.root(repo))
       await this.privateDirectory(this.directory(repo, operationId), true)
@@ -90,23 +91,36 @@ export class HistoryOperations {
       if (journal.phase !== 'preview') fail('already-started', 'This plan was already started or cancelled; inspect its status.')
       if (approval?.approved !== true) fail('approval-required', 'Approve the exact preview before execution.')
       if (journal.preview.requiresPublishedAcknowledgment && approval.acknowledgePublishedHistory !== true) fail('published-acknowledgment-required', 'Acknowledge potentially published history, including unknown remote state.')
-      this.requireBinding(await this.snapshot(repo), journal.preview.binding)
-      if (journal.preview.plan.rewrites && /[\x00-\x1f\x7f]/.test(repo.gitDir + process.execPath)) fail('unsafe-editor-path', 'Internal rebase editor paths must not contain control characters.')
-      if (journal.preview.plan.rewrites && process.platform === 'win32') fail('platform-unsupported', 'Internal rebase editor commands currently require a POSIX Git shell.')
-      if (journal.preview.plan.rewrites && process.env.GIT_SEQUENCE_EDITOR !== undefined) fail('editor-environment', 'Unset GIT_SEQUENCE_EDITOR before using an internally generated rebase plan.')
+      this.requireBinding(await this.snapshot(repo), journal.preview.binding, preservesHistoryTree(journal.preview.plan.action))
+      if (journal.preview.plan.action === 'reorder' && /[\x00-\x1f\x7f]/.test(repo.gitDir + process.execPath)) fail('unsafe-editor-path', 'Internal rebase editor paths must not contain control characters.')
+      if (journal.preview.plan.action === 'reorder' && process.platform === 'win32') fail('platform-unsupported', 'Internal rebase editor commands currently require a POSIX Git shell.')
+      if (journal.preview.plan.action === 'reorder' && process.env.GIT_SEQUENCE_EDITOR !== undefined) fail('editor-environment', 'Unset GIT_SEQUENCE_EDITOR before using an internally generated rebase plan.')
       await this.requireIgnoredSafe(repo, journal.preview)
-      await this.prepare(repo, journal)
-      this.requireBinding(await this.snapshot(repo), journal.preview.binding)
+      if (!preservesHistoryTree(journal.preview.plan.action)) await this.prepare(repo, journal)
+      this.requireBinding(await this.snapshot(repo), journal.preview.binding, preservesHistoryTree(journal.preview.plan.action))
       journal.approved = true
       journal.phase = 'running'
       await this.save(repo, journal)
       try {
-        await this.git(repo, ['update-ref', journal.preview.backupRef, journal.preview.binding.head, '0'.repeat(journal.preview.binding.head.length)])
+        await this.git(repo, ['-c', 'core.hooksPath=' + this.directory(repo, operationId), 'update-ref', journal.preview.backupRef, journal.preview.binding.head, '0'.repeat(journal.preview.binding.head.length)])
         // Backup creation is not a checkout lock: revalidate again immediately before Git's mutation.
         await this.otherCheckouts(repo, journal.preview.binding.headRef)
-        this.requireBinding(await this.snapshot(repo), journal.preview.binding)
+        this.requireBinding(await this.snapshot(repo), journal.preview.binding, preservesHistoryTree(journal.preview.plan.action))
         await this.requireIgnoredSafe(repo, journal.preview)
         const plan = journal.preview.plan
+        if (preservesHistoryTree(plan.action)) {
+          const binding = journal.preview.binding
+          const rewritten = await rewriteHistoryTree(this.ports.runner, repo.toplevel, this.directory(repo, operationId), plan, binding.head, binding.tree)
+          await this.publishTreeRewrite(repo, journal, rewritten)
+          // Do not infer completion from a different external result after publishing.
+          const result = await this.snapshot(repo)
+          if (result.head !== rewritten || result.headRef !== binding.headRef || result.native.kind !== null) fail('incomplete-operation', 'Concurrent Git changes detected after publishing rewritten history.')
+          journal.phase = 'completed'
+          journal.completedHead = rewritten
+          journal.error = null
+          await this.save(repo, journal)
+          return this.inspect(repo, journal)
+        }
         const args = plan.rewrites
           ? ['rebase', '-i', '--force-rebase', '--no-autosquash', '--no-autostash', '--keep-empty', '--empty=ask', plan.base!]
           : [plan.action, '--no-edit', ...plan.ordered]
@@ -138,6 +152,12 @@ export class HistoryOperations {
         if (recovery.approved !== true || !status.canRestore) fail('restore-refused', 'Restore requires approval, a clean checkout and the exact recorded completed HEAD/ref; later work is never overwritten.')
         const backup = await this.resolveOid(repo, journal.preview.backupRef)
         if (backup !== journal.preview.binding.head) fail('backup-changed', 'The retained backup ref no longer matches the original HEAD.')
+        const treeOnly = preservesHistoryTree(journal.preview.plan.action)
+        if (treeOnly) {
+          for (const oid of [backup, journal.completedHead!]) {
+            if ((await this.git(repo, ['rev-parse', oid + '^{tree}'])).trim() !== journal.preview.binding.tree) fail('restore-refused', 'Recorded tree-preserving history no longer matches its original tree.')
+          }
+        }
         await this.requireIgnoredSafe(repo, journal.preview, false)
         journal.phase = 'recovering'
         await this.save(repo, journal)
@@ -150,8 +170,8 @@ export class HistoryOperations {
           const ref = state.headRef ?? 'HEAD'
           // Compare-and-swap refuses commits added after the last state read. Two-tree read-tree
           // updates the checkout with Git's dirty-file guards rather than reset --hard.
-          await this.git(repo, ['update-ref', ...(state.headRef === null ? ['--no-deref'] : []), ref, backup, journal.completedHead!])
-          await this.git(repo, ['read-tree', '-u', '-m', journal.completedHead!, backup])
+          await this.git(repo, ['-c', 'core.hooksPath=' + this.directory(repo, operationId), 'update-ref', ...(state.headRef === null ? ['--no-deref'] : []), ref, backup, journal.completedHead!])
+          if (!treeOnly) await this.git(repo, ['read-tree', '-u', '-m', journal.completedHead!, backup])
           const restored = await this.snapshot(repo)
           if (!restored.clean || restored.head !== backup || restored.headRef !== journal.preview.binding.headRef) fail('restore-interrupted', 'Concurrent changes detected after restoring the ref; inspect the checkout.')
           journal.phase = 'recovered'
@@ -181,6 +201,13 @@ export class HistoryOperations {
     })
   }
 
+  private async publishTreeRewrite(repo: RepoRef, journal: Journal, rewritten: string): Promise<void> {
+    const binding = journal.preview.binding
+    await this.otherCheckouts(repo, binding.headRef)
+    this.requireBinding(await this.snapshot(repo), binding, true)
+    await this.git(repo, ['-c', 'core.hooksPath=' + this.directory(repo, journal.preview.operationId), 'update-ref', '--no-deref', binding.headRef ?? 'HEAD', rewritten, binding.head])
+  }
+
   private async scoped<T>(source: HistorySource, work: (repo: RepoRef) => Promise<T>): Promise<T> {
     const first = await this.ports.resolveRepo(source)
     return this.ports.runner.mutate(first.commonDir, async () => {
@@ -200,6 +227,7 @@ export class HistoryOperations {
     return this.ports.runner.runOk(args, repo.toplevel, { timeoutMs: WRITE_TIMEOUT_MS })
   }
   private async requireIgnoredSafe(repo: RepoRef, preview: HistoryPreview, replay = true): Promise<void> {
+    if (preservesHistoryTree(preview.plan.action)) return
     let collision: string | null
     try {
       collision = await findUntrackedCollision(this.ports.runner, repo.toplevel, {
@@ -305,7 +333,7 @@ export class HistoryOperations {
     const symbolic = await this.ports.runner.run(['symbolic-ref', '-q', 'HEAD'], repo.toplevel)
     if (symbolic.code !== 0 && symbolic.code !== 1) fail('head-unavailable', 'Unable to read the current HEAD ref.')
     const headRef = symbolic.code === 0 ? symbolic.stdout.trim() : null
-    const dirty = await this.git(repo, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignore-submodules=none'])
+    const dirty = await this.git(repo, ['--no-optional-locks', 'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignore-submodules=none'])
     const indexFlags = await this.git(repo, ['ls-files', '-v', '-z'])
     // These flags can hide tracked edits from status. Refuse rather than promise a clean backup.
     const hiddenIndexState = indexFlags.split('\0').some(entry => /^[a-zS] /.test(entry))
@@ -338,13 +366,14 @@ export class HistoryOperations {
     }
     return { head, headRef, clean: dirty === '' && !hiddenIndexState, hiddenIndexState, native }
   }
-  private requireClean(state: Snapshot): void {
+  private requireClean(state: Snapshot, treeOnly = false): void {
     if (state.native.kind !== null) fail('active-operation', 'Finish or abort the active Git operation (or remove a stale Git lock) first.')
+    if (treeOnly) return
     if (state.hiddenIndexState) fail('hidden-index-state', 'Assume-unchanged and skip-worktree entries (including sparse checkouts) are not supported by history plans.')
     if (!state.clean) fail('dirty-checkout', 'Tracked files, the index and untracked files must all be clean; no automatic stash is performed.')
   }
-  private requireBinding(state: Snapshot, binding: HistoryBinding): void {
-    this.requireClean(state)
+  private requireBinding(state: Snapshot, binding: HistoryBinding, treeOnly = false): void {
+    this.requireClean(state, treeOnly)
     if (state.head !== binding.head || state.headRef !== binding.headRef) fail('stale-preview', 'HEAD or the checked-out ref changed. Create and approve a new preview.')
   }
   private config(repo: RepoRef, journal: Journal): string[] {

@@ -24,11 +24,15 @@ import {
 } from '../core/degraded.ts'
 import { addedFileDiff, applyNumstat, parseNumstat, parseUnifiedDiff } from '../core/diff.ts'
 import { buildHistory, LOG_FORMAT, parseLog } from '../core/log.ts'
+import { isHistoryOid } from '../core/history-view.ts'
+import { changeMarkers, languageFor } from '../core/file-view.ts'
 import {
   BRANCH_FORMAT,
   localBranches,
   localNameForRemote,
   parseBranches,
+  parseTags,
+  TAG_FORMAT,
   validateBranchName,
 } from '../core/branches.ts'
 import { draftCommitMessage } from '../core/commit-message.ts'
@@ -68,11 +72,14 @@ import { contextFingerprint } from './context-fingerprint.ts'
 import { isSensitiveAgentPath } from '../core/agent-verbs.ts'
 import type { WorktreeCreateOptions, WorktreeSetupPreview } from '../core/worktree-create.ts'
 import { RepositoryActions } from './repository-actions.ts'
+import { RepositoryCommands } from './repository-commands.ts'
 import { runSetupSteps, type SetupExec } from './setup-exec.ts'
 import type {
   BranchInfo,
+  ChangeMarker,
   DiffFile,
   DiffResult,
+  FileChanges,
   DiffSide,
   HistoryPage,
   OperationState,
@@ -80,9 +87,11 @@ import type {
   PreflightAction,
   PreflightDecision,
   ReclaimResult,
+  RefSummary,
   SetupReport,
   SetupStep,
   StatePayload,
+  TagInfo,
   WorktreeInfo,
   WorktreePlan,
 } from '../core/types.ts'
@@ -136,6 +145,8 @@ export interface SourceRef {
 export interface CommitInput extends SourceRef {
   readonly message: string
   readonly amend?: boolean
+  readonly signoff?: boolean
+  readonly expectedHead?: string
   readonly paths?: readonly string[]
   readonly requestId?: string
 }
@@ -154,12 +165,14 @@ export class GitService {
   readonly historyOperations: HistoryOperations
   readonly historyRead: HistoryRead
   readonly repositoryActions: RepositoryActions
+  readonly repositoryCommands: RepositoryCommands
 
   constructor(private readonly ports: GitServicePorts) {
     this.conflicts = new ConflictService({ runner: ports.runner, resolveRepo: (source) => this.repoFor(source) })
     this.historyOperations = new HistoryOperations({ runner: ports.runner, resolveRepo: (source) => this.repoFor(source) })
     this.historyRead = new HistoryRead({ runner: ports.runner, resolveRepo: (source) => this.repoFor(source) })
     this.repositoryActions = new RepositoryActions({ runner: ports.runner, resolveRepo: (source) => this.repoFor(source) })
+    this.repositoryCommands = new RepositoryCommands({ runner: ports.runner, resolveRepo: (source) => this.repoFor(source) })
   }
 
   /* ----------------------------------------------------------- discovery */
@@ -242,7 +255,11 @@ export class GitService {
   async repoFor(input: SourceRef, signal?: AbortSignal): Promise<RepoRef> {
     const cwd = input.cwd ?? (input.sessionId === undefined ? undefined : this.ports.cwdOf(input.sessionId))
     if (cwd === undefined || cwd === '') {
-      throw new GitError({ code: 'not-a-repository', detail: 'session has no working directory' })
+      // Not the same as a folder that is not a repository: the session may
+      // simply not be loaded in this host yet (a tab restored after a restart),
+      // which resolves itself. The panel retries this code; it never retries a
+      // real `not-a-repository`.
+      throw new GitError({ code: 'session-not-ready', detail: 'session has no working directory' })
     }
     return this.resolveRepo(cwd, signal)
   }
@@ -294,18 +311,21 @@ export class GitService {
       ignoredTruncated: ignoredEntries.length > IGNORED_LIST_LIMIT,
     })
 
-    const markers = await this.readOperationMarkers(repo.gitDir)
+    const [markers, refs, defaultBranch, primaryBranch, identity] = await Promise.all([
+      this.readOperationMarkers(repo.gitDir),
+      this.readRefs(repo, signal),
+      this.defaultBranch(repo, signal),
+      this.primaryBranch(repo, signal),
+      this.readIdentity(repo.toplevel, signal),
+    ])
     const operation = detectOperation(markers, report.entries)
-    const branches = await this.readBranches(repo.toplevel, signal)
     const worktreeBase = resolveWorktreeBase({
-      defaultBranch: await this.defaultBranch(repo, signal),
-      primaryBranch: await this.primaryBranch(repo, signal),
+      defaultBranch,
+      primaryBranch,
       requested: requestedBase ?? null,
-      candidates: branches.filter((branch) => !branch.remote).map((branch) => branch.name),
+      candidates: refs.branches.filter((branch) => !branch.remote).map((branch) => branch.name),
     })
     const worktrees = await this.readWorktrees(repo, signal, worktreeBase.name)
-    const tags = await this.readTags(repo, signal)
-    const identity = await this.readIdentity(repo.toplevel, signal)
 
     return {
       root: repo.toplevel,
@@ -316,8 +336,8 @@ export class GitService {
       changes,
       worktrees,
       worktreeBase,
-      branches,
-      tags,
+      branches: refs.branches,
+      tags: refs.tags,
       identity,
       cwd: repo.cwd,
     }
@@ -362,6 +382,95 @@ export class GitService {
     return { path, side, file, empty: file === null }
   }
 
+  /**
+   * One changed path as a whole file, with the lines that changed.
+   *
+   * The panel's diff shows the hunks; this shows the file they belong to, so a
+   * reader keeps the file's own line numbering. The displayed side is the same
+   * side the diff is taken against: the worktree for `unstaged`, the index for
+   * `staged`. A path that is gone from that side (a deletion) is served from
+   * the other side with every line marked removed, which is what the change
+   * actually did.
+   *
+   * @param input - session (or explicit cwd), path and side to read.
+   * @param options - cancellation.
+   * @returns the file text and its change markers.
+   */
+  async fileChanges(
+    input: SourceRef & { path: string; side: DiffSide; oldPath?: string },
+    options: ReadOptions = {},
+  ): Promise<FileChanges> {
+    const repo = await this.repoFor(input, options.signal)
+    const { path, side } = input
+    validatePaths([path])
+    const language = languageFor(path) ?? null
+    const result = await this.diff(input, options)
+    const empty = { path, absolutePath: join(repo.toplevel, path), side, language, text: '', markers: [] as readonly ChangeMarker[], binary: false, truncated: false, deleted: false }
+    if (result.file?.binary === true) return { ...empty, binary: true }
+
+    if (input.side === 'unstaged') {
+      const worktree = await this.ports.fs.readWorktree(repo.toplevel, path)
+      if (worktree !== null && worktree.kind === 'binary') return { ...empty, binary: true }
+      if (worktree !== null && worktree.kind === 'oversize') return { ...empty, truncated: true }
+      if (worktree !== null) {
+        return { ...empty, text: worktree.text, markers: result.file === null ? [] : changeMarkers(result.file) }
+      }
+      // Deleted from the worktree: the copy the change removed is the index
+      // entry, or the committed one when the deletion is already staged.
+      const removed = await this.blobText(repo, ':', path, options.signal)
+        ?? await this.blobText(repo, 'HEAD:', path, options.signal)
+      if (removed === null) return { ...empty, deleted: true }
+      return { ...empty, text: removed, deleted: true, markers: removedEveryLine(removed) }
+    }
+
+    const index = await this.blobText(repo, ':', path, options.signal)
+    if (index === null) {
+      // Added to the index: the worktree copy is what the change introduced.
+      const worktree = await this.ports.fs.readWorktree(repo.toplevel, path)
+      if (worktree === null) return empty
+      if (worktree.kind === 'binary') return { ...empty, binary: true }
+      if (worktree.kind === 'oversize') return { ...empty, truncated: true }
+      return { ...empty, text: worktree.text, markers: result.file === null ? [] : changeMarkers(result.file) }
+    }
+    return { ...empty, text: index, markers: result.file === null ? [] : changeMarkers(result.file) }
+  }
+
+  /**
+   * One revision's copy of a path as text, or null when it has none.
+   *
+   * @param repo - resolved repository.
+   * @param revision - `:` for the index, or a revision prefix such as `HEAD:`.
+   * @param path - repository-relative path.
+   * @param signal - cancellation.
+   * @returns the text, or null for a missing entry, an oversized blob or binary bytes.
+   */
+  private async blobText(repo: RepoRef, revision: ':' | 'HEAD:', path: string, signal?: AbortSignal): Promise<string | null> {
+    if (isUnsafeRelativePath(path) || path.split('/').some(part => part.toLowerCase() === '.git')) {
+      throw new GitError({ code: 'path-missing', detail: 'Invalid repository path' })
+    }
+    const resolved = await this.ports.runner.run(
+      ['rev-parse', '--verify', '--end-of-options', revision + path],
+      repo.toplevel,
+      { timeoutMs: STATUS_TIMEOUT_MS, ...(signal === undefined ? {} : { signal }) },
+    )
+    const oid = resolved.stdout.trim()
+    if (resolved.code !== 0 || !/^[0-9a-f]{40,64}$/.test(oid)) return null
+    const size = await this.ports.runner.run(['cat-file', '-s', oid], repo.toplevel, {
+      timeoutMs: STATUS_TIMEOUT_MS,
+      ...(signal === undefined ? {} : { signal }),
+    })
+    const bytes = Number(size.stdout.trim())
+    if (size.code !== 0 || !Number.isSafeInteger(bytes) || bytes < 0 || bytes > INDEX_TEXT_LIMIT) return null
+    const outcome = await this.ports.runner.run(['cat-file', 'blob', oid], repo.toplevel, {
+      timeoutMs: STATUS_TIMEOUT_MS,
+      ...(signal === undefined ? {} : { signal }),
+    })
+    if (outcome.code !== 0) return null
+    // A NUL byte is how git itself reports binary content; never render it as text.
+    if (outcome.stdout.includes('\u0000')) return null
+    return outcome.stdout
+  }
+
   /** Synthesize the diff of an untracked file, or null when it is not untracked. */
   private async syntheticUntracked(repo: RepoRef, path: string, signal?: AbortSignal): Promise<DiffFile | null> {
     const statusRaw = await this.ports.runner.runSoft(
@@ -380,11 +489,14 @@ export class GitService {
     return content.kind === 'symlink' ? { ...diff, patch: diff.patch.replace('new file mode 100644', 'new file mode 120000') } : diff
   }
 
-  /** A page of history with computed graph lanes. */
+  /** Recent checkout history; an immutable commit anchor keeps pagination stable. */
   async history(
-    input: SourceRef & { limit?: number; skip?: number; ref?: string; search?: string; author?: string; since?: string; until?: string },
+    input: SourceRef & { limit?: number; skip?: number; anchor?: string },
     options: ReadOptions = {},
   ): Promise<HistoryPage> {
+    if (input.anchor !== undefined && !isHistoryOid(input.anchor)) {
+      throw new GitError({ code: 'invalid-name', detail: 'History pagination requires a full commit ID' })
+    }
     const repo = await this.repoFor(input, options.signal)
     const head = await this.ports.runner.run(['rev-parse', '--verify', 'HEAD'], repo.toplevel, options)
     if (head.code !== 0) {
@@ -393,31 +505,18 @@ export class GitService {
       if (parsePorcelainV2(status).head.unborn) return buildHistory([], { limit: 1 })
       throw new GitError(classifyGitFailure(head))
     }
-    const revision = input.ref === undefined ? head.stdout.trim() : await this.resolveCommit(repo, input.ref)
-    const filters: string[] = ['--fixed-strings']
-    for (const [field, flag] of [['search', '--grep'], ['author', '--author']] as const) {
-      const value = input[field]?.trim()
-      if (value && value.length > 500) throw new GitError({ code: 'invalid-name', detail: 'History filter exceeds 500 characters' })
-      if (value) filters.push(flag + '=' + value)
-    }
-    for (const field of ['since', 'until'] as const) {
-      const value = input[field]
-      if (!value) continue
-      const time = Date.parse(value)
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(time) || new Date(time).toISOString().slice(0, 10) !== value) throw new GitError({ code: 'invalid-name', detail: 'Invalid history date' })
-      filters.push('--' + field + '=' + value + (field === 'since' ? 'T00:00:00Z' : 'T23:59:59Z'))
-    }
+    const revision = input.anchor === undefined ? head.stdout.trim() : await this.resolveCommit(repo, input.anchor)
     const limit = Math.max(1, Math.min(Math.floor(input.limit ?? 50), 500))
     const skip = Math.max(0, Math.floor(input.skip ?? 0))
     const raw = await this.ports.runner.runOk(
-      ['log', '-z', `--pretty=format:${LOG_FORMAT}`, '-n', String(limit + 1), '--skip', String(skip), ...filters, revision, '--'],
+      ['log', '-z', `--pretty=format:${LOG_FORMAT}`, '-n', String(limit + 1), '--skip', String(skip), revision, '--'],
       repo.toplevel,
       { timeoutMs: STATUS_TIMEOUT_MS, ...(options.signal === undefined ? {} : { signal: options.signal }) },
     )
     // One extra row is fetched so the page can say whether more exist; the
     // window itself is still exactly `limit`.
     const page = buildHistory(parseLog(raw), { limit })
-    return { ...page, anchor: revision, commits: page.commits.slice(0, limit), lanes: page.lanes.slice(0, limit) }
+    return { ...page, anchor: revision, hasMore: page.commits.length > limit, commits: page.commits.slice(0, limit), lanes: page.lanes.slice(0, limit) }
   }
 
   /* -------------------------------------------------------- classification */
@@ -538,7 +637,6 @@ export class GitService {
   }
 
   private async commitTransaction(input: CommitInput, all: boolean): Promise<PanelState> {
-    const repo = await this.repoFor(input)
     const message = input.message.trim()
     if (message === '') throw new GitError({ code: 'nothing-to-commit', detail: 'empty commit message' })
     if (input.paths !== undefined) validatePaths(input.paths)
@@ -546,7 +644,14 @@ export class GitService {
       ? undefined
       : this.ports.cancellations?.begin(input.requestId, input.sessionId)
     try {
+      // Register before discovery: closing a just-opened commit dialog can race
+      // even the first rev-parse, not only a later hook or queue lease.
+      const repo = await this.repoFor(input)
+      if (signal?.aborted) throw new GitError({ code: 'hook-cancelled', detail: 'commit cancelled' })
       return await this.ports.runner.mutate(repo.commonDir, async () => {
+        if (input.expectedHead !== undefined && (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(input.expectedHead) || await this.resolveCommit(repo, 'HEAD') !== input.expectedHead)) {
+          throw new GitError({ code: 'dirty-tree', detail: 'The last commit changed; review it again before amending.' })
+        }
         await this.assertResolved(repo, signal)
         const previousIndex = all ? await captureIndexSnapshot(this.ports.runner, repo) : null
         let stagedTree: string | undefined
@@ -562,8 +667,10 @@ export class GitService {
             stagedTree = (await this.ports.runner.runOk(['write-tree'], repo.toplevel)).trim()
           }
           await this.assertResolved(repo, signal)
+          if (input.expectedHead !== undefined && await this.resolveCommit(repo, 'HEAD') !== input.expectedHead) throw new GitError({ code: 'dirty-tree', detail: 'The last commit changed during preparation; review it again before amending.' })
           const args = ['commit', '-m', message]
           if (input.amend === true) args.push('--amend')
+          if (input.signoff === true) args.push('--signoff')
           if (!all && input.paths !== undefined) args.push('--', ...input.paths.map(literalPath))
           const outcome = await this.ports.runner.run(args, repo.toplevel, {
             timeoutMs: WRITE_TIMEOUT_MS, lockRetries: 4, signal,
@@ -633,31 +740,34 @@ export class GitService {
     for (const entry of parsed) {
       const branch = shortBranch(entry.branch)
       const signalArgs = signal === undefined ? {} : { signal }
-      // Untracked files count as dirt: deleting a worktree would lose them.
-      const cleanOutcome = await this.ports.runner.runSoft(
-        ['status', '--porcelain', '--untracked-files=all'],
-        entry.path,
-        { timeoutMs: STATUS_TIMEOUT_MS, ...signalArgs },
-      )
       const compared = branch === null || base === null || entry.path === repo.root
-      const aheadRaw = compared
-        ? null
-        : await this.ports.runner.runSoft(['rev-list', '--count', `${base}..${branch}`], repo.root, {
-            timeoutMs: STATUS_TIMEOUT_MS,
-            ...signalArgs,
-          })
-      const behindRaw = compared
-        ? null
-        : await this.ports.runner.runSoft(['rev-list', '--count', `${branch}..${base}`], repo.root, {
-            timeoutMs: STATUS_TIMEOUT_MS,
-            ...signalArgs,
-          })
-      const merged = compared
-        ? false
-        : await this.ports.runner.ok(['merge-base', '--is-ancestor', branch, base], repo.root, {
-            timeoutMs: STATUS_TIMEOUT_MS,
-            ...signalArgs,
-          })
+      const noComparison = Promise.resolve(null)
+      const [cleanOutcome, aheadRaw, behindRaw, merged] = await Promise.all([
+        // Untracked files count as dirt: deleting a worktree would lose them.
+        this.ports.runner.runSoft(
+          ['status', '--porcelain', '--untracked-files=all'],
+          entry.path,
+          { timeoutMs: STATUS_TIMEOUT_MS, ...signalArgs },
+        ),
+        compared
+          ? noComparison
+          : this.ports.runner.runSoft(['rev-list', '--count', `${base}..${branch}`], repo.root, {
+              timeoutMs: STATUS_TIMEOUT_MS,
+              ...signalArgs,
+            }),
+        compared
+          ? noComparison
+          : this.ports.runner.runSoft(['rev-list', '--count', `${branch}..${base}`], repo.root, {
+              timeoutMs: STATUS_TIMEOUT_MS,
+              ...signalArgs,
+            }),
+        compared
+          ? Promise.resolve(false)
+          : this.ports.runner.ok(['merge-base', '--is-ancestor', branch, base], repo.root, {
+              timeoutMs: STATUS_TIMEOUT_MS,
+              ...signalArgs,
+            }),
+      ])
       enrichment[entry.path] = {
         clean: cleanOutcome !== null && cleanOutcome.trim() === '',
         ahead: aheadRaw === null ? 0 : Number(aheadRaw.trim()) || 0,
@@ -699,21 +809,43 @@ export class GitService {
     return name === '' || name === 'origin/HEAD' ? null : name
   }
 
-  /** Tag names for the create picker, newest first and bounded. */
-  private async readTags(repo: RepoRef, signal?: AbortSignal): Promise<string[]> {
+  /**
+   * Tags for the ref picker, newest first and bounded.
+   *
+   * Each row carries its tagged commit so the picker can show the same
+   * author/hash/subject detail line a branch row shows, and so a detached
+   * checkout has a commit id to name.
+   */
+  private async readTags(repo: RepoRef, signal?: AbortSignal): Promise<TagInfo[]> {
     const raw = await this.ports.runner.runSoft(
-      ['for-each-ref', '--count=100', '--sort=-creatordate', '--format=%(refname:short)', 'refs/tags'],
+      ['for-each-ref', '--count=100', '--sort=-creatordate', `--format=${TAG_FORMAT}`, 'refs/tags'],
       repo.root,
       { timeoutMs: STATUS_TIMEOUT_MS, ...(signal === undefined ? {} : { signal }) },
     )
-    if (raw === null) return []
-    return raw.split('\n').map((line) => line.trim()).filter((line) => line !== '')
+    return raw === null ? [] : parseTags(raw)
   }
 
-  /** Read the local and remote-tracking branches. */
+  /** Read both picker lists concurrently; callers do not need their process details. */
+  private async readRefs(repo: RepoRef, signal?: AbortSignal): Promise<{
+    branches: BranchInfo[]
+    tags: TagInfo[]
+  }> {
+    const [branches, tags] = await Promise.all([
+      this.readBranches(repo.toplevel, signal),
+      this.readTags(repo, signal),
+    ])
+    return { branches, tags }
+  }
+
+  /**
+   * Read the local and remote-tracking branches, most recently committed first.
+   *
+   * Recency is the order the picker shows: the branch you worked on last is
+   * the one you are most likely to switch to.
+   */
   async readBranches(cwd: string, signal?: AbortSignal): Promise<BranchInfo[]> {
     const raw = await this.ports.runner.runSoft(
-      ['for-each-ref', `--format=${BRANCH_FORMAT}`, 'refs/heads', 'refs/remotes'],
+      ['for-each-ref', '--sort=-committerdate', `--format=${BRANCH_FORMAT}`, 'refs/heads', 'refs/remotes'],
       cwd,
       { timeoutMs: STATUS_TIMEOUT_MS, ...(signal === undefined ? {} : { signal }) },
     )
@@ -730,7 +862,45 @@ export class GitService {
       const value = raw === null ? '' : raw.trim()
       return value === '' ? null : value
     }
-    return { name: await read('user.name'), email: await read('user.email') }
+    const [name, email] = await Promise.all([read('user.name'), read('user.email')])
+    return { name, email }
+  }
+
+  /**
+   * Where HEAD is and everything that can be picked, in one bounded read.
+   *
+   * The composer's branch chip needs a branch name, its drift and the ref
+   * lists; it does not need the working-tree status, the worktree list or the
+   * identity. Reading only those keeps a session-start read cheap, and the
+   * drift comes from the current branch's own row, so it costs no extra git
+   * process.
+   */
+  async refSummary(input: SourceRef): Promise<RefSummary> {
+    const repo = await this.repoFor(input)
+    const [refs, branch, raw] = await Promise.all([
+      this.readRefs(repo),
+      this.branchAt(repo.toplevel),
+      this.ports.runner.runSoft(['rev-parse', '--verify', 'HEAD'], repo.toplevel, { timeoutMs: STATUS_TIMEOUT_MS }),
+    ])
+    const oid = raw === null ? '' : raw.trim()
+    const committed = /^[a-f0-9]{40,64}$/.test(oid)
+    const current = refs.branches.find((candidate) => candidate.current && !candidate.remote)
+    return {
+      root: repo.toplevel,
+      head: {
+        oid: committed ? oid : null,
+        branch,
+        upstream: current?.upstream ?? null,
+        ahead: current?.ahead ?? 0,
+        behind: current?.behind ?? 0,
+        // A detached checkout has a commit but no branch; an unborn one has a
+        // branch name that no commit answers yet.
+        detached: branch === null && committed,
+        unborn: branch !== null && !committed,
+      },
+      branches: refs.branches,
+      tags: refs.tags,
+    }
   }
 
   /** Public read of the operation state for one repository. */
@@ -1385,12 +1555,13 @@ export class GitService {
   }
 
   /** Abort the in-progress operation. */
-  async operationAbort(input: SourceRef): Promise<PanelState> {
+  async operationAbort(input: SourceRef & { expectedKind?: 'rebase' }): Promise<PanelState> {
     const repo = await this.repoFor(input)
     return this.ports.runner.mutate(repo.commonDir, async () => {
       const state = await this.readState(repo, false)
       const kind = state.operation.kind
       if (kind === null) throw new GitError({ code: 'operation-in-progress', detail: 'no operation in progress' })
+      if (input.expectedKind !== undefined && kind !== input.expectedKind) throw new GitError({ code: 'operation-in-progress', detail: 'The active operation changed; review it before aborting.' })
       const args = kind === 'merge' ? ['merge', '--abort'] : [kind, '--abort']
       const outcome = await this.ports.runner.run(args, repo.toplevel, {
         timeoutMs: WRITE_TIMEOUT_MS,
@@ -1419,16 +1590,6 @@ export class GitService {
     })
   }
 
-  /** Revert one commit (non-rewriting, may conflict). */
-  async revert(input: SourceRef & { hash: string }): Promise<PanelState> {
-    return this.runHistoryWrite(input, ['revert', '--no-edit', input.hash])
-  }
-
-  /** Cherry-pick one commit (non-rewriting, may conflict). */
-  async cherryPick(input: SourceRef & { hash: string }): Promise<PanelState> {
-    return this.runHistoryWrite(input, ['cherry-pick', input.hash])
-  }
-
   /** Check out a commit detached (the panel warns first). */
   async checkoutCommit(input: SourceRef & { hash: string }): Promise<PanelState> {
     const repo = await this.repoFor(input)
@@ -1440,25 +1601,6 @@ export class GitService {
         lockRetries: 4,
       })
       if (outcome.code !== 0) throw new GitError(classifyGitFailure(outcome))
-      return this.readState(repo, false)
-    })
-  }
-
-  /** Shared path for revert/cherry-pick, where conflicts are recoverable. */
-  private async runHistoryWrite(input: SourceRef, args: readonly string[]): Promise<PanelState> {
-    const repo = await this.repoFor(input)
-    return this.ports.runner.mutate(repo.commonDir, async () => {
-      await this.assertPreconditions(repo, args[0] as 'revert' | 'cherry-pick')
-      const hash = await this.resolveCommit(repo, args[args.length - 1]!)
-      const safeArgs = [...args.slice(0, -1), hash]
-      const outcome = await this.ports.runner.run(safeArgs, repo.toplevel, {
-        timeoutMs: WRITE_TIMEOUT_MS,
-        lockRetries: 4,
-      })
-      if (outcome.code !== 0) {
-        const markers = await this.readOperationMarkers(repo.gitDir)
-        if (detectOperation(markers).kind === null) throw new GitError(classifyGitFailure(outcome))
-      }
       return this.readState(repo, false)
     })
   }
@@ -1585,6 +1727,21 @@ export class GitService {
   static degradedFor(error: GitError): ReturnType<typeof degradedFrom> {
     return degradedFrom(error.failure)
   }
+}
+
+/** Byte budget for one index copy read into the whole-file change view. */
+const INDEX_TEXT_LIMIT = 2 * 1024 * 1024
+
+/**
+ * Every displayed line of a text is removed: the shape of a deleted file's view.
+ *
+ * The trailing newline ends the last line rather than starting an empty one,
+ * which is also how the code surface numbers what it draws.
+ */
+function removedEveryLine(text: string): readonly ChangeMarker[] {
+  const body = text.endsWith('\n') ? text.slice(0, -1) : text
+  const count = body === '' ? 0 : body.split('\n').length
+  return Array.from({ length: count }, (_, index) => ({ line: index + 1, kind: 'removed' as const }))
 }
 
 /** Git paths are root-relative filenames, never directories or pathspec expressions. */

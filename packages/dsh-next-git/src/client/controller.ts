@@ -17,11 +17,13 @@
 import { asApiError, type GitApi } from './api.ts'
 import { panelPreferences, type PanelPreferenceStore } from './preferences.ts'
 import { computeGraphLanes } from '../core/log.ts'
-import type { HistoryAction } from '../core/history-plan.ts'
-import { emptyHistoryQuery, type HistoryQuery } from '../core/history-view.ts'
-import { buildHistoryAgentPayload, type AgentCommitContext } from '../core/agent-history.ts'
 import { buildAgentPayload, type AgentPayload, type AgentVerb } from '../core/agent-verbs.ts'
 import type { WorktreeSetupPreview } from '../core/worktree-create.ts'
+import type {
+  RepositoryActionPreview,
+  RepositoryActionRequest,
+  RepositoryActionResult,
+} from '../core/repository-actions.ts'
 import { RefreshScheduler, type RefreshReason } from './refresh.ts'
 import type {
   DegradedState,
@@ -40,6 +42,21 @@ import type {
 
 /** The stacked sections whose header collapses its body. */
 export type PanelSection = 'changes' | 'worktrees' | 'history'
+
+/**
+ * Recovery window for a session the host has not loaded yet.
+ *
+ * A tab restored after a server restart renders before its session is live, so
+ * the first read cannot resolve a working directory. The panel keeps the
+ * loading state and retries quietly — a retry that still cannot resolve the
+ * session runs no git process — then names the state instead of hiding it.
+ * Every deliberate trigger (Reload, focus, tab visible, agent turn) restores
+ * the budget, so a user who returns to the tab always gets a fresh attempt.
+ */
+const SESSION_RETRY_MS = 2_000
+const SESSION_RETRY_LIMIT = 30
+/** Cadence kept after the fast window, so a later resume still heals the panel. */
+const SESSION_RETRY_SLOW_MS = 15_000
 
 /** Which surface the body is showing. */
 export type PanelView =
@@ -104,10 +121,8 @@ export interface PanelSnapshot {
   readonly diffLoading: boolean
   readonly history: HistoryPage | null
   readonly historyLoading: boolean
-  readonly historyQuery: HistoryQuery
   /** Per-section collapse state; a new checkout starts folded. */
   readonly collapsed: Readonly<Record<PanelSection, boolean>>
-  readonly expandedCommit: string | null
   /** The commit message in the composer, mirrored so a hook Retry can repeat it. */
   readonly message: string
 }
@@ -124,8 +139,6 @@ export interface PreparedAgentAction {
 export interface AgentActionScope {
   readonly paths?: readonly string[]
   readonly side?: DiffSide
-  readonly commits?: readonly string[]
-  readonly historyAction?: HistoryAction
   readonly includeSensitive?: boolean
 }
 
@@ -135,7 +148,7 @@ export class PanelStore {
   private readonly listeners = new Set<() => void>()
   private readonly scheduler: RefreshScheduler
   /** The last commit message seen by a failing hook, for Retry. */
-  private pendingCommit: { message: string; amend: boolean; all: boolean } | null = null
+  private pendingCommit: { message: string } | null = null
   private commitRequestId: string | null = null
   private historyRequestId = 0
   private historyHead: string | null = null
@@ -144,12 +157,19 @@ export class PanelStore {
   private preferenceRoot: string | null = null
   private diffOldPath: string | undefined
   private requestId = 0
-  private readonly sessionId: string
+  readonly sessionId: string
   private disposed = false
   /** A worktree comparison base the user picked; null means the default. */
   private worktreeBase: string | null = null
   /** The window the history section is showing, so a refresh keeps it. */
   private historyLimit = 30
+  /** Retry bookkeeping for a session the host has not loaded yet. */
+  private sessionRetry = 0
+  private sessionRetryTimer: ReturnType<typeof setTimeout> | null = null
+  /** Whether the read in flight is the panel's own retry, not a user trigger. */
+  private retryingSession = false
+  /** Whether the unloaded-session state was already reported, so it reports once. */
+  private sessionFailureReported = false
 
   constructor(
     readonly api: GitApi,
@@ -173,9 +193,7 @@ export class PanelStore {
       diffLoading: false,
       history: null,
       historyLoading: false,
-      historyQuery: emptyHistoryQuery,
       collapsed: { changes: true, worktrees: true, history: true },
-      expandedCommit: null,
       message: '',
     }
     this.scheduler = new RefreshScheduler({
@@ -195,17 +213,6 @@ export class PanelStore {
     return () => {
       this.listeners.delete(listener)
     }
-  }
-
-  /**
-   * Re-read the history section after a write that changes history.
-   *
-   * The section loads on first render, so a commit made afterwards would
-   * otherwise stay invisible until the panel remounted.
-   */
-  private async reloadHistory(): Promise<void> {
-    if (this.snapshot.history === null) return
-    await this.loadHistory()
   }
 
   /** Shallow-patch the snapshot and notify; a disposed store never patches. */
@@ -273,6 +280,7 @@ export class PanelStore {
   /** Release listeners and pending waits. */
   dispose(): void {
     this.disposed = true
+    this.clearSessionRetry()
     this.scheduler.dispose()
     this.domDisposer?.()
     this.domDisposer = null
@@ -289,6 +297,9 @@ export class PanelStore {
   /** One read: the whole panel state. */
   private async load(reason: RefreshReason, duringWrite = false): Promise<{ changed: boolean }> {
     const revision = this.stateRevision
+    // Any deliberate read (open, Reload, focus, tab visible, agent turn) is a
+    // fresh attempt: the retry budget belongs to the panel's own backoff only.
+    if (!this.retryingSession) this.clearSessionRetry()
     this.patch({ reason, ...(this.snapshot.state === null ? { phase: 'loading' as const } : {}) })
     try {
       const payload = await this.api.call<StatePayload>('getState', {
@@ -296,6 +307,7 @@ export class PanelStore {
         ...(this.worktreeBase === null ? {} : { base: this.worktreeBase }),
       })
       if (this.disposed || revision !== this.stateRevision || (!duringWrite && this.snapshot.busy !== null)) return { changed: false }
+      this.clearSessionRetry()
       if (this.preferenceRoot !== payload.state.root) {
         this.preferenceRoot = payload.state.root
         const saved = this.preferences.read(this.sessionId, payload.state.root)
@@ -318,6 +330,8 @@ export class PanelStore {
       const api = asApiError(error)
       if (api.degraded !== null) {
         this.patch({ phase: 'degraded', degraded: api.degraded, failure: api.failure, state: null })
+      } else if (api.failure.code === 'session-not-ready') {
+        return this.sessionNotReady(api.failure)
       } else {
         this.patch({
           phase: this.snapshot.state === null ? 'failed' : 'ready',
@@ -329,13 +343,58 @@ export class PanelStore {
     }
   }
 
-  /** Invalidate all visible reads, including after external/agent writes. */
+  /**
+   * Hold the panel open for a session the host has not loaded yet.
+   *
+   * The first attempts stay quiet and look like a read in flight, because this
+   * is exactly what they are: a restored tab renders before its session exists
+   * in the host. After the fast window the state is named — reporting once, not
+   * once per attempt — while a slow retry keeps running so the panel still
+   * heals by itself the moment the session is opened.
+   *
+   * @param failure - the named failure the host returned.
+   * @returns the unchanged read result.
+   */
+  private sessionNotReady(failure: GitFailure): { changed: boolean } {
+    const quiet = this.sessionRetry < SESSION_RETRY_LIMIT
+    this.sessionRetry += 1
+    if (!this.disposed) {
+      if (this.sessionRetryTimer !== null) clearTimeout(this.sessionRetryTimer)
+      this.sessionRetryTimer = setTimeout(() => {
+        this.sessionRetryTimer = null
+        this.retryingSession = true
+        void this.scheduler.request('visible').finally(() => { this.retryingSession = false })
+      }, quiet ? SESSION_RETRY_MS : SESSION_RETRY_SLOW_MS)
+    }
+    if (quiet) {
+      this.patch({ phase: 'loading', degraded: null, failure: null })
+      return { changed: false }
+    }
+    this.patch({ phase: 'failed', failure })
+    if (!this.sessionFailureReported) {
+      this.sessionFailureReported = true
+      this.onError?.(failure.code)
+    }
+    return { changed: false }
+  }
+
+  /** Drop the pending retry; a deliberate trigger or a successful read resets it. */
+  private clearSessionRetry(): void {
+    if (this.sessionRetryTimer !== null) {
+      clearTimeout(this.sessionRetryTimer)
+      this.sessionRetryTimer = null
+    }
+    this.sessionRetry = 0
+    this.sessionFailureReported = false
+  }
+
+  /** Re-read only data that is currently visible. */
   private async refreshVisible(): Promise<void> {
+    const reads: Promise<void>[] = []
     const view = this.snapshot.view
-    await Promise.all([
-      this.snapshot.history === null && !this.snapshot.collapsed.history ? this.loadHistory() : this.reloadHistory(),
-      view.kind === 'diff' ? this.openDiff(view.path, view.side, this.diffOldPath) : Promise.resolve(),
-    ])
+    if (view.kind === 'sections' && !this.snapshot.collapsed.history) reads.push(this.loadHistory())
+    if (view.kind === 'diff') reads.push(this.openDiff(view.path, view.side, this.diffOldPath))
+    await Promise.all(reads)
   }
 
   /** Open one file's diff in place of the sections. */
@@ -363,15 +422,7 @@ export class PanelStore {
   closeDiff(): void {
     this.requestId += 1
     this.patch({ view: { kind: 'sections' }, diff: null, diffLoading: false })
-  }
-
-  async setHistoryQuery(query: HistoryQuery): Promise<void> {
-    if (JSON.stringify(query) === JSON.stringify(this.snapshot.historyQuery)) return
-    this.historyRequestId += 1
-    this.historyAnchor = null
-    this.historyLimit = 30
-    this.patch({ historyQuery: { ...query }, history: null })
-    await this.loadHistory()
+    if (!this.snapshot.collapsed.history) void this.loadHistory()
   }
 
   /** Re-read a bounded window, paging instead of silently stopping at the host cap. */
@@ -395,8 +446,7 @@ export class PanelStore {
   private async readHistory(count: number, previous: HistoryPage['commits']): Promise<void> {
     const request = ++this.historyRequestId
     const head = this.snapshot.state?.head.oid ?? null
-    const query = this.snapshot.historyQuery
-    let anchor = previous.length > 0 ? this.historyAnchor : query.ref ?? head
+    let anchor = previous.length > 0 ? this.historyAnchor : head
     this.patch({ historyLoading: true })
     try {
       const commits = [...previous]
@@ -407,11 +457,7 @@ export class PanelStore {
           sessionId: this.sessionId,
           limit: Math.min(remaining, 500),
           ...(commits.length === 0 ? {} : { skip: commits.length }),
-          ...(anchor === null ? {} : { ref: anchor }),
-          ...(query.search === '' ? {} : { search: query.search }),
-          ...(query.author === '' ? {} : { author: query.author }),
-          ...(query.since === '' ? {} : { since: query.since }),
-          ...(query.until === '' ? {} : { until: query.until }),
+          ...(anchor === null ? {} : { anchor }),
         })
         if (this.disposed || request !== this.historyRequestId) return
         anchor = page.anchor ?? anchor
@@ -429,26 +475,18 @@ export class PanelStore {
     }
   }
 
-  /**
-   * Collapse or expand one section.
-   *
-   * Sections are independent: an answer in this panel is rarely the only one
-   * the user wants, so opening History does not close Changes.
-   */
+  /** Expand one section exclusively, or collapse the currently open section. */
   toggleSection(section: PanelSection): void {
-    const collapsed = { ...this.snapshot.collapsed, [section]: !this.snapshot.collapsed[section] }
+    const opening = this.snapshot.collapsed[section]
+    const collapsed = { changes: true, worktrees: true, history: true, [section]: !opening }
     this.patch({ collapsed })
-    if (section === 'history' && !collapsed.history && this.snapshot.history === null) void this.loadHistory()
+    // History is deliberately demand-driven: opening its accordion is the read trigger.
+    if (section === 'history' && opening) void this.loadHistory()
   }
 
   /** Whether one section's body is hidden. */
   isCollapsed(section: PanelSection): boolean {
     return this.snapshot.collapsed[section]
-  }
-
-  /** Expand one commit row's actions. */
-  toggleCommit(hash: string): void {
-    this.patch({ expandedCommit: this.snapshot.expandedCommit === hash ? null : hash })
   }
 
   /** Mirror the composer's message so Retry can repeat it. */
@@ -502,35 +540,28 @@ export class PanelStore {
   }
 
   /** Commit the staged index; a hook failure lands in `hook` for Retry. */
-  async commit(message: string, amend = false, all = false): Promise<void> {
+  async commit(message: string): Promise<boolean> {
     const body = message.trim()
-    if (body === '' || this.snapshot.busy !== null) return
+    if (body === '' || this.snapshot.busy !== null) return false
     if ((this.snapshot.state?.changes.conflicts.length ?? 0) > 0) {
       this.patch({ failure: { code: 'operation-in-progress', detail: '' } })
-      return
+      return false
     }
-    this.pendingCommit = { message: body, amend, all }
+    this.pendingCommit = { message: body }
     this.commitRequestId = this.sessionId + ':' + globalThis.crypto.randomUUID()
     this.stateRevision += 1
     this.patch({ busy: 'busy.commit', failure: null, hook: null })
     try {
-      const state = await this.api.call<PanelState>(all ? 'commitAll' : 'commit', {
+      const state = await this.api.call<PanelState>('commit', {
         sessionId: this.sessionId,
         message: body,
-        amend,
         requestId: this.commitRequestId,
-        ...(all && this.snapshot.state !== null ? {
-          paths: [...new Set([
-            ...this.snapshot.state.changes.staged,
-            ...this.snapshot.state.changes.unstaged,
-            ...this.snapshot.state.changes.untracked,
-          ].map((entry) => entry.path))],
-        } : {}),
       })
-      if (this.disposed) return
+      if (this.disposed) return false
       this.pendingCommit = null
       this.patch({ state, phase: 'ready', hook: null, message: '' })
       await this.refreshVisible()
+      return true
     } catch (error) {
       await this.load('manual', true)
       const api = asApiError(error)
@@ -546,6 +577,7 @@ export class PanelStore {
       } else {
         this.reportError(error)
       }
+      return false
     } finally {
       this.commitRequestId = null
       this.stateRevision += 1
@@ -553,12 +585,46 @@ export class PanelStore {
     }
   }
 
-  /** Bulk staging and commit are one host transaction; a stage failure cannot commit. */
-  async commitAll(message: string): Promise<void> {
-    if (this.snapshot.state === null) return
-    await this.commit(message, false, true)
+  /**
+   * Save the staged and unstaged tracked changes into a named stash.
+   *
+   * The host pairs preview and execution, so the request the user confirmed is
+   * the request that runs; untracked files stay where they are.
+   *
+   * @param message - the stash name, empty for git's own message.
+   * @returns whether a stash was saved.
+   */
+  async stashSave(message: string): Promise<boolean> {
+    if (this.snapshot.busy !== null) return false
+    const request: RepositoryActionRequest = {
+      action: 'stash-save',
+      includeUntracked: false,
+      ...(message.trim() === '' ? {} : { message: message.trim() }),
+    }
+    this.stateRevision += 1
+    this.patch({ busy: 'busy.stash', failure: null })
+    try {
+      const preview = await this.api.call<RepositoryActionPreview>('previewRepositoryAction', {
+        sessionId: this.sessionId,
+        request,
+      })
+      const result = await this.api.call<RepositoryActionResult>('executeRepositoryAction', {
+        sessionId: this.sessionId,
+        request: preview.request,
+        version: preview.version,
+        approved: true,
+      })
+      if (this.disposed) return false
+      if (result.refresh) await this.load('manual', true)
+      return true
+    } catch (error) {
+      if (!this.disposed) this.reportError(error)
+      return false
+    } finally {
+      this.stateRevision += 1
+      if (!this.disposed) this.patch({ busy: null })
+    }
   }
-
 
   /** Cancel a commit whose hook is hanging. */
   async cancelCommit(): Promise<void> {
@@ -571,15 +637,20 @@ export class PanelStore {
   }
 
   /** Retry the commit a failed hook blocked. */
-  retryCommit(): Promise<void> {
+  async retryCommit(): Promise<void> {
     const pending = this.pendingCommit
-    if (pending === null) return Promise.resolve()
-    return this.commit(pending.message, pending.amend, pending.all)
+    if (pending === null) return
+    await this.commit(pending.message)
   }
 
   /** Dismiss the hook-output section. */
   dismissHook(): void {
     this.patch({ hook: null })
+  }
+
+  /** Text-only AI drafting; the caller owns cancellation and field replacement. */
+  draftInput(signal: AbortSignal): Promise<string> {
+    return this.api.call<string>('draftInput', { sessionId: this.sessionId, kind: 'commit', mode: 'staged', message: this.snapshot.message }, signal)
   }
 
   /** The draft subject the host derives from the change list. */
@@ -690,15 +761,18 @@ export class PanelStore {
     }
   }
 
-  worktreeRemove(path: string, force: boolean, deleteBranch = false): Promise<void> {
-    return this.write('busy.worktree-remove', () =>
-      this.worktree<PanelState>('worktreeRemove', { path, force, deleteBranch }),
-    )
+  async worktreeRemove(path: string, force: boolean, deleteBranch = false): Promise<boolean> {
+    let removed = false
+    await this.write('busy.worktree-remove', async () => {
+      const state = await this.worktree<PanelState>('worktreeRemove', { path, force, deleteBranch })
+      removed = true
+      return state
+    })
+    return removed
   }
 
-  async worktreeMerge(path: string): Promise<void> {
-    await this.write('busy.worktree-merge', () => this.worktree<PanelState>('worktreeMerge', { path }))
-    await this.reloadHistory()
+  worktreeMerge(path: string): Promise<void> {
+    return this.write('busy.worktree-merge', () => this.worktree<PanelState>('worktreeMerge', { path }))
   }
 
   worktreeUpdate(path: string, base?: string): Promise<void> {
@@ -747,11 +821,10 @@ export class PanelStore {
     )
   }
 
-  async operationContinue(): Promise<void> {
-    await this.write('busy.continue', () =>
+  operationContinue(): Promise<void> {
+    return this.write('busy.continue', () =>
       this.api.call<PanelState>('operationContinue', { sessionId: this.sessionId }),
     )
-    await this.reloadHistory()
   }
 
   operationSkip(): Promise<void> {
@@ -764,48 +837,22 @@ export class PanelStore {
     )
   }
 
-  async updateFromBranch(): Promise<void> {
-    await this.write('busy.update', () =>
+  updateFromBranch(): Promise<void> {
+    return this.write('busy.update', () =>
       this.api.call<PanelState>('updateFromBranch', { sessionId: this.sessionId }),
     )
-    await this.reloadHistory()
   }
 
-  async revert(hash: string): Promise<void> {
-    await this.write('busy.revert', () =>
-      this.api.call<PanelState>('revert', { sessionId: this.sessionId, hash }),
-    )
-    await this.reloadHistory()
-  }
-
-  async cherryPick(hash: string): Promise<void> {
-    await this.write('busy.cherry-pick', () =>
-      this.api.call<PanelState>('cherryPick', { sessionId: this.sessionId, hash }),
-    )
-    await this.reloadHistory()
-  }
-
-  async checkoutCommit(hash: string): Promise<void> {
-    await this.write('busy.checkout', () =>
+  checkoutCommit(hash: string): Promise<void> {
+    return this.write('busy.checkout', () =>
       this.api.call<PanelState>('checkoutCommit', { sessionId: this.sessionId, hash }),
     )
-    await this.reloadHistory()
   }
 
   /* ------------------------------------------------------------ agent verbs */
 
   /** Collect context without submitting a prompt or creating a session. */
   async prepareAgentAction(verb: AgentVerb, scope: AgentActionScope = {}): Promise<PreparedAgentAction> {
-    if (scope.commits !== undefined) {
-      const result = await this.api.call<{ state: PanelState; commits: AgentCommitContext[]; omittedCommits: string[]; fingerprint?: string }>(
-        'historyAgentContext', { sessionId: this.sessionId, commits: scope.commits },
-      )
-      return {
-        state: result.state,
-        payload: buildHistoryAgentPayload({ ...result, verb, action: scope.historyAction }),
-        fingerprint: result.fingerprint ?? JSON.stringify(result),
-      }
-    }
     const result = await this.api.call<{
       state: PanelState
       files: Parameters<typeof buildAgentPayload>[0]['files']

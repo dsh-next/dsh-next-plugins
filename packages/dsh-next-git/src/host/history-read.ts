@@ -1,23 +1,21 @@
 import { applyNumstat, parseNumstat, parseUnifiedDiff } from '../core/diff.ts'
 import { LOG_FORMAT, parseLog } from '../core/log.ts'
-import type { AgentCommitContext } from '../core/agent-history.ts'
-import { isHistoryOid, type HistorySource } from '../core/history-plan.ts'
-import type { CommitComparison, CommitDetails, CommitFile } from '../core/history-view.ts'
+import { isHistoryOid, type CommitComparison, type CommitDetails, type CommitFile } from '../core/history-view.ts'
 import type { DiffResult } from '../core/types.ts'
 import { isUnsafeRelativePath } from '../core/worktree.ts'
 import { GitError, type GitRunner, STATUS_TIMEOUT_MS } from './git-runner.ts'
-import type { RepoRef } from './git-service.ts'
+import type { RepoRef, SourceRef } from './git-service.ts'
 
 interface HistoryReadPorts {
   readonly runner: GitRunner
-  readonly resolveRepo: (source: HistorySource) => Promise<RepoRef>
+  readonly resolveRepo: (source: SourceRef) => Promise<RepoRef>
 }
 
 /** Immutable commit inspection; merge diffs explicitly use the first parent. */
 export class HistoryRead {
   constructor(private readonly ports: HistoryReadPorts) {}
 
-  private async commit(source: HistorySource, hash: string) {
+  private async commit(source: SourceRef, hash: string) {
     if (!isHistoryOid(hash)) throw new GitError({ code: 'invalid-name', detail: 'Select a full commit ID' })
     const repo = await this.ports.resolveRepo(source)
     const oid = (await this.ports.runner.runOk(['rev-parse', '--verify', '--end-of-options', hash + '^{commit}'], repo.toplevel)).trim()
@@ -31,7 +29,7 @@ export class HistoryRead {
     return parent === null ? ['show', '--format=', '--root', hash] : ['diff', parent, hash]
   }
 
-  async inspect(source: HistorySource, hash: string): Promise<CommitDetails> {
+  async inspect(source: SourceRef, hash: string): Promise<CommitDetails> {
     const { repo, commit, parent } = await this.commit(source, hash)
     const [message, names] = await Promise.all([
       this.ports.runner.runOk(['show', '-s', '--format=%B', commit.hash, '--'], repo.toplevel),
@@ -52,7 +50,7 @@ export class HistoryRead {
     return { commit, parent, message: message.trimEnd(), files }
   }
 
-  async diff(source: HistorySource, hash: string, path: string, oldPath?: string): Promise<DiffResult> {
+  async diff(source: SourceRef, hash: string, path: string, oldPath?: string): Promise<DiffResult> {
     const paths = oldPath === undefined ? [path] : [oldPath, path]
     if (paths.some(value => !value || isUnsafeRelativePath(value) || value.split('/').some(part => part.toLowerCase() === '.git'))) {
       throw new GitError({ code: 'path-missing', detail: 'Invalid commit path' })
@@ -69,23 +67,7 @@ export class HistoryRead {
     return { path, side: 'unstaged', file, empty: file === null }
   }
 
-  async context(source: HistorySource, hashes: readonly string[]): Promise<{ commits: AgentCommitContext[]; omittedCommits: string[] }> {
-    if (hashes.length > 100 || hashes.some(hash => !isHistoryOid(hash)) || new Set(hashes).size !== hashes.length) {
-      throw new GitError({ code: 'invalid-name', detail: 'Choose up to 100 distinct commit IDs' })
-    }
-    const commits: AgentCommitContext[] = []
-    for (const hash of hashes.slice(0, 20)) {
-      const { repo, commit, parent } = await this.commit(source, hash)
-      const [message, patch] = await Promise.all([
-        this.ports.runner.runOk(['show', '-s', '--format=%B', commit.hash, '--'], repo.toplevel),
-        this.ports.runner.runOk([...this.diffArgs(commit.hash, parent), '--'], repo.toplevel, { timeoutMs: STATUS_TIMEOUT_MS }),
-      ])
-      commits.push({ hash: commit.hash, subject: commit.subject, message: message.slice(0, 2000), patch: patch.slice(0, 8000), patchTruncated: patch.length > 8000 || message.length > 2000 })
-    }
-    return { commits, omittedCommits: hashes.slice(20) }
-  }
-
-  async compare(source: HistorySource, from: string, to: string): Promise<CommitComparison> {
+  async compare(source: SourceRef, from: string, to: string): Promise<CommitComparison> {
     const before = await this.commit(source, from)
     const after = await this.commit(source, to)
     if (before.repo.toplevel !== after.repo.toplevel) throw new GitError({ code: 'dirty-tree', detail: 'Checkout changed during comparison' })

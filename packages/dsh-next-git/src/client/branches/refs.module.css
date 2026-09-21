@@ -1,0 +1,260 @@
+/*
+ * Ref quick pick chrome.
+ *
+ * The card is a search field over a grouped list, the shape VS Code's branch
+ * picker uses: filter on top, quick actions, then branch/remote/tag rows with
+ * a tip-commit detail line. It is deliberately tighter than the panel's other
+ * dialogs — one row is two 18px lines — because the list, not the form, is
+ * the content. Colors are `--dsw-*` aliases only.
+ */
+
+.card.card {
+  width: min(560px, 100%);
+  padding: 10px;
+  gap: 0;
+  border-radius: 16px;
+}
+
+/* The card's one column: the field, the list, then the hint or error. */
+.picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* A step back out of a nested pick (base ref, detached checkout). */
+.back {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.back:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.back:focus-visible,
+.row:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 1px;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  max-height: min(52dvh, 420px);
+  overflow-y: auto;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  padding: 5px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.row[aria-selected='true'] {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.glyph {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  line-height: 18px;
+}
+
+.name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.current {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.meta {
+  flex: 0 0 auto;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* Group caption: the first row of each section carries its name on the right,
+   the way the VS Code picker labels `branches` / `remotes` / `tags`. */
+.kind {
+  margin-left: auto;
+  flex: 0 0 auto;
+  padding-left: 8px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.detail {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.subject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dot {
+  flex: 0 0 auto;
+  color: var(--dsw-alias-label-dimmed);
+}
+
+.action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.action[aria-selected='true'] {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.actionLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.actionHint {
+  margin-left: auto;
+  padding-left: 8px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.empty,
+.hint {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.empty {
+  padding: 10px 8px;
+  font-size: 13px;
+}
+
+.error {
+  margin: 0;
+  color: var(--dsw-alias-label-error);
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+/* The create-branch step: a name field over the base it starts from. */
+.step {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 2px;
+  font-size: 13px;
+}
+
+.stepField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stepField > span {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+
+.step input {
+  width: 100%;
+  height: 32px;
+  padding: 0 8px;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  box-sizing: border-box;
+}
+
+.step input:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 1px;
+}
+
+.step button {
+  align-self: flex-end;
+}
+
+.stepActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

@@ -1,15 +1,21 @@
-.card.card { width: min(760px, calc(100vw - 48px)); max-height: calc(100dvh - 48px); overflow: auto; }
+.card.card { width: min(400px, calc(100vw - 48px)); max-height: calc(100dvh - 48px); overflow: auto; }
 .body { display: flex; flex-direction: column; gap: 12px; min-width: 0; font-size: 13px; line-height: 20px; }
 .body p { margin: 0; }
-.path { overflow-wrap: anywhere; color: var(--dsw-alias-label-secondary); }
-.tabs { display: flex; flex-wrap: wrap; gap: 8px; border-bottom: 0.5px solid var(--dsw-alias-border-l3); }
-.tabs button { border: 0; border-bottom: 2px solid transparent; padding: 8px; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; cursor: pointer; }
-.tabs button[aria-selected="true"] { color: var(--dsw-alias-label-primary); border-bottom-color: var(--dsw-alias-label-primary); }
-.form { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-.form label { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.form input:not([type="checkbox"]), .form select { height: 34px; min-width: 0; flex: 1; border: 0.5px solid var(--dsw-alias-border-l3); border-radius: 8px; padding: 4px 8px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); font: inherit; box-sizing: border-box; }
-.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.form { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.form label { display: flex; flex-direction: column; gap: 4px; color: var(--dsw-alias-label-secondary); }
+.form label:has(input[type="checkbox"]), .body > label { display: flex; flex-direction: row; gap: 8px; align-items: flex-start; color: var(--dsw-alias-label-primary); }
+.form input:not([type="checkbox"]), .form select, .form textarea { width: 100%; height: 34px; min-width: 0; border: 0.5px solid var(--dsw-alias-border-l3); border-radius: 8px; padding: 4px 8px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); font: inherit; box-sizing: border-box; }
+.form > button { align-self: flex-end; margin-top: 4px; }
+.actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.body > section { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.body > section > button { align-self: flex-end; }
+.body code { overflow-wrap: anywhere; }
 .hint { color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
 .error { color: var(--dsw-alias-label-error); }
-.body :is(input,select,button):focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: 2px; }
+.danger.danger { color: var(--dsw-alias-label-error); border: 1px solid var(--dsw-alias-label-error); }
+.danger.danger:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover-danger); }
+.body :is(input,select,textarea,button):focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: 2px; }
 .body :disabled { opacity: 0.4; }
+.form textarea { height: auto; min-height: 84px; resize: vertical; }
+.reader.reader { width: min(720px, calc(100vw - 48px)); max-height: calc(100dvh - 48px); overflow: auto; }
+.output { white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; max-height: 50dvh; margin: 0; font-size: 12px; line-height: 18px; }

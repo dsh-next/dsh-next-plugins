@@ -1,0 +1,62 @@
+/*
+ * The composer's branch chip.
+ *
+ * Geometry is copied from the composer's own compact controls (the permission
+ * and model chips): 28px tall, 24px radius, 13px/500 text, secondary label
+ * color, transparent until hovered. It sits in the same tool row, so it has to
+ * measure like its neighbours or the row reads broken. Colors are `--dsw-*`
+ * aliases only.
+ */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  max-width: 220px;
+  padding: 0 4px 0 8px;
+  border: none;
+  border-radius: 24px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.chip:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.chip:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 1px;
+}
+
+.name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.glyph {
+  flex: 0 0 auto;
+}
+
+/*
+ * A narrow composer keeps the glyph and drops the branch name, the way the
+ * access selector beside it does. The breakpoint is tighter than that
+ * selector's 460px on purpose: the composer's own card content box is ~454px
+ * at the standard desktop width, so 460 would collapse this chip everywhere,
+ * while a branch name is short enough to earn its place until the composer is
+ * genuinely phone-narrow. The chevron stays, which is what keeps an icon-only
+ * chip readable as a picker.
+ */
+@container (width <= 380px) {
+  .name {
+    display: none;
+  }
+}

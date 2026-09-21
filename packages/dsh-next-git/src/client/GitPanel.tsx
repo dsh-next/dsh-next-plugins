@@ -14,7 +14,6 @@
 import * as React from 'react'
 import {
   Button,
-  DiffBlock,
   HoverCard,
   IconBranchOutline16,
   IconCheckOutline16,
@@ -38,11 +37,16 @@ import {
   writeClipboard,
   type MenuEntry,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { targetFileAddress, workspacePathFor } from '../core/address.ts'
+import { changeFileAddress, changeFileTitle, targetFileAddress, workspacePathFor } from '../core/address.ts'
 import type { AgentVerb } from '../core/agent-verbs.ts'
-import { toDiffHunks } from '../core/diff.ts'
+import type { RefOption } from '../core/refs.ts'
+import { filterRefs, partitionRefs, refOptions } from '../core/refs.ts'
+import { asApiError } from './api.ts'
+import { BranchPicker } from './branches/BranchPicker.tsx'
+import { RefQuickPick } from './branches/RefQuickPick.tsx'
+import { FileDiff } from './ui/FileDiff.tsx'
+import { InlineMessageDraft } from './ai/InlineMessageDraft.tsx'
 import type {
-  BranchInfo,
   CommitSummary,
   DiffSide,
   GitFailureCode,
@@ -61,13 +65,18 @@ import classes from './panel.module.css'
 import { AgentActionDialog, type AgentActionRequest, type AgentSessionControls } from './ai/action-dialog.tsx'
 import { ConflictWorkspaceView } from './conflicts/ConflictWorkspace.tsx'
 import { HistorySectionView } from './history/HistorySection.tsx'
-import { HistoryWorkspaceView } from './history/HistoryWorkspace.tsx'
+import { CommitDetailsModal } from './history/CommitDetailsModal.tsx'
+import { CompareModal } from './history/CompareModal.tsx'
+import { HistoryActionModal } from './history/HistoryActionModal.tsx'
 import type { HistoryAction } from '../core/history-plan.ts'
 import { AgentResults } from './ai/AgentResults.tsx'
 import type { AiTaskResults } from './ai/task-results.ts'
-import { RepositoryWorkspaceView } from './repository/RepositoryWorkspace.tsx'
+import { RepositoryActionDialog } from './repository/RepositoryActionDialog.tsx'
+import type { RepositoryMenuCommand } from './repository/commands.ts'
+import { RepositoryMenu } from './repository/RepositoryMenu.tsx'
 import { WorktreeSetupDialog } from './worktrees/WorktreeSetupDialog.tsx'
 import { HunkControls } from './changes/HunkControls.tsx'
+import { useDialogFocus } from './ui/dialog-focus.ts'
 
 /** The translator the slot framework injects for this package's namespace. */
 export type Translate = (key: MessageKey, params?: Record<string, string | number>) => string
@@ -105,6 +114,8 @@ export interface GitPanelProps {
    * the action rather than offering one that does nothing.
    */
   readonly openWorktreeSession?: ((path: string) => Promise<void>) | undefined
+  readonly registerCreatedWorktree?: ((path: string) => Promise<void>) | undefined
+  readonly unregisterDeletedWorktree?: ((path: string) => Promise<void>) | undefined
 }
 
 /* ------------------------------------------------------------------ glyphs */
@@ -112,6 +123,21 @@ export interface GitPanelProps {
 /** The branch glyph used in the chip and at the guide capsule. */
 export function BranchGlyph({ size = 16 }: { size?: number }): React.ReactElement {
   return <IconBranchOutline16 size={size} />
+}
+
+/**
+ * The unstage glyph: the platform's `+` with its vertical bar removed.
+ *
+ * The icon set has no minus, so this reuses the exact crossbar geometry of
+ * `IconPlusOutline16` in the same 16x16 filled-path style, which makes the
+ * stage and unstage actions read as one pair.
+ */
+export function MinusGlyph({ size = 16 }: { size?: number }): React.ReactElement {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M1.5 7.34961H14.5V8.65039H1.5V7.34961Z" fill="currentColor" />
+    </svg>
+  )
 }
 
 /* --------------------------------------------------------------- confirm UI */
@@ -130,6 +156,15 @@ interface Confirmation {
 }
 
 type TranslateKey = MessageKey
+
+/**
+ * One History command waiting for its own modal. Inspect and Compare read; the
+ * six action kinds are the only commits the host will be asked to rewrite.
+ */
+type HistoryModalRequest =
+  | { readonly kind: 'inspect'; readonly commits: readonly CommitSummary[] }
+  | { readonly kind: 'compare'; readonly commits: readonly CommitSummary[] }
+  | { readonly kind: 'action'; readonly action: HistoryAction; readonly commits: readonly CommitSummary[] }
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -314,12 +349,16 @@ function GitPanelBody(props: GitPanelProps): React.ReactElement {
   const store = usePanelStore(sessionId)
   const snapshot = React.useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   const [confirmation, setConfirmation] = React.useState<Confirmation | null>(null)
-  const [branchOpen, setBranchOpen] = React.useState(false)
-  const [repositoryOpen, setRepositoryOpen] = React.useState(false)
+  // The ref picker: closed, on its browse step, or straight on the detached
+  // list, which is what the repository's Checkout command opens.
+  const [branchPicker, setBranchPicker] = React.useState<'closed' | 'browse' | 'detach'>('closed')
+  const [repositoryAction, setRepositoryAction] = React.useState<RepositoryMenuCommand | null>(null)
   const [toolsOpen, setToolsOpen] = React.useState(false)
   const [agentRequest, setAgentRequest] = React.useState<AgentActionRequest | null>(null)
   const [conflictPath, setConflictPath] = React.useState<string | null>(null)
-  const [historyRequest, setHistoryRequest] = React.useState<{ selection: readonly CommitSummary[]; action?: HistoryAction } | null>(null)
+  const [historyModal, setHistoryModal] = React.useState<HistoryModalRequest | null>(null)
+  // Commands that can change history close their modal and drop the selection.
+  const closeHistoryModal = (): void => setHistoryModal(null)
   const askAgent = (verb: AgentVerb): void => {
     const view = snapshot.view
     const scope = verb === 'draft' ? { side: 'staged' as const }
@@ -342,6 +381,32 @@ function GitPanelBody(props: GitPanelProps): React.ReactElement {
 
   const state = snapshot.state
   const busy = snapshot.busy !== null
+  // The enclosing tab's actions, published by the child below, which is the
+  // only place allowed to read the framework hook (during render). A ref, not
+  // state: publishing through `setState` would re-render, re-read the hook and
+  // publish again.
+  const tabActions = React.useRef<GitTabInfo['tab']['actions'] | null>(null)
+  // A panel rendered without the hook must not keep the actions a previous one
+  // published: the sink below is the only writer, and it is not rendered.
+  if (props.useTabInfo === undefined && tabActions.current !== null) tabActions.current = null
+  /**
+   * Open one changed path in the change-view tab.
+   *
+   * @returns whether the tab took the open; false falls back to the in-panel
+   * diff, which is the shape a host without the tab action can still render.
+   */
+  const openChangeTab = (id: string, path: string, side: DiffSide): boolean => {
+    const actions = tabActions.current
+    if (actions === null) return false
+    try {
+      actions.openResource(changeFileAddress(id, path, side))
+      return true
+    } catch {
+      // A host that claims no such address keeps the click useful: the caller
+      // falls back to the in-panel diff.
+      return false
+    }
+  }
   const [taskResults, setTaskResults] = React.useState<AiTaskResults | undefined>()
   React.useEffect(() => { setTaskResults(state?.root ? props.agentSessions?.taskResults?.(state.root) : undefined) }, [state?.root, props.agentSessions])
 
@@ -400,17 +465,24 @@ function GitPanelBody(props: GitPanelProps): React.ReactElement {
       body: worktree.merged ? 'confirm.deleteWorktreeBody' : 'confirm.deleteWorktreeUnmerged',
       params: { path: worktree.path },
       danger: true,
-      run: () => void store.worktreeRemove(worktree.path, !worktree.clean || !worktree.merged, true),
+      run: () => void store.worktreeRemove(worktree.path, !worktree.clean || !worktree.merged, true).then(async removed => {
+        if (!removed) return
+        try { await props.unregisterDeletedWorktree?.(worktree.path) }
+        catch { store.showFailure('git-failed', t('worktrees.unregisterFailed')) }
+      }),
     })
   }
 
-  const onBranchSwitch = (branch: BranchInfo): void => {
-    if (branch.current) return
+  /**
+   * Check out a branch, confirming first when the tree is dirty.
+   *
+   * @param name - the local branch to switch to (a remote pick's local twin).
+   * @param remote - the remote-tracking ref to branch from, when there is one.
+   * @param label - what the confirmation names.
+   */
+  const switchBranch = (name: string, remote: string | undefined, label: string): void => {
     const dirty = state !== null && (state.changes.staged.length > 0 || state.changes.unstaged.length > 0 || state.changes.untracked.length > 0)
-    const run = (): void => void store.branchSwitch(
-      branch.remote ? branch.name.slice(branch.name.indexOf('/') + 1) : branch.name,
-      branch.remote ? branch.name : undefined,
-    )
+    const run = (): void => void store.branchSwitch(name, remote)
     if (!dirty) {
       run()
       return
@@ -418,20 +490,64 @@ function GitPanelBody(props: GitPanelProps): React.ReactElement {
     setConfirmation({
       title: 'confirm.switchBranch',
       body: 'confirm.switchBranchBody',
-      params: { branch: branch.name },
+      params: { branch: label },
       danger: false,
       run,
     })
   }
 
-  const onBranchDelete = (branch: BranchInfo): void => {
+  /**
+   * Check out one picked ref.
+   *
+   * The picker's rules match git's: a tag cannot be a branch, so it detaches;
+   * a remote-tracking pick checks out the local twin git would create, and
+   * when that twin already exists the twin is switched to instead — asking
+   * git to create a branch that exists would only fail.
+   */
+  const onPickRef = (option: RefOption): void => {
+    setBranchPicker('closed')
+    if (option.kind === 'tag') {
+      onDetachedAt(option)
+      return
+    }
+    const twin = option.kind === 'remote' ? state?.branches.find((branch) => !branch.remote && branch.name === option.localName) : undefined
+    if (twin !== undefined) {
+      switchBranch(twin.name, undefined, twin.name)
+      return
+    }
+    switchBranch(option.localName, option.kind === 'remote' ? option.name : undefined, option.name)
+  }
+
+  /** Detach HEAD at one ref, naming the ref rather than a bare hash. */
+  const onDetachedAt = (option: RefOption): void => {
     setConfirmation({
-      title: 'confirm.deleteBranch',
-      body: 'confirm.deleteBranchUnmerged',
-      params: { branch: branch.name },
-      danger: true,
-      run: () => void store.branchDelete(branch.name, true),
+      title: 'confirm.checkoutCommit',
+      body: 'confirm.checkoutCommitBody',
+      params: { hash: option.kind === 'tag' ? option.name : option.oid.slice(0, 7) },
+      danger: false,
+      run: () => void store.checkoutCommit(option.oid),
     })
+  }
+
+  /**
+   * Create a branch from `from` and check it out.
+   *
+   * The card reports the host's refusal in place instead of closing and
+   * surfacing a banner, so a taken or invalid name is fixed where it was
+   * typed. A created branch is always at HEAD or an ancestor, so the checkout
+   * cannot be refused for a dirty tree.
+   *
+   * @returns the failure text to show, or null once the branch is live.
+   */
+  const onCreateBranch = async (name: string, from: string | null): Promise<string | null> => {
+    try {
+      await store.api.call<PanelState>('branchCreate', { sessionId, name, ...(from === null ? {} : { from }) })
+    } catch (cause) {
+      return t(failureTitleKey(asApiError(cause).code))
+    }
+    await store.refresh()
+    await store.branchSwitch(name)
+    return null
   }
 
   const onCheckout = (commit: CommitSummary): void => {
@@ -451,21 +567,35 @@ function GitPanelBody(props: GitPanelProps): React.ReactElement {
   const fileAddress = (path: string): string | null =>
     state === null ? null : targetFileAddress(sessionId, workspacePathFor(state.cwd, state.root, path))
 
+  // One command, one modal: Inspect and Compare read, the six actions write.
+  const historyModalNode = historyModal === null ? null
+    : historyModal.kind === 'inspect'
+      ? <CommitDetailsModal sessionId={sessionId} commits={historyModal.commits} t={t} api={store.api} onClose={closeHistoryModal} />
+      : historyModal.kind === 'compare'
+        ? <CompareModal sessionId={sessionId} commits={historyModal.commits} t={t} api={store.api} onClose={closeHistoryModal} />
+        : <HistoryActionModal sessionId={sessionId} action={historyModal.action} commits={historyModal.commits}
+          t={t} api={store.api} agentSessions={props.agentSessions} root={state?.root} cwd={state?.cwd}
+          onClose={closeHistoryModal} onChanged={() => store.refresh()} />
+
   return (
     <div className={classes.root} data-dsh-git="panel">
       <PanelHeader
         snapshot={snapshot}
         t={t}
         store={store}
-        branchOpen={branchOpen}
-        setBranchOpen={setBranchOpen}
+        branchPickerOpen={branchPicker === 'browse'}
+        onOpenBranchPicker={() => setBranchPicker('browse')}
         toolsOpen={toolsOpen}
         setToolsOpen={setToolsOpen}
         busy={busy}
         onRefresh={() => void store.refresh()}
-        onSwitch={onBranchSwitch}
-        onDeleteBranch={onBranchDelete}
-        onRepository={() => setRepositoryOpen(true)}
+        onRepository={command => {
+          if (command === 'worktree-create' || command === 'worktree-manage') {
+            if (snapshot.collapsed.worktrees) store.toggleSection('worktrees')
+            if (command === 'worktree-create') setTimeout(() => document.getElementById('dsh-git-worktree-name')?.focus(), 0)
+          } else if (command === 'checkout') setBranchPicker('detach')
+          else setRepositoryAction(command)
+        }}
         onNewWorktree={() => {
           // The sections ship collapsed; the verb has to reveal its field.
           if (snapshot.collapsed.worktrees) store.toggleSection('worktrees')
@@ -475,6 +605,11 @@ function GitPanelBody(props: GitPanelProps): React.ReactElement {
           props.agentSessions === undefined ? undefined : askAgent
         }
       />
+      {props.useTabInfo === undefined ? null : (
+        <PanelBoundary renderFallback={() => null} resetKey={sessionId}>
+          <TabActionsSink useTabInfo={props.useTabInfo} sink={tabActions} />
+        </PanelBoundary>
+      )}
       <div className={classes.body} data-dsh-git="body">
         <Notices
           snapshot={snapshot}
@@ -515,16 +650,24 @@ function GitPanelBody(props: GitPanelProps): React.ReactElement {
               ) : null
             ) : (
               <>
-                <CommitBox snapshot={snapshot} t={t} store={store} onDraft={props.agentSessions === undefined ? undefined : () => askAgent('draft')} />
                 <ChangesSection
                   state={state}
+                  snapshot={snapshot}
                   t={t}
                   busy={busy}
                   collapsed={snapshot.collapsed.changes}
                   onToggle={() => store.toggleSection('changes')}
                   onOpen={(path, side, oldPath) => {
-                    if (state.changes.conflicts.some((entry) => entry.path === path)) setConflictPath(path)
-                    else void store.openDiff(path, side, oldPath)
+                    if (state.changes.conflicts.some((entry) => entry.path === path)) {
+                      setConflictPath(path)
+                      return
+                    }
+                    // The change view is its own tab; the in-panel diff stays
+                    // for what a tab cannot host (no tab action on this host,
+                    // or a record the shell has not committed yet), and it is
+                    // still where per-hunk staging lives.
+                    if (openChangeTab(sessionId, path, side)) return
+                    void store.openDiff(path, side, oldPath)
                   }}
                   onDiscard={onDiscard}
                   store={store}
@@ -542,24 +685,32 @@ function GitPanelBody(props: GitPanelProps): React.ReactElement {
                   {...(props.openWorktreeSession === undefined
                     ? {}
                     : { openWorktreeSession: props.openWorktreeSession })}
+                  registerCreatedWorktree={props.registerCreatedWorktree}
                 />
-                <HistorySectionView snapshot={snapshot} t={t} query={snapshot.historyQuery}
-                  onQuery={(query) => void store.setHistoryQuery(query)}
+                <HistorySectionView snapshot={snapshot} t={t}
                   onRefresh={() => void store.loadHistory()} onLoadMore={() => void store.loadMoreHistory()}
                   onToggle={() => store.toggleSection('history')} onCheckout={onCheckout}
-                  onOpen={(selection, action) => setHistoryRequest({ selection, ...(action === undefined ? {} : { action }) })} />
+                  onInspect={(commits) => setHistoryModal({ kind: 'inspect', commits })}
+                  onCompare={(commits) => setHistoryModal({ kind: 'compare', commits })}
+                  onAction={(action, commits) => setHistoryModal({ kind: 'action', action, commits })} />
               </>
             )}
           </>
         )}
       </div>
-      {repositoryOpen && state !== null ? <RepositoryWorkspaceView sessionId={sessionId} state={state} api={store.api} t={t} onClose={() => setRepositoryOpen(false)} onChanged={() => store.refresh()} /> : null}
-      {historyRequest === null ? null : (
-        <HistoryWorkspaceView sessionId={sessionId} selection={historyRequest.selection} t={t} api={store.api}
-          {...(historyRequest.action === undefined ? {} : { initialAction: historyRequest.action })}
-          onClose={() => setHistoryRequest(null)} onChanged={() => store.refresh()}
-          {...(props.agentSessions === undefined ? {} : { onAskAgent: (request: AgentActionRequest) => { setHistoryRequest(null); setAgentRequest(request) } })} />
+      {branchPicker === 'closed' || state === null ? null : (
+        <BranchPicker
+          state={state}
+          t={t}
+          startAt={branchPicker}
+          onSwitch={onPickRef}
+          onDetached={option => { setBranchPicker('closed'); onDetachedAt(option) }}
+          onCreate={onCreateBranch}
+          onClose={() => setBranchPicker('closed')}
+        />
       )}
+      {repositoryAction !== null && state !== null ? <RepositoryActionDialog key={repositoryAction} command={repositoryAction} sessionId={sessionId} state={state} api={store.api} t={t} onClose={() => setRepositoryAction(null)} onChanged={() => store.refresh()} /> : null}
+      {historyModalNode}
       {conflictPath === null || state === null ? null : (
         <ConflictWorkspaceView sessionId={sessionId} initialPath={conflictPath}
           paths={state.changes.conflicts.map((entry) => entry.path)} t={t} api={store.api}
@@ -712,33 +863,31 @@ interface HeaderProps {
   readonly t: Translate
   readonly store: PanelStore
   readonly busy: boolean
-  readonly branchOpen: boolean
-  readonly setBranchOpen: (open: boolean) => void
+  /** Whether the ref picker the chip opens is showing. */
+  readonly branchPickerOpen: boolean
+  readonly onOpenBranchPicker: () => void
   readonly toolsOpen: boolean
   readonly setToolsOpen: (open: boolean) => void
   readonly onRefresh: () => void
-  readonly onSwitch: (branch: BranchInfo) => void
-  readonly onDeleteBranch: (branch: BranchInfo) => void
   readonly onNewWorktree: () => void
-  readonly onRepository: () => void
+  readonly onRepository: (action: RepositoryMenuCommand) => void
   readonly onAgentVerb?: ((verb: AgentVerb, prompt: string) => void) | undefined
 }
 
 function PanelHeader(props: HeaderProps): React.ReactElement {
-  const { snapshot, t, store, busy, branchOpen, setBranchOpen, toolsOpen, setToolsOpen } = props
+  const { snapshot, t, store, busy, toolsOpen, setToolsOpen } = props
   const state = snapshot.state
   const head = state?.head
+  // With no state yet the header must not claim the checkout is not a
+  // repository: a read in flight, and a session the host has not loaded, are
+  // both temporary and named as such.
   const label = head === undefined || head === null
-    ? t('state.noRepository')
+    ? snapshot.phase === 'loading' ? t('state.loading')
+      : snapshot.failure?.code === 'session-not-ready' ? t('failure.sessionNotReady')
+        : t('state.noRepository')
     : head.unborn
       ? t('header.unborn')
       : head.branch ?? t('header.detached')
-
-  const branchItems: MenuEntry[] = (state?.branches ?? []).map((branch) => ({
-    id: branch.name,
-    label: branch.remote ? `${branch.name} (${t('branches.remote')})` : branch.name,
-    ...(branch.current ? { icon: <IconCheckOutline16 size={14} /> } : {}),
-  }))
 
   const toolItems: MenuEntry[] = [
     { id: 'agent-review', label: t('agent.review') },
@@ -750,34 +899,28 @@ function PanelHeader(props: HeaderProps): React.ReactElement {
   return (
     <header className={classes.header}>
       <div className={classes.headerMain}>
-        <Menu
-          open={branchOpen}
-          anchor={
-            <button
-              type="button"
-              className={classes.branchButton}
-              onClick={() => setBranchOpen(!branchOpen)}
-              data-dsh-git="branch-button"
-              aria-label={t('header.branchMenu')}
-            >
-              <IconBranchOutline16 size={14} className={classes.branchGlyph} />
-              <span className={classes.branchName} title={label}>
-                {label}
-              </span>
-              <IconChevronDownOutline14 size={12} className={classes.branchGlyph} />
-            </button>
-          }
-          items={branchItems}
-          selectedId={head?.branch ?? undefined}
-          onSelect={(id) => {
-            setBranchOpen(false)
-            const branch = state?.branches.find((candidate) => candidate.name === id)
-            if (branch !== undefined) props.onSwitch(branch)
-          }}
-          onClose={() => setBranchOpen(false)}
-          align="start"
-          portal
-        />
+        <button type="button" className={classes.iconButton} aria-label={t('commands.sync')} title={t('commands.sync')}
+          data-dsh-git="sync" disabled={busy || state === null} onClick={() => props.onRepository('sync')}>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+            <path d="M5 13V3m-3 3 3-3 3 3M11 3v10m-3-3 3 3 3-3" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          className={classes.branchButton}
+          onClick={() => props.onOpenBranchPicker()}
+          data-dsh-git="branch-button"
+          aria-haspopup="dialog"
+          aria-expanded={props.branchPickerOpen}
+          aria-label={t('header.branchMenu')}
+          title={t('header.branchMenu')}
+        >
+          <IconBranchOutline16 size={14} className={classes.branchGlyph} />
+          <span className={classes.branchName} title={label}>
+            {label}
+          </span>
+          <IconChevronDownOutline14 size={12} className={classes.branchGlyph} />
+        </button>
         {head !== null && head !== undefined && (head.ahead > 0 || head.behind > 0) ? (
           <span className={classes.counts}>
             {head.ahead > 0 ? t('header.ahead', { count: head.ahead }) : null}
@@ -798,7 +941,6 @@ function PanelHeader(props: HeaderProps): React.ReactElement {
           </button>
         ) : null}
       </div>
-      <button type="button" className={classes.iconButton} aria-label={t('repository.title')} title={t('repository.title')} data-dsh-git="repository-menu" disabled={busy || state === null} onClick={props.onRepository}><IconEllipsisOutline16 size={16} /></button>
       <button type="button" className={classes.iconButton} aria-label={t('header.newWorktree')} title={t('header.newWorktree')} data-dsh-git="new-worktree" disabled={busy || state === null} onClick={props.onNewWorktree}><IconPlusOutline16 size={16} /></button>
       {props.onAgentVerb !== undefined ? (
         <Menu
@@ -837,6 +979,9 @@ function PanelHeader(props: HeaderProps): React.ReactElement {
       >
         <IconRefreshOutline16 size={16} className={snapshot.reason === 'manual' && busy ? classes.spinning : undefined} />
       </button>
+      {/* The catch-all menu closes the row: everything else is a one-click
+          shortcut, and the three dots are where a command you cannot see lives. */}
+      <RepositoryMenu t={t} disabled={busy || state === null} {...(state ? { state } : {})} onAction={props.onRepository} />
     </header>
   )
 }
@@ -1010,6 +1155,8 @@ export function failureTitleKey(code: GitFailureCode): MessageKey {
     'git-unavailable': 'failure.gitUnavailable',
     'git-too-old': 'failure.gitTooOld',
     'not-a-repository': 'failure.notARepository',
+    'session-not-ready': 'failure.sessionNotReady',
+    'host-outdated': 'failure.hostOutdated',
     'bare-repository': 'failure.bareRepository',
     'permission-denied': 'failure.permissionDenied',
     'identity-missing': 'failure.identityMissing',
@@ -1038,11 +1185,13 @@ export function failureTitleKey(code: GitFailureCode): MessageKey {
 }
 
 /** The fix key for a failure code, when one exists. */
-function failureFix(code: GitFailureCode, t: Translate): string {
+export function failureFix(code: GitFailureCode, t: Translate): string {
   const fixes: Partial<Record<GitFailureCode, MessageKey>> = {
     'index-locked': 'failure.fix.indexLocked',
     'operation-in-progress': 'failure.fix.operationInProgress',
     'dirty-tree': 'failure.fix.dirtyTree',
+    'session-not-ready': 'failure.fix.sessionNotReady',
+    'host-outdated': 'failure.fix.hostOutdated',
     'not-merged': 'failure.fix.notMerged',
     'detached-head': 'failure.fix.detachedHead',
     'identity-missing': 'failure.fix.identityMissing',
@@ -1111,7 +1260,9 @@ function Section(props: {
   const bodyId = `dsh-git-section-${id}`
   return (
     <section className={classes.section} data-dsh-git={id}>
-      <div className={classes.sectionHeader}>
+      <div className={classes.sectionHeader} onClick={event => {
+        if (!(event.target as Element).closest('button')) onToggle()
+      }}>
         <button
           type="button"
           className={classes.sectionToggle}
@@ -1148,6 +1299,7 @@ function Section(props: {
 
 function ChangesSection(props: {
   state: PanelState
+  snapshot: PanelSnapshot
   t: Translate
   busy: boolean
   store: PanelStore
@@ -1178,6 +1330,7 @@ function ChangesSection(props: {
       onToggle={props.onToggle}
       actions={
         <>
+          <CommitActions snapshot={props.snapshot} t={t} store={store} />
           {changeable.unstaged.length + changes.untracked.length > 0 ? (
             <button
               type="button"
@@ -1203,7 +1356,7 @@ function ChangesSection(props: {
               disabled={busy}
               onClick={() => void store.unstage(changeable.staged.map((entry) => entry.path))}
             >
-              <IconChevronLeftOutline14 size={14} />
+              <MinusGlyph size={14} />
             </button>
           ) : null}
           {discardable.length > 0 ? (
@@ -1354,7 +1507,7 @@ function Group(props: {
                       void store.unstage([entry.path])
                     }}
                   >
-                    <IconChevronLeftOutline14 size={14} />
+                    <MinusGlyph size={14} />
                   </button>
                 }
                 content={t('changes.unstage')}
@@ -1409,118 +1562,159 @@ export function commitModifier(): string {
   return /Mac|iPhone|iPad|iPod/i.test(platform) ? '\u2318' : 'Ctrl'
 }
 
-function CommitBox(props: {
+/**
+ * The two working-tree writes, each behind its own dialog.
+ *
+ * They sit in the Changes section header beside the staging actions, so the
+ * header's own buttons say what can be done to the index right now. Both act
+ * on the index, so both need staged work, and a conflicted index is neither
+ * committable nor stashable. The disabled tooltip carries that reason, which is
+ * why no separate hint line is needed.
+ */
+function CommitActions(props: {
   snapshot: PanelSnapshot
   t: Translate
   store: PanelStore
-  onDraft?: (() => void) | undefined
 }): React.ReactElement | null {
   const { snapshot, t, store } = props
   const state = snapshot.state
-  const [menuOpen, setMenuOpen] = React.useState(false)
+  const [dialog, setDialog] = React.useState<'commit' | 'stash' | null>(null)
   if (state === null) return null
-  const branch = state.head.branch ?? 'HEAD'
-  const placeholder = t('commit.placeholder', { mod: commitModifier(), branch })
-  const message = snapshot.message.trim()
   const busy = snapshot.busy !== null
   const staged = state.changes.staged.filter((entry) => entry.unmerged === undefined).length
   const unstaged = state.changes.unstaged.filter((entry) => entry.unmerged === undefined).length
   const untracked = state.changes.untracked.length
-  const unresolved = state.changes.conflicts.length > 0
-  const canCommit = staged > 0 && !busy && message !== '' && !unresolved
-  const canAmend = !state.head.unborn && state.operation.kind === null && !busy && message !== '' && !unresolved
-  const canCommitAll = staged + unstaged + untracked > 0 && !busy && message !== '' && !unresolved
-
-  // The commit button's menu: the same verbs VS Code puts behind its chevron,
-  // minus the ones this panel cannot honestly do (it never pushes).
-  const items: MenuEntry[] = [
-    { id: 'commit', label: t('commit.button'), disabled: !canCommit },
-    { id: 'amend', label: t('commit.amend'), disabled: !canAmend },
-    { id: 'all', label: t('commit.all'), disabled: !canCommitAll },
-  ]
-
-  const submit = (): void => {
-    if (!canCommit) return
-    void store.commit(snapshot.message, false)
-  }
+  const ready = staged > 0 && !busy && state.changes.conflicts.length === 0
+  const why = busy ? t('history.reason.busy')
+    : staged === 0 ? (unstaged + untracked > 0 ? t('commit.nothingStagedButChanges') : t('commit.nothingStaged'))
+      : t('commit.conflicts')
 
   return (
-    <div className={classes.commit} data-dsh-git="commit">
-      <div className={classes.messageWrap}>
-        <textarea
-          className={classes.textarea}
-          placeholder={placeholder}
-          aria-label={t('commit.placeholder', { mod: '', branch })}
-          value={snapshot.message}
-          onChange={(event) => store.setMessage(event.target.value)}
-          // VS Code's own chord: the message commits without reaching the mouse.
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-              event.preventDefault()
-              submit()
-            }
-          }}
-          data-dsh-git="commit-message"
-        />
-        <Tooltip label={t('commit.draft')} side="bottom">
-          <button
-            type="button"
-            className={classes.messageAction}
-            aria-label={t('commit.draft')}
-            data-dsh-git="draft-message"
-            disabled={busy || unresolved || props.onDraft === undefined}
-            onClick={props.onDraft}
-          >
-            <IconSparkle16 size={14} />
-          </button>
-        </Tooltip>
-      </div>
-      <div className={classes.commitSplit}>
+    <>
+      <span className={classes.commitAction} data-dsh-git="commit">
         <Button
-          className={classes.commitPrimary}
           size="sm"
-          variant="primary"
-          disabled={!canCommit}
-          onClick={submit}
+          variant="ghost"
+          disabled={!ready}
+          title={ready ? t('commit.button') : why}
+          data-dsh-git="commit-open"
+          onClick={() => setDialog('commit')}
         >
           {t('commit.button')}
         </Button>
-        <Menu
-          open={menuOpen}
-          className={classes.commitMenuAnchor}
-          anchor={
-            <Button
-              className={classes.commitDropdown}
-              size="sm"
-              variant="primary"
-              aria-label={t('commit.more')}
-              aria-haspopup="menu"
-              aria-expanded={menuOpen}
-              data-dsh-git="commit-menu"
-              onClick={() => setMenuOpen(!menuOpen)}
-            >
-              <IconChevronDownOutline14 size={12} />
-            </Button>
-          }
-          items={items}
-          onSelect={(id) => {
-            setMenuOpen(false)
-            if (id === 'commit') void store.commit(snapshot.message, false)
-            if (id === 'amend') void store.commit(snapshot.message, true)
-            if (id === 'all') void store.commitAll(snapshot.message)
-          }}
-          onClose={() => setMenuOpen(false)}
-          align="end"
-          portal
-        />
-      </div>
-      {staged === 0 ? (
-        <span className={classes.commitHint}>
-          {unstaged + untracked > 0 ? t('commit.nothingStagedButChanges') : t('commit.nothingStaged')}
-        </span>
-      ) : null}
-    </div>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={!ready}
+          title={ready ? t('stash.button') : why}
+          data-dsh-git="stash-open"
+          onClick={() => setDialog('stash')}
+        >
+          {t('stash.button')}
+        </Button>
+      </span>
+      {dialog === 'commit' ? <CommitDialog snapshot={snapshot} t={t} store={store} onClose={() => setDialog(null)} /> : null}
+      {dialog === 'stash' ? <StashDialog t={t} store={store} onClose={() => setDialog(null)} /> : null}
+    </>
   )
+}
+
+function CommitDialog(props: {
+  snapshot: PanelSnapshot
+  t: Translate
+  store: PanelStore
+  onClose(): void
+}): React.ReactElement {
+  const { snapshot, t, store, onClose } = props
+  const [applying, setApplying] = React.useState(false)
+  const body = React.useRef<HTMLDivElement>(null)
+  const messageId = React.useId()
+  useDialogFocus(body)
+  const state = snapshot.state
+  const summary = snapshot.message.split('\n', 1)[0] ?? ''
+  const busy = snapshot.busy !== null
+  const unresolved = (state?.changes.conflicts.length ?? 0) > 0
+  const staged = (state?.changes.staged ?? []).filter((entry) => entry.unmerged === undefined).length
+  const canCommit = summary.trim() !== '' && staged > 0 && !busy && !unresolved
+  const branch = state?.head.branch ?? 'HEAD'
+
+  const submit = async (): Promise<void> => {
+    if (!canCommit || applying) return
+    setApplying(true)
+    try {
+      if (await store.commit(snapshot.message)) onClose()
+    } finally {
+      setApplying(false)
+    }
+  }
+
+  return <Modal open title={t('commit.button')} closeLabel={t('confirm.cancel')} onClose={onClose}
+    footer={<>
+      <Button variant="ghost" disabled={applying} onClick={onClose}>{t('confirm.cancel')}</Button>
+      <Button variant="primary" disabled={!canCommit || applying} data-dsh-git="commit-submit" onClick={() => { void submit() }}>
+        {applying ? t('busy.commit') : t('commit.button')}
+      </Button>
+    </>}>
+    <div ref={body} className={classes.dialogBody} data-dsh-git="commit-dialog">
+      <label className={classes.fieldLabel} htmlFor={messageId}>{t('commit.message')}</label>
+      <div className={classes.messageEditor}>
+        <textarea id={messageId} className={`${classes.fieldInput} ${classes.fieldBody}`} data-dsh-git="commit-message"
+          rows={7} value={snapshot.message} placeholder={t('commit.messagePlaceholder')} autoFocus
+          onChange={event => store.setMessage(event.target.value)}
+          onKeyDown={event => {
+            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault()
+              void submit()
+            }
+          }} />
+        <InlineMessageDraft scope={JSON.stringify([store.sessionId, state?.root, state?.cwd, state?.head.oid])} t={t}
+          disabled={busy || applying || unresolved || staged === 0} generate={signal => store.draftInput(signal)}
+          onMessage={message => store.setMessage(message)} />
+      </div>
+      <p className={classes.hint}>{t('commit.chord', { mod: commitModifier(), branch })}</p>
+    </div>
+  </Modal>
+}
+
+function StashDialog(props: { t: Translate; store: PanelStore; onClose(): void }): React.ReactElement {
+  const { t, store, onClose } = props
+  const [name, setName] = React.useState('')
+  const [applying, setApplying] = React.useState(false)
+  const body = React.useRef<HTMLDivElement>(null)
+  const nameId = React.useId()
+  useDialogFocus(body)
+
+  const submit = async (): Promise<void> => {
+    if (applying) return
+    setApplying(true)
+    try {
+      if (await store.stashSave(name)) onClose()
+    } finally {
+      setApplying(false)
+    }
+  }
+
+  return <Modal open title={t('stash.button')} closeLabel={t('confirm.cancel')} onClose={onClose}
+    footer={<>
+      <Button variant="ghost" disabled={applying} onClick={onClose}>{t('confirm.cancel')}</Button>
+      <Button variant="primary" disabled={applying} data-dsh-git="stash-submit" onClick={() => { void submit() }}>
+        {applying ? t('busy.stash') : t('stash.button')}
+      </Button>
+    </>}>
+    <div ref={body} className={classes.dialogBody} data-dsh-git="stash-dialog">
+      <label className={classes.fieldLabel} htmlFor={nameId}>{t('stash.name')}</label>
+      <input id={nameId} className={classes.fieldInput} data-dsh-git="stash-name" value={name}
+        placeholder={t('stash.namePlaceholder')} autoFocus
+        onChange={(event) => setName(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault()
+            void submit()
+          }
+        }} />
+      <p className={classes.hint}>{t('stash.hint')}</p>
+    </div>
+  </Modal>
 }
 
 /* --------------------------------------------------------------- worktrees */
@@ -1541,12 +1735,14 @@ function WorktreesSection(props: {
   onMerge: (worktree: WorktreeInfo) => void
   onUpdate: (worktree: WorktreeInfo, base?: string) => void
   openWorktreeSession?: ((path: string) => Promise<void>) | undefined
+  registerCreatedWorktree?: ((path: string) => Promise<void>) | undefined
 }): React.ReactElement {
   const { state, t, busy, store, onDelete } = props
   const [name, setName] = React.useState('')
   const [issue, setIssue] = React.useState<string | null>(null)
   const [source, setSource] = React.useState<WorktreeSource>({ mode: 'new' })
   const [sourceOpen, setSourceOpen] = React.useState(false)
+  const [sourceQuery, setSourceQuery] = React.useState('')
   const [baseOpen, setBaseOpen] = React.useState(false)
   const [confirm, setConfirm] = React.useState<{ request: WorktreeCreateRequest; preview: WorktreeSetupPreview } | null>(null)
   const base = state.worktreeBase
@@ -1559,10 +1755,12 @@ function WorktreesSection(props: {
   // is always asked what the repository declares before anything runs, so a
   // project that ships setup work gets an explicit decision and a project that
   // ships none creates in the same click.
-  const resetCreate = (created: boolean): void => {
+  const finishCreate = async (created: boolean, path: string): Promise<void> => {
     if (!created) return
     setSource({ mode: 'new' })
     setName('')
+    try { await props.registerCreatedWorktree?.(path) }
+    catch { setIssue(t('worktrees.registerFailed')) }
   }
   const startCreate = (request: WorktreeCreateRequest): void => {
     setIssue(null)
@@ -1571,7 +1769,7 @@ function WorktreesSection(props: {
       if (!setupHasEffects(preview)) {
         void store
           .worktreeAdd({ ...request, expectedSetupVersion: preview.version })
-          .then(resetCreate)
+          .then(created => finishCreate(created, preview.path))
         return
       }
       setConfirm({ request, preview })
@@ -1590,27 +1788,10 @@ function WorktreesSection(props: {
     startCreate({ mode: 'new', name: verdict.slug, ...(baseRef === null ? {} : { base: baseRef }) })
   }
 
-  const picked = (kind: 'branch' | 'remote' | 'tag', ref: string): { icon: React.ReactElement } | Record<string, never> =>
-    source.mode === 'ref' && source.refKind === kind && source.ref === ref
-      ? { icon: <IconCheckOutline16 size={14} /> }
-      : {}
-
   // The start point: a fresh branch from the comparison base, or any existing
-  // local branch, remote branch or tag (a tag checks out detached).
-  const sourceItems: MenuEntry[] = [
-    {
-      id: 'new',
-      label: t('worktrees.sourceNew', { branch: baseRef ?? t('worktrees.baseNone') }),
-      ...(source.mode === 'new' ? { icon: <IconCheckOutline16 size={14} /> } : {}),
-    },
-    ...state.branches
-      .filter((branch) => !branch.remote)
-      .map((branch): MenuEntry => ({ id: `branch:${branch.name}`, label: branch.name, ...picked('branch', branch.name) })),
-    ...state.branches
-      .filter((branch) => branch.remote)
-      .map((branch): MenuEntry => ({ id: `remote:${branch.name}`, label: branch.name, ...picked('remote', branch.name) })),
-    ...state.tags.map((tag): MenuEntry => ({ id: `tag:${tag}`, label: tag, ...picked('tag', tag) })),
-  ]
+  // local branch, remote branch or tag (a tag checks out detached). It is the
+  // same picker the header's chip opens, so a branch reads the same here.
+  const sourceGroups = partitionRefs(filterRefs(refOptions(state.branches, state.tags), sourceQuery))
 
   // The comparison base: every row's ahead/behind/merged column is measured
   // against it, so the choice is visible next to the list it changes.
@@ -1627,17 +1808,20 @@ function WorktreesSection(props: {
     })),
   ]
 
-  const pickSource = (id: string): void => {
+  /** Action row: start from a fresh branch off the comparison base. */
+  const startFromNew = (): void => {
     setSourceOpen(false)
+    setSourceQuery('')
     setIssue(null)
-    if (id === 'new') {
-      setSource({ mode: 'new' })
-      return
-    }
-    const at = id.indexOf(':')
-    const kind = id.slice(0, at)
-    const ref = id.slice(at + 1)
-    if (kind === 'branch' || kind === 'remote' || kind === 'tag') setSource({ mode: 'ref', ref, refKind: kind })
+    setSource({ mode: 'new' })
+  }
+
+  /** Picked ref: check the worktree out at that branch, remote branch or tag. */
+  const pickSource = (option: RefOption): void => {
+    setSourceOpen(false)
+    setSourceQuery('')
+    setIssue(null)
+    setSource({ mode: 'ref', ref: option.name, refKind: option.kind })
   }
 
   const pickBase = (id: string): void => {
@@ -1685,29 +1869,42 @@ function WorktreesSection(props: {
       {/* Where a new worktree starts, and what every row is measured against:
           both change what the list means, so both sit in the open. */}
       <div className={classes.contextRow}>
-        <Menu
-          open={sourceOpen}
-          anchor={
-            <button
-              type="button"
-              className={classes.contextButton}
-              data-dsh-git="worktree-source"
-              aria-label={t('worktrees.source')}
-              disabled={busy}
-              onClick={() => setSourceOpen(!sourceOpen)}
-            >
-              <span className={classes.contextButtonLabel}>
-                {source.mode === 'new' ? t('worktrees.sourceNewShort') : source.ref}
-              </span>
-              <IconChevronDownOutline14 size={12} />
-            </button>
-          }
-          items={sourceItems}
-          onSelect={pickSource}
-          onClose={() => setSourceOpen(false)}
-          align="start"
-          portal
-        />
+        <button
+          type="button"
+          className={classes.contextButton}
+          data-dsh-git="worktree-source"
+          aria-label={t('worktrees.source')}
+          aria-haspopup="dialog"
+          aria-expanded={sourceOpen}
+          disabled={busy}
+          onClick={() => setSourceOpen(true)}
+        >
+          <span className={classes.contextButtonLabel}>
+            {source.mode === 'new' ? t('worktrees.sourceNewShort') : source.ref}
+          </span>
+          <IconChevronDownOutline14 size={12} />
+        </button>
+        {sourceOpen ? (
+          <RefQuickPick
+            marker="ref-picker"
+            title={t('worktrees.source')}
+            placeholder={t('worktrees.sourcePick')}
+            groups={sourceGroups}
+            actions={[{
+              id: 'new',
+              label: t('worktrees.sourceNew', { branch: baseRef ?? t('worktrees.baseNone') }),
+              icon: source.mode === 'new' ? <IconCheckOutline16 size={14} /> : <IconPlusOutline16 size={14} />,
+            }]}
+            query={sourceQuery}
+            onQuery={setSourceQuery}
+            selectedId={source.mode === 'ref' ? `${source.refKind}:${source.ref}` : null}
+            emptyLabel={t('picker.empty')}
+            t={t}
+            onClose={() => { setSourceOpen(false); setSourceQuery('') }}
+            onAction={startFromNew}
+            onPick={pickSource}
+          />
+        ) : null}
         {base.name === null ? null : (
           <Menu
             open={baseOpen}
@@ -1880,7 +2077,7 @@ function WorktreesSection(props: {
                 copyApproved: approval.copyApproved,
                 expectedSetupVersion: pending.preview.version,
               })
-              .then(resetCreate)
+              .then(created => finishCreate(created, pending.preview.path))
           }}
         />
       )}
@@ -1920,6 +2117,24 @@ function OpenFileButton(props: {
       <IconFolderOpen16 size={14} />
     </button>
   )
+}
+
+/**
+ * Publish the enclosing tab's actions to the panel.
+ *
+ * The framework's tab hook is a real hook — it may only run during render —
+ * while a row click is an event handler, so the two cannot meet directly. This
+ * seat reads the hook where the rules allow and writes the actions into the
+ * panel's ref; the boundary around it keeps an uncommitted record from costing
+ * the panel its own registration.
+ */
+function TabActionsSink(props: {
+  useTabInfo: () => GitTabInfo
+  sink: React.MutableRefObject<GitTabInfo['tab']['actions'] | null>
+}): null {
+  const tabInfo = props.useTabInfo()
+  props.sink.current = tabInfo.tab.actions
+  return null
 }
 
 function DiffPane(props: {
@@ -1985,41 +2200,7 @@ function DiffPane(props: {
         {!snapshot.diffLoading && file === null ? (
           <div className={classes.caption}>{t('diff.empty')}</div>
         ) : null}
-        {file === null ? null : (
-          <>
-            <div className={classes.diffMeta}>
-              <span className={classes.added}>{t('diff.added', { count: file.added })}</span>
-              <span className={classes.removed}>{t('diff.removed', { count: file.removed })}</span>
-            </div>
-            {file.binary ? <div className={classes.caption}>{t('diff.binary')}</div> : null}
-            {file.tooLarge ? (
-              <>
-                <div className={classes.caption}>
-                  {file.byteLimited ? t('diff.byteLimit') : t('diff.tooLarge', { added: file.added, removed: file.removed })}
-                </div>
-                <pre className={classes.patchBlock}>{file.patch}</pre>
-              </>
-            ) : null}
-            {!file.binary && !file.tooLarge && file.hunks.length > 0 ? (
-              <DiffBlock
-                diffs={toDiffHunks(file)}
-                maxLines={400}
-                labels={{
-                  copy: t('diffBlock.copy'),
-                  copied: t('diffBlock.copied'),
-                  collapseAria: t('diffBlock.collapseAria'),
-                  expandAria: (hidden: number) => t('diffBlock.expandAria', { count: hidden }),
-                  collapse: t('diffBlock.collapse'),
-                  expand: (hidden: number) => t('diffBlock.expand', { count: hidden }),
-                  files: (count: number) => t('diffBlock.files', { count }),
-                }}
-              />
-            ) : null}
-            {!file.binary && !file.tooLarge && file.hunks.length === 0 ? (
-              <pre className={classes.patchBlock}>{file.patch}</pre>
-            ) : null}
-          </>
-        )}
+        {file === null ? null : <FileDiff file={file} t={t} />}
       </div>
     </div>
   )
@@ -2061,6 +2242,24 @@ export function GitTitle(props: { t: Translate; sessionId?: string }): React.Rea
     <React.Fragment>
       <IconBranchOutline16 size={14} className={classes.branchGlyph} />
       <span data-dsh-git="chip-title">{label ?? (count > 0 ? `${t('type.label')} (${count})` : t('type.label'))}</span>
+    </React.Fragment>
+  )
+}
+
+/**
+ * The change view's chip title: the branch glyph, then the file name.
+ *
+ * The glyph is the point: several tabs can be open on the same file name from
+ * different surfaces, and the branch marks this one as Source control's own
+ * view of a change rather than a plain file preview. The name comes from the
+ * address the tab was opened with, so it stays right without the panel store.
+ */
+export function ChangeFileTitle(props: { t: Translate; address: string }): React.ReactElement {
+  const title = changeFileTitle(props.address)
+  return (
+    <React.Fragment>
+      <IconBranchOutline16 size={14} className={classes.branchGlyph} />
+      <span data-dsh-git="change-file-chip">{title === '' ? props.t('type.label') : title}</span>
     </React.Fragment>
   )
 }

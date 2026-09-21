@@ -120,8 +120,8 @@ function ActionDialog(props: AgentActionDialogProps): React.ReactElement {
       if (source !== undefined && receipt.sessionId !== undefined && receipt.requestId !== undefined) {
         sessions.taskResults?.(prepared.state.root).admit({
           accepted: true, sourceSessionId: source.sessionId, targetSessionId: receipt.sessionId, requestId: receipt.requestId,
-          root: prepared.state.root, cwd: prepared.state.cwd, fingerprint: request.verb === 'draft' && !request.scope?.commits ? prepared.repositoryVersion ?? prepared.fingerprint : prepared.fingerprint,
-          verb: request.scope?.commits ? 'history-' + request.verb : request.verb,
+          root: prepared.state.root, cwd: prepared.state.cwd, fingerprint: request.verb === 'draft' ? prepared.repositoryVersion ?? prepared.fingerprint : prepared.fingerprint,
+          verb: request.verb,
         })
       }
       store.agentQueued()
@@ -162,7 +162,7 @@ function ActionDialog(props: AgentActionDialogProps): React.ReactElement {
     <Modal open title={title} onClose={close} closeLabel={t('confirm.cancel')}
       footer={<>
         <Button variant="ghost" onClick={close}>{t('confirm.cancel')}</Button>
-        <Button variant="primary" disabled={busy || (!accepted && (target === null || prepared === null || (prepared.payload.includedFiles.length === 0 && !request.scope?.commits?.length)))}
+        <Button variant="primary" disabled={busy || (!accepted && (target === null || prepared === null || prepared.payload.includedFiles.length === 0))}
           onClick={() => { if (accepted) open(); else void start() }}>
           {accepted ? t('agent.openSession') : busy ? t('busy.agent') : t('agent.start')}
         </Button>
@@ -177,7 +177,7 @@ function ActionDialog(props: AgentActionDialogProps): React.ReactElement {
             disabled={source === undefined} onChange={() => setTarget('new')} />{t('agent.newSession')}</label>
         </fieldset>
         <p className={classes.hint}>{t('agent.queueHint')}</p>
-        {request.scope?.commits === undefined && catalog.length > 0 && <fieldset className={classes.fileChoices} disabled={busy || delivery.current !== null}>
+        {catalog.length > 0 && <fieldset className={classes.fileChoices} disabled={busy || delivery.current !== null}>
           <legend>{t('agent.filesToShare')}</legend>
           <p className={classes.hint}>{t('agent.sensitiveHint')}</p>
           {catalog.slice(0, 200).map(path => <label key={path}><input type="checkbox" checked={(pathsChoice ?? defaultPaths.current).includes(path)} onChange={() => {
@@ -191,11 +191,11 @@ function ActionDialog(props: AgentActionDialogProps): React.ReactElement {
           <dl className={classes.context}>
             <dt>{t('agent.checkout')}</dt><dd>{prepared.state.root}</dd>
             <dt>{t('agent.branch')}</dt><dd>{prepared.state.head.branch ?? t('header.detached')}</dd>
-            <dt>{t('agent.scope')}</dt><dd>{request.scope?.commits ? t('agent.commitCount', { count: request.scope.commits.length }) : t('agent.fileCount', { count: prepared.payload.includedFiles.length })}</dd>
+            <dt>{t('agent.scope')}</dt><dd>{t('agent.fileCount', { count: prepared.payload.includedFiles.length })}</dd>
           </dl>
           <p className={classes.hint}>{request.verb === 'resolve' ? t('agent.editPermission') : t('agent.readPermission')}</p>
           {prepared.payload.truncated ? <p role="status">{t('agent.truncated')}</p> : null}
-          {prepared.payload.includedFiles.length === 0 && !request.scope?.commits?.length && <p role="status">{t('agent.noFiles')}</p>}
+          {prepared.payload.includedFiles.length === 0 && <p role="status">{t('agent.noFiles')}</p>}
           <details><summary>{t('agent.contextPreview')}</summary><pre className={classes.preview}>{prepared.payload.prompt}</pre></details>
         </> : null}
         {delivery.current?.getSnapshot().createdSessionId ? <p className={classes.hint}>{t('agent.createdRetry')}</p> : null}

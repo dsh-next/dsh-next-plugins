@@ -59,7 +59,7 @@ function Controls({ sessionId, path, side, api, t, onChanged, onWholeFile }: Hun
           <summary><label onClick={event => event.stopPropagation()}><input type="checkbox" checked={selected.has(hunk.id)} disabled={busy} aria-label={t('hunks.select', { number: index + 1 })} onChange={() => setSelected(old => { const next = new Set(old); if (next.has(hunk.id)) next.delete(hunk.id); else next.add(hunk.id); return next })} />{hunk.header}</label></summary>
           <pre tabIndex={0}>{hunk.patch}</pre>
         </details>)}
-        <div className={classes.actions}><Button size="sm" variant="ghost" disabled={busy} onClick={() => setSelected(new Set(preview.hunks.map(hunk => hunk.id)))}>{t('hunks.selectAll')}</Button><Button size="sm" variant="ghost" disabled={busy} onClick={() => setSelected(new Set())}>{t('history.clearSelection')}</Button><Button size="sm" variant="primary" disabled={busy || selected.size === 0} onClick={() => void apply()}>{t(side === 'staged' ? 'hunks.unstageSelected' : 'hunks.stageSelected')}</Button></div>
+        <div className={classes.actions}><Button size="sm" variant="ghost" disabled={busy} onClick={() => setSelected(new Set(preview.hunks.map(hunk => hunk.id)))}>{t('hunks.selectAll')}</Button><Button size="sm" variant="ghost" disabled={busy} onClick={() => setSelected(new Set())}>{t('hunks.clear')}</Button><Button size="sm" variant="primary" disabled={busy || selected.size === 0} onClick={() => void apply()}>{t(side === 'staged' ? 'hunks.unstageSelected' : 'hunks.stageSelected')}</Button></div>
       </>}
     </div>}
   </div>

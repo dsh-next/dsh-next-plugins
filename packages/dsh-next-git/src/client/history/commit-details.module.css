@@ -1,0 +1,56 @@
+/* The host Modal owns elevation, close control, and outer padding. */
+.card.card { width: min(1120px, 100%); max-height: calc(100dvh - 48px); min-width: 0; }
+/* A single-commit command has no diff to show, so it stays a small dialog. */
+.cardNarrow.cardNarrow { width: min(520px, 100%); max-height: calc(100dvh - 48px); min-width: 0; }
+.scroll { min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.body { display: flex; flex-direction: column; gap: 12px; min-width: 0; color: var(--dsw-alias-label-primary); font-size: 13px; line-height: 20px; }
+.body p { margin: 0; }
+
+/* Commit details: diff on the left, the commit's files on the right. */
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; min-height: 360px; }
+.diff { min-width: 0; overflow: auto; }
+.fileHeader { padding: 4px 0 12px; overflow-wrap: anywhere; font-size: 13px; line-height: 20px; font-weight: 500; }
+.sidebar { min-width: 0; padding-left: 8px; border-left: 0.5px solid var(--dsw-alias-border-l3); }
+.fileRow[aria-current="true"] { background: var(--dsw-alias-interactive-bg-hover); }
+.status { flex: 0 0 auto; min-width: 12px; text-align: right; font-size: 12px; line-height: 18px; font-weight: 500; }
+
+/* Every command modal: labelled controls, one primary action, quiet hints. */
+.picker { display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-secondary); }
+.picker select { box-sizing: border-box; width: 100%; padding: 8px 12px; border: 0.5px solid var(--dsw-alias-border-l3); border-radius: 8px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); font: inherit; }
+.messageHeading { position: relative; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; margin-bottom: -8px; }
+.messageHeading > :has([aria-expanded="true"]) { width: 100%; }
+.messageHeading [aria-expanded="true"] { position: absolute; top: 0; right: 0; }
+.messageHeading label, .messageLabel { font-size: 13px; line-height: 20px; font-weight: 500; }
+.messageLabel { margin-bottom: -8px; }
+.messageInput { box-sizing: border-box; width: 100%; min-width: 0; padding: 6px 8px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font: inherit; }
+textarea.messageInput { min-height: 140px; resize: vertical; }
+.primary.primary { width: 100%; }
+.endpoints { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.facts, .confirm { display: flex; flex-direction: column; gap: 8px; }
+.check { display: flex; align-items: flex-start; gap: 8px; }
+.order { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; max-height: 260px; overflow: auto; }
+.order li { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.orderSubject { min-width: 0; overflow-wrap: anywhere; }
+.orderMove { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; }
+.orderMove:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }
+.orderMove:disabled { opacity: 0.4; cursor: default; }
+.summary { margin: 0; max-height: 200px; overflow: auto; padding: 8px; border-radius: 8px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-secondary); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 18px; white-space: pre; }
+.compareFile { display: flex; flex-direction: column; min-width: 0; }
+
+.hint { color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; }
+.error { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; padding: 12px; border: 1px solid var(--dsw-alias-state-error-primary); border-radius: 8px; color: var(--dsw-alias-state-error-primary); overflow-wrap: anywhere; }
+/* The host's own sentence, quoted verbatim under the named failure. */
+.detail { color: inherit; font-size: 12px; line-height: 18px; }
+.warning { color: var(--dsw-alias-state-warn-label); }
+.danger.danger { border: 1px solid var(--dsw-alias-state-error-primary); color: var(--dsw-alias-state-error-primary); }
+.danger.danger:hover { background: var(--dsw-alias-interactive-bg-hover-danger); }
+.body :disabled { opacity: 0.4; cursor: not-allowed; }
+:is(.card, .cardNarrow) :is(button, input, select, textarea, pre, summary):focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: 2px; }
+
+@media (max-width: 720px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .sidebar { grid-row: 1; padding: 0 0 8px; border-left: 0; border-bottom: 0.5px solid var(--dsw-alias-border-l3); }
+  .diff { padding: 8px 0 0; }
+  .endpoints { grid-template-columns: minmax(0, 1fr); }
+}

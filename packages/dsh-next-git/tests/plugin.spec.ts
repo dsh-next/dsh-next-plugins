@@ -61,7 +61,7 @@ function repo(scenario: Parameters<typeof createFixture>[0]): GitFixture {
 
 describe('host entry', () => {
   it('declares the services it needs', () => {
-    expect([...inject]).toEqual(['webServer', 'sessions'])
+    expect([...inject]).toEqual(['webServer', 'sessions', 'settings', 'llm', 'sessionController'])
   })
 
   it('provides the plugin key with the git service', () => {

@@ -31,7 +31,7 @@ export function AgentResults(props: { results: AiTaskResults; sessions: AgentSes
   if (snapshot.records.length === 0) return null
   return <section className={classes.body} data-dsh-git="agent-results" aria-label={t('agent.result.title')}>
     {snapshot.records.slice(-3).reverse().map(record => <details key={record.requestId}>
-      <summary>{t('agent.' + (['review', 'explain', 'draft', 'resolve'].find(verb => record.verb.endsWith(verb)) ?? 'title') as Parameters<Translate>[0])} — {t('agent.result.phase.' + record.phase as Parameters<Translate>[0])}</summary>
+      <summary>{t('agent.' + (['review', 'explain', 'draft', 'resolve'].find(verb => record.verb === verb) ?? 'title') as Parameters<Translate>[0])} — {t('agent.result.phase.' + record.phase as Parameters<Translate>[0])}</summary>
       {record.finalAssistantText && <pre className={classes.preview}>{record.finalAssistantText}</pre>}
       {record.textTruncated && <p className={classes.hint}>{t('agent.result.incomplete')}</p>}
       <Button size="sm" variant="ghost" disabled={sessions.openSession === undefined} onClick={() => sessions.openSession?.(record.targetSessionId)}>{t('agent.openSession')}</Button>

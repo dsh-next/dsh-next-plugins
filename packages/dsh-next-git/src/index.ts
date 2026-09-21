@@ -15,14 +15,16 @@
  * Keep this entry thin: logic lives in `src/host/`, pure logic in `src/core/`.
  */
 import type { Context } from '@deepseek-ai/cordis'
+import type { ModelCatalog } from '@deepseek-ai/dsh-api-session-controller/types'
 import { nodeFs } from './host/fs-adapter.ts'
 import { GitService } from './host/git-service.ts'
 import { CancellationRegistry, GitRunner } from './host/git-runner.ts'
 import { registerRpc } from './host/rpc.ts'
 import type { ReclaimResult } from './core/types.ts'
+import { GitDrafting, currentDraftModel, GIT_SETTINGS_NAMESPACE, gitSettingsSchema } from './host/drafting.ts'
 
 /** Services the host half needs. */
-export const inject = ['webServer', 'sessions'] as const
+export const inject = ['webServer', 'sessions', 'settings', 'llm', 'sessionController'] as const
 
 /** This plugin's own service key. */
 export const GIT_SERVICE_KEY = 'dsh-next-git'
@@ -43,9 +45,10 @@ interface SessionsFace {
 export function apply(ctx: Context): void {
   const sessions = ctx.get('sessions') as SessionsFace | undefined
   const cancellations = new CancellationRegistry()
+  const runner = new GitRunner()
 
   const service = new GitService({
-    runner: new GitRunner(),
+    runner,
     fs: nodeFs(),
     cwdOf: (sessionId) => {
       const cwd = sessions?.get?.(sessionId)?.header?.cwd
@@ -64,9 +67,19 @@ export function apply(ctx: Context): void {
     reclaim: (from: string, to: string) => service.reclaim(from, to),
   } satisfies ReclaimFace)
 
-  registerRpc(ctx, service)
+  const settings = ctx.get('settings')
+  const scope = settings?.register(GIT_SETTINGS_NAMESPACE, gitSettingsSchema, { applies: 'live' }) ?? null
+  const drafting = new GitDrafting({
+    service, runner, scope,
+    stream: options => ctx.llm.stream(options),
+    modelFor: sessionId => currentDraftModel(ctx, sessionId),
+    modelCatalog: () => (ctx.get('sessionController') as { modelCatalog(): Promise<ModelCatalog> }).modelCatalog(),
+    writable: () => ctx.get('settings')?.writable === true,
+  })
+  registerRpc(ctx, service, drafting)
 
   ctx.effect(() => () => {
+    drafting.dispose()
     cancellations.dispose()
   }, 'dsh-next-git: cancel in-flight git reads')
 }

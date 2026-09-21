@@ -1,0 +1,251 @@
+/* The change view's chrome is the file preview's chrome: the same 38px header,
+   path treatment, muted strip, 28px round tools and code surface, copied from
+   the platform's own text preview so the two tabs read as one surface. */
+.body {
+  display: flex;
+  flex: auto;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  color: var(--dsw-alias-label-primary);
+}
+
+.body p {
+  margin: 0;
+}
+
+.header {
+  box-sizing: border-box;
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  height: 38px;
+  padding: 0 6px 0 16px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l3);
+}
+
+.path {
+  display: flex;
+  flex: auto;
+  justify-content: flex-end;
+  min-width: 0;
+  margin-right: 12px;
+  overflow: hidden;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* A path too long for the row fades its leading directories rather than
+   cutting the middle of it; the file name always stays readable. */
+.path[data-clipped] {
+  mask-image: linear-gradient(90deg, #0000, #000 28px);
+}
+
+.pathText {
+  flex: none;
+  margin-right: auto;
+}
+
+.directory {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.name {
+  color: var(--dsw-alias-label-primary);
+}
+
+/* The side reads where the preview puts its viewer name: plain muted text. */
+.side {
+  flex: none;
+  padding: 0 6px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.tool {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 6px;
+  border: none;
+  border-radius: 28px;
+  background: 0 0;
+  color: var(--dsw-alias-label-secondary);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tool:hover:not(:disabled) {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.tool:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 1px;
+}
+
+.tool:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.glyph {
+  font-size: 15px;
+  line-height: 15px;
+}
+
+.spinning {
+  animation: change-file-spin 0.9s linear infinite;
+}
+
+@keyframes change-file-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* The gutter always shows the file's own line numbers; hiding a line must not
+   renumber the lines that follow it. */
+.codes :global(span.line)[data-line]::before {
+  content: attr(data-line);
+}
+
+/* Changed-lines view: unchanged stretches between changes are hidden, and the
+   line after each hidden stretch is drawn with a dashed edge so the jump in
+   line numbers is visible rather than confusing. */
+.codes :global(span.line).collapsed {
+  display: none;
+}
+
+.codes :global(span.line)[data-gap] {
+  border-top: 1px dashed var(--dsw-alias-border-l3);
+}
+
+.status {
+  padding: 6px 10px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.failure {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 10px;
+  padding: 12px;
+  border: 1px solid var(--dsw-alias-state-error-primary);
+  border-radius: 8px;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.fix {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.retry {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* The code surface is laid out exactly as the file preview lays it out: square
+   corners, no block fill of its own (the pane shows through), the content node
+   as the one scrollport, and wrapping off until the toggle asks for it. */
+.codes {
+  display: flex;
+  flex: auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+.codes > :global(*) {
+  flex: auto;
+  flex-direction: column;
+  display: flex;
+  /* A column flex item defaults to `min-height: auto`, which refuses to shrink
+     below its content: without this the block grows to the file's full height
+     and the scrollport inside it never has anything to scroll. */
+  min-height: 0;
+  margin: 0;
+  position: static;
+  --dsl-code-block-border-radius: 0px;
+  --dsl-code-block-line-white-space: pre;
+  --dsl-code-block-background: transparent;
+}
+
+.codes > :global(*) > :global([data-code-block-content]) {
+  display: block;
+  flex: auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  position: relative;
+}
+
+.codes :global(pre) {
+  box-sizing: border-box;
+  min-width: 100%;
+  overflow: visible;
+  overflow-wrap: normal;
+  white-space: pre;
+  word-break: normal;
+}
+
+.codes[data-wrap="true"] > :global(*) {
+  --dsl-code-block-line-white-space: pre-wrap;
+}
+
+.codes[data-wrap="true"] :global(pre) {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* Added and removed lines are tinted in place, with the same +/- marker the
+   panel's diff uses. The line numbers the primitive draws are untouched; the
+   marker sits in the pre's own padding, before them. */
+.codes :global(span.line).added,
+.codes :global(span.line).removed {
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.codes :global(span.line).added {
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 14%, transparent);
+}
+
+.codes :global(span.line).removed {
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 14%, transparent);
+}
+
+.codes :global(span.line).added::after,
+.codes :global(span.line).removed::after {
+  position: absolute;
+  inset-inline-start: -12px;
+  font-weight: 600;
+}
+
+.codes :global(span.line).added::after {
+  content: "+";
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.codes :global(span.line).removed::after {
+  content: "\2212";
+  color: var(--dsw-alias-state-error-primary);
+}

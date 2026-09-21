@@ -32,7 +32,7 @@ it lists the worker scopes and the plan as they stood mid-implementation, and it
 4. Complete task UX: result adoption for AI commit messages, context selections, host preflight UI wiring, hunk staging, deterministic branch/upstream/stash workflows as scoped in approved plan, worktree setup trust preview.
 5. Review all diffs; add non-trivial implementation notes; update both READMEs and pairing. All source UI text bilingual.
 6. Full package then monorepo static gates, isolated packaged Playwright scenarios and screenshots. Existing GUI 3080 authentication not inherited by fresh browser; do not claim existing live UI verified from scratch server. Don’t restart the GUI. Existing full smoke may fail on missing VS Code in Skills; investigate actual new results.
-7. Logical commits (nothing pushed; prior user said no PR) preserving unrelated Decisions work, then pack/install Git into web only after verification.
+7. Logical commits (nothing pushed; prior user said no PR) preserving unrelated work, then pack/install Git into web only after verification.
 
 ## Validation so far
 
@@ -40,4 +40,4 @@ Host worker full package green at 585 tests before later AI/conflict RPC edits. 
 
 ## Preservation
 
-Before this task, pnpm-lock.yaml and tests/e2e/mount.e2e.ts had unrelated Decisions edits, plus untracked Decisions package/docs/notes and audit outputs. Do not revert, stage wholesale, or claim those changes. Only Git scope owned. DSH checkout must never be modified. Audit runtime under tmp/git-ux-audit is stopped; old screenshots reproduce old defects, not fixes.
+Before this task, the working tree contained unrelated edits and untracked audit outputs. Do not revert, stage wholesale, or claim those changes. Only Git scope owned. DSH checkout must never be modified. Audit runtime under tmp/git-ux-audit is stopped; old screenshots reproduce old defects, not fixes.

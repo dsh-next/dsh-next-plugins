@@ -12,11 +12,13 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { GitService } from './git-service.ts'
-import { contextFingerprint } from './context-fingerprint.ts'
+import type { GitDrafting } from './drafting.ts'
 import { GitError, isGitError } from './git-runner.ts'
-import type { DegradedState, DiffSide, GitFailure, PreflightAction } from '../core/types.ts'
+import { HistoryOperationError } from './history-operations.ts'
+import type { DegradedState, DiffSide, GitFailure, GitFailureCode, PreflightAction } from '../core/types.ts'
 import type { HistoryAction } from '../core/history-plan.ts'
 import type { RepositoryActionRequest } from '../core/repository-actions.ts'
+import { parseRepositoryCommand } from '../core/repository-commands.ts'
 
 /** Route the client posts to. */
 export const RPC_PATH = '/dsh-next-git/rpc'
@@ -24,7 +26,7 @@ export const RPC_PATH = '/dsh-next-git/rpc'
 /** Largest request body accepted. */
 const MAX_BODY_BYTES = 16 << 20
 
-type Handler = (args: Record<string, unknown>) => unknown | Promise<unknown>
+type Handler = (args: Record<string, unknown>, signal?: AbortSignal) => unknown | Promise<unknown>
 
 function repositoryRequest(input: unknown): RepositoryActionRequest {
   const value = record(input)
@@ -64,6 +66,19 @@ function num(input: unknown): number | undefined {
 
 function bool(input: unknown): boolean {
   return input === true
+}
+function strictBoolean(input: unknown): boolean {
+  if (typeof input !== 'boolean') throw new GitError({ code: 'invalid-name', detail: 'Expected an explicit boolean option.' })
+  return input
+}
+function commitHead(input: unknown): { expectedHead?: string } {
+  if (input === undefined) return {}
+  if (typeof input !== 'string' || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(input)) throw new GitError({ code: 'invalid-name', detail: 'Expected a full commit ID.' })
+  return { expectedHead: input }
+}
+function commandRequest(input: unknown) {
+  try { return parseRepositoryCommand(input) }
+  catch { throw new GitError({ code: 'invalid-name', detail: 'Invalid repository command request.' }) }
 }
 
 /**
@@ -106,7 +121,7 @@ function worktreeRequest(input: Record<string, unknown>): {
  * @param ctx - host context carrying `webServer`.
  * @param service - the git service the route dispatches into.
  */
-export function registerRpc(ctx: Context, service: GitService): void {
+export function registerRpc(ctx: Context, service: GitService, drafting?: GitDrafting): void {
   const webServer = ctx.get('webServer')
   if (!webServer || typeof webServer.register !== 'function') return
 
@@ -115,18 +130,40 @@ export function registerRpc(ctx: Context, service: GitService): void {
     return sessionId === undefined ? {} : { sessionId }
   }
 
+  const requireDrafting = (): GitDrafting => {
+    if (!drafting) throw new GitError({ code: 'git-failed', detail: 'Git drafting is unavailable.' })
+    return drafting
+  }
   const handlers: Record<string, Handler> = {
+    draftInput: (args, signal) => requireDrafting().draft(args, signal),
+    getConfig: () => requireDrafting().getConfig(),
+    draftingModelCatalog: () => requireDrafting().modelCatalog(),
+    setConfig: args => requireDrafting().setConfig(args),
     getState: (args) =>
       service.state({
         ...source(args),
         includeIgnored: bool(args.includeIgnored),
         ...(optStr(args.base) === undefined ? {} : { base: optStr(args.base) }),
       }),
+    /** The composer chip's read: HEAD plus the ref lists, without the panel state. */
+    refSummary: (args) => service.refSummary(source(args)),
     getDiff: (args) => {
       const a = record(args)
       const side: DiffSide = a.side === 'staged' ? 'staged' : 'unstaged'
       const oldPath = optStr(a.oldPath)
       return service.diff({
+        ...source(a),
+        path: str(a.path),
+        side,
+        ...(oldPath === undefined ? {} : { oldPath }),
+      })
+    },
+    /** The same change as `getDiff`, as the whole file with its changed lines. */
+    getFileChanges: (args) => {
+      const a = record(args)
+      const side: DiffSide = a.side === 'staged' ? 'staged' : 'unstaged'
+      const oldPath = optStr(a.oldPath)
+      return service.fileChanges({
         ...source(a),
         path: str(a.path),
         side,
@@ -139,11 +176,7 @@ export function registerRpc(ctx: Context, service: GitService): void {
         ...source(a),
         ...(num(a.limit) === undefined ? {} : { limit: num(a.limit) }),
         ...(num(a.skip) === undefined ? {} : { skip: num(a.skip) }),
-        ...(optStr(a.ref) === undefined ? {} : { ref: optStr(a.ref) }),
-        ...(optStr(a.search) === undefined ? {} : { search: optStr(a.search) }),
-        ...(optStr(a.author) === undefined ? {} : { author: optStr(a.author) }),
-        ...(optStr(a.since) === undefined ? {} : { since: optStr(a.since) }),
-        ...(optStr(a.until) === undefined ? {} : { until: optStr(a.until) }),
+        ...(a.anchor === undefined ? {} : { anchor: str(a.anchor) }),
       })
     },
     preflight: (args) => {
@@ -170,6 +203,8 @@ export function registerRpc(ctx: Context, service: GitService): void {
         ...source(a),
         message: str(a.message),
         amend: bool(a.amend),
+        ...(a.signoff === undefined ? {} : { signoff: strictBoolean(a.signoff) }),
+        ...commitHead(a.expectedHead),
         ...(paths.length === 0 ? {} : { paths }),
         ...(optStr(a.requestId) === undefined ? {} : { requestId: optStr(a.requestId) }),
       })
@@ -181,6 +216,8 @@ export function registerRpc(ctx: Context, service: GitService): void {
         ...source(a),
         message: str(a.message),
         amend: bool(a.amend),
+        ...(a.signoff === undefined ? {} : { signoff: strictBoolean(a.signoff) }),
+        ...commitHead(a.expectedHead),
         ...(a.paths === undefined ? {} : { paths }),
         ...(optStr(a.requestId) === undefined ? {} : { requestId: optStr(a.requestId) }),
       })
@@ -246,6 +283,13 @@ export function registerRpc(ctx: Context, service: GitService): void {
       return service.branchDelete({ ...source(a), name: str(a.name), force: bool(a.force), ...(optStr(a.expectedOid) === undefined ? {} : { expectedOid: optStr(a.expectedOid) }) })
     },
     repositoryInventory: args => service.repositoryActions.inventory(source(args)),
+    previewRepositoryCommand: args => service.repositoryCommands.preview(source(args), commandRequest(args.request)),
+    executeRepositoryCommand: args => {
+      if (args.approved !== true) throw new GitError({ code: 'invalid-name', detail: 'Approve the command preview first.' })
+      return service.repositoryCommands.execute(source(args), { request: commandRequest(args.request), version: str(args.version), approved: true })
+    },
+    inspectRepositoryStash: args => service.repositoryCommands.inspectStash(source(args), str(args.stashOid)),
+    repositoryOutput: args => service.repositoryCommands.output(source(args)),
     previewRepositoryAction: args => service.repositoryActions.preview(source(args), repositoryRequest(args.request)),
     executeRepositoryAction: args => {
       if (args.approved !== true) throw new GitError({ code: 'invalid-name', detail: 'Approve the action preview first' })
@@ -262,10 +306,6 @@ export function registerRpc(ctx: Context, service: GitService): void {
     getCommitDetails: (args) => service.historyRead.inspect(source(args), str(args.hash)),
     getCommitDiff: (args) => service.historyRead.diff(source(args), str(args.hash), str(args.path), optStr(args.oldPath)),
     compareCommits: (args) => service.historyRead.compare(source(args), str(args.from), str(args.to)),
-    historyAgentContext: async (args) => {
-      const result = { ...(await service.state(source(args))), ...(await service.historyRead.context(source(args), strList(args.commits))) }
-      return { ...result, fingerprint: contextFingerprint(result) }
-    },
     previewHistory: (args) => {
       const action = str(args.action)
       if (!['cherry-pick', 'revert', 'squash', 'fixup', 'reorder', 'reword'].includes(action)) throw new GitError({ code: 'invalid-name', detail: 'Unknown history action' })
@@ -302,20 +342,15 @@ export function registerRpc(ctx: Context, service: GitService): void {
       path: str(args.path), expectedVersion: str(args.expectedVersion),
     }),
     operationContinue: (args) => service.operationContinue(source(args)),
-    operationAbort: (args) => service.operationAbort(source(args)),
+    operationAbort: (args) => {
+      if (args.expectedKind !== undefined && args.expectedKind !== 'rebase') throw new GitError({ code: 'invalid-name', detail: 'Invalid expected operation.' })
+      return service.operationAbort({ ...source(args), ...(args.expectedKind === 'rebase' ? { expectedKind: 'rebase' as const } : {}) })
+    },
     operationSkip: (args) => {
       if (args.approved !== true) throw new GitError({ code: 'invalid-name', detail: 'Confirm skipping this step first' })
       return service.operationSkip(source(args))
     },
     updateFromBranch: (args) => service.updateFromBranch(source(args)),
-    revert: (args) => {
-      const a = record(args)
-      return service.revert({ ...source(a), hash: str(a.hash) })
-    },
-    cherryPick: (args) => {
-      const a = record(args)
-      return service.cherryPick({ ...source(a), hash: str(a.hash) })
-    },
     checkoutCommit: (args) => {
       const a = record(args)
       return service.checkoutCommit({ ...source(a), hash: str(a.hash) })
@@ -365,21 +400,52 @@ export function registerRpc(ctx: Context, service: GitService): void {
           res.end(`no such method: ${method}`)
           return
         }
+        const draftController = method === 'draftInput' ? new AbortController() : undefined
+        const abortDraft = () => { draftController?.abort() }
+        if (draftController) { req.once('aborted', abortDraft); res.once('close', abortDraft) }
         Promise.resolve()
-          .then(() => handler(record(body.args)))
+          .then(() => handler(record(body.args), draftController?.signal))
           .then((value) => {
+            if (res.destroyed || res.writableEnded) return
             res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
             res.end(JSON.stringify({ ok: true, value: value === undefined ? null : value }))
           })
           .catch((error: unknown) => {
+            if (res.destroyed || res.writableEnded) return
             res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
             res.end(JSON.stringify(envelopeFor(error)))
           })
+          .finally(() => { if (draftController) { req.removeListener('aborted', abortDraft); res.removeListener('close', abortDraft) } })
       })
     },
   })
 
   ctx.effect(() => off)
+}
+
+/**
+ * Engine reasons the panel has a name for. Each maps to the failure it already
+ * renders; a reason outside this table stays a generic Git failure rather than
+ * being mislabelled as a bad selection.
+ */
+const HISTORY_REASON_CODES: Record<string, GitFailureCode> = {
+  'dirty-checkout': 'dirty-tree',
+  'hidden-index-state': 'dirty-tree',
+  'active-operation': 'operation-in-progress',
+  'incomplete-operation': 'operation-in-progress',
+  'empty-selection': 'invalid-name',
+  'too-many-commits': 'invalid-name',
+  'duplicate-commit': 'invalid-name',
+  'invalid-oid': 'invalid-name',
+  'unsupported-action': 'invalid-name',
+  'merge-unsupported': 'invalid-name',
+  'root-unsupported': 'invalid-name',
+  'not-current-history': 'invalid-name',
+  'noncontiguous-selection': 'invalid-name',
+  'ambiguous-topology': 'invalid-name',
+  'invalid-order': 'invalid-name',
+  'invalid-message': 'invalid-name',
+  'invalid-selection': 'invalid-name',
 }
 
 /** The failure envelope for a thrown error; unexpected throws stay generic. */
@@ -391,9 +457,9 @@ export function envelopeFor(error: unknown): {
   if (isGitError(error)) {
     return { ok: false, failure: error.failure, degraded: GitService.degradedFor(error) }
   }
-  const failure: GitFailure = {
-    code: 'git-failed',
-    detail: error instanceof Error ? error.message : String(error),
-  }
-  return { ok: false, failure, degraded: null }
+  const detail = error instanceof Error ? error.message : String(error)
+  // A history plan refuses work for reasons the panel has to name: keep the
+  // engine's reason when it maps, and the plan's own sentence as the detail.
+  const mapped = error instanceof HistoryOperationError ? HISTORY_REASON_CODES[error.reason] : undefined
+  return { ok: false, failure: { code: mapped ?? 'git-failed', detail }, degraded: null }
 }

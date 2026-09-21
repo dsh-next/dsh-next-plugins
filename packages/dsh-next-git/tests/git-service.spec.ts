@@ -91,7 +91,10 @@ describe('repository resolution', () => {
     await expectGitError(service.state({ cwd: fixture.dir }), 'git-too-old')
   })
 
-  it('reports a session with no working directory', async () => {
+  // A session the host has not loaded yet is not the same as a folder that is
+  // not a repository: the panel must be able to retry instead of reporting a
+  // terminal "not in a git repository" state.
+  it('reports a session whose working directory is not available yet', async () => {
     const fixture = createFixture('clean')
     const service = new GitService({
       runner: new GitRunner(),
@@ -101,7 +104,61 @@ describe('repository resolution', () => {
       env: process.env,
     })
     disposers.push(() => fixture.dispose())
-    await expectGitError(service.state({ sessionId: 'unknown' }), 'not-a-repository')
+    const error = await expectGitError(service.state({ sessionId: 'unknown' }), 'session-not-ready')
+    expect(GitService.degradedFor(error)).toBeNull()
+  })
+
+  it('resolves a session again once its working directory is known', async () => {
+    const fixture = createFixture('clean')
+    let cwd: string | undefined
+    const service = new GitService({
+      runner: new GitRunner(),
+      fs: nodeFs(),
+      cwdOf: () => cwd,
+      platform: process.platform,
+      env: process.env,
+    })
+    disposers.push(() => fixture.dispose())
+    await expectGitError(service.state({ sessionId: 'restored' }), 'session-not-ready')
+    cwd = fixture.dir
+    const payload = await service.state({ sessionId: 'restored' })
+    expect(payload.state.root).toBe(fixture.dir)
+  })
+})
+
+describe('deleted files', () => {
+  // A deletion is a change like any other: the panel lists it, and the change
+  // view can still show the content that was removed.
+  it('lists a worktree deletion as unstaged and serves it from the index', async () => {
+    const fixture = createFixture('clean')
+    const service = serviceFor(fixture)
+    disposers.push(() => fixture.dispose())
+    const committed = fixture.gitOk(['show', 'HEAD:src/app.ts'])
+    rmSync(join(fixture.dir, 'src/app.ts'))
+
+    const state = (await service.state({ cwd: fixture.dir })).state
+    expect(state.changes.unstaged.find((entry) => entry.path === 'src/app.ts')).toMatchObject({
+      worktree: 'deleted',
+      xy: '.D',
+    })
+
+    const view = await service.fileChanges({ cwd: fixture.dir, path: 'src/app.ts', side: 'unstaged' })
+    expect(view).toMatchObject({ deleted: true, text: committed, language: 'typescript', binary: false })
+    expect(view.markers.every((marker) => marker.kind === 'removed')).toBe(true)
+  })
+
+  it('lists a staged deletion as staged and serves it from the commit', async () => {
+    const fixture = createFixture('clean')
+    const service = serviceFor(fixture)
+    disposers.push(() => fixture.dispose())
+    const committed = fixture.gitOk(['show', 'HEAD:src/app.ts'])
+    fixture.gitOk(['rm', '-q', '--', 'src/app.ts'])
+
+    const state = (await service.state({ cwd: fixture.dir })).state
+    expect(state.changes.staged.find((entry) => entry.path === 'src/app.ts')).toMatchObject({ index: 'deleted' })
+
+    const view = await service.fileChanges({ cwd: fixture.dir, path: 'src/app.ts', side: 'unstaged' })
+    expect(view).toMatchObject({ deleted: true, text: committed })
   })
 })
 
@@ -371,6 +428,20 @@ describe('cheap writes', () => {
     expect(fixture.gitOk(['log', '-1', '--pretty=%s']).trim()).toBe('feat: add app')
   })
 
+  it('accepts cancellation before repository discovery completes', async () => {
+    const fixture = createFixture('staged')
+    const cancellations = new (await import('../src/host/git-runner.ts')).CancellationRegistry()
+    const service = new GitService({ runner: new GitRunner(), fs: nodeFs(), cwdOf: () => fixture.dir, platform: process.platform, env: process.env, cancellations })
+    disposers.push(() => fixture.dispose())
+    const before = fixture.gitOk(['rev-parse', 'HEAD'])
+    const pending = service.commit({ sessionId: 's', message: 'must not commit', requestId: 'early' }).then(() => null, error => error as GitError)
+    const cancelled = cancellations.cancel('early', 's')
+    const outcome = await pending
+    expect(cancelled).toBe(true)
+    expect(outcome?.failure.code).toBe('hook-cancelled')
+    expect(fixture.gitOk(['rev-parse', 'HEAD'])).toBe(before)
+  })
+
   it('cancels a hanging hook', async () => {
     const fixture = createFixture('hook-hang')
     const cancellations = new (await import('../src/host/git-runner.ts')).CancellationRegistry()
@@ -461,28 +532,7 @@ describe('operation recovery', () => {
   })
 })
 
-describe('history writes', () => {
-  it('reverts a commit', async () => {
-    const fixture = createFixture('clean')
-    const service = serviceFor(fixture)
-    const head = fixture.gitOk(['rev-parse', 'HEAD']).trim()
-    const state = await service.revert({ cwd: fixture.dir, hash: head })
-    expect(state.head.oid).not.toBe(head)
-    // Reverting the commit that added the file removes it again.
-    expect(existsSync(join(fixture.dir, 'src', 'app.ts'))).toBe(false)
-    expect(readFileSync(join(fixture.dir, 'README.md'), 'utf8')).toBe('# fixture\n')
-  })
-
-  it('cherry-picks a commit from another branch', async () => {
-    const fixture = createFixture('branches')
-    const service = serviceFor(fixture)
-    fixture.gitOk(['checkout', '-q', 'alpha'])
-    const sha = fixture.gitOk(['rev-parse', 'main']).trim()
-    const state = await service.cherryPick({ cwd: fixture.dir, hash: sha })
-    expect(state.head.branch).toBe('alpha')
-    expect(fixture.gitOk(['log', '--oneline'])).toContain('feat: extra')
-  })
-
+describe('commit checkout', () => {
   it('checks out a commit detached', async () => {
     const fixture = createFixture('clean')
     const service = serviceFor(fixture)
@@ -497,6 +547,29 @@ describe('history writes', () => {
     const service = serviceFor(fixture)
     // git reports an unknown revision as a pathspec failure.
     await expectGitError(service.checkoutCommit({ cwd: fixture.dir, hash: 'deadbeef' }), 'path-missing')
+  })
+})
+
+describe('history operation engine wiring', () => {
+  it('wires historyOperations through the service runner and source resolution', async () => {
+    const fixture = createFixture('clean')
+    const service = serviceFor(fixture)
+    const head = fixture.gitOk(['rev-parse', 'HEAD']).trim()
+    const preview = await service.historyOperations.preview({ sessionId: 'test-session' }, { action: 'revert', commits: [head] })
+    expect(preview.binding).toMatchObject({ checkout: fixture.dir, head, headRef: `refs/heads/${MAIN_BRANCH}` })
+    expect(preview.plan).toMatchObject({ action: 'revert', selected: [head], rewrites: false })
+    const status = await service.historyOperations.execute({ sessionId: 'test-session' }, preview.operationId, { approved: true })
+    expect(status).toMatchObject({ phase: 'completed', error: null, canRestore: true })
+    expect(status.currentHead).not.toBe(head)
+    // The anchor-paginated read stays bound to the live checkout.
+    expect((await service.history({ sessionId: 'test-session' })).anchor).toBe(status.currentHead)
+  })
+
+  it('keeps the removed per-row revert and cherry-pick commands off the service', () => {
+    const fixture = createFixture('clean')
+    const service = serviceFor(fixture)
+    expect('revert' in service).toBe(false)
+    expect('cherryPick' in service).toBe(false)
   })
 })
 
@@ -559,6 +632,54 @@ describe('branch operations', () => {
     const fixture = createFixture('branches')
     const service = serviceFor(fixture)
     expect(await service.localBranchNames({ cwd: fixture.dir })).toEqual(['alpha', 'beta', 'main'])
+  })
+})
+
+describe('ref summary', () => {
+  it('reads the checkout position and both ref lists without the panel state', async () => {
+    const fixture = createFixture('ahead-behind')
+    const service = serviceFor(fixture)
+    const summary = await service.refSummary({ cwd: fixture.dir })
+    expect(summary.root).toBe(fixture.dir)
+    expect(summary.head.branch).toBe(MAIN_BRANCH)
+    expect(summary.head.oid).toBe(fixture.gitOk(['rev-parse', 'HEAD']).trim())
+    expect(summary.head.detached).toBe(false)
+    expect(summary.head.unborn).toBe(false)
+    // Drift comes from the current branch's own row, so it costs no extra read.
+    expect(summary.head.ahead).toBe(1)
+    expect(summary.head.behind).toBe(1)
+    expect(summary.head.upstream).toBe('origin/main')
+    expect(summary.branches.map((branch) => branch.name)).toContain(MAIN_BRANCH)
+    expect(summary.branches.every((branch) => branch.subject !== '')).toBe(true)
+    expect(summary.tags).toEqual([])
+  })
+
+  it('names a detached HEAD and an unborn repository', async () => {
+    const fixture = createFixture('clean')
+    const service = serviceFor(fixture)
+    const oid = fixture.gitOk(['rev-parse', 'HEAD']).trim()
+    fixture.gitOk(['checkout', '-q', '--detach', oid])
+    const detached = await service.refSummary({ cwd: fixture.dir })
+    expect(detached.head).toMatchObject({ branch: null, oid, detached: true, unborn: false })
+
+    const unborn = createFixture('unborn')
+    const unbornService = serviceFor(unborn)
+    const summary = await unbornService.refSummary({ cwd: unborn.dir })
+    expect(summary.head.branch).toBe(MAIN_BRANCH)
+    expect(summary.head).toMatchObject({ oid: null, detached: false, unborn: true })
+  })
+
+  it('reports a directory that is not a repository as a named failure', async () => {
+    const outside = createNonRepository()
+    disposers.push(outside.dispose)
+    const service = new GitService({
+      runner: new GitRunner(),
+      fs: nodeFs(),
+      cwdOf: () => outside.dir,
+      platform: process.platform,
+      env: process.env,
+    })
+    await expectGitError(service.refSummary({ cwd: outside.dir }), 'not-a-repository')
   })
 })
 

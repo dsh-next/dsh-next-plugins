@@ -1,19 +1,84 @@
 /**
- * Branch listing and name validation.
+ * Branch and tag listing, and branch name validation.
  *
- * The panel's branch picker needs the local branches, which one is checked
- * out, and whether a remote-tracking branch can be checked out locally. Name
- * validation mirrors `git check-ref-format`'s core rules so the UI can refuse
- * a bad name before a process is spawned.
+ * The panel's ref picker needs more than a name per row: which branch is
+ * checked out, how far it has drifted from its upstream, and the tip commit's
+ * author, hash, subject and age — the detail line VS Code's branch quick pick
+ * shows. All of it comes from one `for-each-ref` call, so the read stays a
+ * single process. Name validation mirrors `git check-ref-format`'s core rules
+ * so the UI can refuse a bad name before a process is spawned.
  */
 
-import type { BranchInfo } from './types.ts'
+import type { BranchInfo, TagInfo } from './types.ts'
 
 /** Field separator in the `for-each-ref` format. */
 export const BRANCH_FIELD = '\u001f'
 
-/** The `--format` the host passes to `git for-each-ref`. */
-export const BRANCH_FORMAT = `%(HEAD)${BRANCH_FIELD}%(refname:short)${BRANCH_FIELD}%(objectname)${BRANCH_FIELD}%(upstream:short)${BRANCH_FIELD}%(refname)`
+/**
+ * The `--format` the host passes to `git for-each-ref` for branches.
+ *
+ * `%(subject)` sits last: a subject that happens to contain the separator
+ * still parses, because everything after the tracking field is the subject.
+ */
+export const BRANCH_FORMAT = [
+  '%(HEAD)',
+  '%(refname:short)',
+  '%(objectname)',
+  '%(upstream:short)',
+  '%(refname)',
+  '%(authorname)',
+  '%(committerdate:unix)',
+  '%(upstream:track)',
+  '%(subject)',
+].join(BRANCH_FIELD)
+
+/**
+ * The `--format` the host passes to `git for-each-ref refs/tags`.
+ *
+ * `%(*objectname)` is an annotated tag's peeled commit, which is what a
+ * detached checkout has to name; `%(objectname)` is that tag object itself.
+ */
+export const TAG_FORMAT = [
+  '%(refname:short)',
+  '%(objectname)',
+  '%(*objectname)',
+  '%(authorname)',
+  '%(committerdate:unix)',
+  '%(subject)',
+].join(BRANCH_FIELD)
+
+/** Longest subject kept per row: the picker ellipsizes, the envelope stays bounded. */
+export const REF_SUBJECT_LIMIT = 200
+
+/** How far a branch has drifted from its upstream. */
+export interface RefTrack {
+  readonly ahead: number
+  readonly behind: number
+}
+
+/**
+ * Parse `%(upstream:track)` (`[ahead 1, behind 2]`, `[gone]`, or empty).
+ *
+ * @param raw - the atom's output.
+ * @returns the counts; both zero when there is no upstream or it is gone.
+ */
+export function parseTrack(raw: string): RefTrack {
+  const ahead = /ahead (\d+)/.exec(raw)
+  const behind = /behind (\d+)/.exec(raw)
+  return { ahead: ahead === null ? 0 : Number(ahead[1]), behind: behind === null ? 0 : Number(behind[1]) }
+}
+
+/** Bound one subject so a hostile commit message cannot inflate the envelope. */
+function boundSubject(raw: string): string {
+  const text = raw.trim()
+  return text.length > REF_SUBJECT_LIMIT ? text.slice(0, REF_SUBJECT_LIMIT) : text
+}
+
+/** Epoch seconds from a `committerdate:unix` atom, 0 when absent or unusable. */
+function epochSeconds(raw: string): number {
+  const value = Number(raw.trim())
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0
+}
 
 /**
  * Parse `git for-each-ref refs/heads refs/remotes`.
@@ -38,17 +103,50 @@ export function parseBranches(raw: string): BranchInfo[] {
     const full = fields[4] ?? ''
     if (name === '' || oid === '') continue
     const isRemote = full.startsWith('refs/remotes/')
+    const track = parseTrack(fields[7] ?? '')
     const row: BranchInfo = {
       name,
       current: !isRemote && marker === '*',
       oid,
       upstream: upstream === '' ? null : upstream,
       remote: isRemote,
+      author: fields[5] ?? '',
+      committedAt: epochSeconds(fields[6] ?? ''),
+      ahead: track.ahead,
+      behind: track.behind,
+      subject: boundSubject(fields.slice(8).join(BRANCH_FIELD)),
     }
     if (isRemote) remotes.push(row)
     else locals.push(row)
   }
   return [...locals, ...remotes]
+}
+
+/**
+ * Parse `git for-each-ref refs/tags`.
+ *
+ * @param raw - process stdout.
+ * @returns tag rows in git's order, annotated tags peeled to their commit.
+ */
+export function parseTags(raw: string): TagInfo[] {
+  const tags: TagInfo[] = []
+  for (const line of raw.split('\n')) {
+    if (line.trim() === '') continue
+    const fields = line.split(BRANCH_FIELD)
+    if (fields.length < 5) continue
+    const name = fields[0] ?? ''
+    const peeled = (fields[2] ?? '').trim()
+    const oid = peeled === '' ? fields[1] ?? '' : peeled
+    if (name === '' || oid === '') continue
+    tags.push({
+      name,
+      oid,
+      author: fields[3] ?? '',
+      committedAt: epochSeconds(fields[4] ?? ''),
+      subject: boundSubject(fields.slice(5).join(BRANCH_FIELD)),
+    })
+  }
+  return tags
 }
 
 /** Why a branch name was refused. */

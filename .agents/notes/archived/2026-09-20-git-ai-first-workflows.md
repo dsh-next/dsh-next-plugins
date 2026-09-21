@@ -1,7 +1,7 @@
 # Git panel AI-first workflows and safety
 
 - date: 2026-09-20
-- status: implemented
+- status: archived
 - scope: packages/dsh-next-git
 
 Implements the approved [AI-first follow-up plan](../../../docs/ideas/dsh-next-git-ai-first.md)

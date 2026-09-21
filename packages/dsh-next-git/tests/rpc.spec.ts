@@ -1,3 +1,4 @@
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import { createFixture, createNonRepository, type GitFixture } from './git-fixture.ts'
@@ -6,6 +7,8 @@ import { GitService } from '../src/host/git-service.ts'
 import { nodeFs } from '../src/host/fs-adapter.ts'
 import { envelopeFor, registerRpc, RPC_PATH } from '../src/host/rpc.ts'
 import { GitError } from '../src/host/git-runner.ts'
+import { HistoryOperationError } from '../src/host/history-operations.ts'
+import type { FileChanges } from '../src/core/types.ts'
 
 /**
  * RPC contract suite: every method the browser half can call is dispatched
@@ -141,6 +144,55 @@ function open(scenario: Parameters<typeof createFixture>[0]): GitFixture {
   return fixture
 }
 
+describe('extended repository command RPC', () => {
+  it('previews, approves and executes with exact envelopes, then reads bounded output', async () => {
+    const fixture = open('clean')
+    try {
+      const rpc = mount(serviceFor(fixture.dir))
+      const request = { action: 'remote-add', name: 'backup', url: 'https://example.test/repo.git' }
+      const read = await rpc.call('previewRepositoryCommand', { request })
+      expect(read.status).toBe(200)
+      expect(read.json, JSON.stringify(read.json)).toMatchObject({ ok: true, value: { request, checkout: fixture.dir, version: expect.any(String), summary: expect.any(String), warnings: expect.any(Array) } })
+      expect(Object.keys(read.json as object).sort()).toEqual(['ok', 'value'])
+      const version = (read.json as { value: { version: string } }).value.version
+      expect((await rpc.call('executeRepositoryCommand', { request, version })).json).toMatchObject({ ok: false, failure: { code: 'invalid-name' } })
+      const write = await rpc.call('executeRepositoryCommand', { request, version, approved: true })
+      expect(write.json).toEqual({ ok: true, value: { status: 'completed', refresh: true, conflictRefresh: false, reason: null, message: null, stashOid: null } })
+      expect((await rpc.call('repositoryOutput')).json).toMatchObject({ ok: true, value: { text: expect.stringContaining('remote-add') } })
+      for (const request of [{ action: 'unknown' }, { action: 'stash-clear', unexpected: true }, { action: 'pull', remote: 'origin', branch: 'main', rebase: 'yes' }]) {
+        expect((await rpc.call('previewRepositoryCommand', { request })).json).toMatchObject({ ok: false, failure: { code: 'invalid-name' } })
+      }
+    } finally { fixture.dispose() }
+  })
+
+  it('dispatches signoff strictly and exposes stash inspection without applying', async () => {
+    const fixture = open('staged')
+    try {
+      const rpc = mount(serviceFor(fixture.dir))
+      expect((await rpc.call('commit', { message: 'signed', signoff: 'yes' })).json).toMatchObject({ ok: false, failure: { code: 'invalid-name' } })
+      expect((await rpc.call('commit', { message: 'signed', signoff: true })).json).toMatchObject({ ok: true })
+      expect((await rpc.call('commit', { message: 'amend', amend: true, expectedHead: 42 })).json).toMatchObject({ ok: false, failure: { code: 'invalid-name' } })
+      expect((await rpc.call('commitAll', { message: 'amend', amend: true, expectedHead: '0'.repeat(40) })).json).toMatchObject({ ok: false, failure: { code: 'dirty-tree' } })
+      const runner = new GitRunner()
+      expect(await runner.runOk(['log', '-1', '--format=%B'], fixture.dir)).toContain('Signed-off-by:')
+      fixture.write('src/app.ts', 'stash payload\n')
+      await runner.runOk(['stash', 'push', '-m', 'read me'], fixture.dir)
+      const stashOid = (await runner.runOk(['rev-parse', 'refs/stash'], fixture.dir)).trim()
+      expect((await rpc.call('inspectRepositoryStash', { stashOid })).json).toMatchObject({ ok: true, value: { stashOid, patch: expect.stringContaining('stash payload') } })
+      expect((await runner.runOk(['rev-parse', 'refs/stash'], fixture.dir)).trim()).toBe(stashOid)
+    } finally { fixture.dispose() }
+  })
+
+  it('refuses abort-rebase when a different operation is active', async () => {
+    const fixture = open('merge-conflict')
+    try {
+      const rpc = mount(serviceFor(fixture.dir))
+      expect((await rpc.call('operationAbort', { expectedKind: 'rebase' })).json).toMatchObject({ ok: false, failure: { code: 'operation-in-progress' } })
+      expect((await rpc.call('operationAbort', { expectedKind: 'anything' })).json).toMatchObject({ ok: false, failure: { code: 'invalid-name' } })
+    } finally { fixture.dispose() }
+  })
+})
+
 describe('rpc route registration', () => {
   it('registers one exact POST route', () => {
     const fixture = open('clean')
@@ -222,7 +274,61 @@ describe('getState envelope', () => {
   })
 })
 
+describe('refSummary envelope', () => {
+  it('returns head and the two ref lists, and nothing from the panel state', async () => {
+    const fixture = open('ahead-behind')
+    const { status, json } = await mount(serviceFor(fixture.dir)).call('refSummary')
+    expect(status).toBe(200)
+    const envelope = json as { ok: true; value: Record<string, unknown> }
+    expect(envelope.ok).toBe(true)
+    expect(Object.keys(envelope.value).sort()).toEqual(['branches', 'head', 'root', 'tags'])
+    expect(envelope.value).toMatchObject({ root: fixture.dir })
+    const head = envelope.value.head as Record<string, unknown>
+    expect(head).toMatchObject({ branch: 'main', detached: false, unborn: false })
+    expect(Array.isArray(envelope.value.branches)).toBe(true)
+    expect(Array.isArray(envelope.value.tags)).toBe(true)
+    // The chip's read stays small: no status, worktrees, identity or history.
+    expect(envelope.value).not.toHaveProperty('changes')
+    expect(envelope.value).not.toHaveProperty('worktrees')
+    expect(envelope.value).not.toHaveProperty('identity')
+  })
+
+  it('carries the session id through to the named failure envelope', async () => {
+    const plain = createNonRepository()
+    const { status, json } = await mount(serviceFor(plain.dir)).call('refSummary', { sessionId: 'session-1' })
+    expect(status).toBe(200)
+    expect(json).toMatchObject({ ok: false, failure: { code: 'not-a-repository' } })
+    plain.dispose()
+  })
+})
+
 describe('read envelopes', () => {
+  it('preserves commit details and per-file diff envelopes', async () => {
+    const fixture = open('clean')
+    const mounted = mount(serviceFor(fixture.dir))
+    const hash = fixture.commit('detail.txt', 'committed text\n', 'Subject\n\nFull message')
+    const details = await mounted.call('getCommitDetails', { hash })
+    expect(details.status).toBe(200)
+    const envelope = details.json as { ok: true; value: import('../src/core/history-view.ts').CommitDetails }
+    expect(Object.keys(envelope)).toEqual(['ok', 'value'])
+    expect(Object.keys(envelope.value).sort()).toEqual(['commit', 'files', 'message', 'parent'])
+    expect(envelope).toMatchObject({ ok: true, value: {
+      commit: { hash }, parent: fixture.gitOk(['rev-parse', 'HEAD~1']).trim(),
+      message: 'Subject\n\nFull message', files: [{ path: 'detail.txt', status: 'A' }],
+    } })
+    const diff = await mounted.call('getCommitDiff', { hash, path: 'detail.txt' })
+    expect(diff.status).toBe(200)
+    const result = diff.json as { ok: true; value: import('../src/core/types.ts').DiffResult }
+    expect(Object.keys(result)).toEqual(['ok', 'value'])
+    expect(Object.keys(result.value).sort()).toEqual(['empty', 'file', 'path', 'side'])
+    expect(result).toMatchObject({ ok: true, value: { path: 'detail.txt', side: 'unstaged', empty: false, file: { added: 1 } } })
+    expect(await mounted.call('getCommitDiff', { hash, path: 'absent.txt' })).toMatchObject({
+      status: 200, json: { ok: true, value: { path: 'absent.txt', side: 'unstaged', empty: true, file: null } },
+    })
+    expect(await mounted.call('getCommitDetails', { hash: 'HEAD' })).toMatchObject({ status: 200, json: { ok: false, failure: { code: 'invalid-name' }, degraded: null } })
+    expect(await mounted.call('getCommitDiff', { hash, path: '../escape' })).toMatchObject({ status: 200, json: { ok: false, failure: { code: 'path-missing' }, degraded: null } })
+  })
+
   it('getDiff returns the file under value', async () => {
     const fixture = open('unstaged')
     const { json } = await mount(serviceFor(fixture.dir)).call('getDiff', {
@@ -234,7 +340,37 @@ describe('read envelopes', () => {
     expect(value.file.added).toBe(1)
   })
 
-  it('getDiff defaults an unknown side to unstaged', async () => {
+  it('getFileChanges returns the whole file with its changed lines', async () => {
+    const fixture = open('clean')
+    fixture.write('src/app.ts', 'export const app = 1\nexport const added = true\n')
+    const { json } = await mount(serviceFor(fixture.dir)).call('getFileChanges', {
+      path: 'src/app.ts',
+      side: 'unstaged',
+    })
+    const value = (json as { value: FileChanges }).value
+    expect(value.text).toBe('export const app = 1\nexport const added = true\n')
+    expect(value.language).toBe('typescript')
+    expect(value.markers).toEqual([{ line: 2, kind: 'added' }])
+    expect(value).toMatchObject({ side: 'unstaged', binary: false, truncated: false, deleted: false })
+    expect(value.absolutePath).toBe(join(fixture.dir, 'src/app.ts'))
+  })
+
+  it('getFileChanges serves a deleted file from the index with every line removed', async () => {
+    const fixture = open('clean')
+    const content = fixture.gitOk(['show', 'HEAD:src/app.ts'])
+    fixture.gitOk(['rm', '-q', '--', 'src/app.ts'])
+    const { json } = await mount(serviceFor(fixture.dir)).call('getFileChanges', {
+      path: 'src/app.ts',
+      side: 'unstaged',
+    })
+    const value = (json as { value: FileChanges }).value
+    expect(value.deleted).toBe(true)
+    expect(value.text).toBe(content)
+    expect(value.markers.every((marker: { kind: string }) => marker.kind === 'removed')).toBe(true)
+    expect(value.markers.length).toBe(content.replace(/\n$/, '').split('\n').length)
+  })
+
+  it('getFileChanges defaults an unknown side to unstaged', async () => {
     const fixture = open('unstaged')
     const { json } = await mount(serviceFor(fixture.dir)).call('getDiff', {
       path: 'src/app.ts',
@@ -243,13 +379,44 @@ describe('read envelopes', () => {
     expect((json as { value: { side: string } }).value.side).toBe('unstaged')
   })
 
-  it('getHistory returns commits and lanes', async () => {
+  it('getHistory returns recent current-checkout commits, lanes and an immutable anchor', async () => {
     const fixture = open('clean')
-    const { json } = await mount(serviceFor(fixture.dir)).call('getHistory', { limit: 5 })
-    const value = (json as { value: { commits: unknown[]; lanes: unknown[]; hasMore: boolean } }).value
-    expect(value.commits).toHaveLength(2)
-    expect(value.lanes).toHaveLength(2)
-    expect(value.hasMore).toBe(false)
+    const head = fixture.gitOk(['rev-parse', 'HEAD']).trim()
+    const { status, json } = await mount(serviceFor(fixture.dir)).call('getHistory', { limit: 5 })
+    const envelope = json as { ok: true; value: import('../src/core/types.ts').HistoryPage }
+    expect(status).toBe(200)
+    expect(Object.keys(envelope)).toEqual(['ok', 'value'])
+    expect(envelope.ok).toBe(true)
+    expect(Object.keys(envelope.value).sort()).toEqual(['anchor', 'commits', 'hasMore', 'lanes'])
+    expect(envelope.value.anchor).toBe(head)
+    expect(envelope.value.commits[0]?.hash).toBe(head)
+    expect(envelope.value.commits).toHaveLength(2)
+    expect(envelope.value.lanes).toHaveLength(2)
+    expect(envelope.value.hasMore).toBe(false)
+  })
+
+  it('getHistory preserves its pagination anchor after a new commit', async () => {
+    const fixture = open('clean')
+    const mounted = mount(serviceFor(fixture.dir))
+    const original = fixture.gitOk(['rev-list', 'HEAD']).trim().split('\n')
+    const first = (await mounted.call('getHistory', { limit: 1 })).json as { ok: true; value: import('../src/core/types.ts').HistoryPage }
+    const anchor = first.value.anchor!
+    const later = fixture.commit('later.txt', 'later', 'later change')
+    const second = (await mounted.call('getHistory', { limit: 1, skip: 1, anchor })).json as typeof first
+    expect(first).toMatchObject({ ok: true, value: { anchor, hasMore: true } })
+    expect(second).toMatchObject({ ok: true, value: { anchor, hasMore: false } })
+    expect([...first.value.commits, ...second.value.commits].map(commit => commit.hash)).toEqual(original)
+    expect((await mounted.call('getHistory', { limit: 1 })).json).toMatchObject({ ok: true, value: { anchor: later, commits: [{ hash: later }] } })
+  })
+
+  it('getHistory rejects non-commit pagination anchors', async () => {
+    const fixture = open('clean')
+    const mounted = mount(serviceFor(fixture.dir))
+    for (const anchor of ['main', 'HEAD', 'refs/tags/v1', '--all', '', 42, null]) {
+      expect(await mounted.call('getHistory', { anchor })).toMatchObject({
+        status: 200, json: { ok: false, failure: { code: 'invalid-name' } },
+      })
+    }
   })
 
   it('preflight returns a decision', async () => {
@@ -372,7 +539,7 @@ describe('write envelopes', () => {
     expect(failed.failure.code).toBe('setup-stale')
   })
 
-  it('operation and history writes round-trip', async () => {
+  it('operation abort and commit checkout round-trip', async () => {
     const fixture = open('merge-conflict')
     const mounted = mount(serviceFor(fixture.dir))
     const aborted = (await mounted.call('operationAbort')).json as { value: { operation: { kind: unknown } } }
@@ -380,15 +547,11 @@ describe('write envelopes', () => {
 
     const clean = open('clean')
     const mountedClean = mount(serviceFor(clean.dir))
-    const head = clean.gitOk(['rev-parse', 'HEAD']).trim()
-    expect((await mountedClean.call('revert', { hash: head })).json).toMatchObject({ ok: true })
     const older = clean.gitOk(['rev-parse', 'HEAD~1']).trim()
     const checkedOut = (await mountedClean.call('checkoutCommit', { hash: older })).json as {
       value: { head: { detached: boolean } }
     }
     expect(checkedOut.value.head.detached).toBe(true)
-    clean.gitOk(['checkout', '-q', 'main'])
-    expect((await mountedClean.call('cherryPick', { hash: older })).json).toMatchObject({ ok: true })
   })
 
   it('updateFromBranch round-trips', async () => {
@@ -474,12 +637,24 @@ describe('host safety RPC contracts', () => {
 })
 
 describe('method inventory', () => {
+  it.each(['historyAgentContext', 'revert', 'cherryPick'])('rejects removed history command %s as unknown', async method => {
+    const fixture = open('clean')
+    expect(await mount(serviceFor(fixture.dir)).call(method, { approved: true })).toEqual({
+      status: 404, json: null, raw: `no such method: ${method}`,
+    })
+  })
+
   it('dispatches every documented method', async () => {
     const fixture = open('clean')
     const mounted = mount(serviceFor(fixture.dir))
+    const head = fixture.gitOk(['rev-parse', 'HEAD']).trim()
+    const older = fixture.gitOk(['rev-parse', 'HEAD~1']).trim()
+    const operationId = '00000000-0000-4000-8000-000000000000'
     const calls: [string, Record<string, unknown>][] = [
       ['getState', {}],
+      ['refSummary', {}],
       ['getDiff', { path: 'README.md', side: 'unstaged' }],
+      ['getFileChanges', { path: 'README.md', side: 'unstaged' }],
       ['getHistory', {}],
       ['preflight', { action: 'merge' }],
       ['stage', { paths: ['README.md'] }],
@@ -503,11 +678,16 @@ describe('method inventory', () => {
       ['operationContinue', {}],
       ['operationAbort', {}],
       ['updateFromBranch', {}],
-      ['revert', { hash: 'HEAD' }],
-      ['cherryPick', { hash: 'HEAD' }],
+      ['getCommitDetails', { hash: 'HEAD' }],
+      ['getCommitDiff', { hash: 'HEAD', path: 'README.md' }],
       ['checkoutCommit', { hash: 'HEAD' }],
       ['remoteCheckoutCandidates', {}],
       ['localBranchNames', {}],
+      ['compareCommits', { from: older, to: head }],
+      ['previewHistory', { action: 'cherry-pick', commits: [head] }],
+      ['executeHistory', { operationId, approved: true }],
+      ['historyOperationStatus', { operationId }],
+      ['recoverHistory', { operationId, action: 'cancel' }],
     ]
     for (const [method, args] of calls) {
       const { status, raw } = await mounted.call(method, args)
@@ -522,7 +702,7 @@ describe('method inventory', () => {
     const args = { path: 42, paths: 'nope', message: 7, name: null, hash: 9 }
     // A write with no usable arguments is a named failure, never a silent
     // success with nothing done.
-    for (const method of ['stage', 'unstage', 'discard', 'commit', 'commitAll', 'worktreeAdd', 'branchCreate', 'revert']) {
+    for (const method of ['stage', 'unstage', 'discard', 'commit', 'commitAll', 'worktreeAdd', 'branchCreate', 'checkoutCommit']) {
       const { status, json } = await mounted.call(method, args)
       expect(status, method).toBe(200)
       expect(json, method).toMatchObject({ ok: false })
@@ -530,7 +710,81 @@ describe('method inventory', () => {
     }
     // Reads degrade to an empty answer rather than an error envelope.
     expect(await mounted.call('getDiff', args)).toMatchObject({ status: 200 })
+    expect(await mounted.call('getFileChanges', args)).toMatchObject({ status: 200 })
     expect(await mounted.call('getHistory', args)).toMatchObject({ status: 200 })
+  })
+})
+
+describe('history engine RPC contracts', () => {
+  it('compares two commits under an exact compareCommits envelope', async () => {
+    const fixture = open('clean')
+    const mounted = mount(serviceFor(fixture.dir))
+    const from = fixture.gitOk(['rev-parse', 'HEAD~1']).trim()
+    const to = fixture.gitOk(['rev-parse', 'HEAD']).trim()
+    const { status, json } = await mounted.call('compareCommits', { from, to })
+    expect(status).toBe(200)
+    const envelope = json as { ok: true; value: import('../src/core/history-view.ts').CommitComparison }
+    expect(Object.keys(envelope)).toEqual(['ok', 'value'])
+    expect(Object.keys(envelope.value).sort()).toEqual(['from', 'patch', 'summary', 'to', 'truncated'])
+    expect(envelope.value).toMatchObject({ from, to, truncated: false })
+    expect(envelope.value.summary).toContain('src/app.ts')
+    expect(envelope.value.patch).toContain('+export const app = 1')
+    expect(await mounted.call('compareCommits', { from: 'HEAD', to })).toMatchObject({
+      status: 200, json: { ok: false, failure: { code: 'invalid-name' }, degraded: null },
+    })
+  })
+
+  it('previews, executes, reports and restores a history plan through the envelopes', async () => {
+    const fixture = open('clean')
+    const mounted = mount(serviceFor(fixture.dir))
+    const head = fixture.gitOk(['rev-parse', 'HEAD']).trim()
+    const preview = (await mounted.call('previewHistory', { action: 'revert', commits: [head] })).json as {
+      ok: true; value: import('../src/core/history-plan.ts').HistoryPreview
+    }
+    expect(preview.ok).toBe(true)
+    expect(preview.value).toMatchObject({ requiresPublishedAcknowledgment: false, plan: { action: 'revert', selected: [head], rewrites: false } })
+    expect(preview.value.permission).toMatchObject({ authority: 'apply-approved-history-plan' })
+
+    expect(await mounted.call('executeHistory', { operationId: preview.value.operationId })).toMatchObject({
+      status: 200, json: { ok: false, failure: { code: 'invalid-name' }, degraded: null },
+    })
+
+    const executed = (await mounted.call('executeHistory', { operationId: preview.value.operationId, approved: true })).json as {
+      ok: true; value: import('../src/core/history-plan.ts').HistoryStatus
+    }
+    expect(executed).toMatchObject({ ok: true, value: { phase: 'completed', canRestore: true, error: null } })
+    expect(executed.value.currentHead).not.toBe(head)
+
+    const reported = (await mounted.call('historyOperationStatus', { operationId: preview.value.operationId })).json as {
+      ok: true; value: import('../src/core/history-plan.ts').HistoryStatus
+    }
+    expect(reported).toMatchObject({ ok: true, value: { phase: 'completed', currentHead: executed.value.currentHead } })
+
+    const restored = (await mounted.call('recoverHistory', {
+      operationId: preview.value.operationId, action: 'restore', approved: true,
+    })).json as { ok: true; value: import('../src/core/history-plan.ts').HistoryStatus }
+    expect(restored).toMatchObject({ ok: true, value: { phase: 'recovered', currentHead: head } })
+  })
+
+  it('guards unapproved execution and unknown or unapproved recovery actions', async () => {
+    const fixture = open('clean')
+    const mounted = mount(serviceFor(fixture.dir))
+    const operationId = '00000000-0000-4000-8000-000000000000'
+    expect(await mounted.call('executeHistory', { operationId })).toMatchObject({
+      status: 200, json: { ok: false, failure: { code: 'invalid-name' } },
+    })
+    expect(await mounted.call('recoverHistory', { operationId, action: 'abort' })).toMatchObject({
+      status: 200, json: { ok: false, failure: { code: 'invalid-name' } },
+    })
+    expect(await mounted.call('recoverHistory', { operationId, action: 'restore' })).toMatchObject({
+      status: 200, json: { ok: false, failure: { code: 'invalid-name' } },
+    })
+    expect(await mounted.call('recoverHistory', { operationId, action: 'nope' })).toMatchObject({
+      status: 200, json: { ok: false, failure: { code: 'invalid-name' } },
+    })
+    expect(await mounted.call('previewHistory', { action: 'exec', commits: [] })).toMatchObject({
+      status: 200, json: { ok: false, failure: { code: 'invalid-name' } },
+    })
   })
 })
 
@@ -583,11 +837,33 @@ describe('failure envelope helper', () => {
         installedVersion: null,
       },
     })
+    // A session the host has not loaded yet is named and never degraded, so the
+    // panel retries it instead of latching the no-repository state.
+    expect(envelopeFor(new GitError({ code: 'session-not-ready', detail: 'session has no working directory' }))).toEqual({
+      ok: false,
+      failure: { code: 'session-not-ready', detail: 'session has no working directory' },
+      degraded: null,
+    })
     expect(envelopeFor(new Error('boom'))).toEqual({
       ok: false,
       failure: { code: 'git-failed', detail: 'boom' },
       degraded: null,
     })
     expect(envelopeFor('weird')).toMatchObject({ ok: false, failure: { code: 'git-failed', detail: 'weird' } })
+  })
+
+  it('keeps a history plan refusal as a named failure with the plan sentence', () => {
+    // Without this mapping the panel can only say "the request failed" while
+    // the engine knew exactly what to change.
+    expect(envelopeFor(new HistoryOperationError('dirty-checkout', 'Tracked files, the index and untracked files must all be clean; no automatic stash is performed.')))
+      .toEqual({
+        ok: false,
+        failure: { code: 'dirty-tree', detail: 'Tracked files, the index and untracked files must all be clean; no automatic stash is performed.' },
+        degraded: null,
+      })
+    for (const [reason, code] of [['hidden-index-state', 'dirty-tree'], ['active-operation', 'operation-in-progress'], ['incomplete-operation', 'operation-in-progress'], ['root-unsupported', 'invalid-name'], ['noncontiguous-selection', 'invalid-name']] as const) {
+      expect(envelopeFor(new HistoryOperationError(reason, 'detail'))).toMatchObject({ failure: { code, detail: 'detail' } })
+    }
+    expect(envelopeFor(new HistoryOperationError('unsafe-editor-path', 'detail'))).toMatchObject({ failure: { code: 'git-failed' } })
   })
 })

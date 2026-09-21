@@ -19,7 +19,7 @@ const MAX_REVISIONS = 2_010
  * target trees and the live index also cover reset/abort and conflict resolutions.
  * Paths remain byte-preserving, NUL-delimited data, never shell/pathspec arguments.
  */
-export async function findUntrackedCollision(runner: GitRunner, cwd: string, scope: CollisionScope): Promise<string | null> {
+export async function findUntrackedCollision(runner: Pick<GitRunner, 'runOk' | 'runBytesOk'>, cwd: string, scope: CollisionScope): Promise<string | null> {
   const commits = [...new Set(scope.commits)]
   const trees = [...new Set(scope.trees)]
   if (commits.length + trees.length > MAX_REVISIONS) throw new Error('Ignored-file safety check exceeds the revision limit.')

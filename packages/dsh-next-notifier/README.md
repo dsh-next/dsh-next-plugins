@@ -7,7 +7,7 @@ A DeepSeek Harness plugin that uses in-page toasts, browser notifications, and o
 ## How to use it
 
 1. Install the plugin using the command below, then open the Web GUI for that profile.
-2. Open `Settings` → `Plugins` and expand `Notifier`. Keep `Enable notifications` on and choose which categories and sounds you want.
+2. Open `Plugins`, select `Notifier`, and keep `Enable notifications` on. Choose which categories and sounds you want on its configuration page.
 3. Beside `Test in-page toast`, click `Show`. For background alerts, click `Enable` beside `Test browser notification`, allow browser permission, then click `Test`.
 4. Start a task and switch to another session or background the window. `Mute while viewing the session` is on by default, so real alerts stay quiet while you are looking at the session that triggered them.
 5. Click an alert to open its session. Dismiss a toast with its close button (also keyboard-accessible), or let it disappear after 12 seconds.
@@ -61,7 +61,7 @@ Replace `<name>` with your DSH profile, for example `web`, and open DSH using th
 
 ## Good to know
 
-- This plugin is for the DSH Web GUI; the declared DSH minimum is `0.1.1-rc.1`. Keep a page open to receive alerts.
+- This plugin is for the DSH Web GUI; the declared DSH minimum is `0.1.6-alpha.2`. Keep a page open to receive alerts.
 - Missing an alert? Check `Enable notifications`, the category switch, `Mute while viewing the session`, browser permission, and OS notification settings. Missing sound? Check `Play sound`, `Volume`, and the sound player under `Show details`.
 - Windows playback has contract-test coverage only; live Windows playback still needs verification. Browser test buttons do not guarantee OS banner presentation.
 - For local development and validation, see [CONTRIBUTING.md](https://github.com/dsh-next/dsh-next-plugins/blob/main/CONTRIBUTING.md).

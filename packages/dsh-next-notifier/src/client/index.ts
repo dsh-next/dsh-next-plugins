@@ -1,27 +1,25 @@
 /**
  * Browser-half entry for the notifier plugin — runs inside the dsh web GUI.
  *
- * Registers the "Notifier" card in the `settings.plugin.item` slot
- * (keyed by the settings namespace), wires presence reporting and the web
- * notification drainer, and reports the browser permission to the Host.
+ * Registers the Notifier configuration in the Plugins page, wires presence
+ * reporting and the web notification drainer, and reports the browser
+ * permission to the Host.
  *
  * Localization rides the platform `locale` service: the dictionaries register
  * under this package's namespace through `register` (both locales in one
  * call), `bind` returns a stable translator reading the active locale at call
- * time, and the card title the component renders re-resolves per call.
- * Without the service the card renders English unchanged
- * (`englishTranslate`). The `settings.plugin.item` registration carries no
- * label field (the slot contract's owner props are empty — the card draws its
- * own internals), so the translated title lives inside the component.
+ * time, and the Plugins-page label re-resolves per call.
+ * Without the service the page renders English unchanged
+ * (`englishTranslate`). The Plugins page owns the title and asks this plugin
+ * separately for its summary and expanded configuration body.
  */
 import * as React from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ISessions } from '@deepseek-ai/dsh-client-runtime/client'
-// Pulls the settings-plugins SlotMap merge, declaring `settings.plugin.item`
-// (keyed by the settings namespace) so `slots.register` type-checks, plus the
+// Pulls the plugin-manager SlotMap merge, declaring `plugins.item`, plus the
 // locale plugin's Context merge (typed `ctx.get('locale')`).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
+import type { PluginConfigViewProps } from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 import { NotifierCard, type Translate } from './card.tsx'
 import { showWebNotification, type WebNotificationHandle } from './drainer.ts'
 import { createPresenceReporter } from './presence.ts'
@@ -40,7 +38,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   // The frame-wide floating layer above every column, outside their scroll
   // containers. Declared at runtime by the shell's layout package
   // (@deepseek-ai/dsh-client-ui-layout, verified against the installed shell
-  // 0.1.2-rc.1); merged here so `slots.register` type-checks without pulling
+  // 0.1.6-alpha.2); merged here so `slots.register` type-checks without pulling
   // the layout package into this plugin's dependency graph. The layer itself
   // is click-through — entries opt back into pointer events.
   interface SlotMap {
@@ -100,21 +98,26 @@ export function apply(ctx: Context): void {
   const web = new Set<WebNotificationHandle>()
 
   if (slots && typeof slots.inject === 'function') {
-    // settings.plugin.item is declared by the configurable-plugins tab at boot,
-    // so the registration waits on that declaration through slots.inject.
-    slots.inject('settings.plugin.item', () => slots.register(
-      { name: 'settings.plugin.item', key: 'dsh-next-notifier', registrant: 'dsh-next-notifier' },
-      () => React.createElement(NotifierCard, {
-        rpc,
-        sessions,
-        timer,
-        t,
-        showWebNotification: (e) => {
-          const handle = showWebNotification(e, sessions, () => { if (handle) web.delete(handle) })
-          if (handle) web.add(handle)
-        },
-        enqueueTestToast: (e) => enqueueTestToast(e),
-      }),
+    // The Plugins page owns the card title and requests a summary or full page.
+    slots.inject('plugins.item', () => slots.register(
+      {
+        name: 'plugins.item', id: 'dsh-next-notifier', order: 10,
+        label: () => t('card.title'), locale: NS,
+      },
+      ({ view }: PluginConfigViewProps) => view === 'summary'
+        ? React.createElement('span', null, t('card.tagline'))
+        : React.createElement(NotifierCard, {
+          page: true,
+          rpc,
+          sessions,
+          timer,
+          t,
+          showWebNotification: (e) => {
+            const handle = showWebNotification(e, sessions, () => { if (handle) web.delete(handle) })
+            if (handle) web.add(handle)
+          },
+          enqueueTestToast: (e) => enqueueTestToast(e),
+        }),
     ))
 
     // The in-page toast layer lives in the shell's floating overlay (declared

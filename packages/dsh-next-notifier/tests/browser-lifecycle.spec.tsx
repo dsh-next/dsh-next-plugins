@@ -207,13 +207,13 @@ describe('client entrypoint effect ownership', () => {
     const clientIds: string[] = []
     for (let generation = 0; generation < 2; generation++) {
       const effects: (() => void)[] = []
-      const registered = new Map<string, () => React.ReactElement>()
+      const registered = new Map<string, (props?: { view: 'summary' | 'page' }) => React.ReactElement>()
       const slotOffs: ReturnType<typeof vi.fn>[] = []
       const unsubscribe = vi.fn()
       const unregisterLocale = vi.fn()
       const slots = {
         inject: (_name: string, setup: () => () => void) => { effects.push(setup()) },
-        register: (spec: { name: string }, factory: () => React.ReactElement) => {
+        register: (spec: { name: string }, factory: (props?: { view: 'summary' | 'page' }) => React.ReactElement) => {
           registered.set(spec.name, factory)
           const off = vi.fn(() => {
             registered.delete(spec.name)
@@ -241,7 +241,10 @@ describe('client entrypoint effect ownership', () => {
       vi.stubGlobal('fetch', fetcher)
       let overlay: Root | undefined
       apply(ctx as unknown as Context)
-      const card = registered.get('settings.plugin.item')!() as React.ReactElement<CardDeps>
+      const entry = registered.get('plugins.item')!
+      expect(entry({ view: 'summary' }).props.children).toBe(englishTranslate('card.tagline'))
+      const card = entry({ view: 'page' }) as React.ReactElement<CardDeps & { page?: boolean }>
+      expect(card.props.page).toBe(true)
       overlay = render(registered.get('shell.overlay')!())
       await flush()
       const overlayNotification = BrowserNotification.instances.at(-1)!

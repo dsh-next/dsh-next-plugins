@@ -58,6 +58,8 @@ function optimisticSnapshot(session: SettingsSession): StateSnapshot | null {
 }
 
 export interface CardDeps {
+  /** Plugin-manager page mode: render the controls expanded without nested card chrome. */
+  page?: boolean
   rpc: (method: string, args?: unknown) => Promise<unknown>
   sessions?: ISessions
   timer?: TimerLike
@@ -98,8 +100,8 @@ function platformName(value: string | null | undefined, t: Translate = englishTr
   return t('platform.none')
 }
 
-export function NotifierCard({ rpc, sessions, timer, t = englishTranslate, showWebNotification, enqueueTestToast }: CardDeps): React.ReactElement {
-  const [open, setOpen] = React.useState(false)
+export function NotifierCard({ page = false, rpc, sessions, timer, t = englishTranslate, showWebNotification, enqueueTestToast }: CardDeps): React.ReactElement {
+  const [open, setOpen] = React.useState(page)
   const [snap, setSnap] = React.useState<StateSnapshot | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [presence, setPresence] = React.useState<Record<string, unknown> | null>(null)
@@ -326,7 +328,7 @@ export function NotifierCard({ rpc, sessions, timer, t = englishTranslate, showW
 
   // The chevron is the shell's own disclosure icon (the same primitive the
   // harness PluginCard uses); the open state rotates it 180 degrees.
-  const header = React.createElement('button', {
+  const header = page ? null : React.createElement('button', {
     type: 'button', className: styles.header, 'aria-expanded': open ? 'true' : 'false',
     onClick: () => setOpen((v) => !v),
   },
@@ -390,5 +392,8 @@ export function NotifierCard({ rpc, sessions, timer, t = englishTranslate, showW
           : null))
   }
 
-  return React.createElement('li', { className: styles.card + (open ? ' ' + styles.open : '') }, header, body)
+  return React.createElement(page ? 'div' : 'li', {
+    className: styles.card + (open ? ' ' + styles.open : ''),
+    'data-testid': 'dsh-next-notifier-settings',
+  }, header, body)
 }

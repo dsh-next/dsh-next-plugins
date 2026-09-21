@@ -7,7 +7,7 @@
 ## 如何使用
 
 1. 使用下方命令安装插件，然后打开该配置档案的 Web GUI。
-2. 打开 `Settings` → `Plugins` 并展开 `Notifier`。保持 `Enable notifications` 开启，选择需要的通知类别和声音。
+2. 打开 `Plugins`，选择 `Notifier`，并保持 `Enable notifications` 开启。在其配置页面中选择需要的通知类别和声音。
 3. 点击 `Test in-page toast` 旁的 `Show`。如需后台提醒，点击 `Test browser notification` 旁的 `Enable`，允许浏览器通知权限，再点击 `Test`。
 4. 启动任务，然后切换到另一个会话或将窗口置于后台。`Mute while viewing the session` 默认开启，因此正在查看触发事件的会话时，实际提醒会保持静默。
 5. 点击提醒打开对应会话。使用关闭按钮（也支持键盘操作）关闭弹窗，或等待它在 12 秒后自动消失。
@@ -61,7 +61,7 @@ dsh plugin --profile <name> add @dsh-next/dsh-next-notifier
 
 ## 须知
 
-- 此插件面向 DSH Web GUI；声明的最低 DSH 版本为 `0.1.1-rc.1`。请保持页面打开以接收提醒。
+- 此插件面向 DSH Web GUI；声明的最低 DSH 版本为 `0.1.6-alpha.2`。请保持页面打开以接收提醒。
 - 未收到提醒？请检查 `Enable notifications`、类别开关、`Mute while viewing the session`、浏览器权限和操作系统通知设置。没有声音？请检查 `Play sound`、`Volume` 以及 `Show details` 下的声音播放器。
 - Windows 播放仅有契约测试覆盖；实际 Windows 播放仍需验证。浏览器测试按钮不能保证操作系统显示横幅。
 - 本地开发和验证请参阅 [CONTRIBUTING.md](https://github.com/dsh-next/dsh-next-plugins/blob/main/CONTRIBUTING.md)。

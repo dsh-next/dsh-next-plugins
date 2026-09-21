@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test'
+import { type Page } from '@playwright/test'
+import { expect, test } from './browser-fixture.ts'
 import { unblankCurrentSession } from './git-helpers.ts'
 
 /** Real packed-plugin smoke for settings, client identity, RPC safety and keyboard dismissal. */
@@ -25,11 +26,11 @@ export async function verifyNotifier(page: Page, openCard: (page: Page) => Promi
     await expect.poll(async () => (await rpc('getState')).config.volume).toBe(0)
     await expect(slider).toHaveValue('0')
     await slider.evaluate(el => el.blur())
-    const card = slider.locator('xpath=ancestor::li[1]')
+    const card = page.getByTestId('dsh-next-notifier-settings')
     await card.evaluate(el => el.scrollIntoView({ block: 'start' }))
     const bounds = await card.boundingBox()
     if (!bounds) throw new Error('Notifier card has no bounds')
-    const screenshot = await page.screenshot({ path: 'test-results/notifier-settings.png', clip: { x: bounds.x, y: Math.max(0, bounds.y), width: bounds.width, height: 390 } })
+    const screenshot = await page.screenshot({ path: test.info().outputPath('notifier-settings.png'), clip: { x: bounds.x, y: Math.max(0, bounds.y), width: bounds.width, height: 390 } })
     await test.info().attach('notifier-settings', { body: screenshot, contentType: 'image/png' })
 
     const malformed = await page.request.post(endpoint, { data: 'null', headers: { 'content-type': 'application/json' } })
@@ -57,7 +58,12 @@ export async function verifyNotifier(page: Page, openCard: (page: Page) => Promi
     const toast = page.getByTestId('dsh-next-notifier-toast').first()
     await expect(toast).toBeVisible()
     await expect(toast).toContainText('Test toast')
-    await page.getByRole('dialog', { name: 'Settings' }).getByRole('button', { name: 'Close' }).click({ force: true })
+    const settings = page.getByRole('dialog', { name: 'Settings' })
+    if (await settings.isVisible().catch(() => false)) {
+      await settings.getByRole('button', { name: 'Close' }).click({ force: true })
+    } else {
+      await page.getByRole('button', { name: 'Back to plugins' }).click()
+    }
     const close = page.getByTestId('dsh-next-notifier-toast-close').first()
     await close.focus()
     await close.press('Enter')
@@ -85,7 +91,7 @@ export function registerNotifierTurnTest(baseUrl: string, plugins: string[], pre
       await unblankCurrentSession(page, 'Notifier verification without model credentials.')
       const toast = page.getByTestId('dsh-next-notifier-toast').first()
       await expect(toast).toContainText('Agent error', { timeout: 90000 })
-      await toast.screenshot({ path: 'test-results/notifier-error-toast.png' })
+      await toast.screenshot({ path: test.info().outputPath('notifier-error-toast.png') })
       await page.getByTestId('dsh-next-notifier-toast-close').first().click()
     } finally { await rpc('setConfig', original) }
   })

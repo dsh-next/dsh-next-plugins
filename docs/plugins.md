@@ -74,18 +74,26 @@ merging, prove both:
 The **end-to-end mount smoke** lives in the root `tests/e2e/mount.e2e.ts` and is
 driven by `pnpm run test:e2e -- smoke` (`mise run e2e -- smoke`). It packs
 checkout plugins, mounts them into a real scratch DSH profile, and asserts
-the browser renders with no crash markers. The default `test:e2e` command
-also runs detailed checkpoint and worktree-sidebar suites, each in a separate
-fresh runtime. Keyless uses fake credentials, not an offline-network guarantee.
+the browser renders with no crash markers. This suite checks client composition
+and short UI mounts only. Detailed plugin interactions live in separate named
+suites, each with a fresh runtime and its own prerequisites; the default
+`test:e2e` command still runs all of them. The suite inventory and focused
+commands live in [CONTRIBUTING.md](../CONTRIBUTING.md#canonical-checks).
+Keyless uses fake credentials, not an offline-network guarantee.
 This lane catches frozen-module-table mismatches and `cordis.patch.yml`
 registration errors that unit tests cannot.
 
 **Per-plugin DOM markers** in `tests/e2e/mount.e2e.ts` are the layer that
 catches "mounts without crashing but renders nothing" — the crash-marker check
 cannot see a silent payload-shape mismatch. When a plugin ships UI, register a
-marker (keyed by the bare slug) that drives to the UI and asserts real behavior
-(e.g. open the settings card and assert its body renders). Handle the initial
-onboarding dialogs with `dismissOnboarding()` before driving the sidebar.
+marker (keyed by the bare slug) that opens the UI and requires its body to
+render. Client bundles without visible UI need an explicit non-UI reason;
+an unknown client or an empty roster fails the smoke. Put mutations and longer
+behavior checks in the owning plugin suite instead of extending the family
+marker. Handle onboarding with `dismissOnboarding()` before driving the sidebar.
+Extracted suites use the shared browser fixture so page errors and plugin
+console errors are checked even when an interaction fails. Do not use the
+family smoke's state as another test's setup.
 
 The lane provides two fixtures every marker may use:
 

@@ -26,6 +26,7 @@ gui-test-screenshots/
 *.tgz
 playwright-report/
 test-results/
+.playwright-mcp/
 docs/screenshots/
 
 # Local artifacts and GUI design session drafts

@@ -6,9 +6,8 @@ export default defineConfig({
   // picks up *.spec.ts / *.test.ts, so name the e2e extension explicitly or
   // the lane silently discovers zero files.
   testMatch: /.*\.e2e\.ts/,
-  // One test drives every plugin marker; the cc-plugins marker walks several
-  // install/refresh flows through the real GUI, which needs well over the
-  // 30s default.
+  // Detailed plugin suites exercise real install/mutation flows. The family
+  // smoke contains only composition and short, separate UI mount tests.
   timeout: 300_000,
   // Each spec group owns a fresh runtime; tests within it share fixtures.
   // Parallel workers would race sessions and workspace mutations.

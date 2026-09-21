@@ -14,9 +14,15 @@ export const testedDshVersion = workflowConfig.dshVersion
 const GROUPS = {
   smoke: { name: 'smoke', spec: 'tests/e2e/mount.e2e.ts', plugins: 'all', fixtures: true },
   checkpoints: { name: 'checkpoints', spec: 'tests/e2e/checkpoints.e2e.ts', plugins: ['checkpoints'], fixtures: false },
+  git: { name: 'git', spec: 'tests/e2e/git.e2e.ts', plugins: ['git'], fixtures: false },
+  skills: { name: 'skills', spec: 'tests/e2e/skills.e2e.ts', plugins: ['skills'], fixtures: true },
+  'cc-plugins': { name: 'cc-plugins', spec: 'tests/e2e/cc-plugins.e2e.ts', plugins: ['cc-plugins'], fixtures: false },
+  notifier: { name: 'notifier', spec: 'tests/e2e/notifier.e2e.ts', plugins: ['notifier'], fixtures: false },
+  'oauth-providers': { name: 'oauth-providers', spec: 'tests/e2e/oauth-providers.e2e.ts', plugins: ['oauth-providers'], fixtures: false },
+  reset: { name: 'reset', spec: 'tests/e2e/reset.e2e.ts', plugins: ['reset'], fixtures: false },
 }
 const LIVE_CHECKPOINTS = { name: 'checkpoints-live', spec: 'tests/e2e/checkpoints-chat.e2e.ts', plugins: ['checkpoints'], fixtures: false }
-const LEGACY_SPECS = { 'tests/e2e': 'all', 'tests/e2e/mount.e2e.ts': 'smoke', 'tests/e2e/checkpoints.e2e.ts': 'checkpoints', 'tests/e2e/checkpoints-chat.e2e.ts': 'checkpoints' }
+const LEGACY_SPECS = { 'tests/e2e': 'all', ...Object.fromEntries(Object.values(GROUPS).map(suite => [suite.spec, suite.name])), [LIVE_CHECKPOINTS.spec]: 'checkpoints' }
 
 export function selectSuites(selector, live = false) {
   if (live) {
@@ -24,7 +30,7 @@ export function selectSuites(selector, live = false) {
     return [LIVE_CHECKPOINTS]
   }
   if (selector === 'all') return Object.values(GROUPS)
-  if (!Object.hasOwn(GROUPS, selector)) throw new Error('Unknown E2E group; choose all, smoke, or checkpoints')
+  if (!Object.hasOwn(GROUPS, selector)) throw new Error('Unknown E2E group; choose all, ' + Object.keys(GROUPS).join(', '))
   return [GROUPS[selector]]
 }
 
@@ -226,7 +232,7 @@ async function runDev(options, artifacts, dir, credentials, deps, safeEnv, signa
 export async function main(argv = process.argv.slice(2), env = process.env) {
   const options = parseOptions(argv, env)
   if (options.help) {
-    console.log('Usage: workflow.mjs e2e [all|smoke|checkpoints] | live [checkpoints] | dev <slug> | doctor\nOptions: --live --env-file PATH --dsh PATH --scratch-base PATH --artifact-dir PATH --keep never|failure|always --retries N --port N --dry-run\nDev only: --profile NAME --open --scratch (always isolated). No command modifies or restarts an existing profile.')
+    console.log('Usage: workflow.mjs e2e [all|' + Object.keys(GROUPS).join('|') + '] | live [checkpoints] | dev <slug> | doctor\nOptions: --live --env-file PATH --dsh PATH --scratch-base PATH --artifact-dir PATH --keep never|failure|always --retries N --port N --dry-run\nDev only: --profile NAME --open --scratch (always isolated). No command modifies or restarts an existing profile.')
     return 0
   }
   const controller = new AbortController()

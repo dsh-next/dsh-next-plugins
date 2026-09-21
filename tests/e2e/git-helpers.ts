@@ -46,6 +46,20 @@ export function commitFile(cwd: string, relative: string, contents: string, mess
   git(cwd, ['commit', '-q', '-m', message])
 }
 
+/** The right-sidebar expand click can precede the guide's mount; retry until the seat is ready. */
+export async function openGitPanel(page: Page): Promise<void> {
+  const expand = page.getByRole('button', { name: /Open right sidebar/i }).first()
+  const capsule = page.getByRole('button', { name: /Source control/ }).first()
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    if (await capsule.isVisible().catch(() => false)) break
+    if (await expand.count() > 0) await expand.click({ force: true }).catch(() => {})
+    await page.waitForTimeout(600)
+  }
+  await expect(capsule).toBeVisible({ timeout: 25_000 })
+  await capsule.click({ force: true })
+  await expect(page.locator('[data-dsh-git="panel"]')).toBeVisible({ timeout: 20_000 })
+}
+
 export async function unblankCurrentSession(page: Page, text: string): Promise<void> {
   const composer = page.locator('[contenteditable="true"]').first()
   await composer.click({ timeout: 15_000 })

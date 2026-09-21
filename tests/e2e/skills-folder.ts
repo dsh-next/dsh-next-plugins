@@ -25,7 +25,9 @@ export async function verifySkillFolderOpener(page: Page, directory: string): Pr
     const vscode = page.getByRole('menuitem', { name: 'VS Code', exact: true })
     await expect(vscode).toBeVisible()
     await expect(page.getByRole('menuitem', { name: 'Finder', exact: true })).toBeFocused()
-    await page.keyboard.press('Tab')
+    // Menu follows the ARIA keyboard model: arrows move between choices;
+    // Tab accepts the focused choice and returns to the anchor.
+    await page.keyboard.press('ArrowDown')
     await expect(vscode).toBeFocused()
     await page.keyboard.press('Escape')
     await expect(page.getByRole('menu')).toHaveCount(0)
@@ -38,7 +40,7 @@ export async function verifySkillFolderOpener(page: Page, directory: string): Pr
     await detail.getByTestId('skills-open-folder-menu').focus()
     await page.keyboard.press('Space')
     await expect(page.getByRole('menuitem', { name: 'Finder', exact: true })).toBeFocused()
-    await page.keyboard.press('Tab')
+    await page.keyboard.press('ArrowDown')
     await expect(vscode).toBeFocused()
     await page.keyboard.press('Enter')
     await expect.poll(() => launches).toEqual([{ app: 'vscode', path: directory }])

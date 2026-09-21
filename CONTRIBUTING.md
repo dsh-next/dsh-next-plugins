@@ -61,9 +61,31 @@ mise run check
 mise run e2e
 # Focused browser suites (not a substitute for the full pre-push gate):
 mise run e2e -- smoke
-mise run e2e -- checkpoints
-mise run e2e -- worktrees-sidebar
+mise run e2e -- git
+mise run e2e -- skills
 ```
+
+The family `smoke` suite checks packed client composition and opens each UI
+surface; it does not run the detailed install, Git mutation, or reset flows.
+Run those independently with a named suite:
+
+| Suite | Behavior |
+| --- | --- |
+| `smoke` | All client bundles and short UI mount checks; explicit non-UI exemptions |
+| `git` | History dialogs, staging/commit, worktree creation, conflict recovery |
+| `skills` | Source selection, search, install/delete, folder UI, native catalog refresh |
+| `cc-plugins` | Marketplace, install/uninstall, dependencies, scopes, model aliases |
+| `notifier` | Settings, client identity, keyboard dismissal, failed-turn notification |
+| `oauth-providers` | Provider/model editing, validation, persistence, deletion |
+| `reset` | Session replacement and old-session archival |
+| `checkpoints` | Capture, inspect, preview, rewind, and RPC errors |
+
+Use `pnpm run test:e2e -- <suite>` or `mise run e2e -- <suite>`.
+The default (`all`) still runs every keyless suite, packing the combined
+plugin dependency closure once. A focused suite installs only its required
+closure; no scenario relies on the family smoke running first. In particular,
+Skills tests restore their seed through RPC and the catalog test creates its own
+session. Browser error guards also cover the extracted plugin scenarios.
 
 Each suite attempt owns a fresh DSH home, agents root, workspaces, and server;
 Playwright runs with one worker and no in-process retries. The workflow owns

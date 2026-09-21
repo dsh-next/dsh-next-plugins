@@ -33,8 +33,8 @@ mise run doctor
 mise run e2e
 # Focused iteration; still run all suites before merging:
 mise run e2e -- smoke
-mise run e2e -- checkpoints
-mise run e2e -- worktrees-sidebar
+mise run e2e -- git
+mise run e2e -- skills
 ```
 
 The workflow builds and packs checkout tarballs, validates the profile, and owns
@@ -45,9 +45,13 @@ marketplace traffic can reach the network. Playwright workers remain one;
 whole-suite `--retries N` are owned by the workflow, with a fresh runtime per
 retry and zero retries by default.
 
-A UI plugin needs a named DOM marker in `tests/e2e/mount.e2e.ts` that drives
-real behavior and requires its tab/panel, not a conditional check that passes
-when UI is absent. Guards check page errors, plugin console errors, and crash
+The family smoke only checks composition and short UI mounts. Run detailed
+plugin behavior independently with the named suites in CONTRIBUTING.md; each
+owns its prerequisites and must not rely on a previous family marker.
+A UI plugin needs a named DOM marker in `tests/e2e/mount.e2e.ts` that requires
+its tab/panel, not a conditional check that passes when UI is absent. A
+non-UI client needs an explicit exemption reason. Keep install/mutation flows
+in the owning plugin suite and use the shared browser error-guard fixture. Guards check page errors, plugin console errors, and crash
 strips after interactions. Do not weaken these guards to hide failures.
 Fixtures expose canonical `DSH_E2E_WORKSPACE_A/B` paths; never hardcode machine
 paths. Registry seeding is only safe while the owned scratch runtime is stopped;

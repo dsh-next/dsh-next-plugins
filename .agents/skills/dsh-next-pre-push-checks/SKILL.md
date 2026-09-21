@@ -18,8 +18,10 @@ docs, i18n), then `pnpm run test:e2e` (all keyless browser suites).
 `pnpm run test:unit` runs only package tests.
 
 For static-only iteration, use `mise run check`. For focused browser work,
-use `mise run e2e -- smoke`, `checkpoints`, or `worktrees-sidebar`,
-but do not substitute focused coverage for the full pre-push gate.
+use `mise run e2e -- <suite>` with the suite inventory in CONTRIBUTING.md.
+The family `smoke` only checks composition and UI mounts; detailed plugin
+scenarios have their own suites. Do not substitute focused coverage for the
+full pre-push gate.
 
 Install the pinned DSH CLI and Chromium and run `mise run doctor` as described
 in CONTRIBUTING.md. E2E owns a fresh runtime per suite attempt; it never

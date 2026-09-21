@@ -38,7 +38,7 @@ profile。
 
 ## 使用前须知
 
-- 需要 DeepSeek Harness **0.1.2-rc.1** 或更新版本，以及 **Web UI**。
+- 需要 DeepSeek Harness **0.1.6-alpha.2** 或更新版本，以及 **Web UI**。
   ACP 和无头会话会报错，而不会造出一个无人打开的空白会话。
 - 命令是 `/reset`，不是 `/clear`。将来核心如果提供 `/clear`，含义会是
   “在本日志里忘记”，本插件不做那件事。

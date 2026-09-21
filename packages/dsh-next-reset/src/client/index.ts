@@ -1,7 +1,7 @@
 /**
  * Browser-half entry for the reset plugin — runs inside the dsh web GUI.
  *
- * No visible UI. Watches the current session event window and, on a live
+ * No visible UI. Watches live session event windows and, on a
  * `reset/handoff`, opens the new session then archives the old one.
  */
 import type { Context } from '@deepseek-ai/cordis'
@@ -11,7 +11,7 @@ import {
   type WorkspacesLike,
 } from './handoff.ts'
 
-export const inject = ['sessions', 'workspaces'] as const
+export const inject = ['sessions', 'workspaces', 'uiWorkspace'] as const
 
 /** The workspace-navigation face that shows an existing session. */
 interface UiWorkspaceLike {

@@ -33,7 +33,7 @@ function makeSource(): EventSourceLike & {
  * separate port on purpose: the live session service has no `open`, so the
  * switch never assumes one.
  */
-function makeSessions(source: EventSourceLike, current = 'old'): {
+function makeSessions(source: EventSourceLike, current = 'old', modern = false): {
   sessions: SessionsLike
   opened: string[]
   navigate: NavigatePort
@@ -41,9 +41,10 @@ function makeSessions(source: EventSourceLike, current = 'old'): {
   const listListeners = new Set<() => void>()
   const opened: string[] = []
   let currentId: string | undefined = current
+  const ids = ['old']
   const sessions: SessionsLike = {
     list: {
-      getSnapshot: () => ({ current: currentId }),
+      getSnapshot: () => modern ? { ids } : { current: currentId },
       subscribe: (listener) => {
         listListeners.add(listener)
         return () => { listListeners.delete(listener) }
@@ -54,6 +55,7 @@ function makeSessions(source: EventSourceLike, current = 'old'): {
   const navigate: NavigatePort = vi.fn((id: string) => {
     opened.push(id)
     currentId = id
+    if (!ids.includes(id)) ids.push(id)
     for (const listener of listListeners) listener()
     return true
   })
@@ -84,6 +86,22 @@ describe('watchResetHandoff', () => {
       expect(workspaces.archiveSession).toHaveBeenCalledWith('old')
     })
     expect(navigate).toHaveBeenCalledWith('next')
+    dispose()
+  })
+
+  it('observes live bindings when the current client catalog has no selection field', async () => {
+    const source = makeSource()
+    const { sessions, opened, navigate } = makeSessions(source, 'old', true)
+    const workspaces = makeWorkspaces()
+    const dispose = watchResetHandoff(sessions, workspaces, navigate)
+    source.emit({
+      kind: 'append',
+      entries: [{ type: 'event', event: { type: RESET_HANDOFF, data: { nextSessionId: 'next' } } }],
+    })
+    await vi.waitFor(() => {
+      expect(opened).toEqual(['next'])
+      expect(workspaces.archiveSession).toHaveBeenCalledWith('old')
+    })
     dispose()
   })
 

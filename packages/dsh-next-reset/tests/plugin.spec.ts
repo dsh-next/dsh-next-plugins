@@ -45,8 +45,8 @@ describe('reset host plugin', () => {
 })
 
 describe('reset client plugin', () => {
-  it('declares sessions and workspaces injects', () => {
-    expect(client.inject).toEqual(['sessions', 'workspaces'])
+  it('requires the workspace navigation used by the handoff', () => {
+    expect(client.inject).toEqual(['sessions', 'workspaces', 'uiWorkspace'])
   })
 
   it('is a no-op without sessions or workspaces', () => {

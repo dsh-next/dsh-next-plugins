@@ -41,7 +41,7 @@ adding the plugin.
 
 ## Good to know
 
-- Requires DeepSeek Harness **0.1.2-rc.1** or newer and the **web UI**.
+- Requires DeepSeek Harness **0.1.6-alpha.2** or newer and the **web UI**.
   ACP and headless sessions get an error instead of minting an orphan
   blank.
 - The command is `/reset`, not `/clear`. A future core `/clear` would

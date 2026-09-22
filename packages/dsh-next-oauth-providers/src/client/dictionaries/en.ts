@@ -96,6 +96,7 @@ export const en = {
   'error.unsupported': 'This sign-in is not available in the current environment.',
   'error.store': 'The credential could not be stored.',
   'error.unknown': 'Sign-in failed. Try again.',
+  'error.transport': 'The subscription service is not running. Restart DeepSeek Harness and reload this page.',
 
   'a11y.section': 'Subscription providers',
 }

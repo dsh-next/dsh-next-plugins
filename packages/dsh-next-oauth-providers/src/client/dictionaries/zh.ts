@@ -94,6 +94,7 @@ export const zh: Record<MessageKey, string> = {
   'error.unsupported': '当前环境无法进行此登录。',
   'error.store': '无法存储凭据。',
   'error.unknown': '登录失败。请重试。',
+  'error.transport': '订阅服务未运行。请重启 DeepSeek Harness 并重新加载此页面。',
 
   'a11y.section': '订阅提供方',
 }

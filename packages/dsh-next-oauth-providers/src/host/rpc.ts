@@ -67,7 +67,18 @@ export function registerRpc(ctx: Context, service: SubscriptionsService): void {
   const webServer = ctx.get('webServer')
   if (webServer === undefined || typeof webServer.register !== 'function') return
   const handlers = createHandlers(service)
-  const off = webServer.register({
+  let off: () => void
+  try {
+    off = registerRoute(webServer, handlers)
+  } catch (error) {
+    ctx.logger.warn(`dsh-next-oauth-providers: RPC route unavailable: ${error instanceof Error ? error.message : String(error)}`)
+    return
+  }
+  ctx.effect(() => off)
+}
+
+function registerRoute(webServer: { register(route: unknown): () => void }, handlers: Record<string, Handler>): () => void {
+  return webServer.register({
     kind: 'exact',
     path: RPC_PATH,
     handler: (req: IncomingMessage, res: ServerResponse) => {
@@ -134,5 +145,4 @@ export function registerRpc(ctx: Context, service: SubscriptionsService): void {
       })
     },
   })
-  ctx.effect(() => off)
 }

@@ -7,7 +7,7 @@ import type { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { describe, expect, it, vi } from 'vitest'
 import { apply } from '../src/client/index.ts'
 import { en, NS, zh } from '../src/client/dictionaries.ts'
-import type { SubscriptionsFooterProps } from '../src/client/SubscriptionsFooter.tsx'
+import type { AddSubscriptionProps } from '../src/client/AddSubscription.tsx'
 
 const require = createRequire(import.meta.url)
 
@@ -24,13 +24,16 @@ function localeRuntime(): LocaleRuntime {
 }
 
 describe('browser plugin SDK contract', () => {
-  it('registers both dictionaries with the SDK receiver, translates Chinese and disposes its namespace', () => {
+  it('registers both dictionaries and both Models seats, translates Chinese and disposes its namespace', () => {
     const locale = localeRuntime()
     const effects: (() => void)[] = []
-    let render!: () => React.ReactElement<SubscriptionsFooterProps>
+    const components: Array<(props?: unknown) => React.ReactElement<AddSubscriptionProps>> = []
     const slots = {
       inject: vi.fn((_name: string, setup: () => void) => setup()),
-      register: vi.fn((_options: unknown, component: typeof render) => { render = component; return () => {} }),
+      register: vi.fn((_options: unknown, component: (props?: unknown) => React.ReactElement<AddSubscriptionProps>) => {
+        components.push(component)
+        return () => {}
+      }),
     }
     const ctx = {
       get: (name: string) => name === 'locale' ? locale : name === 'slots' ? slots : undefined,
@@ -40,8 +43,22 @@ describe('browser plugin SDK contract', () => {
     expect(locale.bind(NS)('title')).toBe(en.title)
     locale.setLocale('zh')
     expect(locale.bind(NS)('title')).toBe(zh.title)
-    expect(render().props.t?.('title')).toBe(zh.title)
+    expect(components).toHaveLength(2)
+    expect(components[0]!().props.t?.('title')).toBe(zh.title)
     expect(slots.inject).toHaveBeenCalledWith('settings.models.footer', expect.any(Function))
+    expect(slots.inject).toHaveBeenCalledWith('settings.models.provider-card', expect.any(Function))
+    expect(slots.register).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'settings.models.footer', id: 'dsh-next-oauth-providers-add' }),
+      expect.any(Function),
+    )
+    expect(slots.register).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'settings.models.provider-card',
+        id: 'dsh-next-oauth-providers-card',
+        key: 'dsh-next-oauth-providers',
+      }),
+      expect.any(Function),
+    )
     for (const dispose of effects) dispose()
     expect(locale.bind(NS)('title')).toBe('title')
     apply(ctx)

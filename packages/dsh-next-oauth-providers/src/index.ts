@@ -22,7 +22,7 @@ import type {
 } from '@deepseek-ai/dsh-llm'
 import { FAMILIES } from './core/catalog.ts'
 import { pluginConfigSchema, SETTINGS_NS, type PluginConfigShape } from './core/schema.ts'
-import type { PluginConfig } from './core/settings.ts'
+import { normalizeConfig, type PluginConfig } from './core/settings.ts'
 import { AliasLlmAdapter } from './host/adapter.ts'
 import { credentialStoreFrom, denyAmbientAuthContext } from './host/credentials.ts'
 import { registerRpc } from './host/rpc.ts'
@@ -30,12 +30,18 @@ import { SubscriptionsService, type ConfigScopeFace } from './host/service.ts'
 
 export const name = 'dsh-next-oauth-providers'
 
-export const inject = ['webServer', 'llm', 'credentials'] as const
+export const inject = ['webServer', 'llm', 'credentials', 'settings'] as const
 
 /** The Loader reads the exported schema to build this plugin's settings form. */
 export const Config = pluginConfigSchema
 
 export type { PluginConfigShape }
+
+/** Bound on waiting for a config write to reach the live fiber (100 x 20ms). */
+const PUBLISH_ATTEMPTS = 100
+
+/** Interval between publish checks while a config write settles. */
+const PUBLISH_INTERVAL_MS = 20
 
 /** The volatile section this plugin reads and writes. */
 interface ProvidersRef {
@@ -56,6 +62,11 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {}
 }
 
+/** The settings service's describe face, host side (no redaction). */
+interface SettingsDescribeFace {
+  describe(options?: { redactSecrets?: boolean }): Array<{ ns: string; revision: number; value?: unknown }>
+}
+
 export function apply(ctx: Context, config?: PluginConfigShape): void {
   const credentials = ctx.get('credentials')
   if (credentials === undefined) {
@@ -67,21 +78,57 @@ export function apply(ctx: Context, config?: PluginConfigShape): void {
   const entry = (ctx as unknown as { fiber?: { entry?: unknown } }).fiber?.entry
   const entryId = (entry as { options?: { id?: string } } | undefined)?.options?.id ?? SETTINGS_NS
   const editor = ctx.get('configEditor') as ConfigEditorFace | undefined
+  const settings = ctx.get('settings') as SettingsDescribeFace | undefined
 
   const store = credentialStoreFrom(credentials)
   const auth = { credentials: store, authContext: denyAmbientAuthContext() }
+
+  /**
+   * The section to read. The settings service projects the *live* fiber's
+   * config, which is what a `configEditor` write publishes; the resolved
+   * volatile reference the plugin was handed can lag that commit, so it is
+   * only a fallback.
+   */
+  const readProviders = (): unknown => {
+    try {
+      const descriptor = settings?.describe?.().find((row) => row.ns === entryId)
+      const value = descriptor?.value
+      if (value !== null && value !== undefined && typeof value === 'object' && 'providers' in value) {
+        return (value as { providers: unknown }).providers
+      }
+    } catch {
+      // A settings surface that cannot describe falls through to the fiber config.
+    }
+    const live = (entry as { options?: { config?: { providers?: unknown } } } | undefined)?.options?.config?.providers
+    return live !== undefined ? live : providersRef.get()
+  }
+
+  /**
+   * Wait for the write to reach the live fiber. The profile's own patch reload
+   * publishes a `configEditor` write, so the running section can trail the
+   * edit; answering an RPC before it lands would report the previous profile.
+   */
+  const awaitPublished = async (providers: unknown): Promise<void> => {
+    const expected = JSON.stringify(normalizeConfig({ providers }))
+    for (let attempt = 0; attempt < PUBLISH_ATTEMPTS; attempt += 1) {
+      const live = (entry as { options?: { config?: { providers?: unknown } } } | undefined)?.options?.config?.providers
+      if (JSON.stringify(normalizeConfig({ providers: live })) === expected) return
+      await new Promise<void>((resolve) => { setTimeout(resolve, PUBLISH_INTERVAL_MS) })
+    }
+  }
 
   /** Persist the next provider section through the native profile patch. */
   const write = async (providers: unknown): Promise<void> => {
     if (editor === undefined || entry === undefined) return
     await editor.edit(entry, (current) => ({ ...current, providers }))
+    await awaitPublished(providers)
   }
 
   const scope: ConfigScopeFace = {
-    get: () => ({ providers: providersRef.get() }),
+    get: () => ({ providers: readProviders() }),
     update: async (patch) => {
       const next = asRecord(patch)
-      const providers = 'providers' in next ? next.providers : providersRef.get()
+      const providers = 'providers' in next ? next.providers : readProviders()
       await write(providers)
     },
     replace: async (section) => {

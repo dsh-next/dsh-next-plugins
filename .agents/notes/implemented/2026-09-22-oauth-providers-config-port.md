@@ -34,7 +34,16 @@ suite drives add, sign-in, catalog editing, Apply, restore-defaults, and delete,
 asserts the config row in the profile's `cordis.patch.yml`, and asserts the
 native `Edit Grok (xai-oauth)` row appears and disappears with it.
 
-Still open: the plugin's own footer still renders the full list next to the new
-native rows instead of shrinking to the Add entry, and the notifier and skills
-plugins still call the removed API — see
-[the port note](../proposed/2026-09-22-port-plugins-to-dsh-017-config-model.md).
+The client followed in the same change: the `settings.models.footer` seat now
+renders only the Add entry, and a new `settings.models.provider-card` seat keyed
+by the plugin's entry id renders the connection status, Sign out, and the
+catalog editor inside the native card. The seats refresh on the forwarded
+`settings/document-updated` event, and Apply always states the intended catalog
+explicitly, because a card that mounted before a write landed must not decide
+the write from a stale row.
+
+Two platform details this port had to absorb: the native page resolves each
+directory entry's `providers.<nativeId>` address through the plugin schema, so
+that field declares its real dict/list shapes instead of `any`; and the native
+card needs `Sign out` on its own surface, because the stock Delete removes the
+configuration while credentials are owned elsewhere.

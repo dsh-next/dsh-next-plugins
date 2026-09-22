@@ -64,8 +64,11 @@ export function ProviderEditor(props: ProviderEditorProps): React.ReactElement {
     setFailure(undefined)
     try {
       await api.addProvider(props.family.family)
+      // Apply always states the intended catalog: an explicit list replaces it,
+      // and anything else stores no override. Deciding from the row's stored
+      // flag would silently keep a catalog the card did not show.
       if (overridden && models.length > 0) await api.setModels(props.family.alias, models)
-      else if (overridden || props.provider?.modelsOverridden === true) await api.restoreModels(props.family.alias)
+      else await api.restoreModels(props.family.alias)
       props.onClose(true)
     } catch (error) {
       setFailure(error instanceof ClientRpcError ? t(`error.${error.code}` as MessageKey, error.params) : t('error.unknown'))

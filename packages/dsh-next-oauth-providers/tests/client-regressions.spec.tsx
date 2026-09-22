@@ -1,9 +1,15 @@
+/**
+ * Client regressions: model-editor buffer identity, restore-defaults, and
+ * login-action ownership. The editor lives in the native provider card now, and
+ * the Add draft lives in the Models footer seat.
+ */
 import * as React from 'react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { Simulate } from 'react-dom/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { SubscriptionsFooter } from '../src/client/SubscriptionsFooter.tsx'
+import { AddSubscription } from '../src/client/AddSubscription.tsx'
+import { SubscriptionCard } from '../src/client/SubscriptionCard.tsx'
 import { ClientRpcError } from '../src/client/api.ts'
 import type { AttemptView, PluginState } from '../src/core/types.ts'
 
@@ -50,25 +56,46 @@ async function click(selector: string): Promise<void> {
 async function change(selector: string, value: string): Promise<void> {
   await act(async () => Simulate.change(element(selector), { target: { value } } as never))
 }
+
+/** Render the native provider card for the seeded Kimi row. */
 async function render(rpc: (method: string, args?: unknown) => Promise<unknown>): Promise<void> {
-  await act(async () => root!.render(<SubscriptionsFooter rpc={rpc} />))
+  await act(async () => {
+    root!.render(
+      <SubscriptionCard
+        provider={{
+          provider: 'kimi-coding-oauth',
+          displayName: 'Kimi Code',
+          settingsNs: 'dsh-next-oauth-providers',
+          settingsPath: ['providers', 'kimi-coding'],
+          active: true,
+        }}
+        configured
+        keyConfigured
+        rpc={rpc}
+        t={(key) => key}
+      />,
+    )
+  })
 }
+
+/** Render the footer Add seat and start a Kimi sign-in. */
+async function openLogin(rpc: (method: string, args?: unknown) => Promise<unknown>): Promise<void> {
+  await act(async () => { root!.render(<AddSubscription rpc={rpc} t={(key) => key} />) })
+  await click('[data-testid="oauth-add-provider"]')
+  await click('[data-testid="oauth-sign-in"]')
+}
+
 function stateRpc(state: PluginState = connected) {
   return vi.fn(async (_method: string, _args?: unknown) => state)
 }
-async function openEditor(): Promise<void> {
-  await click('[aria-label="Edit Kimi Code"]')
-}
-async function openLogin(rpc: (method: string, args?: unknown) => Promise<unknown>): Promise<void> {
-  await render(rpc)
-  await click('[data-testid="oauth-add-provider"]')
-  await click('[data-testid="oauth-sign-in"]')
+async function openModels(): Promise<void> {
+  await click('summary')
 }
 
 describe('model editor regressions', () => {
   it('retains the same focused input throughout multi-character ID editing', async () => {
     await render(stateRpc())
-    await openEditor()
+    await openModels()
     const input = element<HTMLInputElement>('[aria-label="Model ID 1"]')
     input.focus()
     for (const value of ['m', 'mo', 'model']) {
@@ -81,7 +108,7 @@ describe('model editor regressions', () => {
   it('preserves the surviving row capacity buffer and identity when deleting an earlier row', async () => {
     const rpc = stateRpc()
     await render(rpc)
-    await openEditor()
+    await openModels()
     await click('[aria-label="Capacities 1"]')
     await click('[aria-label="Capacities 2"]')
     await change('[aria-label="Context window 1"]', '130k')
@@ -99,7 +126,7 @@ describe('model editor regressions', () => {
   it('clears invalid and edited capacity text when restoring defaults', async () => {
     const rpc = stateRpc()
     await render(rpc)
-    await openEditor()
+    await openModels()
     await click('[aria-label="Capacities 1"]')
     await change('[aria-label="Context window 1"]', 'invalid')
     expect(element<HTMLButtonElement>('[data-testid="oauth-apply"]').disabled).toBe(true)
@@ -115,19 +142,6 @@ describe('model editor regressions', () => {
     expect(rpc).toHaveBeenCalledWith('setModels', expect.objectContaining({
       models: expect.arrayContaining([expect.objectContaining({ id: 'first', contextWindow: 129_000 })]),
     }))
-  })
-
-  it('does not carry a customized Add-provider draft into another family', async () => {
-    const rpc = stateRpc(empty)
-    await render(rpc)
-    await click('[data-testid="oauth-add-provider"]')
-    await click('[data-testid="oauth-add-model"]')
-    await change('[aria-label="Model ID 1"]', 'kimi-only')
-    await change('[data-testid="oauth-provider-select"]', 'grok')
-    expect(host.querySelector('[aria-label="Model ID 1"]')).toBeNull()
-    await click('[data-testid="oauth-apply"]')
-    expect(rpc).toHaveBeenCalledWith('addProvider', { family: 'grok' })
-    expect(rpc.mock.calls.some(([method]) => method === 'setModels')).toBe(false)
   })
 })
 
@@ -169,7 +183,7 @@ describe('login action ownership', () => {
     expect(rpc).toHaveBeenCalledWith('cancelLogin', { attemptId: 'attempt' })
   })
 
-  it('reports cancellation failure when closing the editor', async () => {
+  it('reports cancellation failure when the editor closes', async () => {
     const rpc = vi.fn(async (method: string) => {
       if (method === 'getState') return empty
       if (method === 'cancelLogin') throw new ClientRpcError('network', 'offline')
@@ -178,7 +192,6 @@ describe('login action ownership', () => {
     await openLogin(rpc)
     const cancel = Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Cancel' && button.dataset.testid !== 'oauth-cancel')!
     await act(async () => cancel.click())
-    expect(host.querySelector('[data-testid="oauth-provider-select"]')).toBeNull()
     expect(host.querySelector('[role="alert"]')?.textContent).toContain('could not be reached')
   })
 

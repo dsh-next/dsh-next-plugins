@@ -33,10 +33,13 @@ describe('error classification', () => {
 describe('settings boundaries', () => {
   it('defaults the volatile provider section and accepts both persisted formats', () => {
     expect(SETTINGS_NS).toBe('dsh-next-oauth-providers')
-    expect(pluginConfigSchema({}).providers.get()).toEqual([])
-    for (const providers of [[], [{ id: 'xai' }], { xai: {} }]) {
-      expect(pluginConfigSchema({ providers }).providers.get()).toEqual(providers)
-    }
+    // An empty section is the dict form, which is what the native Models page
+    // addresses per provider; a legacy block list still validates.
+    expect(pluginConfigSchema({}).providers.get()).toEqual({})
+    expect(pluginConfigSchema({ providers: { xai: { displayName: 'Grok' } } }).providers.get())
+      .toEqual({ xai: { displayName: 'Grok', models: [] } })
+    expect(pluginConfigSchema({ providers: [{ id: 'xai', displayName: 'Grok' }] }).providers.get())
+      .toEqual([{ id: 'xai', displayName: 'Grok', models: [] }])
   })
 
   it.each([undefined, null, [], false, 'text', 1])('normalizes invalid model/profile/config roots (%j)', (root) => {

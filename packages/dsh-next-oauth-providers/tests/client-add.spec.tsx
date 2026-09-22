@@ -1,8 +1,13 @@
+/**
+ * The Models footer seat: the Add entry, the draft family switch, and the
+ * "everything is configured" state. Configured families live on their native
+ * provider rows, so this seat never renders a row list.
+ */
 import * as React from 'react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { SubscriptionsFooter } from '../src/client/SubscriptionsFooter.tsx'
+import { AddSubscription } from '../src/client/AddSubscription.tsx'
 import type { PluginState } from '../src/core/types.ts'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -26,6 +31,21 @@ const kimi: PluginState = {
   ],
 }
 
+const allFamilies: PluginState = {
+  writable: true,
+  providers: (['kimi', 'grok', 'codex', 'claude'] as const).map((family) => ({
+    family,
+    alias: `${family}-oauth` as never,
+    nativeId: family as never,
+    displayName: family,
+    status: 'disconnected' as const,
+    models: [],
+    defaultModels: [],
+    modelsOverridden: false,
+    usingDefaults: true,
+  })),
+}
+
 let root: Root
 let host: HTMLDivElement
 
@@ -40,7 +60,11 @@ afterEach(() => {
   host.remove()
 })
 
-describe('SubscriptionsFooter', () => {
+async function render(rpc: (method: string, args?: unknown) => Promise<unknown>): Promise<void> {
+  await act(async () => { root.render(<AddSubscription rpc={rpc} t={(key) => key} />) })
+}
+
+describe('AddSubscription', () => {
   it('opens the stock Add provider card and starts sign-in', async () => {
     const rpc = vi.fn(async (method: string) => {
       if (method === 'getState') return empty
@@ -58,9 +82,7 @@ describe('SubscriptionsFooter', () => {
       }
       return null
     })
-    await act(async () => {
-      root.render(<SubscriptionsFooter rpc={rpc} t={(key) => key} />)
-    })
+    await render(rpc)
     expect(host.querySelector('[data-testid="dsh-next-oauth-providers"]')).not.toBeNull()
     expect(host.textContent).toContain('Subscriptions')
     expect(host.textContent).toContain('Add provider')
@@ -70,7 +92,6 @@ describe('SubscriptionsFooter', () => {
     expect(host.querySelector('[data-testid="oauth-provider-select"]')).not.toBeNull()
     expect(host.textContent).toContain('Kimi Code')
     expect(host.textContent).toContain('Sign in')
-    expect(host.textContent).not.toContain('action.signIn')
     const signIn = host.querySelector('[data-testid="oauth-sign-in"]') as HTMLButtonElement
     await act(async () => { signIn.click() })
     expect(rpc).toHaveBeenCalledWith('startLogin', { family: 'kimi' })
@@ -82,32 +103,7 @@ describe('SubscriptionsFooter', () => {
     })
   })
 
-  it('edits a listed row and fetches models into the picker', async () => {
-    const connected: PluginState = {
-      ...kimi,
-      providers: [{ ...kimi.providers[0]!, status: 'connected', models: kimi.providers[0]!.defaultModels }],
-    }
-    const rpc = vi.fn(async (method: string) => {
-      if (method === 'getState') return connected
-      if (method === 'listModels') return [{ id: 'kimi-k2.5', name: 'Kimi K2.5' }, { id: 'kimi-k2', name: 'K2' }]
-      return null
-    })
-    await act(async () => {
-      root.render(<SubscriptionsFooter rpc={rpc} />)
-    })
-    const edit = host.querySelector('[aria-label="Edit Kimi Code"]') as HTMLButtonElement
-    await act(async () => { edit.click() })
-    const summary = host.querySelector('summary') as HTMLElement
-    await act(async () => { summary.click() })
-    const fetch = host.querySelector('[data-testid="oauth-fetch-models"]') as HTMLButtonElement
-    expect(fetch.disabled).toBe(false)
-    await act(async () => { fetch.click() })
-    expect(rpc).toHaveBeenCalledWith('listModels', { family: 'kimi' })
-    expect(document.querySelector('[data-testid="oauth-fetch-dialog"]')).not.toBeNull()
-    expect(document.body.textContent).toContain('Choose models to add')
-  })
-
-  it('closes the add card once the selected family is connected', async () => {
+  it('closes the add card once the selected family is listed', async () => {
     let snapshot: PluginState = empty
     const rpc = vi.fn(async (method: string) => {
       if (method === 'getState') return snapshot
@@ -115,17 +111,12 @@ describe('SubscriptionsFooter', () => {
         return { id: 'a1', family: 'kimi', status: 'running', expiresAt: Date.now() + 1000 }
       }
       if (method === 'getAttempt') {
-        snapshot = {
-          writable: true,
-          providers: [{ ...kimi.providers[0]!, status: 'connected', models: kimi.providers[0]!.defaultModels }],
-        }
+        snapshot = { writable: true, providers: [{ ...kimi.providers[0]!, status: 'connected' }] }
         return { id: 'a1', family: 'kimi', status: 'authorized', expiresAt: Date.now() + 1000 }
       }
       return null
     })
-    await act(async () => {
-      root.render(<SubscriptionsFooter rpc={rpc} />)
-    })
+    await render(rpc)
     await act(async () => {
       (host.querySelector('[data-testid="oauth-add-provider"]') as HTMLButtonElement).click()
     })
@@ -133,10 +124,40 @@ describe('SubscriptionsFooter', () => {
       (host.querySelector('[data-testid="oauth-sign-in"]') as HTMLButtonElement).click()
     })
     await vi.waitFor(() => {
-      expect(host.querySelector('[data-testid="dsh-next-oauth-providers-kimi"]')).not.toBeNull()
       expect(host.querySelector('[data-testid="oauth-provider-select"]')).toBeNull()
       expect(host.querySelector('[data-testid="oauth-add-provider"]')).not.toBeNull()
-      expect(host.textContent).not.toContain('Reconnect')
     })
+  })
+
+  it('announces that every subscription is already configured', async () => {
+    await render(async (method: string) => method === 'getState' ? allFamilies : null)
+    const add = host.querySelector('[data-testid="oauth-add-provider"]') as HTMLButtonElement
+    expect(add.disabled).toBe(true)
+    expect(host.textContent).toContain('Every subscription is already added')
+    expect(host.querySelector('[data-testid="dsh-next-oauth-providers"]')).not.toBeNull()
+  })
+
+  it('does not carry a customized draft into another family', async () => {
+    const rpc = vi.fn(async (method: string) => method === 'getState' ? empty : null)
+    await render(rpc)
+    await act(async () => {
+      (host.querySelector('[data-testid="oauth-add-provider"]') as HTMLButtonElement).click()
+    })
+    await act(async () => {
+      (host.querySelector('[data-testid="oauth-add-model"]') as HTMLButtonElement).click()
+    })
+    const id = host.querySelector('[aria-label="Model ID 1"]') as HTMLInputElement
+    await act(async () => { id.value = 'kimi-only'; id.dispatchEvent(new Event('input', { bubbles: true })) })
+    const select = host.querySelector('[data-testid="oauth-provider-select"]') as HTMLSelectElement
+    await act(async () => {
+      select.value = 'grok'
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    expect(host.querySelector('[aria-label="Model ID 1"]')).toBeNull()
+    await act(async () => {
+      (host.querySelector('[data-testid="oauth-apply"]') as HTMLButtonElement).click()
+    })
+    expect(rpc).toHaveBeenCalledWith('addProvider', { family: 'grok' })
+    expect(rpc.mock.calls.some(([method]) => method === 'setModels')).toBe(false)
   })
 })

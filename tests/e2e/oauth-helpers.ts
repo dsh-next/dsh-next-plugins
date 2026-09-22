@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 
 /** Exercise the real settings/HTTP path without starting external OAuth. */
 export async function verifyOauthProviders(page: Page): Promise<void> {
@@ -14,6 +14,7 @@ export async function verifyOauthProviders(page: Page): Promise<void> {
   await expect(footer).toBeVisible()
 
   const rpcUrl = new URL('/dsh-next-oauth-providers/rpc', page.url()).toString()
+  page.on('console', (message) => { if (message.text().startsWith('oauth-')) console.log('DEBUG console', message.text()) })
   const invalid = await page.request.post(rpcUrl, { data: 'null', headers: { 'content-type': 'application/json' } })
   expect(invalid.status()).toBe(400)
   expect(await invalid.json()).toEqual({ ok: false, error: { code: 'bad-request' } })
@@ -25,14 +26,18 @@ export async function verifyOauthProviders(page: Page): Promise<void> {
   const profile = readdirSync(join(home, 'profiles'))[0]
   if (profile === undefined) throw new Error('DSH_HOME has no profile to persist into')
   const settings = () => readFileSync(join(home, 'profiles', profile, 'cordis.patch.yml'), 'utf8')
-  const customized = () => footer.locator('summary').filter({ hasText: 'Customized settings' })
-  const openModels = async () => {
-    if (!(await footer.getByTestId('oauth-add-model').isVisible())) await customized().click()
+
+  /** The editor fold is collapsed until a model row is touched. */
+  const openModels = async (scope: Locator) => {
+    if (!(await scope.getByTestId('oauth-add-model').isVisible())) {
+      await scope.locator('summary').filter({ hasText: 'Customized settings' }).click()
+    }
   }
 
+  // 1. The footer is the one Add entry; the stock page owns the row afterwards.
   await footer.getByTestId('oauth-add-provider').click()
   await expect(footer.getByTestId('oauth-sign-in')).toBeVisible()
-  await openModels()
+  await openModels(footer)
   await footer.getByTestId('oauth-add-model').click()
   const initialId = footer.getByRole('textbox', { name: 'Model ID 1', exact: true })
   await initialId.pressSequentially('kimi-draft')
@@ -40,7 +45,7 @@ export async function verifyOauthProviders(page: Page): Promise<void> {
   await expect(initialId).toBeFocused()
 
   await footer.getByTestId('oauth-provider-select').selectOption('grok')
-  await openModels()
+  await openModels(footer)
   await expect(footer.getByRole('textbox', { name: 'Model ID 1', exact: true })).toHaveCount(0)
   for (const [index, id, capacity] of [[1, 'oauth-smoke-first', '111K'], [2, 'oauth-smoke-second', '222K']] as const) {
     await footer.getByTestId('oauth-add-model').click()
@@ -52,39 +57,42 @@ export async function verifyOauthProviders(page: Page): Promise<void> {
   await expect(footer.getByRole('textbox', { name: 'Model ID 1', exact: true })).toHaveValue('oauth-smoke-second')
   await expect(footer.getByRole('textbox', { name: 'Context window 1', exact: true })).toHaveValue('222K')
   await footer.getByTestId('oauth-apply').click()
-  const row = footer.getByTestId('dsh-next-oauth-providers-grok')
-  await expect(row).toBeVisible()
+  // The Add card closed and the family left the addable set.
+  await expect(footer.getByTestId('oauth-provider-select')).toHaveCount(0)
   await expect.poll(settings).toContain('oauth-smoke-second')
   await expect.poll(settings).toContain('222000')
   expect(settings()).not.toContain('oauth-smoke-first')
   expect(settings()).not.toContain('kimi-draft')
-  // The provider is also declared to the native directory, so the stock Models
-  // page renders its own row for the same route — edited by the native card.
-  const nativeRow = () => page.getByRole('button', { name: 'Edit Grok (xai-oauth)', exact: true })
-  await expect(nativeRow()).toBeVisible()
 
-  await row.getByRole('button', { name: 'Edit Grok', exact: true }).click()
-  await openModels()
-  await footer.getByRole('button', { name: 'Capacities 1', exact: true }).click()
-  await footer.getByRole('textbox', { name: 'Context window 1', exact: true }).fill('invalid')
-  await expect(footer.getByTestId('oauth-apply')).toBeDisabled()
-  await footer.getByRole('button', { name: 'Restore defaults', exact: true }).click()
-  await expect(footer.getByTestId('oauth-apply')).toBeEnabled()
-  await expect(footer.getByRole('textbox', { name: 'Model ID 1', exact: true })).not.toHaveValue('oauth-smoke-second')
-  const capacities = footer.getByRole('button', { name: 'Capacities 1', exact: true })
+  // 2. The subscription is a native row now; the stock page owns Edit/Delete.
+  const nativeRow = (action: 'Edit' | 'Delete') => page.getByRole('button', { name: `${action} Grok (xai-oauth)`, exact: true })
+  await expect(nativeRow('Edit')).toBeVisible()
+
+  await nativeRow('Edit').click()
+  const card = page.getByTestId('dsh-next-oauth-providers-card-grok')
+  await expect(card).toBeVisible()
+  await openModels(card)
+  await card.getByRole('button', { name: 'Capacities 1', exact: true }).click()
+  await card.getByRole('textbox', { name: 'Context window 1', exact: true }).fill('invalid')
+  await expect(card.getByTestId('oauth-apply')).toBeDisabled()
+  await card.getByRole('button', { name: 'Restore defaults', exact: true }).click()
+  await expect(card.getByTestId('oauth-apply')).toBeEnabled()
+  await expect(card.getByRole('textbox', { name: 'Model ID 1', exact: true })).not.toHaveValue('oauth-smoke-second')
+  const capacities = card.getByRole('button', { name: 'Capacities 1', exact: true })
   if (await capacities.getAttribute('aria-expanded') !== 'true') await capacities.click()
-  await expect(footer.getByRole('textbox', { name: 'Context window 1', exact: true })).not.toHaveValue('invalid')
-  const screenshot = test.info().outputPath('oauth-editor-restored-defaults.png')
-  await footer.screenshot({ path: screenshot })
-  await test.info().attach('oauth-editor-restored-defaults', { path: screenshot, contentType: 'image/png' })
-  await footer.getByTestId('oauth-apply').click()
+  await expect(card.getByRole('textbox', { name: 'Context window 1', exact: true })).not.toHaveValue('invalid')
+  const screenshot = test.info().outputPath('oauth-card-restored-defaults.png')
+  await card.screenshot({ path: screenshot })
+  await test.info().attach('oauth-card-restored-defaults', { path: screenshot, contentType: 'image/png' })
+  await card.getByTestId('oauth-apply').click()
   await expect.poll(settings).not.toContain('oauth-smoke-second')
 
-  await row.getByRole('button', { name: 'Delete Grok', exact: true }).click()
-  await page.getByTestId('oauth-delete-confirm').click()
-  await expect(row).toHaveCount(0)
+  // 3. Deleting the native row removes the profile; the host drops the grant.
+  await nativeRow('Delete').click()
+  await page.getByRole('dialog').last().getByRole('button', { name: 'Delete Grok (xai-oauth)', exact: true }).click()
+  await expect(nativeRow('Edit')).toHaveCount(0)
+  await expect(card).toHaveCount(0)
   const state = await page.request.post(rpcUrl, { data: { method: 'getState' } })
   expect(await state.json()).toEqual({ ok: true, value: { writable: true, providers: [] } })
-  await expect(nativeRow()).toHaveCount(0)
   expect(settings()).not.toContain('xai')
 }

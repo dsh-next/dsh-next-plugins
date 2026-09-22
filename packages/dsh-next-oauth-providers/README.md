@@ -25,8 +25,8 @@ appear in the existing model selector.
 
 The editor card keeps the stock layout. Where API-key rows have an API key
 field, this card has **Sign in** / **Reconnect**. Tokens are stored in
-`$DSH_HOME/.credentials.yaml` under `dsh-next-oauth-providers`, not in
-`settings.yaml`.
+`$DSH_HOME/.credentials.yaml` under `dsh-next-oauth-providers`, never in the
+plugin's configuration.
 
 ### Model catalog
 
@@ -51,23 +51,32 @@ dsh plugin --profile <name> add @dsh-next/dsh-next-oauth-providers
 ## Good to know
 
 - Needs DeepSeek Harness `0.1.7-alpha.1` or newer (official `dsh-llm-pi-ai`).
-- Catalog rows persist under `dsh-next-oauth-providers.providers` as a block
-  list keyed by official catalog ids (`xai`, `kimi-coding`, `openai-codex`,
-  `anthropic`):
+- A signed-in subscription is also a row on the stock **Models** page: every
+  configured family is declared to the provider directory, so it gets the same
+  row, status dot, Edit, and Delete as any other provider.
+- Catalog rows are this plugin's own configuration, keyed by official catalog
+  ids (`xai`, `kimi-coding`, `openai-codex`, `anthropic`). DSH stores plugin
+  configuration in the active profile, so the row lives in that profile's
+  `cordis.patch.yml`:
 
   ```yaml
-  dsh-next-oauth-providers:
-    providers:
-      - id: xai
-        displayName: Grok
-        models:
-          - id: grok-4.6
-            name: Grok 4.6
-            contextWindow: 500000
-            maxTokens: 500000
+  - id: dsh-next-oauth-providers
+    name: "@dsh-next/dsh-next-oauth-providers"
+    config:
+      providers:
+        xai:
+          displayName: Grok
+          models:
+            - id: grok-4.6
+              name: Grok 4.6
+              contextWindow: 500000
+              maxTokens: 500000
   ```
 
-  The model selector uses the same ids with an `-oauth` suffix (`xai-oauth`, …)
+  A pre-0.1.7 `settings.yaml` section is imported into the profile once, so an
+  existing setup keeps its rows. Deleting the row there (or on the Models page)
+  signs the family out.
+- The model selector uses the same ids with an `-oauth` suffix (`xai-oauth`, …)
   so an API-key `anthropic` row can coexist with a Claude subscription. They
   cannot live under `llm-pi-ai:` — that section only accepts API-key
   `providers`.

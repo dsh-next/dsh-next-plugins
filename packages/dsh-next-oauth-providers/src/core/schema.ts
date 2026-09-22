@@ -1,7 +1,12 @@
 /**
- * Schemastery section for `dsh-next-oauth-providers`. Hand-editable; host
- * `normalizeConfig` accepts a block list of provider rows (current) or the
- * older dict shape. `any` is the portable union of those two wire shapes.
+ * Cordis Config for `dsh-next-oauth-providers`.
+ *
+ * DeepSeek Harness 0.1.7 derives a plugin's settings form from its Loader
+ * entry config, so the provider section *is* this plugin's config. `providers`
+ * is volatile, which is what lets `configEditor.edit` commit a new section into
+ * the running fiber without a restart; `normalizeConfig` accepts both the dict
+ * shape the native Models page addresses (`providers.<nativeId>`) and the
+ * legacy block list a pre-0.1.7 `settings.yaml` section carries.
  */
 import Schema from '@deepseek-ai/schemastery'
 import { SETTINGS_NS } from './ids.ts'
@@ -9,7 +14,7 @@ import { SETTINGS_NS } from './ids.ts'
 export { SETTINGS_NS }
 
 export const pluginConfigSchema = Schema.object({
-  providers: Schema.any().default([]),
+  providers: Schema.any().default([]).volatile(),
 })
 
 export type PluginConfigShape = Schemastery.TypeT<typeof pluginConfigSchema>

@@ -24,15 +24,9 @@ export interface PluginConfig {
   readonly providers: Readonly<Partial<Record<NativeId, ProviderProfile>>>
 }
 
-/** On-disk row: a list so settings.yaml uses block dashes, not flow `{ }` / `[ ]`. */
-export interface StoredProviderRow {
-  readonly id: NativeId
-  readonly displayName: string
-  readonly models?: readonly ModelDraft[]
-}
-
+/** On-disk row: a dict so the native Models page can address `providers.<nativeId>`. */
 export interface StoredConfig {
-  readonly providers: readonly StoredProviderRow[]
+  readonly providers: Readonly<Partial<Record<NativeId, ProviderProfile>>>
 }
 
 export const EMPTY_CONFIG: PluginConfig = { providers: {} }
@@ -110,17 +104,16 @@ export function profileOf(config: PluginConfig, nativeId: NativeId): ProviderPro
   return config.providers[nativeId] ?? {}
 }
 
-/** User-section payload for replace(): block list, even when a profile has no models. */
+/** User-section payload for the plugin config: the profile dict, keyed by native id. */
 export function configForStorage(config: PluginConfig): StoredConfig {
-  const providers: StoredProviderRow[] = []
+  const providers: Partial<Record<NativeId, ProviderProfile>> = {}
   for (const family of FAMILIES) {
     const profile = config.providers[family.nativeId]
     if (profile === undefined) continue
-    providers.push({
-      id: family.nativeId,
+    providers[family.nativeId] = {
       displayName: profile.displayName ?? family.displayName,
       ...profile.models === undefined ? {} : { models: profile.models },
-    })
+    }
   }
   return { providers }
 }

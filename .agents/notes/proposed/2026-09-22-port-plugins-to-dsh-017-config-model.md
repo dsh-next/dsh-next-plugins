@@ -1,8 +1,8 @@
-# Port the settings plugins to the DSH 0.1.7 config model
+# Port the notifier and skills plugins to the DSH 0.1.7 config model
 
 - date: 2026-09-22
 - status: proposed
-- scope: packages/dsh-next-oauth-providers, dsh-next-notifier, dsh-next-skills
+- scope: packages/dsh-next-notifier, dsh-next-skills
 
 DeepSeek Harness `0.1.7-alpha.1` replaced the plugin settings API. The old
 `SettingsProvider.register(ns, schema, { applies: 'live' })` is gone from
@@ -12,31 +12,28 @@ derives a form from each Loader entry's own config schema
 fiber's config) and writes edits through
 `describe`/`update`/`replace`/`mutate` keyed by **profile entry id**. The
 removed `settings.yaml` is imported once into the active profile; the profile
-patch becomes the storage.
+patch becomes the storage. A `Config` field marked `volatile()` commits into
+the running fiber through `configEditor.edit` without a restart.
 
-Three plugins call the removed method:
+The oauth-providers port landed first and is the reference implementation; see
+[its note](../implemented/2026-09-22-oauth-providers-config-port.md).
 
-- [oauth-providers](/Users/rokgrabnar/Projects/dsh-next-plugins/packages/dsh-next-oauth-providers/src/index.ts#L24)
-  and [skills](/Users/rokgrabnar/Projects/dsh-next-plugins/packages/dsh-next-skills/src/index.ts#L42)
-  return early when `settings.register` is missing, so their RPC routes never
-  register and every browser call falls through to the static fallback
-  (405 on POST).
+Still broken:
+
+- [skills](/Users/rokgrabnar/Projects/dsh-next-plugins/packages/dsh-next-skills/src/index.ts#L42)
+  returns early when `settings.register` is missing, so its RPC routes never
+  register and every browser call falls through to the static fallback (405 on
+  POST).
 - [notifier](/Users/rokgrabnar/Projects/dsh-next-plugins/packages/dsh-next-notifier/src/index.ts#L28)
   keeps running with a null scope, so configuration cannot persist and its e2e
   RPC assertion fails.
 
-Evidence on `0.1.7-alpha.1`: `pnpm run test:e2e all` fails the git, skills,
-cc-plugins, notifier, and oauth-providers suites; a direct POST to
-`/dsh-next-oauth-providers/rpc` answers `405 Method Not Allowed` with no body
-(the frontend-static fallback), while the plugin's own handler would have
-answered `403`/`415`/`400` with a body.
+Evidence on `0.1.7-alpha.1`: a direct POST to `/dsh-next-oauth-providers/rpc`
+answered `405 Method Not Allowed` with no body (the frontend-static fallback)
+before the oauth port, while the plugin's own handler answers `403`/`415`/`400`
+with a body.
 
-The port defines each plugin's state as its own Cordis config — the shape
-`dsh-llm-pi-ai` uses (`Config` export plus `apply(ctx, config)`) — and lets the
-native settings surface edit it. For oauth-providers this combines with the
-native provider directory: `llm.registerConfigurableProviders()` entries whose
-`settingsNs` is the plugin entry id and whose `settingsPath` addresses the
-per-route profile, plus the `settings.models.provider-card` seat for
-subscription sign-in, replacing the bespoke footer list. The existing
-`providers` block list needs a normalization step so stored sections keep
-working.
+Each port exports a `Config` (volatile where the plugin writes its own state
+live), reads it in `apply(ctx, config)`, and keeps its RPC surface. Skills
+stores its config in its own entry section; the notifier's sound configuration
+is small enough to be fully volatile so a volume change never restarts it.

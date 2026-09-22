@@ -15,7 +15,7 @@ describe('SubscriptionsService', () => {
     await service.hydrate()
     expect(service.configValue().providers.xai?.models).toEqual([{ id: 'grok-4.6' }])
     expect(config.get()).toEqual({
-      providers: [{ id: 'xai', displayName: 'Grok', models: [{ id: 'grok-4.6' }] }],
+      providers: { xai: { displayName: 'Grok', models: [{ id: 'grok-4.6' }] } },
     })
   })
 
@@ -29,7 +29,7 @@ describe('SubscriptionsService', () => {
     await service.hydrate()
     expect(service.configValue().providers.xai?.models).toBeUndefined()
     expect(config.get()).toEqual({
-      providers: [{ id: 'xai', displayName: 'Grok' }],
+      providers: { xai: { displayName: 'Grok' } },
     })
     const state = await service.state()
     expect(state.providers[0]?.usingDefaults).toBe(true)

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 
@@ -20,7 +20,11 @@ export async function verifyOauthProviders(page: Page): Promise<void> {
 
   const home = process.env.DSH_HOME
   if (!home) throw new Error('DSH_HOME is required for OAuth settings persistence assertions')
-  const settings = () => readFileSync(join(home, 'settings.yaml'), 'utf8')
+  // DSH 0.1.7 retired settings.yaml: a plugin's settings are its own Loader
+  // entry config, persisted as an id-targeted row in the profile patch.
+  const profile = readdirSync(join(home, 'profiles'))[0]
+  if (profile === undefined) throw new Error('DSH_HOME has no profile to persist into')
+  const settings = () => readFileSync(join(home, 'profiles', profile, 'cordis.patch.yml'), 'utf8')
   const customized = () => footer.locator('summary').filter({ hasText: 'Customized settings' })
   const openModels = async () => {
     if (!(await footer.getByTestId('oauth-add-model').isVisible())) await customized().click()
@@ -54,6 +58,10 @@ export async function verifyOauthProviders(page: Page): Promise<void> {
   await expect.poll(settings).toContain('222000')
   expect(settings()).not.toContain('oauth-smoke-first')
   expect(settings()).not.toContain('kimi-draft')
+  // The provider is also declared to the native directory, so the stock Models
+  // page renders its own row for the same route — edited by the native card.
+  const nativeRow = () => page.getByRole('button', { name: 'Edit Grok (xai-oauth)', exact: true })
+  await expect(nativeRow()).toBeVisible()
 
   await row.getByRole('button', { name: 'Edit Grok', exact: true }).click()
   await openModels()
@@ -77,5 +85,6 @@ export async function verifyOauthProviders(page: Page): Promise<void> {
   await expect(row).toHaveCount(0)
   const state = await page.request.post(rpcUrl, { data: { method: 'getState' } })
   expect(await state.json()).toEqual({ ok: true, value: { writable: true, providers: [] } })
-  expect(settings()).not.toContain('id: xai')
+  await expect(nativeRow()).toHaveCount(0)
+  expect(settings()).not.toContain('xai')
 }

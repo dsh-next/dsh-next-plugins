@@ -31,11 +31,11 @@ describe('error classification', () => {
 })
 
 describe('settings boundaries', () => {
-  it('defaults the registered section and accepts both persisted formats', () => {
+  it('defaults the volatile provider section and accepts both persisted formats', () => {
     expect(SETTINGS_NS).toBe('dsh-next-oauth-providers')
-    expect(pluginConfigSchema({})).toEqual({ providers: [] })
+    expect(pluginConfigSchema({}).providers.get()).toEqual([])
     for (const providers of [[], [{ id: 'xai' }], { xai: {} }]) {
-      expect(pluginConfigSchema({ providers }).providers).toEqual(providers)
+      expect(pluginConfigSchema({ providers }).providers.get()).toEqual(providers)
     }
   })
 

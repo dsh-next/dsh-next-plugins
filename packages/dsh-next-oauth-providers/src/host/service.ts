@@ -67,6 +67,11 @@ export interface SubscriptionsServiceOptions {
   randomId?: () => string
   logWarn?: (message: string) => void
   onRoutesChanged?: (aliases: readonly AliasRoute[]) => void
+  /**
+   * Configuration changed: `user` for a plugin-initiated write, `hydrate` for
+   * the one-time shape rewrite that preserves the listed set.
+   */
+  onConfigChanged?: (reason: 'user' | 'hydrate') => void
   login?: (nativeId: string, interaction: LoginInteraction) => Promise<void>
 }
 
@@ -85,6 +90,7 @@ export class SubscriptionsService {
   private readonly randomId: () => string
   private readonly logWarn: (message: string) => void
   private readonly onRoutesChanged: (aliases: readonly AliasRoute[]) => void
+  private readonly onConfigChanged: (reason: 'user' | 'hydrate') => void
   private readonly login: (nativeId: string, interaction: LoginInteraction) => Promise<void>
   private readonly lifetime = new AbortController()
   private readonly profileFailures = new Map<Family['family'], string>()
@@ -99,6 +105,7 @@ export class SubscriptionsService {
     this.randomId = options.randomId ?? (() => crypto.randomUUID())
     this.logWarn = options.logWarn ?? (() => {})
     this.onRoutesChanged = options.onRoutesChanged ?? (() => {})
+    this.onConfigChanged = options.onConfigChanged ?? (() => {})
     this.login = options.login ?? (async (nativeId, interaction) => {
       const models = createModels({
         credentials: this.store,
@@ -179,7 +186,7 @@ export class SubscriptionsService {
     const serialized = configForStorage(stored)
     const needsRewrite = dictForm
       || (Array.isArray(rawProviders) && JSON.stringify(rawProviders) !== JSON.stringify(serialized.providers))
-    if (needsRewrite) await this.replaceConfig(stored)
+    if (needsRewrite) await this.replaceConfig(stored, 'hydrate')
   }
 
   async state(): Promise<PluginState> {
@@ -372,10 +379,29 @@ export class SubscriptionsService {
     if (this.lifetime.signal.aborted) throw new RpcError('cancelled', 'subscription service disposed')
   }
 
-  private async replaceConfig(next: PluginConfig): Promise<void> {
+  private async replaceConfig(next: PluginConfig, reason: 'user' | 'hydrate' = 'user'): Promise<void> {
     this.assertActive()
     await this.config.replace(configForStorage(next))
     this.assertActive()
+    this.onConfigChanged(reason)
+  }
+
+  /**
+   * Drop the grants of families the configuration no longer lists. A native
+   * Models-page delete removes the profile and its row; the credential record
+   * this plugin owns would otherwise stay behind with nothing addressing it.
+   */
+  async pruneUnlisted(): Promise<void> {
+    const stored = this.configValue()
+    let changed = false
+    for (const family of FAMILIES) {
+      if (stored.providers[family.nativeId] !== undefined) continue
+      if (!this.connected.has(family.alias)) continue
+      await this.store.delete(family.nativeId, { signal: this.lifetime.signal })
+      this.connected.delete(family.alias)
+      changed = true
+    }
+    if (changed) this.onRoutesChanged([...this.connected])
   }
 
   private isCurrent(attempt: Attempt): boolean {

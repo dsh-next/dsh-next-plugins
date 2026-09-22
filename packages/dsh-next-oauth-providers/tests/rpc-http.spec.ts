@@ -74,19 +74,19 @@ describe('OAuth HTTP RPC contract', () => {
     expect(app.off).toHaveBeenCalledTimes(1)
   })
 
-  it('returns exact state and persistence envelopes through the settings scope', async () => {
+  it('returns exact state and persistence envelopes through the plugin config', async () => {
     const app = fixture()
     expect((await app.post('getState')).json()).toEqual({ ok: true, value: { writable: true, providers: [] } })
     await app.post('addProvider', { family: 'grok' })
     const response = await app.post('setModels', { alias: 'xai-oauth', models: [{ id: 'custom', contextWindow: 1000, maxTokens: 100 }] })
     expect(response.headers).toMatchObject({ 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
     expect(Object.keys(response.json()).sort()).toEqual(['ok', 'value'])
-    expect(app.config.get()).toEqual({ providers: [{ id: 'xai', displayName: 'Grok', models: [{ id: 'custom', contextWindow: 1000, maxTokens: 100 }] }] })
+    expect(app.config.get()).toEqual({ providers: { xai: { displayName: 'Grok', models: [{ id: 'custom', contextWindow: 1000, maxTokens: 100 }] } } })
     expect((await app.post('getState')).json().value.providers[0]).toMatchObject({ modelsOverridden: true, models: [{ id: 'custom', name: 'custom', contextWindow: 1000, maxTokens: 100 }] })
     await app.post('restoreModels', { alias: 'xai-oauth' })
-    expect(app.config.get()).toEqual({ providers: [{ id: 'xai', displayName: 'Grok' }] })
+    expect(app.config.get()).toEqual({ providers: { xai: { displayName: 'Grok' } } })
     await app.post('removeProvider', { family: 'grok' })
-    expect(app.config.get()).toEqual({ providers: [] })
+    expect(app.config.get()).toEqual({ providers: {} })
   })
 
   it.each([
@@ -115,7 +115,7 @@ describe('OAuth HTTP RPC contract', () => {
     const body = Buffer.from(JSON.stringify({ method: 'addModel', args: { alias: 'xai-oauth', model: { id: 'custom', name: '\u6a21\u578b' } } }))
     const boundary = body.indexOf(Buffer.from('\u6a21')) + 1
     expect((await app.request([body.subarray(0, boundary), body.subarray(boundary)])).status).toBe(200)
-    expect((app.config.get() as { providers: { models: { id: string; name: string }[] }[] }).providers[0]!.models.find((model) => model.id === 'custom')?.name).toBe('\u6a21\u578b')
+    expect((app.config.get() as { providers: { xai: { models: { id: string; name: string }[] } } }).providers.xai.models.find((model) => model.id === 'custom')?.name).toBe('\u6a21\u578b')
   })
 
   it('enforces request size in bytes and writes one response even if more data arrives', async () => {

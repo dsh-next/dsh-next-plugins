@@ -19,15 +19,15 @@ describe('settings', () => {
   it('keeps an added empty profile so the row survives Apply', () => {
     const added = withProvider({ providers: {} }, 'kimi-coding')
     expect(isListed(added, 'kimi-coding')).toBe(true)
-    expect(configForStorage(added).providers).toEqual([{ id: 'kimi-coding', displayName: 'Kimi Code' }])
+    expect(configForStorage(added).providers).toEqual({ 'kimi-coding': { displayName: 'Kimi Code' } })
     expect(isListed(withoutProvider(added, 'kimi-coding'), 'kimi-coding')).toBe(false)
   })
 
   it('can restore defaults after an explicit catalog', () => {
     const withList = withModels({ providers: {} }, 'openai-codex', [{ id: 'gpt-5' }])
-    expect(configForStorage(withList).providers).toEqual([
-      { id: 'openai-codex', displayName: 'ChatGPT', models: [{ id: 'gpt-5' }] },
-    ])
+    expect(configForStorage(withList).providers).toEqual({
+      'openai-codex': { displayName: 'ChatGPT', models: [{ id: 'gpt-5' }] },
+    })
     const restored = withModels(withList, 'openai-codex', undefined)
     expect(restored.providers['openai-codex']?.models).toBeUndefined()
   })

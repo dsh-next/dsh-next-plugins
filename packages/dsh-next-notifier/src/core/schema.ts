@@ -1,8 +1,8 @@
 /**
- * The Schemastery settings schema for the `dsh-next-notifier` namespace. It is
- * the single source of truth for defaults and UI metadata; the host registers
- * it with `settings.register()` and the client renders its form from the same
- * shape.
+ * The Schemastery config schema for the `dsh-next-notifier` plugin. It is the
+ * single source of truth for defaults and UI metadata. Every top-level field is
+ * volatile, so a `configEditor.edit` write commits into the running fiber
+ * without a restart and the notifier re-synthesizes its sound set in place.
  */
 import Schema from '@deepseek-ai/schemastery'
 import { DEFAULT_SOUNDS, SOUND_IDS } from './sounds.ts'
@@ -25,12 +25,12 @@ function group(fallback: string) {
 }
 
 export const notifierSchema = Schema.object({
-  enabled: Schema.boolean().default(true).description('Master switch for all agent notifications'),
-  suppressFocused: Schema.boolean().default(true).description('No alert for the session you are actively viewing'),
-  volume: Schema.number().min(0).max(100).step(1).default(70).description('Sound loudness for all notifications'),
-  finished: group(DEFAULT_SOUNDS.finished),
-  approval: group(DEFAULT_SOUNDS.approval),
-  question: group(DEFAULT_SOUNDS.question),
+  enabled: Schema.boolean().default(true).description('Master switch for all agent notifications').volatile(),
+  suppressFocused: Schema.boolean().default(true).description('No alert for the session you are actively viewing').volatile(),
+  volume: Schema.number().min(0).max(100).step(1).default(70).description('Sound loudness for all notifications').volatile(),
+  finished: group(DEFAULT_SOUNDS.finished).volatile(),
+  approval: group(DEFAULT_SOUNDS.approval).volatile(),
+  question: group(DEFAULT_SOUNDS.question).volatile(),
 })
 
 export type NotifierConfigShape = Schemastery.TypeT<typeof notifierSchema>

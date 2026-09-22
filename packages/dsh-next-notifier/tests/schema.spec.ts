@@ -2,6 +2,19 @@ import { describe, expect, it } from 'vitest'
 import { notifierSchema } from '../src/core/schema.ts'
 import { SOUND_IDS } from '../src/core/sounds.ts'
 
+/** The Loader wraps every volatile field in a live reference; read it. */
+function resolve(input: object) {
+  const config = notifierSchema(input)
+  return {
+    enabled: config.enabled.get() as boolean,
+    suppressFocused: config.suppressFocused.get() as boolean,
+    volume: config.volume.get() as number,
+    finished: config.finished.get() as { soundName: string } & Record<string, unknown>,
+    approval: config.approval.get() as { soundName: string } & Record<string, unknown>,
+    question: config.question.get() as { soundName: string } & Record<string, unknown>,
+  }
+}
+
 /**
  * Schemastery schema contract: the schema is the single source of truth for
  * defaults and the sound-name union. These tests pin that a stored section
@@ -11,7 +24,7 @@ import { SOUND_IDS } from '../src/core/sounds.ts'
  */
 describe('notifierSchema', () => {
   it('resolves an empty object to the documented defaults', () => {
-    const resolved = notifierSchema({})
+    const resolved = resolve({})
     expect(resolved.enabled).toBe(true)
     expect(resolved.suppressFocused).toBe(true)
     expect(resolved.volume).toBe(70)
@@ -30,7 +43,7 @@ describe('notifierSchema', () => {
 
   it('accepts every catalog sound id as a valid soundName', () => {
     for (const id of SOUND_IDS) {
-      const resolved = notifierSchema({ finished: { soundName: id } })
+      const resolved = resolve({ finished: { soundName: id } })
       expect(resolved.finished.soundName).toBe(id)
     }
   })
@@ -45,6 +58,6 @@ describe('notifierSchema', () => {
   it('clamps volume to the declared 0..100 range', () => {
     expect(() => notifierSchema({ volume: -1 })).toThrow()
     expect(() => notifierSchema({ volume: 101 })).toThrow()
-    expect(notifierSchema({ volume: 50 }).volume).toBe(50)
+    expect(resolve({ volume: 50 }).volume).toBe(50)
   })
 })

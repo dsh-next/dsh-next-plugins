@@ -54,7 +54,7 @@
     "@deepseek-ai/dsh-settings": "^0.1.2-rc.1",
     "@deepseek-ai/dsh-skill": "^0.1.2-rc.1",
     "@deepseek-ai/dsh-util-workspace-path": "0.1.7-alpha.1",
-    "@deepseek-ai/schemastery": "^3.18.2",
+    "@deepseek-ai/schemastery": "^3.18.3",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.10.0",
     "@types/react": "~18.3.1",

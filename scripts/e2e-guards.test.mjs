@@ -79,12 +79,12 @@ test('browser guards observe secondary pages and detach only their own listeners
 
 test('smoke requires explicit coverage for every selected browser plugin', () => {
   const skills = '@dsh-next/dsh-next-skills'
-  const reset = '@dsh-next/dsh-next-reset'
+  const hostOnly = '@dsh-next/dsh-next-opencode-session-patch'
   const markers = { 'dsh-next-skills': async () => {} }
-  assert.doesNotThrow(() => requirePluginMarkers([skills, reset], markers, { 'dsh-next-reset': 'Listener only; separate behavior suite.' }))
+  assert.doesNotThrow(() => requirePluginMarkers([skills, hostOnly], markers, { 'dsh-next-opencode-session-patch': 'Host-only; no browser entry.' }))
   assert.throws(() => requirePluginMarkers([], markers), /No client plugins/)
-  assert.throws(() => requirePluginMarkers([skills, reset], markers), /reset needs a mount marker/)
-  assert.throws(() => requirePluginMarkers([reset], {}, { 'dsh-next-reset': ' ' }), /needs a mount marker/)
+  assert.throws(() => requirePluginMarkers([skills, hostOnly], markers), /opencode-session-patch needs a mount marker/)
+  assert.throws(() => requirePluginMarkers([hostOnly], {}, { 'dsh-next-opencode-session-patch': ' ' }), /needs a mount marker/)
   assert.throws(() => requirePluginMarkers([skills], { 'dsh-next-skills': true }), /needs a mount marker/)
   assert.throws(() => requirePluginMarkers(['constructor'], {}, {}), /needs a mount marker/)
 })

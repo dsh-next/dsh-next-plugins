@@ -8,7 +8,7 @@ import { parseOptions, selectSuites, runWorkflow, testedDshVersion } from './wor
 async function fixture(t, behavior = {}) {
   const root = await mkdtemp(join(tmpdir(), 'workflow-orchestration-'))
   t.after(() => rm(root, { recursive: true, force: true }))
-  const records = ['checkpoints', 'skills', 'git', 'cc-plugins', 'notifier', 'oauth-providers', 'reset'].map(slug => ({
+  const records = ['checkpoints', 'skills', 'git', 'cc-plugins', 'notifier', 'oauth-providers'].map(slug => ({
     name: '@dsh-next/dsh-next-' + slug, slug, version: '0.1.0',
     manifest: { dsh: { bundle: { patch: './cordis.patch.yml' }, client: {}, engines: { dsh: '>=0.1.3-alpha.2' } } },
   }))
@@ -79,13 +79,13 @@ test('suite registry accounts for every committed E2E spec', async () => {
 })
 
 test('default full E2E explicitly includes every keyless scenario group', () => {
-  assert.deepEqual(selectSuites('all').map(s => s.name), ['smoke', 'checkpoints', 'git', 'skills', 'cc-plugins', 'notifier', 'oauth-providers', 'reset'])
+  assert.deepEqual(selectSuites('all').map(s => s.name), ['smoke', 'checkpoints', 'git', 'skills', 'cc-plugins', 'notifier', 'oauth-providers'])
   assert.equal(selectSuites('checkpoints', true)[0].spec, 'tests/e2e/checkpoints-chat.e2e.ts')
   assert.throws(() => selectSuites('all', true), /select it explicitly/)
   assert.throws(() => selectSuites('missing'), /Unknown/)
 })
 
-for (const selector of ['git', 'skills', 'cc-plugins', 'notifier', 'oauth-providers', 'reset']) {
+for (const selector of ['git', 'skills', 'cc-plugins', 'notifier', 'oauth-providers']) {
   test(`${selector} runs independently with only its required plugin closure and owned setup`, async t => {
     const f = await fixture(t)
     const options = { ...f.options, selector }

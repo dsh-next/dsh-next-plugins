@@ -1608,8 +1608,8 @@ export class GitService {
   /* -------------------------------------------------------------- reclaim */
 
   /**
-   * The reincarnation seam `dsh-next-reset` and `dsh-next-checkpoints`
-   * resolve, under the retired `dsh-next-worktrees` key.
+   * The reincarnation seam `dsh-next-checkpoints` resolves, under the retired
+   * `dsh-next-worktrees` key.
    *
    * Worktrees are git-native here, not session-bound, so there is no registry
    * row to move: a session that continues in the same checkout already keeps

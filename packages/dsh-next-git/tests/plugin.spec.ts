@@ -8,10 +8,10 @@ import { GitService } from '../src/host/git-service.ts'
 /**
  * Host-entry wiring: what the profile tree gains when this plugin mounts.
  *
- * The two service keys are the point of this suite. `dsh-next-reset` and
- * `dsh-next-checkpoints` look up `dsh-next-worktrees` structurally and call
- * `reclaim(from, to)`; if this plugin stops providing that key, `/reset` and
- * checkpoint rewind break silently in two other packages.
+ * The two service keys are the point of this suite. `dsh-next-checkpoints`
+ * looks up `dsh-next-worktrees` structurally and calls `reclaim(from, to)`;
+ * if this plugin stops providing that key, checkpoint rewind breaks silently
+ * in that other package.
  */
 
 interface Mounted {
@@ -78,7 +78,7 @@ describe('host entry', () => {
     const face = mounted.provides.get(WORKTREES_SERVICE_KEY) as ReclaimFace
     expect(face).toBeDefined()
     expect(typeof face.reclaim).toBe('function')
-    // Called exactly the way dsh-next-reset and dsh-next-checkpoints call it.
+    // Called exactly the way dsh-next-checkpoints calls it.
     const result = await face.reclaim('parent', 'known')
     expect(result.claimed).toBe(true)
     expect(result.branch).toBe('dsh-git/ready')

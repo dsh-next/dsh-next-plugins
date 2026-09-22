@@ -66,7 +66,7 @@ mise run e2e -- skills
 ```
 
 The family `smoke` suite checks packed client composition and opens each UI
-surface; it does not run the detailed install, Git mutation, or reset flows.
+surface; it does not run the detailed install or Git mutation flows.
 Run those independently with a named suite:
 
 | Suite | Behavior |
@@ -77,7 +77,6 @@ Run those independently with a named suite:
 | `cc-plugins` | Marketplace, install/uninstall, dependencies, scopes, model aliases |
 | `notifier` | Settings, client identity, keyboard dismissal, failed-turn notification |
 | `oauth-providers` | Provider/model editing, validation, persistence, deletion |
-| `reset` | Session replacement and old-session archival |
 | `checkpoints` | Capture, inspect, preview, rewind, and RPC errors |
 
 Use `pnpm run test:e2e -- <suite>` or `mise run e2e -- <suite>`.

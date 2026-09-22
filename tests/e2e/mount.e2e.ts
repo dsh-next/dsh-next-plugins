@@ -49,7 +49,6 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
 }
 
 const nonUiClients: Record<string, string> = {
-  'dsh-next-reset': 'Session handoff listener; behavior is exercised in the reset suite.',
   'dsh-next-opencode-session-patch': 'Host-only behavior with an empty browser entry.',
 }
 

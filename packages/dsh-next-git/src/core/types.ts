@@ -503,7 +503,7 @@ export interface SetupReport {
   readonly output: string
 }
 
-/** The reclaim seam `dsh-next-reset` and `dsh-next-checkpoints` resolve. */
+/** The reclaim seam `dsh-next-checkpoints` resolves. */
 export interface ReclaimResult {
   readonly claimed: boolean
   readonly reason: 'not-a-worktree' | 'reclaimed'

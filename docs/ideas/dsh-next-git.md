@@ -75,7 +75,8 @@ removing the directory does not unpublish it and installed profiles still name
 it. The final release carries a deprecation note, the npm entry is marked
 deprecated, and the README documents the profile swap to
 `@dsh-next/dsh-next-git`. dsh-next-git exposes `reclaim(from, to)` under a key
-dsh-next-reset and dsh-next-checkpoints resolve structurally.
+dsh-next-checkpoints resolves structurally (`dsh-next-reset`, the other
+original consumer, was retired on 2026-09-22).
 
 Worktree awareness in the other two packages is **removed, not ported** (user
 decision 2026-09-18). `dsh-next-skills` has none left in source: commit 8139302
@@ -118,8 +119,8 @@ note).
       (create-squads-plugin, new-connectors-plugin) are kept at
       `<repo>/.worktrees/<slug>`; the other two were deleted on request after
       migration.
-- [ ] dsh-next-git can own `reclaim` so reset and checkpoints keep working
-      without edits to their lookup keys.
+- [ ] dsh-next-git can own `reclaim` so checkpoints keep working
+      without edits to its lookup key.
 - [ ] "Everything from day one" still allows the logically separate commits
       [AGENTS.md](../../AGENTS.md) requires.
 
@@ -145,8 +146,9 @@ v0.1.0 ships all of it, built in this internal order:
    Executed 2026-09-18: the package, the worktrees-sidebar e2e suite, the
    README capture script and its alias are gone; the shared e2e helpers moved
    to [git-helpers.ts](../../tests/e2e/git-helpers.ts) with the worktree-only
-   helpers dropped; the reset and checkpoints `reclaim` lookups stay as the
-   forward-compatibility seam for dsh-next-git.
+   helpers dropped; the checkpoints `reclaim` lookup stays as the
+   forward-compatibility seam for dsh-next-git (the dsh-next-reset lookup was
+   retired with that package on 2026-09-22).
 
 ### Added by the 2026-09-18 review (also v0.1.0)
 
@@ -363,7 +365,8 @@ file-address handoff. Worktree-location conventions from git's own
 `.cursor/worktrees.json` setup contract.
 
 Retirement coupling inventory found by reading this repository:
-`packages/dsh-next-reset/src/core/handoff.ts` (service key),
+`packages/dsh-next-reset/src/core/handoff.ts` (service key; that package was
+retired on 2026-09-22),
 `packages/dsh-next-checkpoints/src/index.ts` (structural reclaim lookup),
 `packages/dsh-next-cc-plugins/src/core/path.ts` (worktree marker, filter
 caller and tests — to be deleted), `packages/dsh-next-skills` (already clean

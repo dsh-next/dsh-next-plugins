@@ -5,11 +5,10 @@
  * the same-origin RPC route. It also publishes the service on two Cordis keys:
  *
  * - `dsh-next-git` — this plugin's own key, for any future structural consumer;
- * - `dsh-next-worktrees` — the key `dsh-next-reset` and
- *   `dsh-next-checkpoints` already resolve for their reincarnation handshake.
- *   They look it up structurally and only call `reclaim(from, to)`, so keeping
- *   the retired key alive here is what lets that migration stay a rename
- *   rather than an edit in two other packages (see
+ * - `dsh-next-worktrees` — the key `dsh-next-checkpoints` already resolves for
+ *   its reincarnation handshake. It looks it up structurally and only calls
+ *   `reclaim(from, to)`, so keeping the retired key alive here is what lets
+ *   that migration stay a rename rather than an edit in another package (see
  *   `docs/ideas/dsh-next-git.md`, "Key Assumptions").
  *
  * Keep this entry thin: logic lives in `src/host/`, pure logic in `src/core/`.

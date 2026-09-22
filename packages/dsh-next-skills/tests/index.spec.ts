@@ -1,16 +1,20 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { SkillCandidate, SkillProvider, SkillProviderControl } from '@deepseek-ai/dsh-skill'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { apply, EXTERNAL_SKILLS_SERVICE, inject, type ExternalSkillsService } from '../src/index.ts'
-import { SKILLS_NAMESPACE, skillsConfigSchema } from '../src/core/schema.ts'
+import { apply, Config, EXTERNAL_SKILLS_SERVICE, inject, type ExternalSkillsService } from '../src/index.ts'
+import { skillsConfigSchema } from '../src/core/schema.ts'
 import { DEFAULT_PROVIDER_SPECS } from '../src/core/defaults.ts'
 import { SkillsService } from '../src/host/skills-service.ts'
-import { MemConfigFace } from './helpers/config-face.ts'
 
-function harness(settingsAvailable = true, registryAvailable = true) {
-  const config = new MemConfigFace()
-  config.setSection({ scopes: { off: [], restricted: ['web'] } })
-  const registerSettings = vi.fn(() => config)
+function harness(configAvailable = true, registryAvailable = true) {
+  const section: Record<string, unknown> = { providers: [], installations: [] }
+  const edit = vi.fn(async (_entry: unknown, change: (current: Record<string, unknown>) => Record<string, unknown>) => {
+    Object.assign(section, change({ ...section }))
+  })
+  const loaderConfig = {
+    providers: { get: () => section.providers },
+    installations: { get: () => section.installations },
+  }
   const invalidate = vi.fn()
   const controller = new AbortController()
   const offProvider = vi.fn(() => controller.abort())
@@ -25,14 +29,21 @@ function harness(settingsAvailable = true, registryAvailable = true) {
   const disposers: Array<() => void> = []
   const warn = vi.fn()
   const get = vi.fn((key: string) => {
-    if (key === 'settings') return settingsAvailable ? { register: registerSettings } : undefined
+    if (key === 'settings') return {}
+    if (key === 'configEditor') return configAvailable ? { edit } : undefined
     if (key === 'webServer') return { register: registerRoute }
     if (key === 'skills') return registryAvailable ? { registerProvider } : undefined
     throw new Error('unexpected service lookup: ' + key)
   })
-  const ctx = { get, provide: (key: string, value: unknown) => provided.set(key, value), logger: { warn }, effect: (fn: () => () => void) => disposers.push(fn()) }
-  apply(ctx as unknown as Context)
-  return { config, registerSettings, registerProvider, registerRoute, off, provided, disposers, warn, get, provider, invalidate, offProvider, controller }
+  const ctx = {
+    get,
+    provide: (key: string, value: unknown) => provided.set(key, value),
+    logger: { warn },
+    effect: (fn: () => () => void) => disposers.push(fn()),
+    fiber: { entry: { options: { id: 'dsh-next-skills' } } },
+  }
+  apply(ctx as unknown as Context, loaderConfig as never)
+  return { section, edit, registerProvider, registerRoute, off, provided, disposers, warn, get, provider, invalidate, offProvider, controller }
 }
 
 beforeEach(() => {
@@ -47,7 +58,7 @@ describe('host apply global-only wiring', () => {
   it('registers settings and install/remove only, never overriding native skill discovery', async () => {
     const h = harness()
     expect(inject).toEqual(['webServer', 'settings'])
-    expect(h.registerSettings).toHaveBeenCalledWith(SKILLS_NAMESPACE, skillsConfigSchema, { applies: 'live' })
+    expect(Config).toBe(skillsConfigSchema)
     expect(h.registerRoute).toHaveBeenCalledOnce()
     const surface = h.provided.get(EXTERNAL_SKILLS_SERVICE) as ExternalSkillsService
     expect(Object.keys(surface).sort()).toEqual(['installExternalSkills', 'removeExternalSkills'])
@@ -65,8 +76,8 @@ describe('host apply global-only wiring', () => {
     expect(await h.provider?.list({})).toEqual([])
     expect(await h.provider?.get({} as SkillCandidate, {})).toBeUndefined()
     expect(h.invalidate).not.toHaveBeenCalled()
-    expect(h.config.watchers).toHaveLength(0)
-    expect(h.config.raw()).toEqual({ scopes: { off: [], restricted: ['web'] } })
+    expect(h.edit).not.toHaveBeenCalled()
+    expect(h.section).toEqual({ providers: [], installations: [] })
   })
 
   it('forwards filesystem changes to the registry only while mounted', async () => {
@@ -110,9 +121,9 @@ describe('host apply global-only wiring', () => {
     expect(h.controller.signal.aborted).toBe(true)
   })
 
-  it('warns and provides nothing when settings are unavailable', () => {
+  it('warns and provides nothing when configuration is unavailable', () => {
     const h = harness(false)
-    expect(h.warn).toHaveBeenCalledWith(expect.stringContaining('settings service unavailable'))
+    expect(h.warn).toHaveBeenCalledWith(expect.stringContaining('configuration is unavailable'))
     expect(h.provided.size).toBe(0)
     expect(h.registerRoute).not.toHaveBeenCalled()
     expect(h.disposers).toHaveLength(0)

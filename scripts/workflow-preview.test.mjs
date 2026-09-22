@@ -51,9 +51,9 @@ test('skills uses shared closure packaging, private URL and preserved fixture ca
   const state = await setup(t);
   state.options.keep = true;
   const result = await runPreview(state.options, state.deps);
-  const settings = JSON.parse(await readFile(join(state.owned.home, 'settings.yaml'), 'utf8'));
-  assert.deepEqual(settings['dsh-next-skills'].installations.map(item => item.name), ['e2e-test-skill', 'grill-me', 'opentofu']);
-  const config = settings['dsh-next-skills'];
+  const patch = JSON.parse(await readFile(join(state.owned.home, 'profiles', 'preview-skills', 'cordis.patch.yml'), 'utf8'));
+  const config = patch.find(entry => entry.id === 'dsh-next-skills').config;
+  assert.deepEqual(config.installations.map(item => item.name), ['e2e-test-skill', 'grill-me', 'opentofu']);
   assert.deepEqual(config.scopes, { 'e2e-test-skill': [] }); // Only the stale-restriction regression seed.
   assert.deepEqual(config.providers, [{ id: 'e2e-local', spec: 'e2e/local', addedAt: '2026-01-01T00:00:00.000Z' }]);
   for (const item of config.installations) {

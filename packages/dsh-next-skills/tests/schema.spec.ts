@@ -3,7 +3,14 @@ import { SKILLS_NAMESPACE, skillsConfigSchema } from '../src/core/schema.ts'
 import { normalizeSkillsConfig } from '../src/core/settings.ts'
 
 // Exercise hand-edited runtime values, not only already-typed configuration.
-const validate = skillsConfigSchema as unknown as (input: unknown) => unknown
+// The Loader wraps both volatile fields in live references; read them out.
+const validate = (input: unknown): { providers: unknown; installations: unknown } => {
+  const config = (skillsConfigSchema as unknown as (source: unknown) => {
+    providers: { get(): unknown }
+    installations: { get(): unknown }
+  })(input)
+  return { providers: config.providers.get(), installations: config.installations.get() }
+}
 
 describe('skills settings schema', () => {
   it('declares only providers and installation provenance, with empty defaults', () => {

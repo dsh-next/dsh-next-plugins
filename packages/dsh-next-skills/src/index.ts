@@ -1,18 +1,50 @@
 /** Host wiring for global skill management. Native filesystem discovery owns
- * availability and frontmatter invocation; legacy scope settings are ignored. */
+ * availability and frontmatter invocation; legacy scope settings are ignored.
+ *
+ * DeepSeek Harness 0.1.7 derives plugin settings from the owning Loader entry's
+ * own config, so the provider and installation ledgers are this plugin's
+ * `Config` rather than a registered namespace. Both fields are volatile, so a
+ * write commits into the running fiber without a restart. */
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import type { SettingsScope } from '@deepseek-ai/dsh-settings'
 import type { SkillRegistry } from '@deepseek-ai/dsh-skill'
 import { nodeFs } from './host/fs-adapter.ts'
 import { registerRpc } from './host/rpc.ts'
 import { SkillsService, type ConfigScopeFace } from './host/skills-service.ts'
-import { SKILLS_NAMESPACE, skillsConfigSchema } from './core/schema.ts'
+import { skillsConfigSchema, type SkillsConfigShape } from './core/schema.ts'
 import { DEFAULT_PROVIDER_SPECS } from './core/defaults.ts'
 import type { ExternalMutationResult, InstallExternalSkillsArgs, RemoveExternalSkillsArgs } from './core/types.ts'
 
+export const name = 'dsh-next-skills'
+
 export const inject = ['webServer', 'settings'] as const
+
+/** The Loader reads the exported schema to build this plugin's settings form. */
+export const Config = skillsConfigSchema
+
+export type { SkillsConfigShape }
+
+/** Structural face of the profile config editor this plugin writes through. */
+interface ConfigEditorFace {
+  edit(
+    entry: unknown,
+    change: (current: Record<string, unknown>, inherited: Record<string, unknown>) => Record<string, unknown>,
+  ): Promise<void>
+}
+
+/** The skills service's config face over the volatile Loader config. */
+function configFace(ctx: Context, config: SkillsConfigShape | undefined): ConfigScopeFace | undefined {
+  const entry = (ctx as unknown as { fiber?: { entry?: unknown } }).fiber?.entry
+  const editor = ctx.get('configEditor') as ConfigEditorFace | undefined
+  if (config === undefined || entry === undefined || editor === undefined) return undefined
+  return {
+    get: () => ({ providers: config.providers.get(), installations: config.installations.get() }),
+    replace: async (section) => {
+      await editor.edit(entry, (raw) => ({ ...raw, ...section as Record<string, unknown> }))
+    },
+  }
+}
 
 /** Cordis service key the cc-plugins bridge resolves to drive external skills. */
 export const EXTERNAL_SKILLS_SERVICE = 'cc-external-skills'
@@ -31,22 +63,19 @@ export interface ExternalSkillsService {
 /** Delay of the boot sequence after mount (lets the host settle). */
 const BOOT_DELAY_MS = 3 * 1000
 
-export function apply(ctx: Context): void {
+export function apply(ctx: Context, config?: SkillsConfigShape): void {
   const dshHome = process.env.DSH_HOME ?? join(homedir(), '.dsh')
   const agentsHome = process.env.DSH_AGENTS_HOME ?? join(homedir(), '.agents')
   const fs = nodeFs()
 
-  // Register the settings namespace (typed scope). The settings service is a
-  // declared dependency; a host without it cannot run the settings model.
-  const settings = ctx.get('settings') as { register?: (ns: unknown, schema: unknown, opts?: unknown) => SettingsScope<never> } | undefined
-  const settingsScope = settings && typeof settings.register === 'function'
-    ? settings.register(SKILLS_NAMESPACE, skillsConfigSchema, { applies: 'live' })
-    : undefined
-  if (settingsScope === undefined) {
-    ctx.logger.warn('dsh-next-skills: settings service unavailable; configuration cannot persist')
+  // The plugin's configuration is its own Loader entry config; without a
+  // profile config editor there is nowhere to persist the provider and
+  // installation ledgers, so the plugin stays inert.
+  const configFaceValue = configFace(ctx, config)
+  if (configFaceValue === undefined) {
+    ctx.logger.warn('dsh-next-skills: configuration is unavailable; the plugin cannot persist installs')
     return
   }
-  const configFace = settingsScope as unknown as ConfigScopeFace
 
   // Borrow the registry's supported invalidation capability without publishing
   // candidates or overriding native invocation policy. The native watcher is
@@ -74,7 +103,7 @@ export function apply(ctx: Context): void {
     dshHome,
     agentsHome,
     logWarn: (message) => ctx.logger.warn(message),
-    config: configFace,
+    config: configFaceValue,
     onInstalledChanged: () => invalidateInstalled?.(),
   })
 

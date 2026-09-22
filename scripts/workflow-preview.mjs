@@ -35,7 +35,7 @@ async function skillsRecipe(scratch, settings) {
     await mkdir(dir, { recursive: true, mode: 0o700 });
     await writeFile(join(dir, 'SKILL.md'), content, { mode: 0o600, flag: 'wx' });
   }
-  const config = settings['dsh-next-skills'];
+  const config = settings;
   for (const name of ['grill-me', 'opentofu']) config.installations.push({ name, providerId: 'e2e-local', providerSpec: 'e2e/local', skillPath: 'skills/' + name, version: 'seed-v1', installedAt: '2026-01-01T00:00:00.000Z' });
 }
 
@@ -62,11 +62,14 @@ export async function runPreview(options, dependencies = {}) {
     // caller's checkout; the recipe supplies only its private repository.
     const runtimeEnv = { ...isolatedGitEnvironment(credentials.env), ...scratch.env };
     const buildEnv = withoutModelCredentials(runtimeEnv);
-    await deps.seedRuntime(scratch, { profile, fixtures: true });
-    const settingsPath = join(scratch.home, 'settings.yaml');
-    const settings = JSON.parse(await readFile(settingsPath, 'utf8'));
-    await skillsRecipe(scratch, settings);
-    await writeFile(settingsPath, JSON.stringify(settings, null, 2) + '\n', { mode: 0o600 });
+    const seeded = await deps.seedRuntime(scratch, { profile, fixtures: true });
+    // DSH 0.1.7 stores plugin settings in the profile patch, not settings.yaml.
+    const patchPath = join(seeded?.profileDir ?? join(scratch.home, 'profiles', profile), 'cordis.patch.yml');
+    const patch = JSON.parse(await readFile(patchPath, 'utf8'));
+    const skillsRow = patch.find(entry => entry.id === 'dsh-next-skills');
+    if (skillsRow === undefined) throw new Error('Preview fixture has no dsh-next-skills config row');
+    await skillsRecipe(scratch, skillsRow.config);
+    await writeFile(patchPath, JSON.stringify(patch, null, 2) + '\n', { mode: 0o600 });
     const artifacts = await deps.packPackages(plan, { artifactRoot: join(artifactDir, 'packages'), env: buildEnv, run: deps.run, signal: controller.signal });
     await deps.installPackages(artifacts, { home: scratch.home, profile, yes: true, dsh: options.dsh, env: buildEnv, run: deps.run, signal: controller.signal });
     runtime = await deps.startDsh({ dsh: options.dsh, home: scratch.home, agentsHome: scratch.agentsHome, profile, env: runtimeEnv, port: 0, artifactDir, signal: controller.signal });

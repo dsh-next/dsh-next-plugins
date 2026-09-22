@@ -1,7 +1,7 @@
-# Port the skills plugin to the DSH 0.1.7 config model
+# Record the DSH 0.1.7 settings-API break (all three ports landed)
 
 - date: 2026-09-22
-- status: proposed
+- status: archived
 - scope: packages/dsh-next-skills
 
 DeepSeek Harness `0.1.7-alpha.1` replaced the plugin settings API. The old
@@ -20,12 +20,12 @@ implementations; see
 [the oauth note](../implemented/2026-09-22-oauth-providers-config-port.md) and
 [the notifier note](../implemented/2026-09-22-notifier-config-port.md).
 
-Still broken:
+All three plugins were broken this way; each port landed with its own note:
 
-- [skills](/Users/rokgrabnar/Projects/dsh-next-plugins/packages/dsh-next-skills/src/index.ts#L42)
-  returns early when `settings.register` is missing, so its RPC routes never
-  register and every browser call falls through to the static fallback (405 on
-  POST).
+- [skills](/Users/rokgrabnar/Projects/dsh-next-plugins/packages/dsh-next-skills/src/index.ts)
+  returned early when `settings.register` was missing, so its RPC routes never
+  registered and every browser call fell through to the static fallback (405 on
+  POST). See [the skills port note](../implemented/2026-09-22-skills-config-port.md).
 
 Evidence on `0.1.7-alpha.1`: a direct POST to `/dsh-next-oauth-providers/rpc`
 answered `405 Method Not Allowed` with no body (the frontend-static fallback)

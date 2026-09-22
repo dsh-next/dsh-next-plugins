@@ -63,11 +63,12 @@ restored as described below.
 
 `Delete` moves a global copy into its root’s `.trash` directory for manual recovery,
 including hand-managed copies. Removing the last copy of a name also removes its
-installation record. Providers and the `installations` provenance ledger live in
-`$DSH_HOME/settings.yaml` under `dsh-next-skills`. After boot-time provider sync
+installation record. Providers and the `installations` provenance ledger are this
+plugin’s own configuration, which DeepSeek Harness stores as a row in the active
+profile’s `cordis.patch.yml` under `dsh-next-skills`. After boot-time provider sync
 and each `Refresh all`, reconciliation restores missing global agents-root
 install directories from the available provider cache; it does not overwrite
-existing directories. Sharing that settings section can therefore recreate
+existing directories. Sharing that config row can therefore recreate
 recorded provider installs on another machine after sync. A failed provider can
 be retried with `Refresh all`; deleting files by hand while keeping their record
 may cause them to be reinstalled.

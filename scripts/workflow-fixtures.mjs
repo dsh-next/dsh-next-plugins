@@ -38,7 +38,21 @@ export async function seedRuntime(scratch, { profile = 'smoke', fixtures = false
     dependencies: {},
     dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'] } },
   })
-  await put(join(profileDir, 'cordis.patch.yml'), '[]\n')
+  // DSH 0.1.7 stores a plugin's settings in its own Loader entry config, so
+  // plugin fixtures seed the profile patch (a JSON document is valid YAML)
+  // instead of the retired settings.yaml.
+  const skillsConfig = fixtures
+    ? {
+        providers: [{ id: 'e2e-local', spec: 'e2e/local', addedAt: '2026-01-01T00:00:00.000Z' }],
+        installations: [{ name: 'e2e-test-skill', providerId: 'e2e-local', providerSpec: 'e2e/local', skillPath: 'skills/e2e-test-skill' }],
+        // Deliberately stale restrictions must not hide this global installed copy.
+        scopes: { 'e2e-test-skill': [] },
+      }
+    : { providers: [], installations: [] }
+  await json(join(profileDir, 'cordis.patch.yml'), [
+    { id: 'dsh-next-skills', name: '@dsh-next/dsh-next-skills', config: skillsConfig },
+    { id: 'dsh-next-notifier', name: '@dsh-next/dsh-next-notifier', config: { enabled: true, suppressFocused: true, volume: 70 } },
+  ])
   await json(join(profileDir, 'pnpm-workspace.yaml'), {
     packages: ['.'],
     nodeLinker: 'hoisted',
@@ -48,16 +62,6 @@ export async function seedRuntime(scratch, { profile = 'smoke', fixtures = false
   const settings = {
     'ui-onboarding': { welcomeNoticeVersion: '2099-01-01.1' },
     'agent-default-model': { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
-    'dsh-next-notifier': { enabled: true, suppressFocused: true, volume: 70 },
-    'dsh-next-skills': { providers: [], installations: [] },
-  }
-  if (fixtures) {
-    settings['dsh-next-skills'] = {
-      providers: [{ id: 'e2e-local', spec: 'e2e/local', addedAt: '2026-01-01T00:00:00.000Z' }],
-      installations: [{ name: 'e2e-test-skill', providerId: 'e2e-local', providerSpec: 'e2e/local', skillPath: 'skills/e2e-test-skill' }],
-      // Deliberately stale restrictions must not hide this global installed copy.
-      scopes: { 'e2e-test-skill': [] },
-    }
   }
   await json(join(scratch.home, 'settings.yaml'), settings)
   await seedWorkspaces(scratch.home, [scratch.workspaceA, scratch.workspaceB])

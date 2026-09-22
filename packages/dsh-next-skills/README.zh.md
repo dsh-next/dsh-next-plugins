@@ -56,10 +56,11 @@
 
 `Delete` 将全局副本移入其根目录的 `.trash`，便于手动恢复，手工管理的副本
 也适用。删除某个名称的最后一个副本时，也会删除其安装记录。提供方和
-`installations` 来源记录保存在 `$DSH_HOME/settings.yaml` 的
-`dsh-next-skills` 小节中。启动时的提供方同步和每次 `Refresh all` 之后，
+`installations` 来源记录属于本插件自身的配置，DeepSeek Harness 将其保存为
+当前 profile `cordis.patch.yml` 中 `dsh-next-skills` 行。启动时的提供方同步
+和每次 `Refresh all` 之后，
 协调恢复会从可用的提供方缓存中还原全局 agents 根目录下缺失的安装目录，不会
-覆盖现有目录。因此，共享该设置小节可在另一台机器同步后重建已记录的提供方
+覆盖现有目录。因此，共享该配置行可在另一台机器同步后重建已记录的提供方
 安装。提供方同步失败后可用 `Refresh all` 重试；手动删除文件却保留安装记录，
 可能导致文件被重新安装。
 

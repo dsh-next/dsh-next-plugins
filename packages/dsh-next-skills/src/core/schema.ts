@@ -1,8 +1,9 @@
 /**
- * The Schemastery settings schema for the `dsh-next-skills` namespace. It is
- * the single source of truth for the settings.yaml section's shape and
- * defaults; the host registers it with `settings.register()` and reads the
- * resolved value through the returned scope.
+ * The Schemastery config schema for the `dsh-next-skills` plugin. It is the
+ * single source of truth for the plugin config's shape and defaults; the host
+ * reads the resolved value through its volatile references. Both top-level
+ * fields are volatile, so a `configEditor.edit` write commits into the running
+ * fiber without a restart.
  *
  * The document is hand-editable; `core/settings.ts`
  * normalizes and validates the resolved value defensively at every read.
@@ -22,7 +23,7 @@ export const skillsConfigSchema = Schema.object({
       addedAt: Schema.string().default(''),
     }),
   ) as Schemastery<Array<{ id: string; spec: string; addedAt: string }>>)
-    .default([]).description('Configured skill providers (GitHub owner/repo sources)'),
+    .default([]).description('Configured skill providers (GitHub owner/repo sources)').volatile(),
   installations: (Schema.array(
     Schema.object({
       name: Schema.string(),
@@ -36,7 +37,7 @@ export const skillsConfigSchema = Schema.object({
     providerSpec: string
     skillPath: string
   }>>)
-    .default([]).description('Skills the plugin installed into the global root (provenance ledger)'),
+    .default([]).description('Skills the plugin installed into the global root (provenance ledger)').volatile(),
 })
 
 export type SkillsConfigShape = Schemastery.TypeT<typeof skillsConfigSchema>

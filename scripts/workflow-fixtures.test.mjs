@@ -21,7 +21,8 @@ test('default fixtures seed only fresh private profile data and realpath workspa
   assert.deepEqual(profile.dsh.profile.bundles, ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'])
   const settings = await json(join(paths.home, 'settings.yaml'))
   assert.equal(settings['agent-default-model'].model, 'deepseek-v4-flash')
-  assert.deepEqual(settings['dsh-next-skills'], { providers: [], installations: [] })
+  const patch = await json(join(result.profileDir, 'cordis.patch.yml'))
+  assert.deepEqual(patch.find(row => row.id === 'dsh-next-skills').config, { providers: [], installations: [] })
   assert.equal(JSON.stringify(settings).includes('API_KEY'), false)
   const registry = await json(join(paths.home, 'storages', 'workspace.json'))
   assert.equal(Object.keys(registry.tables.workspaces).length, 2)
@@ -30,9 +31,9 @@ test('default fixtures seed only fresh private profile data and realpath workspa
 
 test('smoke fixture preserves global provenance and seeds only adversarial legacy restrictions', async t => {
   const paths = await scratch(t)
-  await seedRuntime(paths, { profile: 'smoke', fixtures: true })
-  const settings = await json(join(paths.home, 'settings.yaml'))
-  assert.deepEqual(settings['dsh-next-skills'], {
+  const result = await seedRuntime(paths, { profile: 'smoke', fixtures: true })
+  const patch = await json(join(result.profileDir, 'cordis.patch.yml'))
+  assert.deepEqual(patch.find(row => row.id === 'dsh-next-skills').config, {
     providers: [{ id: 'e2e-local', spec: 'e2e/local', addedAt: '2026-01-01T00:00:00.000Z' }],
     installations: [{ name: 'e2e-test-skill', providerId: 'e2e-local', providerSpec: 'e2e/local', skillPath: 'skills/e2e-test-skill' }],
     // The mount marker must still see and manage this installed copy.

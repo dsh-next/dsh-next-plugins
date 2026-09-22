@@ -1,6 +1,6 @@
 import * as React from 'react'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import { Button, IconChevronDownOutline14, IconChevronUpOutline14, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconChevronDownOutlineRegular, IconChevronUpOutlineRegular, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   defaultHistoryOrder,
   type HistoryAction,
@@ -198,8 +198,8 @@ function Action({ sessionId, action, commits, t, api, root, cwd, onClose, onChan
             return <li key={id}>
               <span className={classes.orderSubject} title={id}>{commit?.subject ?? id.slice(0, 7)}</span>
               {reorderable && <span className={classes.row}>
-                <button type="button" className={classes.orderMove} disabled={!editable || index === 0} aria-label={t('history.moveUp', { hash: id.slice(0, 7) })} title={t('history.moveUp', { hash: id.slice(0, 7) })} onClick={() => move(index, -1)}><IconChevronUpOutline14 size={14} /></button>
-                <button type="button" className={classes.orderMove} disabled={!editable || index === order.length - 1} aria-label={t('history.moveDown', { hash: id.slice(0, 7) })} title={t('history.moveDown', { hash: id.slice(0, 7) })} onClick={() => move(index, 1)}><IconChevronDownOutline14 size={14} /></button>
+                <button type="button" className={classes.orderMove} disabled={!editable || index === 0} aria-label={t('history.moveUp', { hash: id.slice(0, 7) })} title={t('history.moveUp', { hash: id.slice(0, 7) })} onClick={() => move(index, -1)}><IconChevronUpOutlineRegular size={14} /></button>
+                <button type="button" className={classes.orderMove} disabled={!editable || index === order.length - 1} aria-label={t('history.moveDown', { hash: id.slice(0, 7) })} title={t('history.moveDown', { hash: id.slice(0, 7) })} onClick={() => move(index, 1)}><IconChevronDownOutlineRegular size={14} /></button>
               </span>}
             </li>
           })}

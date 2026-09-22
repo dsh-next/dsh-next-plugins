@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { IconChevronLeftOutline14, IconEllipsisOutline16, Menu, type MenuEntry, type MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChevronLeftOutlineRegular, IconEllipsisOutlineRegular, Menu, type MenuEntry, type MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PanelState } from '../../core/types.ts'
 import type { Translate } from '../GitPanel.tsx'
 import { commandLabels, type RepositoryMenuCommand } from './commands.ts'
@@ -22,7 +22,7 @@ export function RepositoryMenu({ t, disabled, state, onAction }: {
       : id === 'undo-commit' ? state?.head.unborn === true : false,
   })
   const group = (id: string, label: string, commands: RepositoryMenuCommand[]): MenuItem => ({
-    id, label: <span className={menuClasses.groupLabel} data-dsh-git="repository-group"><span>{label}</span><IconChevronLeftOutline14 size={14} /></span>,
+    id, label: <span className={menuClasses.groupLabel} data-dsh-git="repository-group"><span>{label}</span><IconChevronLeftOutlineRegular size={14} /></span>,
     submenu: commands.map(item),
   })
   const items: MenuEntry[] = [
@@ -52,6 +52,6 @@ export function RepositoryMenu({ t, disabled, state, onAction }: {
       aria-haspopup="menu" aria-expanded={open && !disabled}
       data-dsh-git="repository-menu" disabled={disabled}
       onClick={() => setOpen(value => !value)}>
-      <IconEllipsisOutline16 size={16} />
+      <IconEllipsisOutlineRegular size={16} />
     </button>} />
 }

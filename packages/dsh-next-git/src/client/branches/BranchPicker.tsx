@@ -12,7 +12,7 @@
  */
 
 import * as React from 'react'
-import { Button, IconBranchOutline16, IconPlusOutline16, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconBranchOutlineRegular, IconPlusOutlineRegular, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { hasLocalBranch, filterRefs, partitionRefs, refOptions, type RefOption } from '../../core/refs.ts'
 import { validateBranchName, type BranchNameIssue } from '../../core/branches.ts'
 import type { RefSummary } from '../../core/types.ts'
@@ -96,15 +96,15 @@ export function BranchPicker(props: BranchPickerProps): React.ReactElement {
     if (step !== 'browse') return []
     if (trimmed === '') {
       return [
-        { id: 'create', label: t('picker.create'), icon: <IconPlusOutline16 size={14} />, disabled: unborn },
-        { id: 'create-from', label: t('picker.createFrom'), icon: <IconBranchOutline16 size={14} />, disabled: unborn },
+        { id: 'create', label: t('picker.create'), icon: <IconPlusOutlineRegular size={14} />, disabled: unborn },
+        { id: 'create-from', label: t('picker.createFrom'), icon: <IconBranchOutlineRegular size={14} />, disabled: unborn },
         { id: 'detach', label: t('picker.detached'), icon: <DetachedGlyph /> },
       ]
     }
     // A typed name that no branch uses becomes the create row, the way VS Code
     // offers "Create new branch <query>" while you type.
     return issue === null
-      ? [{ id: 'create-query', label: t('picker.createNamed', { name: trimmed }), icon: <IconPlusOutline16 size={14} /> }]
+      ? [{ id: 'create-query', label: t('picker.createNamed', { name: trimmed }), icon: <IconPlusOutlineRegular size={14} /> }]
       : []
   }, [step, trimmed, issue, unborn, t])
 

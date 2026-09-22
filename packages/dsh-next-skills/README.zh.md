@@ -80,7 +80,7 @@ dsh plugin --profile <name> add @dsh-next/dsh-next-skills
 
 ## 使用须知
 
-- 需要 DeepSeek Harness `>=0.1.1-rc.1`。技能的可见性和优先级由 DSH 原生文件系统发现处理；本插件不会覆盖发现的技能或其调用标志。技能 frontmatter 中的 `disable-model-invocation` 和 `user-invocable` 仍然有效。
+- 需要 DeepSeek Harness `>=0.1.7-alpha.1`。技能的可见性和优先级由 DSH 原生文件系统发现处理；本插件不会覆盖发现的技能或其调用标志。技能 frontmatter 中的 `disable-model-invocation` 和 `user-invocable` 仍然有效。
 - 升级会保留现有技能文件、提供方和安装记录。旧版 `dsh-next-skills.scopes` 设置会被忽略，并在下次保存插件设置时移除：此前停用或限制在部分工作区的全局技能将全局可用，但仍遵循 frontmatter 调用标志。不再提供逐技能的作用域或启用/停用控件。本 alpha 版本直接切换到新接口：安装请求不再解析或校验作用域字段，所有安装均为全局安装。
 - 如果使用 `@dsh-next/dsh-next-cc-plugins`，请同时升级两个插件。新的 Claude 桥接与仍支持作用域的旧版 Skills 插件搭配时，可能保留旧的技能限制；更改 Claude 插件作用域已不再管理这些限制。
 - 不会自动移动或删除任何项目副本。项目中现有的 `.agents/skills/` 和 `.dsh/skills/` 副本仍由项目手工管理，并遵循 DSH 原生发现规则。

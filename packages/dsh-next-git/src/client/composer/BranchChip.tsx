@@ -14,7 +14,7 @@
  */
 
 import * as React from 'react'
-import { IconBranchOutline16, IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconBranchOutlineRegular, IconChevronDownOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { RefOption } from '../../core/refs.ts'
 import type { RefSummary } from '../../core/types.ts'
@@ -150,9 +150,9 @@ export function BranchChip(props: BranchChipProps): React.ReactElement | null {
           setOpen(true)
         }}
       >
-        <IconBranchOutline16 size={14} className={classes.glyph} />
+        <IconBranchOutlineRegular size={14} className={classes.glyph} />
         <span className={classes.name}>{label}</span>
-        <IconChevronDownOutline14 size={12} className={classes.glyph} />
+        <IconChevronDownOutlineRegular size={12} className={classes.glyph} />
       </button>
       {open ? (
         <BranchPicker

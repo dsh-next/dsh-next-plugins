@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { IconSparkle16, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconSparkleRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Translate } from '../GitPanel.tsx'
 import classes from '../history/history-message-ai.module.css'
 
@@ -46,7 +46,7 @@ function Draft(props: InlineMessageDraftProps): React.ReactElement {
     <Tooltip label={props.t(busy ? 'busy.draft' : 'commit.draft')} side="bottom">
       <button type="button" className={classes.trigger} aria-label={props.t('commit.draft')}
         data-dsh-git="draft-message" aria-busy={busy} disabled={props.disabled || busy} onClick={() => { void draft() }}>
-        <IconSparkle16 size={14} />
+        <IconSparkleRegular size={14} />
       </button>
     </Tooltip>
     {busy && <span role="status">{props.t('busy.draft')}</span>}

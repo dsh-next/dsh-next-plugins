@@ -20,7 +20,7 @@
   },
   "dsh": {
     "engines": {
-      "dsh": ">=0.1.6-alpha.2"
+      "dsh": ">=0.1.7-alpha.1"
     },
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -57,7 +57,7 @@
     "@deepseek-ai/dsh-client-store": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-client-ui-conversation": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-client-ui-plugin-manager": "0.1.6-alpha.2",
-    "@deepseek-ai/dsh-client-ui-primitives": "0.1.6-alpha.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.1.7-alpha.1",
     "@deepseek-ai/dsh-client-ui-session": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-client-ui-sidebar-right": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-client-ui-slots": "0.1.6-alpha.2",
@@ -65,6 +65,7 @@
     "@deepseek-ai/dsh-llm": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-session": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-settings": "0.1.6-alpha.2",
+    "@deepseek-ai/dsh-util-workspace-path": "0.1.7-alpha.1",
     "@deepseek-ai/dsh-workspace": "0.1.6-alpha.2",
     "@deepseek-ai/schemastery": "^3.18.2",
     "@types/node": "^22.10.0",

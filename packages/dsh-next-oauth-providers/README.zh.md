@@ -45,7 +45,7 @@ dsh plugin --profile <name> add @dsh-next/dsh-next-oauth-providers
 
 ## 使用前须知
 
-- 需要 DeepSeek Harness `0.1.3-alpha.2` 或更新版本（官方 `dsh-llm-pi-ai`）。
+- 需要 DeepSeek Harness `0.1.7-alpha.1` 或更新版本（官方 `dsh-llm-pi-ai`）。
 - 模型目录写在 `dsh-next-oauth-providers.providers` 下，为官方目录 id 的块状列表
   （`xai`、`kimi-coding`、`openai-codex`、`anthropic`）：
 

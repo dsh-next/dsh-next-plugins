@@ -11,10 +11,10 @@
 
 import * as React from 'react'
 import {
-  IconBranchOutline16,
-  IconCheckOutline16,
-  IconChevronLeftOutline14,
-  IconSearchOutline16,
+  IconBranchOutlineRegular,
+  IconCheckOutlineRegular,
+  IconChevronLeftOutlineRegular,
+  IconSearchOutlineRegular,
   Input,
   Modal,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -43,7 +43,7 @@ const KIND_LABEL: Record<RefKind, 'picker.branches' | 'picker.remotes' | 'picker
 
 /** The glyph a row leads with. */
 function RefGlyph({ kind, size = 14 }: { kind: RefKind; size?: number }): React.ReactElement {
-  if (kind !== 'tag') return <IconBranchOutline16 size={size} />
+  if (kind !== 'tag') return <IconBranchOutlineRegular size={size} />
   // A tag has no glyph in the platform set: the same 16x16 grid with a tag
   // outline, so a tag row still reads as a ref and not as a branch.
   return (
@@ -153,12 +153,12 @@ export function RefQuickPick(props: RefQuickPickProps): React.ReactElement {
         <div ref={body} className={classes.head} onKeyDown={onKeyDown}>
           {props.onBack === undefined ? null : (
             <button type="button" className={classes.back} data-dsh-git="ref-back" aria-label={t('picker.back')} onClick={props.onBack}>
-              <IconChevronLeftOutline14 size={14} />
+              <IconChevronLeftOutlineRegular size={14} />
             </button>
           )}
           <Input
             className={classes.field}
-            icon={<IconSearchOutline16 size={14} />}
+            icon={<IconSearchOutlineRegular size={14} />}
             data-dsh-git="ref-filter"
             role="combobox"
             autoFocus
@@ -222,11 +222,11 @@ export function RefQuickPick(props: RefQuickPickProps): React.ReactElement {
                       <span className={classes.name}>{option.name}</span>
                       {!marked ? null : option.current ? (
                         <span className={classes.current} aria-label={t('picker.current')} title={t('picker.current')}>
-                          <IconCheckOutline16 size={12} />
+                          <IconCheckOutlineRegular size={12} />
                         </span>
                       ) : (
                         <span className={classes.current} aria-hidden="true">
-                          <IconCheckOutline16 size={12} />
+                          <IconCheckOutlineRegular size={12} />
                         </span>
                       )}
                       {drift ? (

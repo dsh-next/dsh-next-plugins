@@ -1,6 +1,6 @@
 /** Thin browser adaptation of the native opener; the host HTTP routes own detection and launch. */
 import * as React from 'react'
-import { IconChevronDownOutline14, Menu, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChevronDownOutlineRegular, Menu, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MessageKey } from './dictionaries.ts'
 import styles from './open-skill-folder.module.css'
 
@@ -177,7 +177,7 @@ function FolderAction({ directory, t }: Props) {
             keyboardOpen.current = event.detail === 0 && !open
             setOpen(value => !value)
           }}>
-          <IconChevronDownOutline14 size={11} />
+          <IconChevronDownOutlineRegular size={11} />
         </button>
       </div>} />
     {phase === 'error' && <span className={styles.error} role="alert" data-testid="skills-open-folder-error">{t('openFolder.error')}</span>}

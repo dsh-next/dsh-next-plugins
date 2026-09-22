@@ -61,7 +61,7 @@ Replace `<name>` with your DSH profile, for example `web`, and open DSH using th
 
 ## Good to know
 
-- This plugin is for the DSH Web GUI; the declared DSH minimum is `0.1.6-alpha.2`. Keep a page open to receive alerts.
+- This plugin is for the DSH Web GUI; the declared DSH minimum is `0.1.7-alpha.1`. Keep a page open to receive alerts.
 - Missing an alert? Check `Enable notifications`, the category switch, `Mute while viewing the session`, browser permission, and OS notification settings. Missing sound? Check `Play sound`, `Volume`, and the sound player under `Show details`.
 - Windows playback has contract-test coverage only; live Windows playback still needs verification. Browser test buttons do not guarantee OS banner presentation.
 - For local development and validation, see [CONTRIBUTING.md](https://github.com/dsh-next/dsh-next-plugins/blob/main/CONTRIBUTING.md).

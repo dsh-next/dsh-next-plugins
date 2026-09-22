@@ -2,7 +2,7 @@
  * Models footer: stock provider rows, Add provider card, fetch-models modal.
  */
 import * as React from 'react'
-import { Button, Modal, IconPlusOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Modal, IconPlusOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { FAMILIES, familyById, type Family, type FamilyId } from '../core/catalog.ts'
 import type { AttemptView, PluginState } from '../core/types.ts'
 import { ClientRpcError, subscriptionsApi, type RpcCall } from './api.ts'
@@ -319,7 +319,7 @@ export function SubscriptionsFooter(props: SubscriptionsFooterProps): React.Reac
                 setAddFamily(first)
               }}
             >
-              <IconPlusOutline16 size={14} />
+              <IconPlusOutlineRegular size={14} />
               {t('add')}
             </button>
           </div>

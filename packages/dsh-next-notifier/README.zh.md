@@ -61,7 +61,7 @@ dsh plugin --profile <name> add @dsh-next/dsh-next-notifier
 
 ## 须知
 
-- 此插件面向 DSH Web GUI；声明的最低 DSH 版本为 `0.1.6-alpha.2`。请保持页面打开以接收提醒。
+- 此插件面向 DSH Web GUI；声明的最低 DSH 版本为 `0.1.7-alpha.1`。请保持页面打开以接收提醒。
 - 未收到提醒？请检查 `Enable notifications`、类别开关、`Mute while viewing the session`、浏览器权限和操作系统通知设置。没有声音？请检查 `Play sound`、`Volume` 以及 `Show details` 下的声音播放器。
 - Windows 播放仅有契约测试覆盖；实际 Windows 播放仍需验证。浏览器测试按钮不能保证操作系统显示横幅。
 - 本地开发和验证请参阅 [CONTRIBUTING.md](https://github.com/dsh-next/dsh-next-plugins/blob/main/CONTRIBUTING.md)。

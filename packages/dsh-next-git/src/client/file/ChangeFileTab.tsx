@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { CodeBlock, IconRefreshOutline16, IconWrapLinesOutline16, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { CodeBlock, IconRefreshOutlineRegular, IconWrapLinesOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { FileChanges } from '../../core/types.ts'
 import type { HunkPreview } from '../../core/repository-actions.ts'
 import { parseChangeFileAddress } from '../../core/address.ts'
@@ -88,7 +88,7 @@ function ChangeFile(props: ChangeFileTabProps & {
           disabled={read.loading}
           marker="change-file-refresh"
           onClick={read.reload}
-          icon={<IconRefreshOutline16 size={15} className={read.loading ? classes.spinning : undefined} />}
+          icon={<IconRefreshOutlineRegular size={15} className={read.loading ? classes.spinning : undefined} />}
         />
         <ToolbarAction
           label={t('fileChanges.changedOnly')}
@@ -102,7 +102,7 @@ function ChangeFile(props: ChangeFileTabProps & {
           pressed={wrap}
           marker="change-file-wrap"
           onClick={() => setWrap(current => !current)}
-          icon={<IconWrapLinesOutline16 size={15} />}
+          icon={<IconWrapLinesOutlineRegular size={15} />}
         />
       </div>
       {read.failed !== null ? (

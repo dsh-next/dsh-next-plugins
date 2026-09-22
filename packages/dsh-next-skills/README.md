@@ -91,7 +91,7 @@ dsh plugin --profile <name> add @dsh-next/dsh-next-skills
 
 ## Good to know
 
-- Requires DeepSeek Harness `>=0.1.1-rc.1`. DSH’s native filesystem discovery handles skill visibility and precedence; this plugin does not override discovered skills or their invocation flags. `disable-model-invocation` and `user-invocable` in skill frontmatter still apply.
+- Requires DeepSeek Harness `>=0.1.7-alpha.1`. DSH’s native filesystem discovery handles skill visibility and precedence; this plugin does not override discovered skills or their invocation flags. `disable-model-invocation` and `user-invocable` in skill frontmatter still apply.
 - Upgrading preserves existing skill files, providers, and the installation ledger. Legacy `dsh-next-skills.scopes` settings are ignored and dropped on the next plugin settings save: previously disabled or workspace-restricted global skills become globally available, subject to frontmatter invocation flags. There are no per-skill scope or enable/disable controls. This alpha makes a clean interface break: install requests no longer interpret or validate scope fields; every install is global.
 - If you use `@dsh-next/dsh-next-cc-plugins`, upgrade both plugins together. A new Claude bridge paired with an older scoped Skills plugin can retain legacy skill restrictions; changing the Claude plugin’s scope no longer manages those restrictions.
 - No project copies are automatically moved or deleted. Existing `.agents/skills/` and `.dsh/skills/` copies in projects remain hand-managed and follow native DSH discovery.

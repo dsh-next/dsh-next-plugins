@@ -50,7 +50,7 @@ dsh plugin --profile <name> add @dsh-next/dsh-next-oauth-providers
 
 ## Good to know
 
-- Needs DeepSeek Harness `0.1.3-alpha.2` or newer (official `dsh-llm-pi-ai`).
+- Needs DeepSeek Harness `0.1.7-alpha.1` or newer (official `dsh-llm-pi-ai`).
 - Catalog rows persist under `dsh-next-oauth-providers.providers` as a block
   list keyed by official catalog ids (`xai`, `kimi-coding`, `openai-codex`,
   `anthropic`):

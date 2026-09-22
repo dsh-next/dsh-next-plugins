@@ -424,7 +424,13 @@ describe('OpenSkillFolder icons and cleanup', () => {
   it('removes the open-menu Escape listener and tooltip when unmounted', async () => {
     available()
     await render()
-    await act(async () => { main().focus() })
+    // The shell tooltip shows on keyboard focus only: a pointerdown anywhere
+    // flips the primitive's modality, and the outside-dismissal tests above
+    // dispatch one, so restore keyboard modality the way a real Tab would.
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }))
+      main().focus()
+    })
     expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(en['openFolder.label'])
     await click(toggle())
     await unmount()

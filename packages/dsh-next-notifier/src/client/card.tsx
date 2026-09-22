@@ -6,7 +6,7 @@
  * unchanged without the platform locale service).
  */
 import * as React from 'react'
-import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChevronDownOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ISessions } from '@deepseek-ai/dsh-client-runtime/client'
 import type { NotifierConfig, NotifierConfigPatch, NotifyGroup } from '../core/types.ts'
 import type { TimerLike } from '../core/timer.ts'
@@ -335,7 +335,7 @@ export function NotifierCard({ page = false, rpc, sessions, timer, t = englishTr
     React.createElement('span', { className: styles.headText },
       React.createElement('span', { className: styles.name }, t('card.title')),
       React.createElement('span', { className: styles.desc }, t('card.tagline'))),
-    React.createElement(IconChevronDownOutline14, { className: styles.chevron + (open ? ' ' + styles.chevOpen : '') }))
+    React.createElement(IconChevronDownOutlineRegular, { size: 14, className: styles.chevron + (open ? ' ' + styles.chevOpen : '') }))
 
   const errorLine = error ? React.createElement('p', { role: 'alert', className: styles.status + ' ' + styles.statusErr }, error) : null
   let body: React.ReactNode = open && errorLine ? React.createElement('div', { className: styles.body }, errorLine) : null

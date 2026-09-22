@@ -15,20 +15,20 @@ import * as React from 'react'
 import {
   Button,
   HoverCard,
-  IconBranchOutline16,
-  IconCheckOutline16,
-  IconChevronDownOutline14,
-  IconChevronLeftOutline14,
-  IconCopyOutline16,
-  IconEllipsisOutline16,
+  IconBranchOutlineRegular,
+  IconCheckOutlineRegular,
+  IconChevronDownOutlineRegular,
+  IconChevronLeftOutlineRegular,
+  IconCopyOutlineRegular,
+  IconEllipsisOutlineRegular,
   FileTypeIcon,
-  IconFolderOpen16,
-  IconLoadingOutline16,
-  IconPlusOutline16,
-  IconRefreshOutline16,
-  IconSparkle16,
-  IconTrashOutline16,
-  IconWarningOutline16,
+  IconFolderOpenRegular,
+  IconLoadingOutlineRegular,
+  IconPlusOutlineRegular,
+  IconRefreshOutlineRegular,
+  IconSparkleRegular,
+  IconTrashOutlineRegular,
+  IconWarningOutlineRegular,
   Menu,
   Modal,
   StateDot,
@@ -122,14 +122,14 @@ export interface GitPanelProps {
 
 /** The branch glyph used in the chip and at the guide capsule. */
 export function BranchGlyph({ size = 16 }: { size?: number }): React.ReactElement {
-  return <IconBranchOutline16 size={size} />
+  return <IconBranchOutlineRegular size={size} />
 }
 
 /**
  * The unstage glyph: the platform's `+` with its vertical bar removed.
  *
  * The icon set has no minus, so this reuses the exact crossbar geometry of
- * `IconPlusOutline16` in the same 16x16 filled-path style, which makes the
+ * `IconPlusOutlineRegular` in the same 16x16 filled-path style, which makes the
  * stage and unstage actions read as one pair.
  */
 export function MinusGlyph({ size = 16 }: { size?: number }): React.ReactElement {
@@ -287,7 +287,7 @@ export function PanelCrashed(props: {
       <div className={classes.body} data-dsh-git="body">
         <div className={classes.banner} data-dsh-git="crashed">
           <div className={`${classes.bannerTitle} ${classes.bannerError}`}>
-            <IconWarningOutline16 size={16} />
+            <IconWarningOutlineRegular size={16} />
             <span>{props.t('state.renderFailed')}</span>
           </div>
           <div className={classes.bannerBody}>{props.t('state.renderFailedFix')}</div>
@@ -315,7 +315,7 @@ export function GitPanelUnavailable(props: { t: Translate }): React.ReactElement
       <div className={classes.body} data-dsh-git="body">
         <div className={classes.banner} data-dsh-git="no-session">
           <div className={`${classes.bannerTitle} ${classes.bannerWarn}`}>
-            <IconWarningOutline16 size={16} />
+            <IconWarningOutlineRegular size={16} />
             <span>{props.t('state.noSession')}</span>
           </div>
           <div className={classes.bannerBody}>{props.t('state.noSessionFix')}</div>
@@ -915,11 +915,11 @@ function PanelHeader(props: HeaderProps): React.ReactElement {
           aria-label={t('header.branchMenu')}
           title={t('header.branchMenu')}
         >
-          <IconBranchOutline16 size={14} className={classes.branchGlyph} />
+          <IconBranchOutlineRegular size={14} className={classes.branchGlyph} />
           <span className={classes.branchName} title={label}>
             {label}
           </span>
-          <IconChevronDownOutline14 size={12} className={classes.branchGlyph} />
+          <IconChevronDownOutlineRegular size={12} className={classes.branchGlyph} />
         </button>
         {head !== null && head !== undefined && (head.ahead > 0 || head.behind > 0) ? (
           <span className={classes.counts}>
@@ -937,11 +937,11 @@ function PanelHeader(props: HeaderProps): React.ReactElement {
             disabled={busy}
             onClick={() => void store.updateFromBranch()}
           >
-            <IconRefreshOutline16 size={14} />
+            <IconRefreshOutlineRegular size={14} />
           </button>
         ) : null}
       </div>
-      <button type="button" className={classes.iconButton} aria-label={t('header.newWorktree')} title={t('header.newWorktree')} data-dsh-git="new-worktree" disabled={busy || state === null} onClick={props.onNewWorktree}><IconPlusOutline16 size={16} /></button>
+      <button type="button" className={classes.iconButton} aria-label={t('header.newWorktree')} title={t('header.newWorktree')} data-dsh-git="new-worktree" disabled={busy || state === null} onClick={props.onNewWorktree}><IconPlusOutlineRegular size={16} /></button>
       {props.onAgentVerb !== undefined ? (
         <Menu
           open={toolsOpen}
@@ -954,7 +954,7 @@ function PanelHeader(props: HeaderProps): React.ReactElement {
               data-dsh-git="agent-menu"
               onClick={() => setToolsOpen(!toolsOpen)}
             >
-              <IconSparkle16 size={16} />
+              <IconSparkleRegular size={16} />
             </button>
           }
           items={toolItems}
@@ -977,7 +977,7 @@ function PanelHeader(props: HeaderProps): React.ReactElement {
         disabled={busy}
         onClick={props.onRefresh}
       >
-        <IconRefreshOutline16 size={16} className={snapshot.reason === 'manual' && busy ? classes.spinning : undefined} />
+        <IconRefreshOutlineRegular size={16} className={snapshot.reason === 'manual' && busy ? classes.spinning : undefined} />
       </button>
       {/* The catch-all menu closes the row: everything else is a one-click
           shortcut, and the three dots are where a command you cannot see lives. */}
@@ -1003,7 +1003,7 @@ function Notices(props: {
     blocks.push(
       <div className={classes.banner} key="degraded" data-dsh-git="degraded">
         <div className={`${classes.bannerTitle} ${classes.bannerWarn}`}>
-          <IconWarningOutline16 size={16} />
+          <IconWarningOutlineRegular size={16} />
           <span>{degradedTitle(degraded.code, degraded, t)}</span>
         </div>
         <div className={classes.bannerBody}>{degradedFix(degraded.code, degraded, t)}</div>
@@ -1013,7 +1013,7 @@ function Notices(props: {
     blocks.push(
       <div className={classes.banner} key="failure" data-dsh-git="failure">
         <div className={`${classes.bannerTitle} ${classes.bannerError}`}>
-          <IconWarningOutline16 size={16} />
+          <IconWarningOutlineRegular size={16} />
           <span>{t(failureTitleKey(snapshot.failure.code))}</span>
         </div>
         <div className={classes.bannerBody}>{failureFix(snapshot.failure.code, t)}</div>
@@ -1078,7 +1078,7 @@ function Notices(props: {
     blocks.push(
       <div className={classes.banner} key="hook" data-dsh-git="hook">
         <div className={`${classes.bannerTitle} ${classes.bannerError}`}>
-          <IconWarningOutline16 size={16} />
+          <IconWarningOutlineRegular size={16} />
           <span>{t('hook.title', { hook: snapshot.hook.hook })}</span>
           <span className={classes.caption}>{t('hook.exitCode', { code: snapshot.hook.exitCode })}</span>
         </div>
@@ -1123,7 +1123,7 @@ function Notices(props: {
     blocks.push(
       <div className={classes.banner} key="identity" data-dsh-git="identity">
         <div className={`${classes.bannerTitle} ${classes.bannerWarn}`}>
-          <IconWarningOutline16 size={16} />
+          <IconWarningOutlineRegular size={16} />
           <span>{t('header.identityMissing')}</span>
         </div>
         <div className={classes.bannerBody}>{t('header.identityFix')}</div>
@@ -1272,7 +1272,7 @@ function Section(props: {
           aria-controls={bodyId}
           onClick={onToggle}
         >
-          <IconChevronDownOutline14
+          <IconChevronDownOutlineRegular
             size={12}
             className={collapsed ? classes.sectionChevronCollapsed : classes.sectionChevron}
           />
@@ -1343,7 +1343,7 @@ function ChangesSection(props: {
                 void store.stage([...changeable.unstaged, ...changes.untracked].map((entry) => entry.path))
               }
             >
-              <IconPlusOutline16 size={14} />
+              <IconPlusOutlineRegular size={14} />
             </button>
           ) : null}
           {changeable.staged.length > 0 ? (
@@ -1369,7 +1369,7 @@ function ChangesSection(props: {
               disabled={busy}
               onClick={() => onDiscard(discardable.map((entry) => entry.path))}
             >
-              <IconTrashOutline16 size={14} />
+              <IconTrashOutlineRegular size={14} />
             </button>
           ) : null}
         </>
@@ -1527,7 +1527,7 @@ function Group(props: {
                       void store.stage([entry.path])
                     }}
                   >
-                    <IconPlusOutline16 size={14} />
+                    <IconPlusOutlineRegular size={14} />
                   </button>
                 }
                 content={t('changes.stage')}
@@ -1545,7 +1545,7 @@ function Group(props: {
                 onDiscard([entry.path])
               }}
             >
-              <IconTrashOutline16 size={14} />
+              <IconTrashOutlineRegular size={14} />
             </button>}
           </div>
         </div>
@@ -1799,12 +1799,12 @@ function WorktreesSection(props: {
     {
       id: 'default',
       label: t('worktrees.baseDefault'),
-      ...(base.source === 'default-branch' ? { icon: <IconCheckOutline16 size={14} /> } : {}),
+      ...(base.source === 'default-branch' ? { icon: <IconCheckOutlineRegular size={14} /> } : {}),
     },
     ...base.candidates.map((candidate): MenuEntry => ({
       id: candidate,
       label: candidate,
-      ...(base.name === candidate ? { icon: <IconCheckOutline16 size={14} /> } : {}),
+      ...(base.name === candidate ? { icon: <IconCheckOutlineRegular size={14} /> } : {}),
     })),
   ]
 
@@ -1882,7 +1882,7 @@ function WorktreesSection(props: {
           <span className={classes.contextButtonLabel}>
             {source.mode === 'new' ? t('worktrees.sourceNewShort') : source.ref}
           </span>
-          <IconChevronDownOutline14 size={12} />
+          <IconChevronDownOutlineRegular size={12} />
         </button>
         {sourceOpen ? (
           <RefQuickPick
@@ -1893,7 +1893,7 @@ function WorktreesSection(props: {
             actions={[{
               id: 'new',
               label: t('worktrees.sourceNew', { branch: baseRef ?? t('worktrees.baseNone') }),
-              icon: source.mode === 'new' ? <IconCheckOutline16 size={14} /> : <IconPlusOutline16 size={14} />,
+              icon: source.mode === 'new' ? <IconCheckOutlineRegular size={14} /> : <IconPlusOutlineRegular size={14} />,
             }]}
             query={sourceQuery}
             onQuery={setSourceQuery}
@@ -1920,7 +1920,7 @@ function WorktreesSection(props: {
                 <span className={classes.contextButtonLabel}>
                   {t('worktrees.baseLabel', { branch: base.name })}
                 </span>
-                <IconChevronDownOutline14 size={12} />
+                <IconChevronDownOutlineRegular size={12} />
               </button>
             }
             items={baseItems}
@@ -2007,7 +2007,7 @@ function WorktreesSection(props: {
                         })
                       }}
                     >
-                      <IconFolderOpen16 size={14} />
+                      <IconFolderOpenRegular size={14} />
                     </button>
                   )}
                   <HoverCard
@@ -2019,7 +2019,7 @@ function WorktreesSection(props: {
                         disabled={busy}
                         onClick={() => props.onUpdate(worktree, baseRef ?? undefined)}
                       >
-                        <IconRefreshOutline16 size={14} />
+                        <IconRefreshOutlineRegular size={14} />
                       </button>
                     }
                     content={t('worktrees.update', { branch: baseLabel })}
@@ -2053,7 +2053,7 @@ function WorktreesSection(props: {
                     disabled={busy}
                     onClick={() => onDelete(worktree)}
                   >
-                    <IconTrashOutline16 size={14} />
+                    <IconTrashOutlineRegular size={14} />
                   </button>
                 </>
               )}
@@ -2114,7 +2114,7 @@ function OpenFileButton(props: {
       data-dsh-git="diff-open-file"
       onClick={() => tabInfo.tab.actions.openResource(address)}
     >
-      <IconFolderOpen16 size={14} />
+      <IconFolderOpenRegular size={14} />
     </button>
   )
 }
@@ -2170,7 +2170,7 @@ function DiffPane(props: {
           data-dsh-git="diff-back"
           onClick={onBack}
         >
-          <IconChevronLeftOutline14 size={14} />
+          <IconChevronLeftOutlineRegular size={14} />
         </button>
         <span className={classes.diffTitle} title={file?.displayPath ?? path}>
           {baseName(file?.displayPath ?? path)}
@@ -2191,7 +2191,7 @@ function DiffPane(props: {
             void writeClipboard(file.patch).then(() => setCopied(true))
           }}
         >
-          {copied ? <IconCheckOutline16 size={14} /> : <IconCopyOutline16 size={14} />}
+          {copied ? <IconCheckOutlineRegular size={14} /> : <IconCopyOutlineRegular size={14} />}
         </button>
       </div>
       {view.kind === 'diff' ? <HunkControls sessionId={props.sessionId} path={view.path} side={view.side} api={props.store.api} t={t} onChanged={() => props.store.refresh()} onWholeFile={() => view.side === 'staged' ? props.store.unstage([view.path]) : props.store.stage([view.path])} /> : null}
@@ -2240,7 +2240,7 @@ export function GitTitle(props: { t: Translate; sessionId?: string }): React.Rea
     : state.changes.staged.length + state.changes.unstaged.length + state.changes.untracked.length
   return (
     <React.Fragment>
-      <IconBranchOutline16 size={14} className={classes.branchGlyph} />
+      <IconBranchOutlineRegular size={14} className={classes.branchGlyph} />
       <span data-dsh-git="chip-title">{label ?? (count > 0 ? `${t('type.label')} (${count})` : t('type.label'))}</span>
     </React.Fragment>
   )
@@ -2258,7 +2258,7 @@ export function ChangeFileTitle(props: { t: Translate; address: string }): React
   const title = changeFileTitle(props.address)
   return (
     <React.Fragment>
-      <IconBranchOutline16 size={14} className={classes.branchGlyph} />
+      <IconBranchOutlineRegular size={14} className={classes.branchGlyph} />
       <span data-dsh-git="change-file-chip">{title === '' ? props.t('type.label') : title}</span>
     </React.Fragment>
   )

@@ -16,6 +16,12 @@ export interface ProviderState {
   readonly alias: AliasRoute
   readonly nativeId: NativeId
   readonly displayName: string
+  /**
+   * Whether the plugin configuration lists this family. A grant can outlive
+   * its row (a pre-0.1.7 section that never imported), and such a family must
+   * stay addable so its row can be recreated.
+   */
+  readonly listed: boolean
   readonly status: ConnectionStatus
   readonly accountLabel?: string
   readonly models: readonly ModelView[]

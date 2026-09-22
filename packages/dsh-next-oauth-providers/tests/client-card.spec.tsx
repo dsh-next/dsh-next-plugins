@@ -20,6 +20,7 @@ const connected: PluginState = {
     alias: 'kimi-coding-oauth',
     nativeId: 'kimi-coding',
     displayName: 'Kimi Code',
+    listed: true,
     status: 'connected',
     accountLabel: 'kimi@example.com',
     models: [],

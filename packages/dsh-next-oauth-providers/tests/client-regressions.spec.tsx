@@ -19,7 +19,7 @@ const empty: PluginState = { writable: true, providers: [] }
 const connected: PluginState = {
   writable: true,
   providers: [{
-    family: 'kimi', alias: 'kimi-coding-oauth', nativeId: 'kimi-coding', displayName: 'Kimi Code',
+    family: 'kimi', alias: 'kimi-coding-oauth', nativeId: 'kimi-coding', displayName: 'Kimi Code', listed: true,
     status: 'connected', models: [], modelsOverridden: false, usingDefaults: true,
     defaultModels: [
       { id: 'first', name: 'First', contextWindow: 128_000 },

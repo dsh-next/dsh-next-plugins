@@ -22,6 +22,7 @@ const kimi: PluginState = {
       alias: 'kimi-coding-oauth',
       nativeId: 'kimi-coding',
       displayName: 'Kimi Code',
+      listed: true,
       status: 'disconnected',
       models: [],
       defaultModels: [{ id: 'kimi-k2.5', name: 'Kimi K2.5' }],
@@ -38,6 +39,7 @@ const allFamilies: PluginState = {
     alias: `${family}-oauth` as never,
     nativeId: family as never,
     displayName: family,
+    listed: true,
     status: 'disconnected' as const,
     models: [],
     defaultModels: [],
@@ -159,5 +161,20 @@ describe('AddSubscription', () => {
     })
     expect(rpc).toHaveBeenCalledWith('addProvider', { family: 'grok' })
     expect(rpc.mock.calls.some(([method]) => method === 'setModels')).toBe(false)
+  })
+})
+
+describe('AddSubscription with a grant but no config row', () => {
+  it('keeps the family addable so its row can be recreated', async () => {
+    const grantedOnly: PluginState = {
+      writable: true,
+      providers: [{ ...kimi.providers[0]!, listed: false, status: 'connected' }],
+    }
+    await render(async (method: string) => method === 'getState' ? grantedOnly : null)
+    const add = host.querySelector('[data-testid="oauth-add-provider"]') as HTMLButtonElement
+    expect(add.disabled).toBe(false)
+    await act(async () => { add.click() })
+    const select = host.querySelector('[data-testid="oauth-provider-select"]') as HTMLSelectElement
+    expect(Array.from(select.options).map((option) => option.value)).toContain('kimi')
   })
 })

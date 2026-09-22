@@ -49,7 +49,7 @@ export function AddSubscription(props: AddSubscriptionProps): React.ReactElement
 
   React.useEffect(() => onInvalidate(() => { void load() }), [load])
 
-  const listed = state?.providers ?? []
+  const listed = (state?.providers ?? []).filter((row) => row.listed)
   const addable = FAMILIES.filter((candidate) => !listed.some((row) => row.family === candidate.family))
   const listedFamilies = listed.map((row) => row.family).join(',')
 

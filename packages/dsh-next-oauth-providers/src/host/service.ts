@@ -209,6 +209,7 @@ export class SubscriptionsService {
         family: family.family,
         alias: family.alias,
         nativeId: family.nativeId,
+        listed: stored.providers[family.nativeId] !== undefined,
         displayName: profile.displayName ?? family.displayName,
         status: connecting ? 'connecting' : connected ? 'connected' : 'disconnected',
         ...connected && isOauthGrant(credential) && grantAccountLabel(credential) !== undefined

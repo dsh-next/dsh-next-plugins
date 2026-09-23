@@ -145,6 +145,58 @@ describe('model editor regressions', () => {
   })
 })
 
+describe('provider editor actions', () => {
+  it('closes the Add-provider editor when Cancel is clicked', async () => {
+    await act(async () => { root!.render(<AddSubscription rpc={stateRpc(empty)} t={(key) => key} />) })
+    await click('[data-testid="oauth-add-provider"]')
+    const cancel = Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Cancel')!
+    await act(async () => cancel.click())
+    expect(host.querySelector('[data-testid="oauth-provider-select"]')).toBeNull()
+    expect(host.querySelector('[data-testid="oauth-add-provider"]')).not.toBeNull()
+  })
+
+  it('discards customized drafts and closes the settings when Cancel is clicked', async () => {
+    await render(stateRpc())
+    await openModels()
+    await change('[aria-label="Model ID 1"]', 'unsaved-change')
+    const cancel = Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Cancel' && button.dataset.testid !== 'oauth-cancel')!
+    await act(async () => cancel.click())
+    expect(element<HTMLDetailsElement>('details').open).toBe(false)
+    await click('summary')
+    expect(element<HTMLInputElement>('[aria-label="Model ID 1"]').value).toBe('first')
+  })
+
+  it('shows a saved confirmation after Apply closes the Add-provider editor', async () => {
+    await act(async () => { root!.render(<AddSubscription rpc={stateRpc(empty)} t={(key) => key} />) })
+    await click('[data-testid="oauth-add-provider"]')
+    await click('[data-testid="oauth-apply"]')
+    expect(host.querySelector('[data-testid="oauth-provider-select"]')).toBeNull()
+    expect(host.querySelector('[role="status"]')?.textContent).toBe('Saved Kimi Code.')
+  })
+
+  it('shows confirmation after model changes apply and preserves the model list after reload', async () => {
+    let stored: PluginState = connected
+    const rpc = vi.fn(async (method: string, args?: unknown) => {
+      if (method === 'getState') return stored
+      if (method === 'setModels') {
+        const { models } = args as { models: PluginState['providers'][number]['models'] }
+        stored = { ...connected, providers: connected.providers.map((provider) => ({ ...provider, models, modelsOverridden: true, usingDefaults: false })) }
+        return stored
+      }
+      return stored
+    })
+    await render(rpc)
+    await openModels()
+    await click('[data-testid="oauth-add-model"]')
+    await change('[aria-label="Model ID 3"]', 'custom-model')
+    await click('[data-testid="oauth-apply"]')
+    expect(host.textContent).toContain('Saved Kimi Code.')
+    expect(element<HTMLDetailsElement>('details').open).toBe(false)
+    await click('summary')
+    expect(element<HTMLInputElement>('[aria-label="Model ID 3"]').value).toBe('custom-model')
+  })
+})
+
 describe('login action ownership', () => {
   it.each(['submitPrompt', 'cancelLogin'])('renders a rejected %s RPC instead of leaking its rejection', async (rejected) => {
     const rpc = vi.fn(async (method: string) => {
@@ -183,7 +235,7 @@ describe('login action ownership', () => {
     expect(rpc).toHaveBeenCalledWith('cancelLogin', { attemptId: 'attempt' })
   })
 
-  it('reports cancellation failure when the editor closes', async () => {
+  it('closes the Add editor and attempts cancellation when Cancel is clicked', async () => {
     const rpc = vi.fn(async (method: string) => {
       if (method === 'getState') return empty
       if (method === 'cancelLogin') throw new ClientRpcError('network', 'offline')
@@ -192,7 +244,8 @@ describe('login action ownership', () => {
     await openLogin(rpc)
     const cancel = Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Cancel' && button.dataset.testid !== 'oauth-cancel')!
     await act(async () => cancel.click())
-    expect(host.querySelector('[role="alert"]')?.textContent).toContain('could not be reached')
+    expect(rpc).toHaveBeenCalledWith('cancelLogin', { attemptId: 'attempt' })
+    expect(host.querySelector('[data-testid="oauth-provider-select"]')).toBeNull()
   })
 
   it('ignores a prompt response arriving after its editor closes', async () => {

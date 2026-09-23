@@ -48,6 +48,8 @@ export function ProviderEditor(props: ProviderEditorProps): React.ReactElement {
   )
   const [busy, setBusy] = React.useState(false)
   const [failure, setFailure] = React.useState<string | undefined>()
+  const [saved, setSaved] = React.useState(false)
+  const customizedRef = React.useRef<HTMLDetailsElement>(null)
 
   React.useEffect(() => {
     if (!overridden) setModels(inherited)
@@ -62,13 +64,22 @@ export function ProviderEditor(props: ProviderEditorProps): React.ReactElement {
     if (modelFailure !== undefined) return
     setBusy(true)
     setFailure(undefined)
+    setSaved(false)
     try {
       await api.addProvider(props.family.family)
       // Apply always states the intended catalog: an explicit list replaces it,
       // and anything else stores no override. Deciding from the row's stored
       // flag would silently keep a catalog the card did not show.
-      if (overridden && models.length > 0) await api.setModels(props.family.alias, models)
-      else await api.restoreModels(props.family.alias)
+      const next = overridden && models.length > 0
+        ? await api.setModels(props.family.alias, models)
+        : await api.restoreModels(props.family.alias)
+      const stored = next.providers.find((provider) => provider.alias === props.family.alias)
+      if (stored !== undefined) {
+        setOverridden(stored.modelsOverridden)
+        setModels(stored.modelsOverridden ? draftsOf(stored.models) : draftsOf(stored.defaultModels))
+      }
+      customizedRef.current?.removeAttribute('open')
+      setSaved(true)
       props.onClose(true)
     } catch (error) {
       setFailure(error instanceof ClientRpcError ? t(`error.${error.code}` as MessageKey, error.params) : t('error.unknown'))
@@ -111,7 +122,7 @@ export function ProviderEditor(props: ProviderEditorProps): React.ReactElement {
           </div>
         )}
       </div>
-      <details className={styles.customized}>
+      <details ref={customizedRef} className={styles.customized}>
         <summary className={styles.customizedSummary}>{t('customized')}</summary>
         <div className={styles.customizedBody}>
           <ModelListEditor
@@ -124,10 +135,12 @@ export function ProviderEditor(props: ProviderEditorProps): React.ReactElement {
             disabled={disabled}
             signedIn={connected}
             onChange={(next) => {
+              setSaved(false)
               setOverridden(true)
               setModels(next)
             }}
             onReset={() => {
+              setSaved(false)
               setOverridden(false)
               setModels(inherited)
             }}
@@ -138,8 +151,15 @@ export function ProviderEditor(props: ProviderEditorProps): React.ReactElement {
         <p className={styles.error}>{`${t('model')} ${String(modelFailure.index + 1)}: ${t(modelFailure.key)}`}</p>
       )}
       {failure === undefined ? null : <p className={styles.error}>{failure}</p>}
+      {saved ? <p role="status">{t('savedProvider', { provider: props.provider?.displayName ?? props.family.displayName })}</p> : null}
       <div className={styles.editorActions}>
-        <button type="button" className={styles.secondaryButton} disabled={busy} onClick={() => { props.onClose(false) }}>
+        <button type="button" className={styles.secondaryButton} disabled={busy} onClick={() => {
+          setOverridden(props.provider?.modelsOverridden === true)
+          setModels(props.provider?.modelsOverridden === true ? draftsOf(props.provider.models) : inherited)
+          setSaved(false)
+          customizedRef.current?.removeAttribute('open')
+          props.onClose(false)
+        }}>
           {t('cancel')}
         </button>
         <button

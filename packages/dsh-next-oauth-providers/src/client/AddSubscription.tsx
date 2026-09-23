@@ -28,6 +28,7 @@ export function AddSubscription(props: AddSubscriptionProps): React.ReactElement
   const [error, setError] = React.useState<string | undefined>()
   const [adding, setAdding] = React.useState(false)
   const [family, setFamily] = React.useState<Family | undefined>()
+  const [savedFamily, setSavedFamily] = React.useState<Family | undefined>()
   const mounted = React.useRef(false)
 
   const load = React.useCallback(async (): Promise<void> => {
@@ -68,6 +69,7 @@ export function AddSubscription(props: AddSubscriptionProps): React.ReactElement
       <h3 className={styles.title}>{t('title')}</h3>
       <p className={styles.intro}>{t('intro')}</p>
       {error === undefined ? null : <p className={styles.error} role="alert">{error}</p>}
+      {savedFamily === undefined ? null : <p role="status">{t('savedProvider', { provider: t(`family.${savedFamily.family}` as Parameters<Translate>[0]) })}</p>}
       <div className={styles.addBlock}>
         {adding && family !== undefined ? (
           <div className={styles.addCard}>
@@ -97,11 +99,10 @@ export function AddSubscription(props: AddSubscriptionProps): React.ReactElement
               t={t}
               readOnly={!writable}
               onChanged={(changed) => {
-                if (changed) {
-                  setAdding(false)
-                  setFamily(undefined)
-                }
-                void load()
+                if (changed) setSavedFamily(family)
+                setAdding(false)
+                setFamily(undefined)
+                if (changed) void load()
               }}
             />
           </div>
@@ -115,6 +116,7 @@ export function AddSubscription(props: AddSubscriptionProps): React.ReactElement
               onClick={() => {
                 const first = addable[0]
                 if (first === undefined) return
+                setSavedFamily(undefined)
                 setAdding(true)
                 setFamily(first)
               }}

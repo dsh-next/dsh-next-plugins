@@ -2,7 +2,6 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { ModelCatalog } from '@deepseek-ai/dsh-api-session-controller/types'
 import Schema from '@deepseek-ai/schemastery'
 import { createUserMessage, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
-import type { SettingsScope } from '@deepseek-ai/dsh-settings'
 import { GitError, type GitRunner } from './git-runner.ts'
 import type { GitService } from './git-service.ts'
 
@@ -13,6 +12,10 @@ export const gitSettingsSchema = Schema.object({
   draftingInstructions: Schema.string().max(4000).default('').description('Additional commit message writing preferences; empty uses the default style'),
 })
 export interface DraftSettings { draftingProvider: string; draftingModel: string; draftingInstructions: string }
+export interface DraftingSettingsStore {
+  get(): DraftSettings
+  update(patch: Partial<DraftSettings>): Promise<void>
+}
 export interface DraftInput {
   sessionId: string
   kind: 'commit' | 'reword' | 'squash'
@@ -26,7 +29,7 @@ export interface DraftingPorts {
   stream(options: GenerateOptions): AsyncIterable<StreamChunk>
   modelFor(sessionId: string): { provider: string; model: string } | undefined
   modelCatalog?(): Promise<ModelCatalog>
-  scope: Pick<SettingsScope<DraftSettings>, 'get' | 'update'> | null
+  scope: DraftingSettingsStore | null
   writable(): boolean
   timeoutMs?: number
 }
@@ -118,9 +121,11 @@ export class GitDrafting {
       if (typeof a.draftingInstructions !== 'string' || a.draftingInstructions.length > 4000 || /[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(a.draftingInstructions)) return invalid()
       patch.draftingInstructions = a.draftingInstructions.trim()
     }
-    if (!this.ports.scope || !this.ports.writable()) return fail('Git settings are read-only.')
+    if (!this.ports.scope) return fail('Git settings are unavailable.')
+    if (!this.ports.writable()) return fail('Git settings are read-only.')
+    const previous = this.getConfig()
     await this.ports.scope.update(patch)
-    return this.getConfig()
+    return { ...previous, ...patch }
   }
   dispose(): void {
     this.disposed = true

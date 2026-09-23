@@ -20,7 +20,11 @@ import { GitService } from './host/git-service.ts'
 import { CancellationRegistry, GitRunner } from './host/git-runner.ts'
 import { registerRpc } from './host/rpc.ts'
 import type { ReclaimResult } from './core/types.ts'
-import { GitDrafting, currentDraftModel, GIT_SETTINGS_NAMESPACE, gitSettingsSchema } from './host/drafting.ts'
+import { GitDrafting, currentDraftModel, GIT_SETTINGS_NAMESPACE, gitSettingsSchema, type DraftingSettingsStore, type DraftSettings } from './host/drafting.ts'
+import { createConfigEditorDraftingStore, type ConfigEditor, type LoaderConfigEntry } from './host/drafting-config.ts'
+
+/** Commit-message preferences live in this plugin's Loader entry config. */
+export const Config = gitSettingsSchema
 
 /** Services the host half needs. */
 export const inject = ['webServer', 'sessions', 'settings', 'llm', 'sessionController'] as const
@@ -66,14 +70,39 @@ export function apply(ctx: Context): void {
     reclaim: (from: string, to: string) => service.reclaim(from, to),
   } satisfies ReclaimFace)
 
-  const settings = ctx.get('settings')
-  const scope = settings?.register(GIT_SETTINGS_NAMESPACE, gitSettingsSchema, { applies: 'live' }) ?? null
+  const settings = ctx.get('settings') as {
+    register?: (namespace: string, schema: typeof gitSettingsSchema, options: { applies: 'live' }) => DraftingSettingsStore
+    writable?: boolean
+  } | undefined
+  const registeredScope = typeof settings?.register === 'function'
+    ? settings.register(GIT_SETTINGS_NAMESPACE, gitSettingsSchema, { applies: 'live' })
+    : null
+  const settingsWritable = registeredScope !== null && settings?.writable === true
+  const editor = ctx.get('configEditor') as ConfigEditor | undefined
+  const entry = editor?.entries().find((candidate: LoaderConfigEntry) =>
+    candidate.id === GIT_SETTINGS_NAMESPACE || candidate.id === `include:${GIT_SETTINGS_NAMESPACE}`)
+  const loaderScope = editor === undefined || entry === undefined
+    ? null
+    : createConfigEditorDraftingStore(editor, entry, () => {
+      const current = editor.configuration().find(item => item.entry.id === entry.id)
+      const values = { ...current?.inherited, ...current?.override }
+      return {
+        draftingProvider: typeof values.draftingProvider === 'string' ? values.draftingProvider : '',
+        draftingModel: typeof values.draftingModel === 'string' ? values.draftingModel : '',
+        draftingInstructions: typeof values.draftingInstructions === 'string' ? values.draftingInstructions : '',
+      }
+    })
+  const scope = settingsWritable ? registeredScope : loaderScope ?? registeredScope
+  const writable = settingsWritable || loaderScope !== null
+  if (!writable) {
+    ctx.logger.warn('dsh-next-git: drafting preferences are read-only in this runtime')
+  }
   const drafting = new GitDrafting({
     service, runner, scope,
     stream: options => ctx.llm.stream(options),
     modelFor: sessionId => currentDraftModel(ctx, sessionId),
     modelCatalog: () => (ctx.get('sessionController') as { modelCatalog(): Promise<ModelCatalog> }).modelCatalog(),
-    writable: () => ctx.get('settings')?.writable === true,
+    writable: () => writable,
   })
   registerRpc(ctx, service, drafting)
 

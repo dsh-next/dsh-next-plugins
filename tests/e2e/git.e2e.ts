@@ -135,7 +135,14 @@ test('Git history, changes, worktrees and conflict recovery reflect real reposit
     await page.screenshot({ path: test.info().outputPath('repository-menu.png') })
     await page.emulateMedia({ colorScheme: 'dark' })
     await page.screenshot({ path: test.info().outputPath('repository-menu-dark.png') })
-    await page.getByRole('menuitem', { name: 'Create branch', exact: true }).click()
+    const branchAction = page.getByRole('menuitem', { name: 'Create branch', exact: true })
+    const receivesPointer = await branchAction.evaluate(node => {
+      const bounds = node.getBoundingClientRect()
+      const hit = document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2)
+      return hit !== null && node.contains(hit)
+    })
+    expect(receivesPointer, 'nested menu action should receive pointer events at its center').toBe(true)
+    await branchAction.click()
     const repositoryDialog = page.locator('[data-dsh-git="repository-workspace"]')
     await expect(repositoryDialog).toHaveAttribute('data-action', 'branch-create')
     await expect(repositoryDialog.getByRole('tab')).toHaveCount(0)
@@ -184,6 +191,14 @@ test('Git history, changes, worktrees and conflict recovery reflect real reposit
       await page.getByRole('menuitem', { name: group, exact: true }).and(page.locator('[aria-haspopup]')).hover()
       const leaf = page.getByRole('menuitem', { name: command, exact: true })
       await expect(leaf).toBeVisible()
+      await expect.poll(async () => {
+        const bounds = await leaf.locator('..').boundingBox()
+        return bounds !== null
+          && bounds.x >= 0
+          && bounds.y >= 0
+          && bounds.x + bounds.width <= page.viewportSize()!.width
+          && bounds.y + bounds.height <= page.viewportSize()!.height
+      }, { timeout: 5_000 }).toBe(true)
       const card = await leaf.locator('..').boundingBox()
       expect(card!.x).toBeGreaterThanOrEqual(0)
       expect(card!.y).toBeGreaterThanOrEqual(0)
@@ -604,9 +619,14 @@ test('Git history, changes, worktrees and conflict recovery reflect real reposit
     await expect.poll(() => gitOk(workspaceA, ['rev-parse', '-q', '--verify', 'MERGE_HEAD']), { timeout: 20_000 })
       .toBe(false)
     await page.getByRole('button', { name: 'Plugins', exact: true }).click()
-    await page.getByRole('button', { name: 'View next-git', exact: true }).click()
+    await page.getByRole('button', { name: 'View @dsh-next/dsh-next-git', exact: true }).click()
     const settings = page.locator('[data-dsh-git="settings-card"]')
     await expect(settings).toBeVisible()
+    const settingsReads = await page.evaluate(async () => Promise.all(['getConfig', 'draftingModelCatalog'].map(async method => {
+      const response = await fetch('/dsh-next-git/rpc', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ method, args: {} }) })
+      return { method, status: response.status, body: await response.json() }
+    })))
+    expect(settingsReads.every(result => result.status === 200 && (result.body as { ok?: boolean }).ok), JSON.stringify(settingsReads)).toBe(true)
     await expect(settings.getByRole('combobox')).toBeEnabled()
     await expect(settings.getByRole('combobox')).toHaveValue('')
     await expect(settings.getByRole('option', { name: 'Default (session model)', exact: true })).toHaveCount(1)
@@ -616,9 +636,10 @@ test('Git history, changes, worktrees and conflict recovery reflect real reposit
     await instructions.fill(preference)
     const saveResponse = page.waitForResponse(response => response.url().endsWith('/dsh-next-git/rpc') && response.request().postDataJSON()?.method === 'setConfig')
     await settings.getByRole('button', { name: 'Save', exact: true }).click()
-    expect((await (await saveResponse).json()).ok).toBe(true)
+    const saved = await (await saveResponse).json() as { ok?: boolean; error?: unknown }
+    expect(saved.ok, JSON.stringify(saved)).toBe(true)
     await page.getByRole('button', { name: 'Back to plugins', exact: true }).click()
-    await page.getByRole('button', { name: 'View next-git', exact: true }).click()
+    await page.getByRole('button', { name: 'View @dsh-next/dsh-next-git', exact: true }).click()
     await expect(instructions).toHaveValue(preference)
     await expect(settings.getByRole('combobox')).toHaveValue('')
     await page.emulateMedia({ colorScheme: 'dark' })

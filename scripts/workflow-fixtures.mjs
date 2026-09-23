@@ -50,6 +50,7 @@ export async function seedRuntime(scratch, { profile = 'smoke', fixtures = false
       }
     : { providers: [], installations: [] }
   await json(join(profileDir, 'cordis.patch.yml'), [
+    { id: 'include', insert: [{ id: 'config-editor', name: '@deepseek-ai/dsh-config-editor' }] },
     { id: 'dsh-next-skills', name: '@dsh-next/dsh-next-skills', config: skillsConfig },
     { id: 'dsh-next-notifier', name: '@dsh-next/dsh-next-notifier', config: { enabled: true, suppressFocused: true, volume: 70 } },
   ])

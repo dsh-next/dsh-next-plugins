@@ -18,12 +18,14 @@ interface Mounted {
   provides: Map<string, unknown>
   routes: { kind: string; path: string; handler?: unknown }[]
   disposers: (() => void)[]
+  warnings: string[]
 }
 
-function mount(cwd: string | undefined): Mounted {
+function mount(cwd: string | undefined, settings?: unknown): Mounted {
   const provides = new Map<string, unknown>()
-  const routes: { kind: string; path: string }[] = []
+  const routes: { kind: string; path: string; handler?: unknown }[] = []
   const disposers: (() => void)[] = []
+  const warnings: string[] = []
   const ctx = {
     get: (name: string) => {
       if (name === 'webServer') {
@@ -37,6 +39,7 @@ function mount(cwd: string | undefined): Mounted {
       if (name === 'sessions') {
         return { get: (id: string) => (id === 'known' && cwd !== undefined ? { header: { cwd } } : undefined) }
       }
+      if (name === 'settings') return settings
       return undefined
     },
     provide: (name: string, value: unknown) => {
@@ -46,10 +49,10 @@ function mount(cwd: string | undefined): Mounted {
       const disposer = run()
       if (typeof disposer === 'function') disposers.push(disposer as () => void)
     },
-    logger: { warn: () => {} },
+    logger: { warn: (message: string) => warnings.push(message) },
   } as unknown as Context
   apply(ctx)
-  return { provides, routes, disposers }
+  return { provides, routes, disposers, warnings }
 }
 
 const fixtures: GitFixture[] = []
@@ -93,6 +96,15 @@ describe('host entry', () => {
       path: null,
       branch: null,
     })
+  })
+
+  it('stays mounted when the settings service lacks namespace registration', () => {
+    const mounted = mount(undefined, { writable: true })
+    expect(mounted.provides.get(GIT_SERVICE_KEY)).toBeInstanceOf(GitService)
+    expect(mounted.routes).toHaveLength(1)
+    expect(mounted.warnings).toContain(
+      'dsh-next-git: drafting preferences are read-only in this runtime',
+    )
   })
 
   it('registers the RPC route', () => {

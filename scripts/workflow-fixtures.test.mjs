@@ -22,6 +22,7 @@ test('default fixtures seed only fresh private profile data and realpath workspa
   const settings = await json(join(paths.home, 'settings.yaml'))
   assert.equal(settings['agent-default-model'].model, 'deepseek-v4-flash')
   const patch = await json(join(result.profileDir, 'cordis.patch.yml'))
+  assert.deepEqual(patch.find(row => row.id === 'include').insert, [{ id: 'config-editor', name: '@deepseek-ai/dsh-config-editor' }])
   assert.deepEqual(patch.find(row => row.id === 'dsh-next-skills').config, { providers: [], installations: [] })
   assert.equal(JSON.stringify(settings).includes('API_KEY'), false)
   const registry = await json(join(paths.home, 'storages', 'workspace.json'))

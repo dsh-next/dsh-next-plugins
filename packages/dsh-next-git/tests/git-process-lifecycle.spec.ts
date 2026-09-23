@@ -51,7 +51,10 @@ async function repository(stream?: 'stdout' | 'stderr'): Promise<string> {
 }
 
 async function ready(root: string): Promise<void> {
-  await expect.poll(() => existsSync(join(root, 'writer-ready')), { timeout: 2000, interval: 10 }).toBe(true)
+  // Git hook startup competes with other real-process suites under Vitest's
+  // package-wide parallel load; allow scheduling delay without weakening the
+  // assertion that the child actually reached its ready marker.
+  await expect.poll(() => existsSync(join(root, 'writer-ready')), { timeout: 10_000, interval: 20 }).toBe(true)
 }
 
 async function unchangedAfterSettlement(root: string): Promise<void> {

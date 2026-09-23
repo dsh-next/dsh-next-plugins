@@ -1,21 +1,5 @@
-/* Native menu colors, row grammar and elevation; only viewport placement differs. */
+/* Native menu colors, row grammar and elevation; placement is set from measured viewport geometry. */
 .groupLabel { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
-:global([role="menu"]):has(.groupLabel) { max-height: calc(100dvh - 24px); overflow-y: auto; }
-:global([role="menuitem"]):has(.groupLabel) + :global([role="menu"]) {
-  position: fixed;
-  top: var(--git-submenu-y, 12px);
-  left: var(--git-submenu-x, 12px);
-  right: auto;
-  bottom: auto;
-  max-width: calc(100vw - 24px);
-  max-height: calc(100dvh - 24px);
-  overflow-y: auto;
-}
-:global([role="menuitem"]):has(.groupLabel) + :global([role="menu"])::before {
-  left: auto;
-  right: -10px;
-}
-:global([role="menuitem"]):has(.groupLabel) + :global([role="menu"])[data-git-side="right"]::before {
-  left: -10px;
-  right: auto;
-}
+:global([role="menu"]):has(.groupLabel) { overflow: visible; }
+:global([role="menu"][data-git-side])::before { left: auto; right: -10px; }
+:global([role="menu"][data-git-side="right"])::before { left: -10px; right: auto; }

@@ -116,11 +116,12 @@ describe('Git drafting settings', () => {
     { draftingProvider: 'p', draftingModel: 'm', extra: true }, { draftingProvider: 'p', draftingModel: '\0' },
     { draftingProvider: 'x'.repeat(257), draftingModel: 'm' }, { draftingProvider: true, draftingModel: 'm' },
   ])('rejects invalid settings %#', async config => { await expect(setup().draft.setConfig(config)).rejects.toThrow('Invalid') })
-  it('refuses read-only or unavailable settings', async () => {
+  it('distinguishes read-only settings from unavailable settings storage', async () => {
     const { ports } = setup()
-    for (const scope of [ports.scope, null]) {
-      await expect(new GitDrafting({ ...ports, scope, writable: () => false }).setConfig({ draftingProvider: '', draftingModel: '', draftingInstructions: '' })).rejects.toThrow('read-only')
-    }
+    await expect(new GitDrafting({ ...ports, writable: () => false }).setConfig({ draftingProvider: '', draftingModel: '', draftingInstructions: '' }))
+      .rejects.toThrow('read-only')
+    await expect(new GitDrafting({ ...ports, scope: null, writable: () => false }).setConfig({ draftingProvider: '', draftingModel: '', draftingInstructions: '' }))
+      .rejects.toThrow('unavailable')
   })
 })
 

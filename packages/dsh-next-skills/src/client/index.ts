@@ -38,27 +38,37 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 const RPC_PATH = '/dsh-next-skills/rpc'
 
-function rpc(method: string, args: unknown | undefined, t: (key: MessageKey, params?: Record<string, string | number>) => string): Promise<unknown> {
-  return fetch(RPC_PATH, {
+/** Parses a response body as JSON; `undefined` when it is empty or not JSON. */
+function readJsonBody(raw: string): unknown {
+  if (raw === '') return undefined
+  try {
+    return JSON.parse(raw) as unknown
+  } catch {
+    return undefined
+  }
+}
+
+async function rpc(method: string, args: unknown | undefined, t: (key: MessageKey, params?: Record<string, string | number>) => string): Promise<unknown> {
+  const res = await fetch(RPC_PATH, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ method, args: args === undefined ? null : args }),
-  }).then((res) => {
-    if (res.ok) return res.json()
-    // Prefer the server's JSON `{ error }` message so business failures surface
-    // readable text; fall back to a localized HTTP status when the body is not JSON.
-    return res.json()
-      .then((body) => {
-        const msg = body && typeof body === 'object' && typeof (body as { error?: unknown }).error === 'string'
-          ? (body as { error: string }).error
-          : t('rpc.failed', { method, status: res.status })
-        throw new Error(msg)
-      })
-      .catch((error: unknown) => {
-        if (error instanceof Error && error.message !== '') throw error
-        throw new Error(t('rpc.failed', { method, status: res.status }))
-      })
   })
+  // Read the body once as text and parse it defensively. A path no plugin
+  // registered answers with a bare 405 and an empty body, so `res.json()`
+  // would throw its own parser TypeError ("Unexpected end of JSON input")
+  // and the panel would show that instead of an addressable failure.
+  const body = readJsonBody(await res.text().catch(() => ''))
+  if (res.ok) {
+    if (body === undefined) throw new Error(t('rpc.invalid', { method, status: res.status }))
+    return body
+  }
+  // Prefer the server's JSON `{ error }` message so business failures surface
+  // readable text; fall back to a localized HTTP status when the body is not
+  // JSON or carries no message of its own.
+  const serverError = body !== null && typeof body === 'object' ? (body as { error?: unknown }).error : undefined
+  if (typeof serverError === 'string' && serverError !== '') throw new Error(serverError)
+  throw new Error(t('rpc.failed', { method, status: res.status }))
 }
 
 // Wait for the settings slot registry and locale service before registering.

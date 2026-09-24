@@ -137,4 +137,5 @@ export const zh: Record<MessageKey, string> = {
   'status.requestFailed': '请求失败',
   'status.refreshFailed': '刷新失败',
   'rpc.failed': '技能请求“{method}”失败（HTTP {status}）',
+  'rpc.invalid': '技能请求“{method}”返回了无法解析的响应（HTTP {status}）',
 }

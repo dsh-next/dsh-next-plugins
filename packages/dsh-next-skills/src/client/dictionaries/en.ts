@@ -148,6 +148,7 @@ export const en = {
   'status.requestFailed': 'Request failed',
   'status.refreshFailed': 'Refresh failed',
   'rpc.failed': 'Skills request "{method}" failed (HTTP {status})',
+  'rpc.invalid': 'Skills request "{method}" returned an unreadable response (HTTP {status})',
 }
 
 /** Every dictionary key. */

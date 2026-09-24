@@ -1,10 +1,14 @@
 /** Regression: registering the global manager never reads or waits for workspaces. */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
-import type * as React from 'react'
+import * as React from 'react'
+import { act } from 'react'
+import { createRoot } from 'react-dom/client'
 import { apply, inject } from '../src/client/index.ts'
-import type { SkillsPanelDeps } from '../src/client/SkillsPanel.tsx'
+import { SkillsPanel, type SkillsPanelDeps } from '../src/client/SkillsPanel.tsx'
 import { en, englishTranslate, NS, zh } from '../src/client/dictionaries.ts'
+
+;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 function registerPanel(locale?: { register: ReturnType<typeof vi.fn>; bind: ReturnType<typeof vi.fn> }) {
   let render!: () => React.ReactElement<SkillsPanelDeps>
@@ -71,10 +75,13 @@ describe('global-only client registration', () => {
   })
 
   it('posts global state and install requests without scope arguments', async () => {
-    const fetch = vi.fn(async () => ({ ok: true, json: async () => ({ ok: true }) }))
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }))
     vi.stubGlobal('fetch', fetch)
     const { panel } = registerPanel()
-    await panel.props.rpc('getState')
+    await expect(panel.props.rpc('getState')).resolves.toEqual({ ok: true })
     await panel.props.rpc('installSkill', { providerId: 'o-r', skillPath: 'skills/example' })
     expect(fetch.mock.calls).toEqual([
       ['/dsh-next-skills/rpc', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ method: 'getState', args: null }) }],
@@ -82,12 +89,56 @@ describe('global-only client registration', () => {
     ])
   })
 
+  // Regression: an unrouted path (the platform answers POST with a bare 405 and
+  // no body) must never surface the Response parser's own TypeError — that is
+  // the unreadable "Failed to execute 'json' on 'Response'" the panel showed.
   it.each([
-    { body: { error: 'Denied' }, message: 'Denied' },
-    { body: {}, message: 'Skills request "installSkill" failed (HTTP 409)' },
-  ])('preserves HTTP failure reporting: $message', async ({ body, message }) => {
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 409, json: async () => body })))
+    { label: 'JSON error envelope', status: 500, body: JSON.stringify({ error: 'Denied' }), message: 'Denied' },
+    { label: 'JSON body without an error', status: 409, body: JSON.stringify({}), message: 'Skills request "installSkill" failed (HTTP 409)' },
+    { label: 'JSON body with an empty error', status: 500, body: JSON.stringify({ error: '' }), message: 'Skills request "installSkill" failed (HTTP 500)' },
+    { label: 'JSON body with a non-string error', status: 500, body: JSON.stringify({ error: 7 }), message: 'Skills request "installSkill" failed (HTTP 500)' },
+    { label: 'empty body', status: 405, body: '', message: 'Skills request "installSkill" failed (HTTP 405)' },
+    { label: 'non-JSON body', status: 502, body: '<html>gateway</html>', message: 'Skills request "installSkill" failed (HTTP 502)' },
+  ])('reports a failed request readably: $label', async ({ status, body, message }) => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(body, { status })))
     const { panel } = registerPanel()
-    await expect(panel.props.rpc('installSkill')).rejects.toThrow(message)
+    const error = await panel.props.rpc('installSkill').catch((reason: unknown) => reason)
+    expect(error).toBeInstanceOf(Error)
+    expect((error as Error).message).toBe(message)
+    expect((error as Error).message).not.toMatch(/json/i)
+  })
+
+  it('names an unreadable success response instead of leaking the parser error', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 200 })))
+    const { panel } = registerPanel()
+    const error = await panel.props.rpc('getState').catch((reason: unknown) => reason)
+    expect((error as Error).message).toBe('Skills request "getState" returned an unreadable response (HTTP 200)')
+  })
+
+  it('keeps a transport failure intact for the panel message', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch') }))
+    const { panel } = registerPanel()
+    await expect(panel.props.rpc('getState')).rejects.toThrow('Failed to fetch')
+  })
+
+  // The user-visible half of the regression above: with the host route missing
+  // the panel must show its own message banner, not a parser stack string.
+  it('renders the unreachable-host failure in the panel banner', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 405 })))
+    const { panel } = registerPanel()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    try {
+      await act(async () => {
+        root.render(React.createElement(SkillsPanel, panel.props as SkillsPanelDeps))
+      })
+      await act(async () => {})
+      const banner = container.querySelector('[data-testid="skills-message"]')
+      expect(banner?.textContent).toBe('Skills request "getState" failed (HTTP 405)')
+    } finally {
+      await act(async () => root.unmount())
+      container.remove()
+    }
   })
 })

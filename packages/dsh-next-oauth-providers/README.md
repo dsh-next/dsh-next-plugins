@@ -14,9 +14,9 @@ the existing model selector.
 3. Pick Kimi Code, Grok, ChatGPT, or Claude, then **Sign in** and finish the
    browser or device-code flow. **Apply** saves the subscription.
 4. The subscription now has its own row above, next to every other provider.
-   **Edit** opens its card: **Fetch available models** opens the stock picker
-   so you can select or deselect ids, and **Restore defaults** clears a custom
-   catalog.
+   The row's name opens the plugin's card: **Fetch available models** opens the
+   stock picker so you can select or deselect ids, **Restore defaults** clears a
+   custom catalog, and **Cancel** or **Apply** closes the card again.
 5. **Delete** on that row removes the sign-in and the stored catalog.
 
 ## Features

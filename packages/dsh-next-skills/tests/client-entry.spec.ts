@@ -96,6 +96,7 @@ describe('global-only client registration', () => {
     { label: 'JSON error envelope', status: 500, body: JSON.stringify({ error: 'Denied' }), message: 'Denied' },
     { label: 'JSON body without an error', status: 409, body: JSON.stringify({}), message: 'Skills request "installSkill" failed (HTTP 409)' },
     { label: 'JSON body with an empty error', status: 500, body: JSON.stringify({ error: '' }), message: 'Skills request "installSkill" failed (HTTP 500)' },
+    { label: 'JSON body with a whitespace-only error', status: 500, body: JSON.stringify({ error: '   ' }), message: 'Skills request "installSkill" failed (HTTP 500)' },
     { label: 'JSON body with a non-string error', status: 500, body: JSON.stringify({ error: 7 }), message: 'Skills request "installSkill" failed (HTTP 500)' },
     { label: 'empty body', status: 405, body: '', message: 'Skills request "installSkill" failed (HTTP 405)' },
     { label: 'non-JSON body', status: 502, body: '<html>gateway</html>', message: 'Skills request "installSkill" failed (HTTP 502)' },
@@ -113,6 +114,24 @@ describe('global-only client registration', () => {
     const { panel } = registerPanel()
     const error = await panel.props.rpc('getState').catch((reason: unknown) => reason)
     expect((error as Error).message).toBe('Skills request "getState" returned an unreadable response (HTTP 200)')
+  })
+
+  it.each([
+    { label: 'unreadable body', body: 'not json', message: 'Skills request "getState" returned an unreadable response (HTTP 200)' },
+    { label: 'whitespace body', body: '  \n ', message: 'Skills request "getState" returned an unreadable response (HTTP 200)' },
+  ])('rejects a successful response with a $label', async ({ body, message }) => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(body, { status: 200 })))
+    const { panel } = registerPanel()
+    await expect(panel.props.rpc('getState')).rejects.toThrow(message)
+  })
+
+  it('reads the body once and survives a response whose stream fails', async () => {
+    // A Response double whose stream errors mid-read: the failure must still be
+    // reported readably rather than escaping as an unhandled rejection.
+    const response = { ok: false, status: 502, text: async () => { throw new Error('stream broke') } }
+    vi.stubGlobal('fetch', vi.fn(async () => response))
+    const { panel } = registerPanel()
+    await expect(panel.props.rpc('getState')).rejects.toThrow('Skills request "getState" failed (HTTP 502)')
   })
 
   it('keeps a transport failure intact for the panel message', async () => {

@@ -15,7 +15,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import type { InstalledSkill, SkillsState } from '../src/core/types.ts'
 import type { GridEntry } from '../src/client/SkillsPanel.tsx'
-import { buildGridEntries, filterEntries, formatLastSync, searchTier, sourceKey, SkillsPanel } from '../src/client/SkillsPanel.tsx'
+import { buildGridEntries, filterEntries, formatLastSync, isSkillsState, searchTier, sourceKey, SkillsPanel } from '../src/client/SkillsPanel.tsx'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -285,6 +285,24 @@ describe('formatters', () => {
 })
 
 describe('SkillsPanel rendering', () => {
+  it('reports a state body of the wrong shape in the banner instead of crashing', async () => {
+    for (const body of [null, {}, { installed: [] }, 'nope', 7]) {
+      const rpc = vi.fn<RpcFn>(async () => body)
+      const { container, unmount } = await render(rpc)
+      expect(byTestId(container, 'skills-message').textContent).toBe('Skills request "getState" returned an unexpected payload')
+      expect(container.querySelector('[data-testid="skills-grid"]')).toBeNull()
+      await unmount()
+    }
+  })
+
+  it('isSkillsState accepts only the three-collection envelope', () => {
+    expect(isSkillsState(STATE)).toBe(true)
+    expect(isSkillsState({ installed: [], providers: [], catalog: [] })).toBe(true)
+    for (const value of [undefined, null, 'state', 7, [], {}, { installed: [], providers: [] }, { installed: [], providers: [], catalog: {} }]) {
+      expect(isSkillsState(value), JSON.stringify(value)).toBe(false)
+    }
+  })
+
   it('renders the tabs, filter row, and one card per grid entry', async () => {
     const { container, unmount } = await render(rpcMock())
     expect(byTestId(container, 'skills-tab-skills')).toBeTruthy()

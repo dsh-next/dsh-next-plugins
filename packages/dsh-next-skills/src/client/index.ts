@@ -65,9 +65,10 @@ async function rpc(method: string, args: unknown | undefined, t: (key: MessageKe
   }
   // Prefer the server's JSON `{ error }` message so business failures surface
   // readable text; fall back to a localized HTTP status when the body is not
-  // JSON or carries no message of its own.
+  // JSON or carries no message of its own. A whitespace-only message would
+  // render as an empty banner, so it counts as no message.
   const serverError = body !== null && typeof body === 'object' ? (body as { error?: unknown }).error : undefined
-  if (typeof serverError === 'string' && serverError !== '') throw new Error(serverError)
+  if (typeof serverError === 'string' && serverError.trim() !== '') throw new Error(serverError)
   throw new Error(t('rpc.failed', { method, status: res.status }))
 }
 

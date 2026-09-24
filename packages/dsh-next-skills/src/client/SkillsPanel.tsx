@@ -181,6 +181,19 @@ export function filterEntries(
   return hits.sort((a, b) => (searchTier(a, q) ?? 0) - (searchTier(b, q) ?? 0))
 }
 
+/**
+ * The Host state envelope's three collections. A 200 body of any other shape
+ * is not a state: rendering it would crash the panel before a message could
+ * be shown, which is exactly the failure this guard turns into a banner.
+ */
+export function isSkillsState(value: unknown): value is SkillsState {
+  if (value === null || typeof value !== 'object') return false
+  const candidate = value as Partial<SkillsState>
+  return Array.isArray(candidate.installed)
+    && Array.isArray(candidate.providers)
+    && Array.isArray(candidate.catalog)
+}
+
 export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
   const t = deps.t ?? englishTranslate
   const [tab, setTab] = React.useState<Tab>('skills')
@@ -211,12 +224,18 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
 
   const refresh = React.useCallback(async (): Promise<void> => {
     try {
-      const next = await deps.rpc('getState') as SkillsState
+      const next = await deps.rpc('getState')
+      // A body that parses but is not a state must report, not crash: the grid
+      // reads all three collections during render.
+      if (!isSkillsState(next)) {
+        setMessage({ ok: false, text: t('rpc.malformed', { method: 'getState' }) })
+        return
+      }
       setState(next)
     } catch (error) {
       setMessage({ ok: false, text: errMsg(error) })
     }
-  }, [deps])
+  }, [deps, t])
 
   React.useEffect(() => {
     void refresh()

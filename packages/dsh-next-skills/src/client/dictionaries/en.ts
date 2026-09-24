@@ -149,6 +149,7 @@ export const en = {
   'status.refreshFailed': 'Refresh failed',
   'rpc.failed': 'Skills request "{method}" failed (HTTP {status})',
   'rpc.invalid': 'Skills request "{method}" returned an unreadable response (HTTP {status})',
+  'rpc.malformed': 'Skills request "{method}" returned an unexpected payload',
 }
 
 /** Every dictionary key. */

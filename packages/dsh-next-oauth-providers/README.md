@@ -2,15 +2,15 @@
 
 English | [中文](README.zh.md)
 
-This DeepSeek Harness plugin adds **Subscriptions** under Settings → Models.
-Sign in with a Kimi, Grok, ChatGPT, or Claude coding subscription, then manage
+This DeepSeek Harness plugin adds coding-subscription sign-in to Settings →
+Models. Sign in with a Kimi, Grok, ChatGPT, or Claude subscription, then manage
 each one from its own row on the stock Models page. Connected models appear in
 the existing model selector.
 
 ## How to use it
 
 1. Open **Settings** → **Models**.
-2. Scroll to **Subscriptions** and click **Add provider**.
+2. Below the provider rows, click **Add OAuth model provider**.
 3. Pick Kimi Code, Grok, ChatGPT, or Claude, then **Sign in** and finish the
    browser or device-code flow. **Apply** saves the subscription.
 4. The subscription now has its own row above, next to every other provider.

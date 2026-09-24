@@ -81,8 +81,9 @@ dsh plugin --profile <name> add @dsh-next/dsh-next-oauth-providers
   cannot live under `llm-pi-ai:` — that section only accepts API-key
   `providers`.
 - ChatGPT OAuth keeps the pi-ai model list but uses official API context /
-  max-output sizes as defaults (1050K / 128K for current GPT-5.4+ ids; 400K /
-  128K for `gpt-5.4-mini`). Customized settings still override a row.
+  max-output sizes as defaults (1050K / 128K for the current GPT-5.5+ ids;
+  128K / 128K for `gpt-5.3-codex-spark`). Customized settings still override a
+  row.
 - One account per family in this version. Reconnect replaces that grant.
 - One unusable subscription does not take the others down. If a provider
   catalog cannot be prepared, only that provider's models fail to load — the

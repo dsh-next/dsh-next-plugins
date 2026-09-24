@@ -14,8 +14,8 @@ describe('applyModelCatalog', () => {
 
   it('replaces the catalog when an explicit list is stored', () => {
     const provider = nativeFactory('openai-codex')
-    const models = applyModelCatalog(provider, [{ id: 'gpt-5.4' }]).getModels()
-    expect(models.map((row) => row.id)).toEqual(['gpt-5.4'])
+    const models = applyModelCatalog(provider, [{ id: 'gpt-6-sol' }]).getModels()
+    expect(models.map((row) => row.id)).toEqual(['gpt-6-sol'])
   })
 
   it('uses 256K / 64K when pi-ai has never heard of the id', () => {

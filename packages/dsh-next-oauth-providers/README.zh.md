@@ -73,8 +73,8 @@ dsh plugin --profile <name> add @dsh-next/dsh-next-oauth-providers
   `anthropic` 可以与 Claude 订阅并存。不能写进 `llm-pi-ai:`：该段只接受
   API 密钥 `providers`。
 - ChatGPT OAuth 仍用 pi-ai 模型列表，但默认上下文 / 最大输出采用官方 API
-  数值（当前 GPT-5.4+ 为 1050K / 128K；`gpt-5.4-mini` 为 400K / 128K）。
-  自定义设置仍可覆盖单行。
+  数值（当前 GPT-5.5+ 为 1050K / 128K；`gpt-5.3-codex-spark` 为 128K /
+  128K）。自定义设置仍可覆盖单行。
 - 此版本每个产品系列只能有一个账号。重新登录会替换该授权。
 - 一个订阅不可用不会拖垮其他订阅。若某个提供方的模型目录无法准备，只有该提供方的
   模型加载失败——模型选择器会指出该提供方并提供 **重试**——其余路由以及在其上的

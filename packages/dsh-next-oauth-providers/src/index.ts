@@ -64,7 +64,19 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 /** The settings service's describe face, host side (no redaction). */
 interface SettingsDescribeFace {
-  describe(options?: { redactSecrets?: boolean }): Array<{ ns: string; revision: number; value?: unknown }>
+  describe(options?: { redactSecrets?: boolean }): Array<{ ns: string; revision: number; value?: unknown; user?: unknown }>
+}
+
+/** The `providers` section a settings value carries, or undefined when it carries none. */
+function providersOf(value: unknown): unknown {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
+  return 'providers' in value ? (value as { providers: unknown }).providers : undefined
+}
+
+/** Whether a providers section names anything: a row array or a profile dict. */
+function listsProviders(value: unknown): boolean {
+  if (Array.isArray(value)) return value.length > 0
+  return value !== null && typeof value === 'object' && Object.keys(value).length > 0
 }
 
 export function apply(ctx: Context, config?: PluginConfigShape): void {
@@ -88,16 +100,26 @@ export function apply(ctx: Context, config?: PluginConfigShape): void {
    * config, which is what a `configEditor` write publishes; the resolved
    * volatile reference the plugin was handed can lag that commit, so it is
    * only a fallback.
+   *
+   * An empty resolved section does not always mean an empty configuration: a
+   * pre-0.1.7 `settings.yaml` section stores `providers` as a row array, which
+   * the dict schema cannot carry and resolves to its empty default. The raw
+   * user layer still holds those rows, so it is read here — that is what lets
+   * `hydrate()` rewrite the stored section into the dict shape once instead of
+   * dropping an existing setup.
    */
   const readProviders = (): unknown => {
+    let descriptor: { value?: unknown; user?: unknown } | undefined
     try {
-      const descriptor = settings?.describe?.().find((row) => row.ns === entryId)
-      const value = descriptor?.value
-      if (value !== null && value !== undefined && typeof value === 'object' && 'providers' in value) {
-        return (value as { providers: unknown }).providers
-      }
+      descriptor = settings?.describe?.().find((row) => row.ns === entryId)
     } catch {
       // A settings surface that cannot describe falls through to the fiber config.
+    }
+    if (descriptor !== undefined) {
+      const resolved = providersOf(descriptor.value)
+      if (listsProviders(resolved)) return resolved
+      const stored = providersOf(descriptor.user)
+      return listsProviders(stored) ? stored : resolved
     }
     const live = (entry as { options?: { config?: { providers?: unknown } } } | undefined)?.options?.config?.providers
     return live !== undefined ? live : providersRef.get()

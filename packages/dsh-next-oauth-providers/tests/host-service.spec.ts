@@ -19,6 +19,25 @@ describe('SubscriptionsService', () => {
     })
   })
 
+  it('rewrites a pre-0.1.7 row array into the provider dict', async () => {
+    const config = memoryConfig({
+      providers: [{ id: 'xai', displayName: 'Grok', models: [{ id: 'grok-4.6' }] }],
+    })
+    const service = new SubscriptionsService({
+      store: memoryStore({ xai: grant }),
+      config,
+      fetch: async () => new Response('{}'),
+    })
+    await service.hydrate()
+    expect(service.configValue().providers.xai).toEqual({
+      displayName: 'Grok',
+      models: [{ id: 'grok-4.6' }],
+    })
+    expect(config.get()).toEqual({
+      providers: { xai: { displayName: 'Grok', models: [{ id: 'grok-4.6' }] } },
+    })
+  })
+
   it('rewrites an empty models list so the built-in catalog is served', async () => {
     const config = memoryConfig({ providers: { xai: { models: [] } } })
     const service = new SubscriptionsService({

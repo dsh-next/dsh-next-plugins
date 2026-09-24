@@ -31,15 +31,20 @@ describe('error classification', () => {
 })
 
 describe('settings boundaries', () => {
-  it('defaults the volatile provider section and accepts both persisted formats', () => {
+  it('defaults the volatile provider section and tolerates both persisted formats', () => {
     expect(SETTINGS_NS).toBe('dsh-next-oauth-providers')
     // An empty section is the dict form, which is what the native Models page
-    // addresses per provider; a legacy block list still validates.
+    // addresses per provider.
     expect(pluginConfigSchema({}).providers.get()).toEqual({})
     expect(pluginConfigSchema({ providers: { xai: { displayName: 'Grok' } } }).providers.get())
       .toEqual({ xai: { displayName: 'Grok', models: [] } })
+    // A pre-0.1.7 row array cannot ride the dict the native page walks, so it
+    // resolves to the empty default instead of failing the whole entry; the
+    // host reads the raw section and normalizeConfig migrates it.
     expect(pluginConfigSchema({ providers: [{ id: 'xai', displayName: 'Grok' }] }).providers.get())
-      .toEqual([{ id: 'xai', displayName: 'Grok', models: [] }])
+      .toEqual({})
+    expect(normalizeConfig({ providers: [{ id: 'xai', displayName: 'Grok' }] }).providers.xai)
+      .toEqual({ displayName: 'Grok' })
   })
 
   it.each([undefined, null, [], false, 'text', 1])('normalizes invalid model/profile/config roots (%j)', (root) => {

@@ -33,7 +33,10 @@ beforeEach(() => {
   lifecycle.configValue.mockReturnValue({ providers: {} })
 })
 
-function fixture(stored: Record<string, unknown> = {}) {
+function fixture(
+  stored: Record<string, unknown> = {},
+  descriptor?: { ns: string; revision: number; value?: unknown; user?: unknown },
+) {
   const cleanups: Array<() => void> = []
   const handle = Object.assign(vi.fn(), { replace: vi.fn() })
   const registerAdapter = vi.fn(() => handle)
@@ -45,6 +48,7 @@ function fixture(stored: Record<string, unknown> = {}) {
   const entry = { options: { id: 'dsh-next-oauth-providers' } }
   const providers = { value: stored as unknown, get() { return providers.value } }
   const services: Record<string, unknown> = { credentials: {}, configEditor: { edit } }
+  if (descriptor !== undefined) services.settings = { describe: () => [descriptor] }
   const ctx = {
     get: (key: string) => services[key],
     logger: { warn: vi.fn() },
@@ -124,6 +128,38 @@ describe('host apply lifecycle', () => {
     lifecycle.options?.onConfigChanged?.('user')
     await vi.waitFor(() => expect(lifecycle.pruneUnlisted).toHaveBeenCalledOnce())
     expect(registerConfigurableProviders).not.toHaveBeenCalled()
+    cleanup()
+  })
+})
+
+describe('host config reads', () => {
+  const descriptor = (value: unknown, user: unknown) => ({ ns: 'dsh-next-oauth-providers', revision: 1, value, user })
+
+  it('reads the raw user section while a pre-0.1.7 row array is still stored', () => {
+    const rows = [{ id: 'openai-codex', displayName: 'ChatGPT' }]
+    // The dict schema cannot carry the array, so the resolved section is the
+    // empty default; hydrate() migrates from what this read returns.
+    const { cleanup } = fixture({}, descriptor({ providers: {} }, { providers: rows }))
+    expect(lifecycle.options?.config.get()).toEqual({ providers: rows })
+    cleanup()
+  })
+
+  it('prefers the resolved section once the stored shape is a dict', () => {
+    const stored = { providers: [{ id: 'xai', displayName: 'stale' }] }
+    const { cleanup } = fixture({}, descriptor({ providers: { xai: { displayName: 'Grok' } } }, stored))
+    expect(lifecycle.options?.config.get()).toEqual({ providers: { xai: { displayName: 'Grok' } } })
+    cleanup()
+  })
+
+  it('does not resurrect a section the user cleared', () => {
+    const { cleanup } = fixture({}, descriptor({ providers: {} }, { providers: {} }))
+    expect(lifecycle.options?.config.get()).toEqual({ providers: {} })
+    cleanup()
+  })
+
+  it('falls back to the fiber config when no settings surface can describe', () => {
+    const { cleanup } = fixture({ xai: { displayName: 'Grok' } })
+    expect(lifecycle.options?.config.get()).toEqual({ providers: { xai: { displayName: 'Grok' } } })
     cleanup()
   })
 })

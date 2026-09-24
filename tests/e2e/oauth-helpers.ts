@@ -69,8 +69,18 @@ export async function verifyOauthProviders(page: Page): Promise<void> {
   await expect(nativeRow('Edit')).toBeVisible()
 
   await nativeRow('Edit').click()
+  // The native card resolves the row's `providers.<nativeId>` path against the
+  // plugin's Config schema. A path it cannot walk leaves the row with
+  // "<provider>: unresolvable settings path" and no footer at all, so the card
+  // has neither Cancel nor Apply; the seat's own Cancel cannot dismiss it.
+  await expect(page.getByText('unresolvable settings path')).toHaveCount(0)
+  const nativeEditor = page.getByText('Other fields live in cordis.patch.yml', { exact: false })
+    .locator('xpath=ancestor::div[1]')
+  await expect(nativeEditor).toBeVisible()
   const card = page.getByTestId('dsh-next-oauth-providers-card-grok')
   await expect(card).toBeVisible()
+  await nativeEditor.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(nativeEditor).toHaveCount(0)
   await openModels(card)
   await card.getByRole('button', { name: 'Capacities 1', exact: true }).click()
   await card.getByRole('textbox', { name: 'Context window 1', exact: true }).fill('invalid')

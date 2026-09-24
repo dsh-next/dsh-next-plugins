@@ -73,6 +73,47 @@
   line-height: 22px;
 }
 
+/* The seat's disclosure: the stock Customized settings summary at row scale. */
+.cardSummary {
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  margin-left: -4px;
+  padding: 2px 4px;
+  font-size: 14px;
+  line-height: 22px;
+  display: inline-flex;
+}
+
+.cardSummary:before {
+  content: "";
+  border-bottom: 1.5px solid;
+  border-right: 1.5px solid;
+  width: 5px;
+  height: 5px;
+  transition: transform 0.12s;
+  transform: rotate(-45deg) translate(-1px, -1px);
+}
+
+.cardSummary[aria-expanded="true"]:before {
+  transform: rotate(45deg) translate(-1px, -1px);
+}
+
+.cardSummary:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.cardSummary:focus-visible {
+  box-shadow: 0 0 0 2px var(--dsw-alias-border-l3);
+  outline: none;
+}
+
 .credentialDot {
   box-sizing: border-box;
   corner-shape: round;
@@ -624,7 +665,8 @@ select.input {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .customizedSummary:before {
+  .customizedSummary:before,
+  .cardSummary:before {
     transition: none;
   }
 }

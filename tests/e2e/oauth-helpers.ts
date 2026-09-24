@@ -81,6 +81,10 @@ export async function verifyOauthProviders(page: Page): Promise<void> {
   await expect(card).toBeVisible()
   await nativeEditor.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(nativeEditor).toHaveCount(0)
+  // The seat's editor is a disclosure: collapsed until the row asks for it.
+  await expect(card.getByTestId('oauth-apply')).toHaveCount(0)
+  await card.getByTestId('oauth-card-toggle').click()
+  await expect(card.getByTestId('oauth-apply')).toBeVisible()
   await openModels(card)
   await card.getByRole('button', { name: 'Capacities 1', exact: true }).click()
   await card.getByRole('textbox', { name: 'Context window 1', exact: true }).fill('invalid')
@@ -96,6 +100,9 @@ export async function verifyOauthProviders(page: Page): Promise<void> {
   await test.info().attach('oauth-card-restored-defaults', { path: screenshot, contentType: 'image/png' })
   await card.getByTestId('oauth-apply').click()
   await expect.poll(settings).not.toContain('oauth-smoke-second')
+  // Apply closes the seat's editor and announces the save on the row.
+  await expect(card.getByTestId('oauth-apply')).toHaveCount(0)
+  await expect(card.getByRole('status')).toContainText('Saved Grok.')
 
   // 3. Deleting the native row removes the profile; the host drops the grant.
   await nativeRow('Delete').click()

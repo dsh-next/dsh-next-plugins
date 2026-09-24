@@ -3,6 +3,10 @@
  * one declared family. The stock Models page renders the row, the status dot,
  * Edit, and Delete; this seat adds sign-in, account state, and the model
  * catalog editor.
+ *
+ * The seat's editor stays collapsed until the row is expanded, and Cancel or
+ * Apply collapses it again: on a configured row the card is a disclosure, not
+ * an always-open form.
  */
 import * as React from 'react'
 import type { ProviderCardExtrasOwnerProps } from '@deepseek-ai/dsh-client-ui-settings-models/client'
@@ -28,6 +32,8 @@ export function SubscriptionCard(props: SubscriptionCardProps): React.ReactEleme
   const [state, setState] = React.useState<PluginState | undefined>()
   const [error, setError] = React.useState<string | undefined>()
   const [busy, setBusy] = React.useState(false)
+  const [open, setOpen] = React.useState(false)
+  const [saved, setSaved] = React.useState(false)
   const mounted = React.useRef(false)
   const family = familyByAlias(props.provider.provider)
 
@@ -74,7 +80,18 @@ export function SubscriptionCard(props: SubscriptionCardProps): React.ReactEleme
     <div className={styles.rowCard} data-testid={`dsh-next-oauth-providers-card-${family.family}`}>
       <div className={styles.rowHead}>
         <span className={styles.rowIdentity}>
-          <span className={styles.rowName}>{t(`family.${family.family}` as Parameters<Translate>[0])}</span>
+          <button
+            type="button"
+            className={styles.cardSummary}
+            aria-expanded={open}
+            onClick={() => {
+              setSaved(false)
+              setOpen((current) => !current)
+            }}
+            data-testid="oauth-card-toggle"
+          >
+            <span className={styles.rowName}>{t(`family.${family.family}` as Parameters<Translate>[0])}</span>
+          </button>
           <span
             className={`${styles.credentialDot} ${connected ? styles.credentialDotConfigured : styles.credentialDotMissing}`}
             role="img"
@@ -101,15 +118,28 @@ export function SubscriptionCard(props: SubscriptionCardProps): React.ReactEleme
           ? row?.accountLabel ?? t('signedIn')
           : state === undefined ? t('statusLoading') : t('statusDisconnected')}
       </p>
+      {saved ? (
+        <p className={styles.savedNotice} role="status">
+          {t('savedProvider', { provider: t(`family.${family.family}` as Parameters<Translate>[0]) })}
+        </p>
+      ) : null}
       {error === undefined ? null : <p className={styles.error} role="alert">{error}</p>}
-      <SubscriptionPanel
-        family={family}
-        provider={row}
-        rpc={rpc}
-        t={t}
-        readOnly={state?.writable === false}
-        onChanged={(changed) => { if (changed) void load() }}
-      />
+      {open ? (
+        <SubscriptionPanel
+          family={family}
+          provider={row}
+          rpc={rpc}
+          t={t}
+          readOnly={state?.writable === false}
+          onChanged={(changed) => {
+            // Cancel and Apply both close the editor; Apply also announces the
+            // save, because the editor that showed it is gone.
+            setOpen(false)
+            setSaved(changed)
+            if (changed) void load()
+          }}
+        />
+      ) : null}
     </div>
   )
 }

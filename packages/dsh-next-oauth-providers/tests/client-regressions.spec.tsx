@@ -88,14 +88,17 @@ async function openLogin(rpc: (method: string, args?: unknown) => Promise<unknow
 function stateRpc(state: PluginState = connected) {
   return vi.fn(async (_method: string, _args?: unknown) => state)
 }
-async function openModels(): Promise<void> {
+/** Open the seat's editor, which is collapsed on a configured row, and its fold. */
+async function openEditor(): Promise<void> {
+  const toggle = element('[data-testid="oauth-card-toggle"]')
+  if (toggle.getAttribute('aria-expanded') === 'false') await click('[data-testid="oauth-card-toggle"]')
   await click('summary')
 }
 
 describe('model editor regressions', () => {
   it('retains the same focused input throughout multi-character ID editing', async () => {
     await render(stateRpc())
-    await openModels()
+    await openEditor()
     const input = element<HTMLInputElement>('[aria-label="Model ID 1"]')
     input.focus()
     for (const value of ['m', 'mo', 'model']) {
@@ -108,7 +111,7 @@ describe('model editor regressions', () => {
   it('preserves the surviving row capacity buffer and identity when deleting an earlier row', async () => {
     const rpc = stateRpc()
     await render(rpc)
-    await openModels()
+    await openEditor()
     await click('[aria-label="Capacities 1"]')
     await click('[aria-label="Capacities 2"]')
     await change('[aria-label="Context window 1"]', '130k')
@@ -126,7 +129,7 @@ describe('model editor regressions', () => {
   it('clears invalid and edited capacity text when restoring defaults', async () => {
     const rpc = stateRpc()
     await render(rpc)
-    await openModels()
+    await openEditor()
     await click('[aria-label="Capacities 1"]')
     await change('[aria-label="Context window 1"]', 'invalid')
     expect(element<HTMLButtonElement>('[data-testid="oauth-apply"]').disabled).toBe(true)
@@ -155,14 +158,15 @@ describe('provider editor actions', () => {
     expect(host.querySelector('[data-testid="oauth-add-provider"]')).not.toBeNull()
   })
 
-  it('discards customized drafts and closes the settings when Cancel is clicked', async () => {
+  it('discards customized drafts and closes the editor when Cancel is clicked', async () => {
     await render(stateRpc())
-    await openModels()
+    await openEditor()
     await change('[aria-label="Model ID 1"]', 'unsaved-change')
     const cancel = Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Cancel' && button.dataset.testid !== 'oauth-cancel')!
     await act(async () => cancel.click())
-    expect(element<HTMLDetailsElement>('details').open).toBe(false)
-    await click('summary')
+    // Cancel closes the seat's editor; reopening starts from the stored catalog.
+    expect(host.querySelector('[data-testid="oauth-apply"]')).toBeNull()
+    await openEditor()
     expect(element<HTMLInputElement>('[aria-label="Model ID 1"]').value).toBe('first')
   })
 
@@ -186,13 +190,14 @@ describe('provider editor actions', () => {
       return stored
     })
     await render(rpc)
-    await openModels()
+    await openEditor()
     await click('[data-testid="oauth-add-model"]')
     await change('[aria-label="Model ID 3"]', 'custom-model')
     await click('[data-testid="oauth-apply"]')
     expect(host.textContent).toContain('Saved Kimi Code.')
-    expect(element<HTMLDetailsElement>('details').open).toBe(false)
-    await click('summary')
+    // Apply closes the seat's editor and announces the save on the row.
+    expect(host.querySelector('[data-testid="oauth-apply"]')).toBeNull()
+    await openEditor()
     expect(element<HTMLInputElement>('[aria-label="Model ID 3"]').value).toBe('custom-model')
   })
 })

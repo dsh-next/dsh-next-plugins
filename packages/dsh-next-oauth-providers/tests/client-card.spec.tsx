@@ -74,6 +74,14 @@ async function render(rpc: (method: string, args?: unknown) => Promise<unknown>,
   })
 }
 
+const toggle = (): HTMLButtonElement => host.querySelector('[data-testid="oauth-card-toggle"]') as HTMLButtonElement
+const editorOpen = (): boolean => host.querySelector('[data-testid="oauth-apply"]') !== null
+
+/** Open the seat's editor, which is collapsed on a configured row. */
+async function expand(): Promise<void> {
+  await act(async () => { toggle().click() })
+}
+
 describe('SubscriptionCard', () => {
   it('renders nothing for a directory route this plugin does not own', async () => {
     await render(async () => connected, owner('deepseek-official'))
@@ -101,6 +109,49 @@ describe('SubscriptionCard', () => {
     expect(host.querySelector('[data-testid="oauth-sign-out"]')).toBeNull()
   })
 
+  it('keeps the editor collapsed until the row is expanded', async () => {
+    await render(async () => connected)
+    expect(toggle().getAttribute('aria-expanded')).toBe('false')
+    expect(host.textContent).toContain('kimi@example.com')
+    expect(editorOpen()).toBe(false)
+    await expand()
+    expect(toggle().getAttribute('aria-expanded')).toBe('true')
+    expect(editorOpen()).toBe(true)
+    await act(async () => { toggle().click() })
+    expect(toggle().getAttribute('aria-expanded')).toBe('false')
+    expect(editorOpen()).toBe(false)
+  })
+
+  it('closes the editor on Cancel and writes nothing', async () => {
+    const rpc = vi.fn(async (method: string) => method === 'getState' ? connected : null)
+    await render(rpc)
+    await expand()
+    await act(async () => { (host.querySelector('summary') as HTMLElement).click() })
+    await act(async () => { (host.querySelector('[data-testid="oauth-add-model"]') as HTMLButtonElement).click() })
+    const id = host.querySelector('[aria-label="Model ID 1"]') as HTMLInputElement
+    await act(async () => { id.value = 'draft'; id.dispatchEvent(new Event('input', { bubbles: true })) })
+    const cancel = Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Cancel')!
+    await act(async () => { cancel.click() })
+    expect(editorOpen()).toBe(false)
+    expect(rpc.mock.calls.map(([method]) => method)).not.toContain('addProvider')
+    // Reopening starts from the stored catalog, not the discarded draft.
+    await expand()
+    await act(async () => { (host.querySelector('summary') as HTMLElement).click() })
+    expect((host.querySelector('[aria-label="Model ID 1"]') as HTMLInputElement).value).toBe('first')
+  })
+
+  it('closes the editor on Apply and announces the save on the row', async () => {
+    const rpc = vi.fn(async (method: string) => {
+      if (method === 'getState' || method === 'addProvider' || method === 'restoreModels') return connected
+      return null
+    })
+    await render(rpc)
+    await expand()
+    await act(async () => { (host.querySelector('[data-testid="oauth-apply"]') as HTMLButtonElement).click() })
+    expect(editorOpen()).toBe(false)
+    expect(host.querySelector('[role="status"]')?.textContent).toContain('Saved Kimi Code.')
+  })
+
   it('edits a listed family and fetches models into the picker', async () => {
     const rpc = vi.fn(async (method: string) => {
       if (method === 'getState') return connected
@@ -108,6 +159,7 @@ describe('SubscriptionCard', () => {
       return null
     })
     await render(rpc)
+    await expand()
     const summary = host.querySelector('summary') as HTMLElement
     await act(async () => { summary.click() })
     const fetch = host.querySelector('[data-testid="oauth-fetch-models"]') as HTMLButtonElement
@@ -121,6 +173,8 @@ describe('SubscriptionCard', () => {
   it('offers sign-in for a declared family that has no grant yet', async () => {
     await render(async () => disconnected)
     expect(host.textContent).toContain('Not signed in yet')
+    expect(host.querySelector('[data-testid="oauth-sign-in"]')).toBeNull()
+    await expand()
     expect(host.querySelector('[data-testid="oauth-sign-in"]')).not.toBeNull()
     expect(host.querySelector('[data-testid="oauth-sign-out"]')).toBeNull()
   })
@@ -153,6 +207,7 @@ describe('SubscriptionCard with a late-arriving row', () => {
     })
     await render(rpc)
     await act(async () => { resolveState(overriddenState) })
+    await expand()
     await act(async () => {
       (host.querySelector('summary') as HTMLElement).click()
     })

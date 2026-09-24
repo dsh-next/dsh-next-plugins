@@ -43,7 +43,7 @@
     "@dsh-next/dsh-next-skills": "^0.3.0"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/cordis": "^4.0.4",
     "@deepseek-ai/dsh-agent": "^0.1.2-rc.1",
     "@deepseek-ai/dsh-client-locale": "^0.1.2-rc.1",
     "@deepseek-ai/dsh-client-runtime": "^0.1.1-rc.2",
@@ -56,17 +56,17 @@
     "@deepseek-ai/dsh-timeout": "^0.1.2-rc.1",
     "@deepseek-ai/dsh-tools": "^0.1.2-rc.1",
     "@deepseek-ai/dsh-workspace": "^0.1.2-rc.1",
-    "@deepseek-ai/schemastery": "^3.18.3",
-    "@types/node": "^22.10.0",
-    "@types/react": "~18.3.1",
-    "@types/react-dom": "^18.3.5",
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "@types/node": "^22.20.4",
+    "@types/react": "~18.3.31",
+    "@types/react-dom": "^18.3.7",
     "jsdom": "29.1.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "tsdown": "^0.22.2",
-    "typescript": "~5.7.2",
+    "tsdown": "^0.23.0",
+    "typescript": "~5.9.3",
     "vite-tsconfig-paths": "^6.1.1",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.11"
   },
   "files": [
     "lib",

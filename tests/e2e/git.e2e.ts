@@ -128,10 +128,14 @@ test('Git history, changes, worktrees and conflict recovery reflect real reposit
     await page.getByRole('menuitem', { name: 'Branches', exact: true }).hover()
     await expect(page.getByRole('menuitem', { name: 'Create branch', exact: true })).toBeVisible()
     const submenu = page.getByRole('menuitem', { name: 'Create branch', exact: true }).locator('..')
-    const bounds = await submenu.boundingBox()
-    expect(bounds).not.toBeNull()
-    expect(bounds!.x).toBeGreaterThanOrEqual(0)
-    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width)
+    // The nested panel is positioned a frame after it becomes visible, so read the
+    // settled box — the same wait the command-sample loop below relies on.
+    await expect.poll(async () => {
+      const bounds = await submenu.boundingBox()
+      return bounds !== null
+        && bounds.x >= 0
+        && bounds.x + bounds.width <= page.viewportSize()!.width
+    }, { timeout: 5_000 }).toBe(true)
     await page.screenshot({ path: test.info().outputPath('repository-menu.png') })
     await page.emulateMedia({ colorScheme: 'dark' })
     await page.screenshot({ path: test.info().outputPath('repository-menu-dark.png') })

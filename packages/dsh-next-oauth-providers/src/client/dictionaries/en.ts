@@ -6,9 +6,6 @@
 export const NS = 'oauth-providers'
 
 export const en = {
-  'title': 'Subscriptions',
-  'intro': 'Sign in with a coding subscription. Connected models appear in the selector.',
-
   'family.kimi': 'Kimi Code',
   'family.grok': 'Grok',
   'family.codex': 'ChatGPT',
@@ -22,7 +19,7 @@ export const en = {
   'deleteDescription': 'Deleting {provider} removes its sign-in and the catalog stored on this page.',
   'deleteConfirm': 'Delete {provider}',
   'deleting': 'Deleting {provider}…',
-  'add': 'Add provider',
+  'add': 'Add OAuth model provider',
   'provider': 'Provider',
   'close': 'Close',
   'cancel': 'Cancel',

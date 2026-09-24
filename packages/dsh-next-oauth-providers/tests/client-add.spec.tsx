@@ -67,7 +67,7 @@ async function render(rpc: (method: string, args?: unknown) => Promise<unknown>)
 }
 
 describe('AddSubscription', () => {
-  it('opens the stock Add provider card and starts sign-in', async () => {
+  it('renders the add entry alone and starts sign-in', async () => {
     const rpc = vi.fn(async (method: string) => {
       if (method === 'getState') return empty
       if (method === 'startLogin') {
@@ -85,9 +85,12 @@ describe('AddSubscription', () => {
       return null
     })
     await render(rpc)
-    expect(host.querySelector('[data-testid="dsh-next-oauth-providers"]')).not.toBeNull()
-    expect(host.textContent).toContain('Subscriptions')
-    expect(host.textContent).toContain('Add provider')
+    const seat = host.querySelector('[data-testid="dsh-next-oauth-providers"]') as HTMLElement
+    expect(seat).not.toBeNull()
+    // No heading and no intro: the seat is its dashed button, so it reads as a
+    // sibling of the stock add button right above it.
+    expect(seat.querySelector('h1, h2, h3, h4, h5, h6')).toBeNull()
+    expect(seat.textContent).toBe('Add OAuth model provider')
     expect(host.textContent).not.toContain('Kimi Code')
     const add = host.querySelector('[data-testid="oauth-add-provider"]') as HTMLButtonElement
     await act(async () => { add.click() })

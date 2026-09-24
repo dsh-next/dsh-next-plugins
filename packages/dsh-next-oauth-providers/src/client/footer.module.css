@@ -1,7 +1,9 @@
 /**
  * Copied from dsh-client-ui-settings-models ModelsSection (0.1.3-alpha.2)
- * so Subscriptions uses the same chrome as Add provider / Edit / Fetch models.
- * The select chevron SVG stroke is the stock data-URI, including its hex.
+ * so the footer button uses the same chrome as the stock add button, Edit, and
+ * Fetch models. The select chevron SVG stroke is the stock data-URI, including
+ * its hex. The stock `title` rule is omitted: the footer seat renders no
+ * heading, so its dashed button sits directly under the stock add button.
  */
 
 .section {
@@ -10,14 +12,6 @@
   flex-direction: column;
   gap: 12px;
   display: flex;
-}
-
-.title {
-  color: var(--dsw-alias-label-primary);
-  margin: 0;
-  font-size: 16px;
-  font-weight: 500;
-  line-height: 24px;
 }
 
 .intro {

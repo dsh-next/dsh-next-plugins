@@ -8,8 +8,9 @@ plugin settings API this plugin used. DeepSeek Harness imports the old section
 into the active profile once, so an existing setup keeps its providers and
 sign-ins.
 
-On `0.1.7-alpha.1` the plugin works again. **Subscriptions** is now only the
-**Add provider** entry: once a subscription is signed in it becomes a row on the
-stock **Models** page, with the same status dot, Edit, card, and Delete actions
-as any other provider, instead of a second copy inside the Subscriptions
+On `0.1.7-alpha.1` the plugin works again. Its one entry point is **Add OAuth
+model provider**, a dashed button directly under the stock add button on the
+**Models** page with no heading of its own: once a subscription is signed in it
+becomes a row on that page, with the same status dot, Edit, card, and Delete
+actions as any other provider, instead of a second copy inside a Subscriptions
 section. The minimum supported Harness is now `0.1.7-alpha.1`.

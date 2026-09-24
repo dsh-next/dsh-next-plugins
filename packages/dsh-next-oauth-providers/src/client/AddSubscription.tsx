@@ -2,6 +2,10 @@
  * Models footer: the one entry point for adding a subscription. Configured
  * families live on their native provider rows, so this seat renders only the
  * Add control (and says so once every family is configured).
+ *
+ * The seat draws no heading or intro on purpose: it sits directly below the
+ * stock add buttons, and the label carries the meaning (the section keeps its
+ * accessible name through `a11y.section`).
  */
 import * as React from 'react'
 import { IconPlusOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -66,8 +70,6 @@ export function AddSubscription(props: AddSubscriptionProps): React.ReactElement
 
   return (
     <section className={styles.section} data-testid="dsh-next-oauth-providers" aria-label={t('a11y.section')}>
-      <h3 className={styles.title}>{t('title')}</h3>
-      <p className={styles.intro}>{t('intro')}</p>
       {error === undefined ? null : <p className={styles.error} role="alert">{error}</p>}
       {savedFamily === undefined ? null : <p role="status">{t('savedProvider', { provider: t(`family.${savedFamily.family}` as Parameters<Translate>[0]) })}</p>}
       <div className={styles.addBlock}>

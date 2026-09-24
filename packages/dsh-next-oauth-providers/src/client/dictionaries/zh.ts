@@ -4,9 +4,6 @@
 import type { MessageKey } from './en.ts'
 
 export const zh: Record<MessageKey, string> = {
-  'title': '订阅',
-  'intro': '使用编程订阅登录。已连接的模型会出现在选择器中。',
-
   'family.kimi': 'Kimi Code',
   'family.grok': 'Grok',
   'family.codex': 'ChatGPT',
@@ -20,7 +17,7 @@ export const zh: Record<MessageKey, string> = {
   'deleteDescription': '删除 {provider} 会移除其登录和本页保存的模型目录。',
   'deleteConfirm': '删除 {provider}',
   'deleting': '正在删除 {provider}…',
-  'add': '添加提供方',
+  'add': '添加 OAuth 模型提供商',
   'provider': '提供方',
   'close': '关闭',
   'cancel': '取消',

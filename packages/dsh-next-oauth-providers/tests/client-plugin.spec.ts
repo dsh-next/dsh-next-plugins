@@ -40,11 +40,11 @@ describe('browser plugin SDK contract', () => {
       effect: (setup: () => () => void) => { effects.push(setup()) },
     } as unknown as Context
     apply(ctx)
-    expect(locale.bind(NS)('title')).toBe(en.title)
+    expect(locale.bind(NS)('add')).toBe(en.add)
     locale.setLocale('zh')
-    expect(locale.bind(NS)('title')).toBe(zh.title)
+    expect(locale.bind(NS)('add')).toBe(zh.add)
     expect(components).toHaveLength(2)
-    expect(components[0]!().props.t?.('title')).toBe(zh.title)
+    expect(components[0]!().props.t?.('add')).toBe(zh.add)
     expect(slots.inject).toHaveBeenCalledWith('settings.models.footer', expect.any(Function))
     expect(slots.inject).toHaveBeenCalledWith('settings.models.provider-card', expect.any(Function))
     expect(slots.register).toHaveBeenCalledWith(
@@ -60,9 +60,9 @@ describe('browser plugin SDK contract', () => {
       expect.any(Function),
     )
     for (const dispose of effects) dispose()
-    expect(locale.bind(NS)('title')).toBe('title')
+    expect(locale.bind(NS)('add')).toBe('add')
     apply(ctx)
-    expect(locale.bind(NS)('title')).toBe(zh.title)
+    expect(locale.bind(NS)('add')).toBe(zh.add)
     for (const dispose of effects) dispose()
   })
 })

@@ -47,7 +47,7 @@ describe('AliasLlmAdapter', () => {
       provider: 'kimi-coding-oauth',
       model: 'k2',
       messages: [{
-        id: 'm' as GenerateOptions['messages'][number]['id'],
+        id: 'm' as NonNullable<GenerateOptions['messages'][number]['id']>,
         role: 'assistant',
         content: [],
         source: { kind: 'model', provider: 'kimi-coding-oauth', model: 'k2' },

@@ -11,16 +11,19 @@
  * Only a spec that runs the real adapter over a real profile catches that.
  */
 import { describe, expect, it } from 'vitest'
+import type { AttachmentStore, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { FAMILIES, familyByNative, type Family } from '../src/core/catalog.ts'
 import { AliasLlmAdapter } from '../src/host/adapter.ts'
 import { denyAmbientAuthContext } from '../src/host/credentials.ts'
 import { buildProfile } from '../src/host/profiles.ts'
+import { nativeFactory } from '../src/host/providers.ts'
 import { SubscriptionsService } from '../src/host/service.ts'
 import { grant, memoryConfig, memoryStore } from './helpers/service-fixtures.ts'
 
 /** The alias adapter over a real PiAiAdapter, wired like the host loader. */
-async function connectedAdapter(family: Family): Promise<AliasLlmAdapter> {
+async function connectedAdapter(family: Family, attachments?: AttachmentStore): Promise<AliasLlmAdapter> {
   const store = memoryStore({ [family.nativeId]: grant })
   const service = new SubscriptionsService({
     store,
@@ -32,8 +35,24 @@ async function connectedAdapter(family: Family): Promise<AliasLlmAdapter> {
     profiles: () => service.profiles(),
     resolveApiKey: async () => undefined,
     auth: { credentials: store, authContext: denyAmbientAuthContext() },
+    ...attachments === undefined ? {} : { resolveAttachments: () => attachments },
   }))
 }
+
+async function collect(stream: AsyncIterable<unknown>): Promise<unknown[]> {
+  const chunks: unknown[] = []
+  for await (const chunk of stream) chunks.push(chunk)
+  return chunks
+}
+
+/** A plausible durable image reference; the store double never reads it. */
+const imageRef = {
+  attachmentId: `sha256:${'0'.repeat(64)}`,
+  mediaType: 'image/png',
+  bytes: 4096,
+  width: 2880,
+  height: 1800,
+} as unknown as ImageAttachmentRef
 
 describe('resolved profile runtime shape', () => {
   it.each(FAMILIES)('carries every field the adapter reads for $family', (family) => {
@@ -104,5 +123,42 @@ describe('real adapter over resolved profiles', () => {
     expect(adapter.providerInfo(family.alias).name).toBe('ChatGPT')
     await expect(adapter.listModels('xai-oauth')).rejects.toMatchObject({ code: 'NO_ADAPTER' })
     await expect(adapter.resolveModel('xai-oauth', 'grok-4')).rejects.toMatchObject({ code: 'NO_ADAPTER' })
+  })
+})
+
+describe('request image preparation', () => {
+  /**
+   * DSH 0.1.7's attachment service derives one request image from a computed
+   * `{width, height, maxBytes}` target. The 0.1.5 SDK this package used to
+   * compile against handed `readImageRequest` the route pixel policy instead
+   * (`{maxPixels, maxBytes}`), so running that adapter against a 0.1.7 service
+   * made the driver read `target.width` off an absent field and fail every
+   * image turn with "Image request width must be a positive integer" — while
+   * text turns on the same route kept working.
+   */
+  it.each(FAMILIES)('hands $family image work a computed target, never the pixel policy', async (family) => {
+    const seen: unknown[] = []
+    const stop = new Error('image preparation reached')
+    const attachments = {
+      readImageRequest: async (_ref: unknown, target: unknown) => {
+        seen.push(target)
+        throw stop
+      },
+    } as unknown as AttachmentStore
+    const adapter = await connectedAdapter(family, attachments)
+    const imageModel = nativeFactory(family.nativeId).getModels().find((model) => model.input.includes('image'))
+    if (imageModel === undefined) return
+    const messages: GenerateOptions['messages'] = [{
+      id: 'image-message' as Message['id'],
+      role: 'user',
+      content: [{ type: 'image', attachment: imageRef }],
+      source: { kind: 'user' },
+    }]
+    await expect(collect(adapter.stream({ provider: family.alias, model: imageModel.id, messages }))).rejects.toThrow()
+    expect(seen).toHaveLength(1)
+    const target = seen[0] as Record<'width' | 'height' | 'maxBytes', unknown>
+    for (const key of ['width', 'height', 'maxBytes'] as const) {
+      expect({ [key]: Number.isSafeInteger(target[key]) && (target[key] as number) > 0 }).toEqual({ [key]: true })
+    }
   })
 })

@@ -98,7 +98,7 @@ describe('alias adapter delegation contracts', () => {
     const options: GenerateOptions = {
       provider: 'xai-oauth', model: 'model', signal, maxTokens: 64,
       messages: [{
-        id: 'message' as GenerateOptions['messages'][number]['id'], role: 'assistant', content: [],
+        id: 'message' as NonNullable<GenerateOptions['messages'][number]['id']>, role: 'assistant', content: [],
         source: { kind: 'model', provider: 'xai-oauth', model: 'model' },
       }],
     }

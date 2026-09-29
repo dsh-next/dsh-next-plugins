@@ -926,7 +926,7 @@ describe('lifecycle', () => {
     expect(panel.isDisposed).toBe(true)
   })
 
-  it('drops a late reply after dispose', async () => {
+  it('drops a late reply without binding listeners after disposal', async () => {
     let release: (() => void) | undefined
     const { store: panel } = store({
       getState: () =>
@@ -934,11 +934,16 @@ describe('lifecycle', () => {
           release = () => resolve({ state: state(), notice: null })
         }),
     })
-    const running = panel.start()
+    const dom = { addEventListener: vi.fn(), removeEventListener: vi.fn() }
+    const running = panel.start(dom)
     panel.dispose()
     release?.()
     await running
     expect(panel.getSnapshot().phase).toBe('loading')
+    expect(dom.addEventListener).not.toHaveBeenCalled()
+    expect(dom.removeEventListener).not.toHaveBeenCalled()
+    panel.bindDom(dom)
+    expect(dom.addEventListener).not.toHaveBeenCalled()
   })
 
   it('reports errors to the injected reporter', async () => {

@@ -243,7 +243,7 @@ export class PanelStore {
     removeEventListener(type: string, listener: () => void): void
   }): Promise<void> {
     await this.scheduler.request('open', true)
-    if (dom !== undefined) this.bindDom(dom)
+    if (!this.disposed && dom !== undefined) this.bindDom(dom)
   }
 
   /** Wire focus/visibility triggers; returns the disposer. */
@@ -251,6 +251,8 @@ export class PanelStore {
     addEventListener(type: string, listener: () => void): void
     removeEventListener(type: string, listener: () => void): void
   }): () => void {
+    if (this.disposed) return () => {}
+    this.domDisposer?.()
     const onFocus = (): void => this.scheduler.trigger('focus')
     const onVisibility = (): void => {
       if (typeof document === 'undefined' || !document.hidden) this.scheduler.trigger('visible')

@@ -1,5 +1,6 @@
 {
   "name": "@dsh-next/dsh-next-skills",
+  "icon": "./assets/icon.svg",
   "description": "DeepSeek Harness plugin: manage agent skills - browse provider catalogs, install globally, and manage updates from shared settings.",
   "version": "0.3.0",
   "type": "module",
@@ -15,8 +16,8 @@
       "default": "./lib/client.js"
     },
     "./src/*": "./src/*",
-    "./package.json": "./package.json",
-    "./locale/*.json": "./locale/*.json"
+    "./locale/*.json": "./locale/*.json",
+    "./package.json": "./package.json"
   },
   "dsh": {
     "engines": {
@@ -82,6 +83,5 @@
     "directory": "packages/dsh-next-skills"
   },
   "license": "MIT",
-  "author": "Rok Grabnar <sitegroove>",
-  "icon": "./assets/icon.svg"
+  "author": "Rok Grabnar <sitegroove>"
 }

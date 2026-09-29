@@ -1,89 +1,41 @@
-# @dsh-next/dsh-next-skills
+# DeepSeek Harness 技能
 
 [English](README.md) | 中文
 
-一个 DeepSeek Harness 插件，让你从 Web GUI 浏览 GitHub 技能目录，并安装、更新和移除全局 agent 技能。
-
-## 使用方法
-
-1. 按下方说明安装插件，打开 DSH Web GUI，进入设置 → `Skills`。
-2. 等待默认提供方同步，或打开 `Providers`，添加公开 GitHub 仓库，例如 `owner/repo` 或 `https://github.com/owner/repo`。
-3. 在 `Skills` 中搜索技能，点击名称阅读完整的 `SKILL.md`。使用提供方筛选或 `Installed only` 缩小列表范围。
-4. 点击 `Install`。文件直接写入全局 agents 技能根目录（通常为 `~/.agents/skills/<name>/`），无需选择作用域。DSH 原生发现这些技能，供各工作区使用，但仍遵循 frontmatter 调用标志。
-5. 在 `Providers` 中使用 `Refresh all` 检查变更，再点击已安装副本上的 `Update` 应用其提供方版本。
-
-## 功能
-
-### 浏览和管理全局副本
-
-`Skills` 标签页汇集全局 DSH 和 agents 根目录（通常为 `~/.dsh/skills` 和
-`~/.agents/skills`）中的已安装技能，以及提供方尚未安装的技能。搜索优先显示
-名称匹配项；`Show more` 每次再显示 30 张卡片。每个已安装副本都有独立卡片
-和来源标签，因此同名副本仍可区分。此处不列出或管理项目技能。
-
-![包含技能卡片和提供方控件的 Skills 设置页面](media/skills.webp)
-
-### 打开技能文件夹
-
-点击已安装技能的名称，再使用弹窗标题旁的应用图标打开该副本的文件夹。
-箭头会列出 DSH 检测到的受支持应用，例如 Finder 或 VS Code。所选应用会在
-此浏览器的技能弹窗中记住；单文件 Markdown 技能会打开其所在文件夹。
-
-应用列表加载期间、没有受支持应用、DSH 原生打开功能不可用，或预览尚未安装的
-目录技能时，该控件会隐藏。打开失败不会关闭弹窗，你可以重试。应用在运行 DSH
-的机器上打开；远程部署时，它可能不是浏览器所在的机器。
-
-![技能详情及原生风格的文件夹打开菜单](media/skills-folder.webp)
-
-### 选择提供方并主动更新
-
-`Update` 只使用副本记录的提供方；其他提供方的同名技能不会被视为其更新。
-`Providers` 显示其他来源及其内容是否与你的副本一致。切换提供方需要确认覆盖。
-更新和切换提供方都会就地重写副本，并永久移除提供方版本中不存在的文件，包括
-本地新增文件；这些文件不会进入回收站。选择 `Local (hand-managed)` 可在不
-改动文件的情况下解绑，停止提供方更新。
-
-### 刷新目录而不替换已安装副本
-
-提供方可以是任意包含 `SKILL.md` 目录的公开 GitHub 仓库，目录深度不限；
-`.git`、`.github` 和 `node_modules` 会被跳过。首次启动会添加默认提供方，
-并在启动后不久同步；移除提供方会持久生效。`Refresh all` 逐个同步提供方，
-显示进度和各提供方的错误，遇到失败仍会继续。`$DSH_HOME/skills-market/`
-下的目录缓存不会自行激活技能。刷新只检测变更，不覆盖现有副本；缺失的已记录
-安装会按下文所述恢复。
-
-### 恢复删除和缺失的安装
-
-`Delete` 将全局副本移入其根目录的 `.trash`，便于手动恢复，手工管理的副本
-也适用。删除某个名称的最后一个副本时，也会删除其安装记录。提供方和
-`installations` 来源记录属于本插件自身的配置，DeepSeek Harness 将其保存为
-当前 profile `cordis.patch.yml` 中 `dsh-next-skills` 行。启动时的提供方同步
-和每次 `Refresh all` 之后，
-协调恢复会从可用的提供方缓存中还原全局 agents 根目录下缺失的安装目录，不会
-覆盖现有目录。因此，共享该配置行可在另一台机器同步后重建已记录的提供方
-安装。提供方同步失败后可用 `Refresh all` 重试；手动删除文件却保留安装记录，
-可能导致文件被重新安装。
-
-### 由所属 Claude 插件管理其技能
-
-通过 `Claude Plugins` 安装的技能仍归该插件所有：请在那里更新或卸载，而不是
-在这里切换提供方或删除。技能文件全局安装，其可用性不受 Claude 插件作用域
-限制，但仍遵循 frontmatter 调用标志。包含技能的工作区作用域插件会收到不阻止
-操作的警告；除此之外，Claude 插件和 MCP 的作用域行为保持不变。
+无需离开 Harness，即可从 GitHub 浏览并安装可重复使用的 agent 指令，也就是技能。
 
 ## 安装
+
+需要 DeepSeek Harness `0.1.7-alpha.1` 或更新版本。
 
 ```sh
 dsh plugin --profile <name> add @dsh-next/dsh-next-skills
 ```
 
-`<name>` 是你的 DSH profile，例如 `web`。
+将 `<name>` 替换为你的 DSH 配置档案，例如 `web`，并打开该配置档案的 Web GUI。
+
+## 快速开始
+
+1. 打开 `Settings` → `Skills`，等待默认目录加载。
+2. 搜索技能。安装前点击名称阅读指令，并选择你信任的来源。
+3. 点击 `Install`。技能将供各工作区使用，但仍遵循自身的调用设置，而非只在当前项目中生效。
+4. 如需检查更新，打开 `Providers` 并选择 `Refresh all`。这只检查目录，不替换现有副本。**选择 `Update` 前请备份本地修改：更新可能永久移除这些内容。**
+
+## 你可以做什么
+
+- **查找技能：** 搜索目录，按提供方筛选，或使用 `Installed only` 只看已安装技能。
+- **添加来源：** 打开 `Providers` 并添加公开 GitHub 仓库，例如 `owner/repo`。
+- **管理已安装副本：** 更新技能、切换来源，或选择 `Local (hand-managed)` 停止提供方更新。
+- **阅读和打开文件：** 查看技能指令，并在支持的应用可用时打开其文件夹。
+
+![包含可搜索技能卡片和提供方控件的 Skills 设置](<media/skills.webp>)
 
 ## 使用须知
 
-- 需要 DeepSeek Harness `>=0.1.7-alpha.1`。技能的可见性和优先级由 DSH 原生文件系统发现处理；本插件不会覆盖发现的技能或其调用标志。技能 frontmatter 中的 `disable-model-invocation` 和 `user-invocable` 仍然有效。
-- 升级会保留现有技能文件、提供方和安装记录。旧版 `dsh-next-skills.scopes` 设置会被忽略，并在下次保存插件设置时移除：此前停用或限制在部分工作区的全局技能将全局可用，但仍遵循 frontmatter 调用标志。不再提供逐技能的作用域或启用/停用控件。本 alpha 版本直接切换到新接口：安装请求不再解析或校验作用域字段，所有安装均为全局安装。
-- 如果使用 `@dsh-next/dsh-next-cc-plugins`，请同时升级两个插件。新的 Claude 桥接与仍支持作用域的旧版 Skills 插件搭配时，可能保留旧的技能限制；更改 Claude 插件作用域已不再管理这些限制。
-- 不会自动移动或删除任何项目副本。项目中现有的 `.agents/skills/` 和 `.dsh/skills/` 副本仍由项目手工管理，并遵循 DSH 原生发现规则。
-- 如果 GitHub 元数据请求触及速率限制，请在 DSH 进程环境中设置 `DSH_GITHUB_TOKEN` 或 `GITHUB_TOKEN`，然后再次刷新。
-- 开发和测试请参阅 [CONTRIBUTING.md](https://github.com/dsh-next/dsh-next-plugins/blob/main/CONTRIBUTING.md)。
+- 安装为全局安装，通常位于 `~/.agents/skills`。此页面不管理项目技能，也不提供按工作区启用的开关。
+- 从旧版作用域控件升级后，之前停用或受限的全局技能将全局可用。技能自身的调用设置仍然有效。
+- 更新和切换来源会覆盖副本，也会移除本地新增文件，且无法从回收站恢复。`Delete` 则会把副本移到其技能根目录下的 `.trash` 文件夹。
+- 手动删除已安装文件后，刷新可能重新安装它们。请使用界面的 `Delete` 移除安装记录。
+- 打开文件夹的应用运行在 Harness 所在机器上，可能不是浏览器所在的机器。
+
+[来源、更新与恢复](<https://github.com/dsh-next/dsh-next-plugins/blob/main/docs/skills.md>) · [获取帮助](<https://github.com/dsh-next/dsh-next-plugins/issues>) · [参与贡献](<https://github.com/dsh-next/dsh-next-plugins/blob/main/CONTRIBUTING.md>)

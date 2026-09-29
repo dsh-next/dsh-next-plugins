@@ -19,13 +19,13 @@ export interface ChatGptCapacity {
 /** Official API sizes keyed by pi-ai / Codex model id. */
 export const CHATGPT_OAUTH_CAPACITIES: Readonly<Record<string, ChatGptCapacity>> = {
   'gpt-5.3-codex-spark': { contextWindow: 128_000, maxTokens: 128_000 },
+  'gpt-5.4': { contextWindow: 1_050_000, maxTokens: 128_000 },
+  'gpt-5.4-mini': { contextWindow: 400_000, maxTokens: 128_000 },
   'gpt-5.5': { contextWindow: 1_050_000, maxTokens: 128_000 },
   'gpt-5.6-luna': { contextWindow: 1_050_000, maxTokens: 128_000 },
   'gpt-5.6-sol': { contextWindow: 1_050_000, maxTokens: 128_000 },
   'gpt-5.6-terra': { contextWindow: 1_050_000, maxTokens: 128_000 },
   'gpt-6-astra': { contextWindow: 1_050_000, maxTokens: 128_000 },
-  'gpt-6-luna': { contextWindow: 1_050_000, maxTokens: 128_000 },
-  'gpt-6-sol': { contextWindow: 1_050_000, maxTokens: 128_000 },
 }
 
 export function chatgptOauthCapacity(modelId: string): ChatGptCapacity {

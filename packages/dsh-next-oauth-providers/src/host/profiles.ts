@@ -26,13 +26,7 @@ export function buildProfile(family: Family, stored: ProviderProfile): ResolvedP
   return {
     provider: family.nativeId,
     displayName: stored.displayName ?? family.displayName,
-    // The adapter types `ResolvedPiAiProviderProfile.piProvider` against its own
-    // pi-ai range (`^0.85.1`), while this plugin pins 0.87.1 — so the two
-    // `Provider` types are nominally distinct even though nothing the adapter
-    // reads changed (0.87.1 only widens a model's optional `compat` union with
-    // `MistralConversationsCompat`, which none of these four providers emits).
-    // The handoff is structural; the runtime adapter resolves 0.87.1 too.
-    piProvider: piProvider as unknown as ResolvedPiAiProviderProfile['piProvider'],
+    piProvider,
     streamIdleTimeoutMs: STREAM_IDLE_TIMEOUT_MS,
     maxRequestImageBytes: MAX_REQUEST_IMAGE_BYTES,
     requestImagePixelBudget: REQUEST_IMAGE_PIXEL_BUDGET,

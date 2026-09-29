@@ -4,8 +4,8 @@ import { applyModelCatalog, nativeFactory } from '../src/host/providers.ts'
 
 describe('chatgptOauthCapacity', () => {
   it('uses official API sizes for current Codex ids', () => {
-    expect(chatgptOauthCapacity('gpt-6-sol')).toEqual({ contextWindow: 1_050_000, maxTokens: 128_000 })
-    expect(chatgptOauthCapacity('gpt-6-luna')).toEqual({ contextWindow: 1_050_000, maxTokens: 128_000 })
+    expect(chatgptOauthCapacity('gpt-5.4')).toEqual({ contextWindow: 1_050_000, maxTokens: 128_000 })
+    expect(chatgptOauthCapacity('gpt-5.4-mini')).toEqual({ contextWindow: 400_000, maxTokens: 128_000 })
     expect(chatgptOauthCapacity('gpt-5.6-luna')).toEqual({ contextWindow: 1_050_000, maxTokens: 128_000 })
     expect(chatgptOauthCapacity('gpt-5.3-codex-spark')).toEqual({ contextWindow: 128_000, maxTokens: 128_000 })
   })

@@ -1,8 +1,14 @@
 # ChatGPT OAuth models follow the plugin's own pi-ai pin
 
 - date: 2026-09-24
-- status: implemented
+- status: archived
+- superseded-by: 2026-09-24-oauth-providers-pi-ai-revert-0851
 - scope: packages/dsh-next-oauth-providers
+
+> Superseded: tool-less Codex turns correlated with the unsupported 0.87.1
+> override. The pin returned to 0.85.1 as a rollback; the precise wire-level
+> cause and successful live recovery remain unverified. See the revert note
+> for the session evidence and its limitations.
 
 ## Symptom
 

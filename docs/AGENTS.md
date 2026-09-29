@@ -26,37 +26,73 @@ A package README is a first-run guide for someone who is not a contributor
 and is not a git expert. Local development belongs in
 [CONTRIBUTING.md](../CONTRIBUTING.md), not in the package README.
 
-Reference implementation: `packages/dsh-next-skills/README.md`.
-
 ### Audience and tone
 
-- Lead with what the plugin does and what to click. Internals (`merge-tree`,
-  SHA-256, sandbox knobs, architecture) stay in `docs/` or idea notes.
-- On-screen UI strings stay in their shipped English form inside inline code
-  (`Merge…`, `Resolve in this session`).
-- Write so a first-time DeepSeek Harness user can finish the golden path from
-  the README alone.
+- Write for someone who uses Harness but does not know the plugin or its
+  implementation. Explain necessary terms at first use: a worktree is a separate
+  working folder; staging means choosing changes for a commit.
+- Lead with the user's benefit, not the architecture. Use direct verbs such as
+  "Open", "Choose", and "Save". Prefer "you" to "we" and avoid "simply", "just",
+  promotional claims, and promises that a tool cannot guarantee.
+- Keep sentences short and give each paragraph or bullet one main idea. A
+  numbered step should be an action, not a paragraph of unrelated options.
+- Keep on-screen labels in their shipped English form inside inline code,
+  including in Chinese READMEs (`Rewind`, `Save`). Do not invent UI labels.
+- Use bullets for independent features or cautions and numbered lists only when
+  order matters. Do not turn a long paragraph into an equally long bullet.
+- Aim for roughly 200–400 English words; a narrow utility may need fewer.
+  This is a local editing target, not a hard limit or an external standard.
+  Never omit setup, cost, security, or data-loss warnings to meet it. Chinese
+  mirrors the meaning and structure, not an English word count.
 
 ### Shape
 
-1. One-sentence pitch (this is a DeepSeek Harness plugin that …).
-2. How to use it (numbered steps).
-3. Features, each a short paragraph. UI plugins include screenshots here.
-4. Install.
-5. A short "Good to know" list (version, incompatibilities, where
-   contributors go).
+Keep the following order, with sentence-case headings:
 
-Do not ship a Development `pnpm build` / `pnpm test` block. Point
-contributors at [CONTRIBUTING.md](../CONTRIBUTING.md) with a GitHub blob
-URL so the link works on npm as well as GitHub (see `docs/i18n.md`).
+1. **Title and one-sentence pitch.** Name the plugin in plain language and say
+   what it helps you do. Keep the required language switcher below the title.
+2. **Install.** State prerequisites and release availability, show one npm
+   installation command, and explain the profile placeholder. Do not make
+   readers scroll past a feature catalog to get started.
+3. **Quick start.** Give 3–5 short steps for one useful task, ending with the
+   visible result. A passive utility may need fewer. Put a warning before the
+   action that could destroy work, send private data, or incur charges.
+4. **What you can do.** Use 3–5 short, benefit-led bullets, not an inventory of
+   every control. Include one useful screenshot (two if they explain different
+   tasks). Keep existing extra screenshots in the detailed guide rather than
+   deleting the assets. A plugin with no UI needs no invented screenshot.
+5. **Good to know.** Keep essential limitations and surprising defaults visible.
+   Link to a task-focused guide, help, and contributor instructions as needed.
+
+### Keep depth out of the first-run path
+
+- Move configuration schemas, option tables, recovery recipes, protocol details,
+  and exhaustive workflows into an owning guide under `docs/`. Use descriptive
+  links such as "Worktree setup and history safety", not "click here".
+- Preserve useful facts when shortening an existing README. Move advanced
+  material rather than silently dropping it; remove repetition and obsolete
+  claims. Existing guides take precedence over creating another source of truth.
+- Do not hide essential warnings inside collapsed sections or only in a linked
+  guide. The README must still explain destructive updates, global scope,
+  provider charges, and unreleased status when applicable.
+- No development command blocks in package READMEs. Link to the repository's
+  [contributor guide](<../CONTRIBUTING.md>) instead. External-to-package links
+  use GitHub blob URLs; image paths and language switchers follow the
+  [bilingual contract](<i18n.md>).
+- A screenshot supports instructions; it never replaces them. Use descriptive
+  alt text and avoid long galleries, badge walls, and decorative images.
+
+Research and examples behind this approach are collected in the documentation
+skill's [README writing reference](<../.agents/skills/dsh-next-documentation/references/readme-writing.md>).
 
 ### Install
 
 Always the npm package name. Never `link:`, `file:`, or a checkout path —
 those belong in [CONTRIBUTING.md](../CONTRIBUTING.md) and the
 `dsh-next-local-testing` skill, not the package README. A package that is
-still `"private": true` still uses this form; first-run readers install
-from npm.
+still `"private": true` shows this form only as the future installation command,
+with a clear private/unreleased notice before it. Never imply it is available
+on npm now.
 
 ```sh
 dsh plugin --profile <name> add @dsh-next/dsh-next-<slug>

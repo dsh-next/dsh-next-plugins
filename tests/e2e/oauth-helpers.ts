@@ -1,14 +1,23 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { dismissOnboarding } from './checkpoints-helpers.ts'
 
 /** Exercise the real settings/HTTP path without starting external OAuth. */
 export async function verifyOauthProviders(page: Page): Promise<void> {
   const modelsNav = page.getByRole('button', { name: 'Models', exact: true }).first()
-  if (!(await modelsNav.isVisible().catch(() => false))) {
-    await page.getByText('Settings', { exact: true }).first().click()
+  for (let attempt = 0; attempt < 3; attempt++) {
+    // The shell can show its testing notice after the initial onboarding probe.
+    await dismissOnboarding(page)
+    if (await modelsNav.isVisible().catch(() => false)) break
+    try {
+      await page.getByRole('button', { name: 'Settings', exact: true }).first().click({ timeout: 4000 })
+    } catch {
+      if (attempt === 2) throw new Error('could not open Models settings after onboarding')
+    }
   }
   await expect(modelsNav).toBeVisible()
+  await dismissOnboarding(page)
   await modelsNav.click()
   const footer = page.getByTestId('dsh-next-oauth-providers')
   await expect(footer).toBeVisible()

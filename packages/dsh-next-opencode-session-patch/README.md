@@ -1,28 +1,33 @@
-# dsh-next-opencode-session-patch
+# OpenCode Go session fix
 
 English | [中文](README.zh.md)
 
-Stamps the `x-opencode-session` header on every request the DSH host process sends to the OpenCode Go provider (`https://opencode.ai/zen/go`), using the current DSH session id.
-
-## Why
-
-OpenCode Go rejects requests without that header (HTTP 400 `MissingSessionID`), and neither pi-ai nor the DSH llm-pi-ai adapter exposes a per-request header seam. This plugin patches the host-process `globalThis.fetch` and adds the header where needed.
-
-## How it works
-
-- The patch is effect scoped: disposing the plugin restores the original `fetch`.
-- Session attribution uses the DSH agent registry's initiator scope, so each request is stamped with the session id of the agent turn that issued it. Calls outside any agent turn share the stable fallback id `dsh`.
-- Requests to every other endpoint pass through untouched.
-- Host-only: the browser half does nothing.
+Fix the OpenCode Go `MissingSessionID` error by adding the session identifier its requests require.
 
 ## Install
+
+**Private and unreleased.** Requires DeepSeek Harness `0.1.1-rc.1` or newer. Once published, install with:
 
 ```sh
 dsh plugin --profile <name> add @dsh-next/dsh-next-opencode-session-patch
 ```
 
-`<name>` is your DSH profile (for example `web`).
+Replace `<name>` with your DSH profile, for example `web`. You still need to configure OpenCode Go in Harness; this plugin does not add an account or model.
+
+## Quick start
+
+1. Open Harness with the profile containing the plugin and select your configured OpenCode Go model.
+2. Send a message. The plugin adds the required session header automatically; requests should no longer fail because the header is missing.
+
+## What it does
+
+- **Adds session information:** includes the current session ID in requests to `https://opencode.ai/zen/go`.
+- **Leaves other providers alone:** requests to other endpoints are unchanged.
+- **Works in the background:** there is no settings page or extra button.
 
 ## Good to know
 
-- Contributors: see [CONTRIBUTING.md](https://github.com/dsh-next/dsh-next-plugins/blob/main/CONTRIBUTING.md).
+- This addresses missing session IDs, not authentication, billing, or other provider errors.
+- It patches network requests in the Harness host process, not the browser. Requests outside an agent turn use the fallback ID `dsh`.
+
+[Technical details](<https://github.com/dsh-next/dsh-next-plugins/blob/main/docs/opencode-session-patch.md>) · [Get help](<https://github.com/dsh-next/dsh-next-plugins/issues>) · [Contributing](<https://github.com/dsh-next/dsh-next-plugins/blob/main/CONTRIBUTING.md>)

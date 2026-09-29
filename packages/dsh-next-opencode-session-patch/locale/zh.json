@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "OpenCode 会话补丁",
+    "description": "为 OpenCode Go 请求附加当前会话 ID。"
+  }
+}

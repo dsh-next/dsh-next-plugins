@@ -16,7 +16,8 @@
       "default": "./lib/client.js"
     },
     "./src/*": "./src/*",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
   },
   "dsh": {
     "engines": {
@@ -60,6 +61,8 @@
     "vitest": "^4.1.11"
   },
   "files": [
+    "locale",
+    "assets",
     "lib",
     "cordis.patch.yml",
     "README.md"
@@ -70,5 +73,6 @@
     "type": "git",
     "url": "git+https://github.com/dsh-next/dsh-next-plugins.git",
     "directory": "packages/dsh-next-opencode-session-patch"
-  }
+  },
+  "icon": "./assets/icon.svg"
 }

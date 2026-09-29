@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "OpenCode session patch",
+    "description": "Attach the current session ID to OpenCode Go requests."
+  }
+}

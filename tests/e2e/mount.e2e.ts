@@ -1,5 +1,7 @@
 /** Packed-family composition and short UI mounts only; mutations live in named plugin suites. */
 import { type Page } from '@playwright/test'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { test, expect, BASE_URL, pluginIds } from './browser-fixture.ts'
 import { bareId, requireCheckpointsPanel, requirePluginMarkers } from '../../scripts/e2e-guards.mjs'
 import { dismissOnboarding, closeDialogs, openWorkspaceSession, unblank } from './checkpoints-helpers.ts'
@@ -57,6 +59,35 @@ test('plugin family composes every client bundle without crash markers', async (
     return (boot?.entries ?? []).map(entry => entry.id).filter((id): id is string => id !== undefined)
   })
   for (const pkg of pluginIds) expect(entryIds, `${pkg} client bundle should be in the boot graph`).toContain(pkg)
+})
+
+test('installed plugins show localized names and decoded package artwork', async ({ page }, testInfo) => {
+  test.setTimeout(45_000)
+  await page.setViewportSize({ width: 1440, height: 1400 })
+  await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' })
+  const plugins = page.getByRole('navigation', { name: 'Global panels' })
+    .getByRole('button', { name: 'Plugins', exact: true })
+  await expect(plugins).toBeVisible()
+  await expect(async () => {
+    await dismissOnboarding(page)
+    await closeDialogs(page)
+    await plugins.click({ timeout: 2000 })
+    await expect(page.locator('[data-plugin-package]').first()).toBeVisible()
+  }).toPass({ timeout: 20_000 })
+  for (const pkg of pluginIds) {
+    const directory = bareId(pkg)
+    const { meta } = JSON.parse(readFileSync(resolve(__dirname, '../../packages', directory, 'locale/en.json'), 'utf8'))
+    const card = page.locator(`[data-plugin-package="${pkg}"]`)
+    await expect(card.getByRole('button', { name: `View ${meta.title}`, exact: true })).toBeVisible()
+    await expect(card).toContainText(meta.description)
+    const image = card.locator('img')
+    await expect(image).toHaveAttribute('src', /^data:image\/svg\+xml;base64,/)
+    await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.complete && element.naturalWidth > 0)).toBe(true)
+  }
+  for (const theme of ['dark', 'light'] as const) {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.screenshot({ path: testInfo.outputPath(`plugin-display-metadata-${theme}.png`), fullPage: true })
+  }
 })
 
 for (const pkg of pluginIds) {

@@ -57,6 +57,15 @@ Fixtures expose canonical `DSH_E2E_WORKSPACE_A/B` paths; never hardcode machine
 paths. Registry seeding is only safe while the owned scratch runtime is stopped;
 atomic JSON replacement is not a concurrent-writer lock.
 
+For installed-card metadata changes, follow
+[Plugin display metadata](../../../docs/plugins.md#plugin-display-metadata)
+and run the packed-family smoke. Assert each package card by stable package
+identity, then its readable title/description and decoded image; generic
+fallback artwork must not count as success. Inspect light and dark screenshots.
+Wait for the shell navigation before dismissing onboarding, and handle late
+dialogs with bounded retries rather than a long blocked click. Use the actual
+accessible button name, not just its visible text.
+
 The workflow seeds first-run settings and a fake model route for editable
 keyless composers. Keep `dismissOnboarding()` defensive: failed settings can
 reveal a dialog. New runtime failures need evidence, not skipped assertions,

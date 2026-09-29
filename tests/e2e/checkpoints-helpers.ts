@@ -48,6 +48,9 @@ export async function openWorkspaceSession(page: Page, title: string): Promise<v
   }
   const row = page.locator('[role="treeitem"]').filter({ hasText: title }).first()
   await expect(row).toBeVisible({ timeout: 20_000 })
+  // The initial shell may render the internal-testing notice after the first
+  // onboarding probe. A modal would hide the row's hover-only action.
+  await dismissOnboarding(page)
   await row.hover({ force: true })
   const neu = page.getByRole('button', { name: new RegExp(`New session in ${title}`) })
   await expect(neu).toBeVisible({ timeout: 15_000 })

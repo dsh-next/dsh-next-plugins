@@ -623,7 +623,8 @@ test('Git history, changes, worktrees and conflict recovery reflect real reposit
     await expect.poll(() => gitOk(workspaceA, ['rev-parse', '-q', '--verify', 'MERGE_HEAD']), { timeout: 20_000 })
       .toBe(false)
     await page.getByRole('button', { name: 'Plugins', exact: true }).click()
-    await page.getByRole('button', { name: 'View @dsh-next/dsh-next-git', exact: true }).click()
+    await page.locator('[data-plugin-package="@dsh-next/dsh-next-git"]')
+      .getByRole('button', { name: 'View Git', exact: true }).click()
     const settings = page.locator('[data-dsh-git="settings-card"]')
     await expect(settings).toBeVisible()
     const settingsReads = await page.evaluate(async () => Promise.all(['getConfig', 'draftingModelCatalog'].map(async method => {
@@ -643,7 +644,8 @@ test('Git history, changes, worktrees and conflict recovery reflect real reposit
     const saved = await (await saveResponse).json() as { ok?: boolean; error?: unknown }
     expect(saved.ok, JSON.stringify(saved)).toBe(true)
     await page.getByRole('button', { name: 'Back to plugins', exact: true }).click()
-    await page.getByRole('button', { name: 'View @dsh-next/dsh-next-git', exact: true }).click()
+    await page.locator('[data-plugin-package="@dsh-next/dsh-next-git"]')
+      .getByRole('button', { name: 'View Git', exact: true }).click()
     await expect(instructions).toHaveValue(preference)
     await expect(settings.getByRole('combobox')).toHaveValue('')
     await page.emulateMedia({ colorScheme: 'dark' })

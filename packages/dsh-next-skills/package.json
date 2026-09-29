@@ -15,7 +15,8 @@
       "default": "./lib/client.js"
     },
     "./src/*": "./src/*",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
   },
   "dsh": {
     "engines": {
@@ -68,6 +69,8 @@
     "vitest": "^4.1.11"
   },
   "files": [
+    "locale",
+    "assets",
     "lib",
     "cordis.patch.yml",
     "README.md",
@@ -79,5 +82,6 @@
     "directory": "packages/dsh-next-skills"
   },
   "license": "MIT",
-  "author": "Rok Grabnar <sitegroove>"
+  "author": "Rok Grabnar <sitegroove>",
+  "icon": "./assets/icon.svg"
 }

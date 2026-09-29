@@ -1,5 +1,6 @@
 {
   "name": "@dsh-next/dsh-next-checkpoints",
+  "icon": "./assets/icon.svg",
   "description": "DeepSeek Harness plugin: restore a session to a known-good moment — files and model history as one checkpoint, reviewed in a Checkpoints tab.",
   "version": "0.2.1",
   "type": "module",
@@ -15,8 +16,8 @@
       "default": "./lib/client.js"
     },
     "./src/*": "./src/*",
-    "./package.json": "./package.json",
-    "./locale/*.json": "./locale/*.json"
+    "./locale/*.json": "./locale/*.json",
+    "./package.json": "./package.json"
   },
   "dsh": {
     "engines": {
@@ -75,6 +76,7 @@
     "vitest": "^4.1.11"
   },
   "files": [
+    "media",
     "locale",
     "assets",
     "lib",
@@ -88,6 +90,5 @@
     "type": "git",
     "url": "git+https://github.com/dsh-next/dsh-next-plugins.git",
     "directory": "packages/dsh-next-checkpoints"
-  },
-  "icon": "./assets/icon.svg"
+  }
 }

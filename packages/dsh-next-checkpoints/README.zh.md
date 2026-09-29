@@ -1,61 +1,40 @@
-# checkpoints
+# DeepSeek Harness 检查点
 
 [English](README.md) | 中文
 
-这是一个 DeepSeek Harness 插件：把会话恢复到某个已知的好时刻，工作区文件
-和模型可见历史作为同一个检查点。在 Chat、Trajectory 旁边的 `Checkpoints` 标签
-里查看工作。单击检查点可查看累计文件 diff。单击 `Rewind` 并确认后才会恢复。
-选中一行永远不会恢复。
-
-## 怎么用
-
-1. 照常工作。会话开始时会保存一个 `Session start` 检查点，之后每一轮结束
-   再保存一个。
-2. 打开 `Checkpoints` 标签。检查点轨道在右侧；检查点按时间戳降序排列，最新的在顶部。
-3. 单击一行，查看截至该检查点的全部文件变更（相对会话基线的净差异）。
-   再单击文件可打开 GitHub 风格的 unified 预览（带语言高亮）。
-4. 在该行单击 `Rewind`。阅读确认框（之后的轮次、脏路径、HEAD 是否移动）。
-   确认后恢复。
-5. 要撤销第一轮对文件的改动，请回退 `Session start` — 回退到 `turn 1`
-   会保留那一轮的写入。回退之后，此代后面的检查点会丢掉，Chat 会打开一个
-   不含之后轮次的截断会话。原先的会话会被归档。
-
-## 功能
-
-### Checkpoints 标签
-
-检查点轨道，加上文件列表。每行显示 `Created`、`Deleted` 或 `Modified` 状态
-胶囊、GitHub 风格的 `+N`/`-N` 计数和五格条，已删除路径带删除线。`Files` 标题
-显示该检查点的合计，格式相同。一轮进行中时，最新一行用转圈替换 `Rewind`，
-文件列表和行数会实时更新。单击文件打开 GitHub 风格的 unified 预览（行号、
-hunk 头、语言高亮）；预览标题在 `Close` 左侧重复文件时间和 `+N`/`-N` 条。
-二进制、过大、无效 UTF-8、符号链接和目录显示为行（没有状态胶囊），不会伪装成新建。
-
-### 一个检查点，文件和历史一起
-
-回退把快照写回磁盘，并 fork 一个截止到该检查点的子会话，因此 Chat 不再显示
-之后的轮次。它不会执行 `git reset`、`git revert` 或 `git checkout`。会话期间
-产生的提交会留下。原先的会话会被归档。若它绑定了插件 worktree，该认领会
-转到子会话，因此它仍是 worktree 会话。
-
-### 如实警告
-
-确认框会在非 Agent 脏路径将被覆盖、以及自该检查点以来 HEAD 已移动时发出警告。
+查看 agent 对文件的改动，并将文件和对话一起恢复到会话中的较早时刻。
 
 ## 安装
+
+需要 DeepSeek Harness `0.1.2-rc.1` 或更新版本。
 
 ```sh
 dsh plugin --profile <name> add @dsh-next/dsh-next-checkpoints
 ```
 
-`<name>` 是你的 DSH profile（例如 `web`）。添加插件后请重载该 profile。
+将 `<name>` 替换为你使用的 DSH 配置档案，例如 `web`。安装后重新加载该配置档案。
 
-## 使用前须知
+## 快速开始
 
-- 需要 DeepSeek Harness `0.1.2-rc.1` 或更新版本。
-- 检查点不是 git。文件列表是本会话碰过的路径（write/edit 工具），不是
-  `git status`。本会话创建的文件被 bash `mv` 之后，会按内容哈希跟到新路径。
-  同一文件夹里其他会话改的文件不会出现。回退之后，`git status` 可能看起来
-  像是之后的提交被撤销成未暂存变更 — 这是如实状态，不是故障。
-- 一轮仍在进行时会拒绝回退。
-- 贡献者请看 [CONTRIBUTING.md](https://github.com/dsh-next/dsh-next-plugins/blob/main/CONTRIBUTING.md)。
+1. 在项目会话中，请 agent 对文件做一个小改动，并等待该轮结束。插件会在会话开始和每轮结束时保存检查点。
+2. 打开 `Chat` 和 `Trajectory` 旁的 `Checkpoints`。最新的检查点位于顶部。
+3. 选择检查点，再选择文件，查看改动。仅选择一行不会恢复任何内容。
+4. 如需回退，选择 `Rewind`。**恢复可能覆盖文件，并移除之后的文件改动。** 确认前请阅读警告。Harness 会打开截止到该检查点的对话，并归档原会话。
+
+如果连第一轮的改动也要撤销，请选择 `Session start`。第一轮结束后的检查点会保留该轮改动。
+
+## 你可以做什么
+
+- **查看改动：** 查看从会话开始到所选检查点之间新增、修改或删除的文件。
+- **检查文件：** 先查看增加和删除的行，再决定是否恢复。
+- **返回较早状态：** 恢复保存的文件，并停止向模型发送之后的对话消息。
+
+![项目文件改动，以及会话开始和两轮结束时的检查点](<media/checkpoints.webp>)
+
+## 使用须知
+
+- 这不是整个文件夹的备份。它跟踪本会话的文件操作，而非其他会话或工具造成的所有改动。
+- 回退不会撤销 Git 提交。恢复后的文件可能在 Git 中显示为未提交的改动。
+- agent 回合进行中不能回退。若其他编辑可能被覆盖，或 Git 历史已发生变化，也会显示警告。
+
+[回退详情与限制](<https://github.com/dsh-next/dsh-next-plugins/blob/main/docs/checkpoints.md>) · [获取帮助](<https://github.com/dsh-next/dsh-next-plugins/issues>) · [参与贡献](<https://github.com/dsh-next/dsh-next-plugins/blob/main/CONTRIBUTING.md>)

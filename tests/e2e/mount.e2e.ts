@@ -28,6 +28,14 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
     await page.getByRole('button', { name: 'Models', exact: true }).first().click()
     await expect(page.getByTestId('dsh-next-oauth-providers')).toBeVisible()
   },
+  'dsh-next-decisions': async page => {
+    await dismissOnboarding(page)
+    await page.getByText('Settings', { exact: true }).first().click()
+    await page.getByRole('button', { name: 'Models', exact: true }).first().click()
+    const section = page.getByTestId('dsh-next-decisions')
+    await expect(section.getByRole('heading', { name: 'Decision models', exact: true })).toBeVisible()
+    await expect(section.getByRole('button', { name: 'Add decision model provider', exact: true })).toBeEnabled()
+  },
   'dsh-next-git': async page => {
     await dismissOnboarding(page)
     await closeDialogs(page)

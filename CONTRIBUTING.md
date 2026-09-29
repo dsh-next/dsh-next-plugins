@@ -76,6 +76,7 @@ Run those independently with a named suite:
 | `skills` | Source selection, search, install/delete, folder UI, native catalog refresh |
 | `notifier` | Settings, client identity, keyboard dismissal, failed-turn notification |
 | `oauth-providers` | Provider/model editing, validation, persistence, deletion |
+| `decisions` | Explicit decision-model IDs, provider persistence, local sample evaluation, and removal |
 | `checkpoints` | Capture, inspect, preview, rewind, and RPC errors |
 
 Use `pnpm run test:e2e -- <suite>` or `mise run e2e -- <suite>`.

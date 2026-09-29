@@ -8,7 +8,7 @@ import { parseOptions, selectSuites, runWorkflow, testedDshVersion } from './wor
 async function fixture(t, behavior = {}) {
   const root = await mkdtemp(join(tmpdir(), 'workflow-orchestration-'))
   t.after(() => rm(root, { recursive: true, force: true }))
-  const records = ['checkpoints', 'skills', 'git', 'notifier', 'oauth-providers'].map(slug => ({
+  const records = ['checkpoints', 'skills', 'git', 'notifier', 'oauth-providers', 'decisions'].map(slug => ({
     name: '@dsh-next/dsh-next-' + slug, slug, version: '0.1.0',
     manifest: { dsh: { bundle: { patch: './cordis.patch.yml' }, client: {}, engines: { dsh: '>=0.1.3-alpha.2' } } },
   }))
@@ -21,7 +21,7 @@ async function fixture(t, behavior = {}) {
       const packages = records.filter(pkg => selectors.includes(pkg.name) || selectors.includes(pkg.slug))
       // Model a required local plugin dependency shared by focused suites.
       const skillsRecord = records.find(record => record.slug === 'skills')
-      if (packages.some(pkg => ['checkpoints'].includes(pkg.slug)) && skillsRecord !== undefined && !packages.includes(skillsRecord)) packages.unshift(skillsRecord)
+      if (packages.some(pkg => pkg.slug === 'checkpoints') && skillsRecord !== undefined && !packages.includes(skillsRecord)) packages.unshift(skillsRecord)
       return { packages, requested: packages, buildPackages: packages }
     },
     resolveCredentials: async ({ live }) => {
@@ -79,13 +79,13 @@ test('suite registry accounts for every committed E2E spec', async () => {
 })
 
 test('default full E2E explicitly includes every keyless scenario group', () => {
-  assert.deepEqual(selectSuites('all').map(s => s.name), ['smoke', 'checkpoints', 'git', 'skills', 'notifier', 'oauth-providers'])
+  assert.deepEqual(selectSuites('all').map(s => s.name), ['smoke', 'checkpoints', 'git', 'skills', 'notifier', 'oauth-providers', 'decisions'])
   assert.equal(selectSuites('checkpoints', true)[0].spec, 'tests/e2e/checkpoints-chat.e2e.ts')
   assert.throws(() => selectSuites('all', true), /select it explicitly/)
   assert.throws(() => selectSuites('missing'), /Unknown/)
 })
 
-for (const selector of ['git', 'skills', 'notifier', 'oauth-providers']) {
+for (const selector of ['git', 'skills', 'notifier', 'oauth-providers', 'decisions']) {
   test(`${selector} runs independently with only its required plugin closure and owned setup`, async t => {
     const f = await fixture(t)
     const options = { ...f.options, selector }

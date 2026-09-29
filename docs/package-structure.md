@@ -55,6 +55,43 @@ cross-plugin value imports. The build-time purity gate in
   `board.module.css` — not in a separate `styles/` directory. A shared sheet
   stays file-adjacent to its primary component.
 
+## Browser UI composition
+
+- Give each feature its own view, controls, and dialogs under its feature
+  directory. A page or panel at the top of `src/client/` coordinates features
+  and their shared flows; it should not also implement every row, form, and
+  modal. Split an action-switching view when the new owners can drop unrelated
+  state and reads; keep one cohesive controller rather than extracting thin
+  pass-through modules merely to meet a line-count target. Registration
+  groups and feature-owned CSS belong beside their owners; retain shared
+  panel chrome only where multiple views use it.
+- Keep reusable browser contracts (translation types, failure labels, resource
+  addresses) in their owning modules. A feature should not import a parent
+  panel just to use a translator or error mapping. Share a UI primitive when
+  concrete views repeat its behavior; avoid generic pass-through wrappers,
+  speculative context, and prop bags that merely move complexity around.
+- Follow React's ownership and lifecycle rules: call hooks unconditionally,
+  keep render free of side effects, and subscribe or attach timers and
+  listeners in effects with cleanup. For external stores, expose stable
+  snapshots and subscribe through `useSyncExternalStore`. Never acquire a
+  process-wide store, increment a refcount, or publish actions to an external
+  ref during render (including a `useMemo` initializer); acquire/publish on
+  commit and release on cleanup so abandoned renders and Strict Mode replay
+  cannot leave stale ownership. Guard asynchronous setup after disposal and
+  version or abort overlapping reads so older responses cannot replace newer
+  data or errors. Scope keyboard shortcuts to their intended focused control.
+  Read framework hooks only where React permits; if the shell can throw during
+  a transient render, contain that failure around the affected view rather
+  than retiring the whole plugin. Understand and test an existing lifecycle
+  workaround before changing it; do not copy an impure pattern into new code.
+- During a behavior-preserving reorganization, inventory exports, callers,
+  error paths, and lifecycle ordering first. Keep the rendered DOM, ARIA and
+  keyboard behavior, locale keys, CSS, and test/E2E markers stable. Move one
+  concern at a time and rerun its focused tests; then run the full checks and
+  the owning plugin's real-mount suite from
+  [plugins.md](plugins.md#the-completeness-contract). Separate any actual
+  behavior or visual redesign from the refactor.
+
 ## Tests mirror the source
 
 Unit tests live in `tests/` and are named for the module under test, mirroring

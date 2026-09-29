@@ -8,14 +8,24 @@ description: Implement and maintain dsh-next plugins. Use when the user asks to 
 Read `AGENTS.md` and `docs/plugins.md` first, then follow these steps.
 
 1. Confirm which package (`packages/dsh-next-<slug>`) the work targets.
+   For new plugins or installed-card changes, follow
+   [Plugin display metadata](../../../docs/plugins.md#plugin-display-metadata).
+   Replace the scaffold's starter display copy and artwork; keep npm/Cordis
+   identity stable. Verify exported resources in the packed package, not only
+   in the checkout. Keep the scaffold and packaging guard aligned with any
+   new resource convention.
 2. Never modify a DSH source checkout; import only from the official
    `@deepseek-ai/*` SDK packages.
-3. Edit `src/index.ts` (host entry) and `src/client/index.ts` (browser entry).
-   Keep both thin; place host-only logic in `src/host/`, browser logic in
-   `src/client/`, and pure shared logic in `src/core/`. Follow the three-zone
-   and subdirectory rules in `docs/package-structure.md`. Collaboration
-   between halves goes through Cordis services, never cross-plugin value
-   imports.
+3. Keep `src/index.ts` (host entry) and `src/client/index.ts` (browser entry)
+   thin; edit them only when registration or wiring changes. Put host-only
+   logic in `src/host/`, browser logic in `src/client/`, and pure shared logic
+   in `src/core/`. Follow `docs/package-structure.md`, especially "Browser UI
+   composition" when building or reorganizing React views: a panel coordinates
+   feature-owned views, not every row and dialog; shared contracts belong to
+   their owners, and render/lifecycle rules still apply. Split modes when
+   their new owners can shed unrelated state and reads; extract cohesive tab
+   registrations rather than thinning an entry with forwarding wrappers.
+   Collaboration between halves uses Cordis services, never cross-plugin value imports.
 4. Resolve SDK types from the right entry points (see `docs/plugins.md` →
    "SDK type resolution"). In short: `ISessions` is `@deepseek-ai/dsh-client-runtime/client`;
    Cordis events and slots only type-check after a type-only import of the
@@ -25,8 +35,13 @@ Read `AGENTS.md` and `docs/plugins.md` first, then follow these steps.
    behavior and its edge/error branches** — pure `core/` logic exhaustively,
    the Host RPC response shape (contract test: assertion on the envelope AND
    that a `setConfig` round-trip persists through the settings scope), and the
-   browser client wiring (mock `Notification`/timers under jsdom). See
-   `docs/plugins.md` → "The completeness contract".
+   browser client wiring (mock `Notification`/timers under jsdom). For a
+   behavior-preserving refactor, pin existing behavior first, move one concern
+   at a time, and rerun its focused tests without rewriting expectations to
+   make the move pass. Add abandoned-render/Strict Mode and late-response tests
+   for store ownership, setup, and overlapping reads; test Enter on adjacent
+   controls, not only mouse activation. See `docs/plugins.md` → "The completeness
+   contract".
 6. If the plugin ships browser UI, register a per-plugin DOM marker in
    `tests/e2e/mount.e2e.ts` (keyed by the bare slug) that drives into the UI and
    asserts real behavior — the crash-marker layer cannot catch a silent
@@ -46,9 +61,14 @@ Read `AGENTS.md` and `docs/plugins.md` first, then follow these steps.
    `link:` or checkout path. User-visible UI gets screenshots in `media/`
    (WebP at display size). New packages are scaffolded with the full
    triplet by `pnpm plugin:new`.
-8. Run the full gate before merging: `pnpm typecheck && pnpm test && pnpm build`
-   then `pnpm i18n:check` and `bash scripts/e2e-mount.sh`. Confirm **every**
-   existing test still passes and the mount smoke (with the DOM markers) is green.
+8. For iteration, run focused package tests and the owning named browser
+   suite when one exists (for example, `pnpm run test:e2e -- git`); the family
+   smoke checks composition, not detailed interactions. Before merging, run
+   the canonical `pnpm run ci`
+   (ordered static checks followed by all keyless E2E suites). Confirm **every**
+   existing test and DOM marker still passes. If unrelated work blocks the
+   gate, report the exact failure and keep the focused evidence; do not weaken
+   guards or call a focused run a full pass. See `dsh-next-local-testing`.
 9. If the change touches a publishable plugin's source, record a change file:
    run `pnpm changeset`, pick the packaged packages and bump kinds, and write
    the entry following the CHANGELOG best practices in the `dsh-next-release`

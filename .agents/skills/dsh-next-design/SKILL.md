@@ -37,12 +37,8 @@ Authoritative references (in precedence order):
 4. Upstream `packages/client/AGENTS.md` and `packages/client/ui-primitives` —
    the stack rules and the shared atom library.
 
-Local law for this repo: the Skills and Claude Plugins panels share one
-chrome block kept byte-identical between their `card.module.css` files (each
-file's header comment names the mirror). A change to the chrome is a change
-to both, in the same commit. The `--dsw-*` custom properties are injected by
-the host document, so any CSS we ship consumes them — they are the only
-colors we may name.
+The `--dsw-*` custom properties are injected by the host document, so any
+CSS we ship consumes them — they are the only colors we may name.
 
 ## Design principles
 
@@ -50,7 +46,9 @@ colors we may name.
   fallback-masking either: `var(--dsw-alias-state-warning-primary, #b45309)`
   hides a typo behind a plausible color — if the fallback would render, the
   name is wrong. Verify every token name against the installed theme sheets,
-  never memory.
+  never memory. Standalone installed-plugin artwork has the narrow exception
+  defined in [Plugin display metadata](../../../docs/plugins.md#plugin-display-metadata);
+  it does not relax component CSS rules.
 - **Type carries hierarchy through size pairs.** Font sizes are px always
   paired with a line height: 18/24 page title, 15/1.4 card and modal titles,
   14/22 primary buttons, 13/20 body, controls, tabs, and intros, 12/18 hints
@@ -102,6 +100,19 @@ Avoid these tells — they read as generated, and review rejects them:
 - A new user-facing string written in TSX while a dictionary key with the
   same meaning exists in the package namespace.
 
+## UI composition
+
+Read `docs/package-structure.md` → "Browser UI composition" before writing
+JSX. Keep a page or panel as the coordinator of feature-owned views rather
+than a home for every form, row, and modal; share chrome only when real views
+repeat its behavior. React state and effects belong to the view that owns the
+interaction. If the task is only to reorganize code, keep the shell-derived
+appearance, copy, DOM semantics, focus behavior, and markers intact instead
+of inventing a redesign. When moving selectors into feature-owned CSS Modules,
+check that compound selectors still match the new scoped class names. The
+structure and lifecycle rules live in that canonical document; this skill
+owns visual consistency.
+
 ## Process: match the shell, plan, review against the tells, build, verify
 
 1. **Match.** Open the DSH page precedent for the surface and quote its
@@ -116,14 +127,18 @@ Avoid these tells — they read as generated, and review rejects them:
    a default carried over from the previous panel.
 4. **Build.** CSS Modules + `clsx` (no Tailwind, no component library, no
    inline style objects). Add the en key and the zh mirror in the same change
-   (`src/client/dictionaries/`). Keep every `data-testid` stable — tests and
-   e2e markers drive them. Shared-chrome edits land in both mirrored files at
-   once.
-5. **Verify.** `pnpm typecheck && pnpm test && pnpm i18n:check`, then the
-   real-mount smoke (`mise run e2e`) whose DOM markers drive the actual UI,
-   then look at it: `mise run dev <slug>` boots a real shell — check light
-   AND dark, and confirm focus rings and hover states with the keyboard.
-   Visual claims need runtime evidence (screenshots) per the repo rules.
+   (`src/client/dictionaries/`). Keep test IDs, accessibility attributes,
+   and plugin DOM markers stable through a refactor. Shared-chrome edits land
+   in both mirrored files at once.
+5. **Verify.** Run focused browser tests, `pnpm run check`, and the owning
+   named real-mount suite when one exists (for example,
+   `pnpm run test:e2e -- git`); the family smoke checks composition, while
+   `pnpm run ci` is the full pre-merge gate. Then look at
+   the real shell: `mise run dev <slug>` boots an isolated profile — check
+   light AND dark, focus rings, and hover states with the keyboard. For a
+   CSS-only relocation, compare the owning view in both themes; check that
+   Enter on adjacent buttons does not activate a combobox shortcut. Visual
+   claims need runtime evidence (screenshots) per the repo rules.
 
 Deviations from the harness look (a missing alias, a scrim stronger than
 `bg-mask-1`) are recorded in the change's Agent Note with the reason — the

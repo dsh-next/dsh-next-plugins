@@ -1,5 +1,6 @@
 {
   "name": "@dsh-next/dsh-next-opencode-session-patch",
+  "icon": "./assets/icon.svg",
   "description": "Stamps the x-opencode-session header on requests to the OpenCode Go provider using the current DSH session id.",
   "version": "0.1.0",
   "private": true,
@@ -16,8 +17,8 @@
       "default": "./lib/client.js"
     },
     "./src/*": "./src/*",
-    "./package.json": "./package.json",
-    "./locale/*.json": "./locale/*.json"
+    "./locale/*.json": "./locale/*.json",
+    "./package.json": "./package.json"
   },
   "dsh": {
     "engines": {
@@ -73,6 +74,5 @@
     "type": "git",
     "url": "git+https://github.com/dsh-next/dsh-next-plugins.git",
     "directory": "packages/dsh-next-opencode-session-patch"
-  },
-  "icon": "./assets/icon.svg"
+  }
 }

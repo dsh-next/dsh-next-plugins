@@ -53,15 +53,16 @@ export function applySessionHeaderPatch(agents: InitiatorLookup, log: (message: 
     const url = requestUrl(input)
     if (url === undefined || !url.startsWith(OPENCODE_GO_ORIGIN)) return original(input, init)
     const session = sessionValueFor(() => agents.currentInitiator())
+    const requestWithoutInit = init === undefined && input instanceof Request
     const headers = new Headers(init?.headers)
-    if (init === undefined && input instanceof Request) {
+    if (requestWithoutInit) {
       for (const [key, value] of input.headers) headers.set(key, value)
     }
     headers.set(HEADER_NAME, session)
     // console over a logger: the host filters info-level plugin logs, but this
     // line is the ops-visible proof of what was sent to the gateway
     log(`opencode-go: ${HEADER_NAME}: ${session}`)
-    if (init === undefined && input instanceof Request) {
+    if (requestWithoutInit) {
       return original(new Request(input, { headers }), undefined)
     }
     return original(input, { ...init, headers })

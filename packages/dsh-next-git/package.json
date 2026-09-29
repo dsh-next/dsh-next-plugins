@@ -1,5 +1,6 @@
 {
   "name": "@dsh-next/dsh-next-git",
+  "icon": "./assets/icon.svg",
   "description": "DeepSeek Harness plugin: a native Source Control panel - changes, diffs, history, branches and git worktrees in one right-sidebar tab, with the agent as a first-class git collaborator.",
   "version": "0.1.0",
   "private": true,
@@ -16,8 +17,8 @@
       "default": "./lib/client.js"
     },
     "./src/*": "./src/*",
-    "./package.json": "./package.json",
-    "./locale/*.json": "./locale/*.json"
+    "./locale/*.json": "./locale/*.json",
+    "./package.json": "./package.json"
   },
   "dsh": {
     "engines": {
@@ -95,6 +96,5 @@
     "directory": "packages/dsh-next-git"
   },
   "license": "MIT",
-  "author": "Rok Grabnar <sitegroove>",
-  "icon": "./assets/icon.svg"
+  "author": "Rok Grabnar <sitegroove>"
 }

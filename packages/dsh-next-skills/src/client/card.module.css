@@ -1,18 +1,13 @@
 /**
  * Skills settings page styling.
  *
- * Shared chrome matches the Claude Plugins page; scope-only rules are omitted
- * (packages/dsh-next-cc-plugins/src/client/card.module.css) — header, tabs,
- * filter row, inputs, buttons, cards, notices, and the remaining modals read
- * as one product. The block copies the harness shell's own Plugins settings
- * page (title, intro, underline tab strip) and consumes only `--dsw-*` theme
- * tokens: no literal colors, no fallbacks masking token typos, no theme
- * selectors (dark mode lives in the token layer). Skills-specific extensions
- * live in the marked section at the end; everything else must be changed in
- * both files together.
+ * The page follows the harness shell's Plugins settings section (title,
+ * intro, underline tab strip) and consumes only `--dsw-*` theme tokens:
+ * no literal colors, no fallbacks masking token typos, no theme selectors
+ * (dark mode lives in the token layer).
  */
 
-/* --- Shared chrome (mirror of dsh-next-cc-plugins) ----------------------- */
+/* --- Settings page chrome ----------------------------------------------- */
 
 /* Page scaffold from the shell's Plugins settings section: a title, a
  * one-line intro, then the tab strip, inside a 760px reading column. */
@@ -369,7 +364,7 @@
   line-height: 18px;
 }
 
-/* --- Add/Manage modal (shared with dsh-next-cc-plugins) ------------------ */
+/* --- Add/Manage modal ---------------------------------------------------- */
 
 .overlay {
   position: fixed;

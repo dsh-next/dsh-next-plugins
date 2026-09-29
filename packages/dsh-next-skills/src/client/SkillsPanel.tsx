@@ -4,12 +4,11 @@
  * directly; installed cards retain provider switching, updates, and safe
  * deletion. Skill names open the full SKILL.md detail preview.
  *
- * Shared chrome matches the Claude Plugins page. All visible copy uses the
+ * The page follows the host settings chrome. All visible copy uses the
  * package translator, defaulting to English when the locale is absent.
  */
 import * as React from 'react'
 import type {
-  CatalogSkillView,
   InstalledSkill,
   MutationResult,
   ProviderView,
@@ -18,8 +17,11 @@ import type {
 } from '../core/types.ts'
 import styles from './card.module.css'
 import { englishTranslate, type MessageKey } from './dictionaries.ts'
-import { renderMarkdown } from './markdown.tsx'
-import { OpenSkillFolder } from './OpenSkillFolder.tsx'
+import { buildGridEntries, filterEntries, type GridEntry } from './skills/grid.ts'
+import { SkillDetailDialog } from './skills/SkillDetailDialog.tsx'
+
+export { buildGridEntries, filterEntries, searchTier } from './skills/grid.ts'
+export type { GridEntry } from './skills/grid.ts'
 
 /** Translates a dictionary key with `{name}` params (platform semantics). */
 export type Translate = (key: MessageKey, params?: Record<string, string | number>) => string
@@ -79,106 +81,6 @@ export function sourceKey(source: string): MessageKey {
     case 'user-agents': return 'source.userAgents'
     default: return 'source.custom'
   }
-}
-
-/** One card in the skills grid: one discovered copy, or a catalog skill (Install). */
-export interface GridEntry {
-  key: string
-  name: string
-  description: string
-  whenToUse?: string
-  /** The catalog skill backing this entry (install flow), when offered. */
-  catalog?: CatalogSkillView
-  /** The discovered copy this card manages (undefined for offering cards). */
-  row?: InstalledSkill
-  /** Catalog provider id (the provider filter compares ids). */
-  providerId?: string
-  /** Provider spec label (`owner/repo`), when provider-installed. */
-  providerSpec?: string
-}
-
-/**
- * One card per discovered copy (a skill present in several roots produces a
- * card per root), plus an Install card per catalog skill whose name has NO
- * installed copy. A name that is installed renders only its copy cards: the
- * provider offerings collapse into that copy's source switcher (the
- * Providers button), so one skill + one source costs exactly one card.
- * Externally-owned copies (the cc-plugins bridge) get no switcher either —
- * their source is the owning plugin's business.
- */
-export function buildGridEntries(state: SkillsState): GridEntry[] {
-  const specToId = new Map(state.providers.map((p) => [p.spec, p.id]))
-  const installedNames = new Set<string>()
-  const ownedNames = new Set<string>()
-  for (const row of state.installed) {
-    installedNames.add(row.name)
-    if (row.ownership !== undefined) ownedNames.add(row.name)
-  }
-  const rows: GridEntry[] = state.installed.map((row) => ({
-    key: `row:${row.source}:${row.path}`,
-    name: row.name,
-    description: row.description,
-    ...(row.whenToUse !== undefined ? { whenToUse: row.whenToUse } : {}),
-    row,
-    ...(row.provider !== undefined && specToId.get(row.provider) !== undefined
-      ? { providerId: specToId.get(row.provider) }
-      : {}),
-    ...(row.provider !== undefined ? { providerSpec: row.provider } : {}),
-  }))
-  const offerings: GridEntry[] = state.catalog
-    .filter((s) => !installedNames.has(s.name))
-    .map((s) => ({
-      key: `cat:${s.providerId}/${s.skillPath}`,
-      name: s.name,
-      description: s.description,
-      ...(s.whenToUse !== undefined ? { whenToUse: s.whenToUse } : {}),
-      catalog: s,
-      providerId: s.providerId,
-      providerSpec: s.providerSpec,
-    }))
-  return [...rows, ...offerings].sort((a, b) =>
-    // Installed names first, then names to add; within a class, by name and
-    // provider spec.
-    ((installedNames.has(b.name) ? 1 : 0) - (installedNames.has(a.name) ? 1 : 0))
-    || a.name.localeCompare(b.name)
-    || (a.providerSpec ?? '').localeCompare(b.providerSpec ?? ''))
-}
-
-/**
- * Relevance tier of an entry for a search query: 0 exact name match, 1 name
- * prefix, 2 name contains, 3 description/provider-spec contains, and
- * undefined when the entry does not match at all. Lower ranks first, so a
- * name match surfaces above an incidental description match instead of the
- * alphabetical order deciding what the user sees.
- */
-export function searchTier(entry: GridEntry, q: string): number | undefined {
-  if (q === '') return 0
-  const name = entry.name.toLowerCase()
-  if (name === q) return 0
-  if (name.startsWith(q)) return 1
-  if (name.includes(q)) return 2
-  const rest = `${entry.description} ${entry.providerSpec ?? ''}`.toLowerCase()
-  return rest.includes(q) ? 3 : undefined
-}
-
-/** Case-insensitive search (relevance-ranked) + provider filter +
- *  installed-only filter. With an empty query every entry matches and the
- *  grid order is preserved. */
-export function filterEntries(
-  entries: readonly GridEntry[],
-  search: string,
-  providerFilter: string,
-  installedOnly: boolean,
-): GridEntry[] {
-  const q = search.trim().toLowerCase()
-  const hits = entries.filter((entry) => {
-    if (installedOnly && entry.row === undefined) return false
-    if (providerFilter !== '' && entry.providerId !== providerFilter) return false
-    return searchTier(entry, q) !== undefined
-  })
-  // Stable tier sort: within one tier the grid's own order (installed names
-  // first, then name/provider) is preserved.
-  return hits.sort((a, b) => (searchTier(a, q) ?? 0) - (searchTier(b, q) ?? 0))
 }
 
 /**
@@ -396,56 +298,6 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
   const closeSources = (): void => {
     setSourcesModal(undefined)
     setConfirmSource(undefined)
-  }
-
-  /** The detail modal: invocability metadata plus the SKILL.md body rendered
-   *  as markdown. */
-  const detailDialog = (): React.ReactElement | null => {
-    if (detail === undefined) return null
-    const closeDetail = (): void => { setDetail(undefined); setDetailData(undefined) }
-    return (
-      <div className={styles.overlay} role="presentation" onClick={closeDetail}>
-        <div
-          className={`${styles.modal} ${styles.modalWide}`}
-          role="dialog"
-          aria-modal="true"
-          aria-label={t('detail.aria', { name: detail.name })}
-          data-testid="skills-skill-detail"
-          onKeyDown={(e: React.KeyboardEvent) => {
-            if (e.key === 'Escape' && !e.defaultPrevented) {
-              e.preventDefault()
-              e.stopPropagation()
-              closeDetail()
-            }
-          }}
-          onClick={(e: React.MouseEvent) => e.stopPropagation()}
-        >
-          <div className={styles.detailHeader}>
-            <p className={styles.modalTitle}>{detail.name}</p>
-            {detail.row !== undefined && (
-              <OpenSkillFolder key={detail.row.path} directory={detail.row.directory} t={t} />
-            )}
-          </div>
-          <p className={styles.modalHint}>
-            {[
-              detailData?.modelInvocable === false ? t('detail.modelBlocked') : t('detail.modelInvocable'),
-              detailData?.userInvocable === false ? t('detail.userBlocked') : t('detail.userInvocable'),
-              detailData?.whenToUse !== undefined ? t('detail.whenToUse', { text: detailData.whenToUse }) : '',
-            ].filter(Boolean).join(' · ')}
-          </p>
-          {detailData === undefined ? (
-            <p className={styles.modalHint}>{t('status.working')}</p>
-          ) : (
-            <div className={`${styles.modalBody} ${styles.md}`} data-testid="skills-detail-body">
-              {renderMarkdown(detailData.body)}
-            </div>
-          )}
-          <div className={styles.modalActions}>
-            <button type="button" className={styles.ghost} onClick={closeDetail} data-testid="skills-detail-close">{t('detail.close')}</button>
-          </div>
-        </div>
-      </div>
-    )
   }
 
   /** Two-step delete confirm: shows the target copy and path before the RPC. */
@@ -871,7 +723,7 @@ export function SkillsPanel(deps: SkillsPanelDeps): React.ReactElement {
         </div>
       )))}
 
-      {detailDialog()}
+      {detail !== undefined && <SkillDetailDialog detail={detail} detailData={detailData} t={t} onClose={() => { setDetail(undefined); setDetailData(undefined) }} />}
       {confirmDeleteDialog()}
       {confirmRemoveProviderDialog()}
       {sourcesDialog()}

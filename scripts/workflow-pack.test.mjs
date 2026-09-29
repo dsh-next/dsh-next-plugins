@@ -175,6 +175,25 @@ for (const [label, mutate, message] of [
   assert.deepEqual(await readdir(join(root, 'artifacts/packages')), []);
 });
 
+test('pack includes exported locale metadata and declared artwork', async t => {
+  const root = await fixture(t);
+  await pkg(root, 'a', { icon: './assets/icon.svg', exports: { '.': './lib/index.js', './locale/*.json': './locale/*.json', './package.json': './package.json' } });
+  const extra = { 'locale/en.json': '{"meta":{"title":"Example"}}', 'locale/zh.json': '{"meta":{"title":"示例"}}', 'assets/icon.svg': '<svg/>' };
+  const plan = await planPackages(['a'], { root });
+  const [artifact] = await packPackages(plan, { run: packRunner([], files => ({ ...files, ...extra })) });
+  for (const path of Object.keys(extra)) assert.ok(artifact.files.includes(path));
+  await assert.rejects(packPackages(plan, { run: packRunner([], files => ({ ...files, 'locale/en.json': extra['locale/en.json'] })) }), /Missing exported file: \.\/assets\/icon\.svg/);
+  await assert.rejects(packPackages(plan, { run: packRunner([], files => ({ ...files, 'assets/icon.svg': '<svg/>' })) }), /Missing exported files: .\/locale\/\*\.json/);
+});
+
+for (const path of ['assets/script.js', 'assets/.env', 'locale/en.js', 'locale/_private.json']) {
+  test('pack rejects non-display resource ' + path, async t => {
+    const root = await fixture(t);
+    await pkg(root, 'a');
+    await assert.rejects(packPackages(await planPackages(['a'], { root }), { run: packRunner([], files => ({ ...files, [path]: 'unexpected' })) }), /Unexpected published/);
+  });
+}
+
 test('pack detects tampered existing artifacts and command failures', async t => {
   const { root, artifacts } = await artifactsFor(t);
   await chmod(artifacts[0].path, 0o644); await writeFile(artifacts[0].path, 'tampered');

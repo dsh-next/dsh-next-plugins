@@ -1,5 +1,6 @@
 {
   "name": "@dsh-next/dsh-next-__NAME__",
+  "icon": "./assets/icon.svg",
   "description": "DeepSeek Harness plugin __NAME__ — scaffolded from scripts/plugin-template; replace this description.",
   "version": "0.1.0",
   "type": "module",
@@ -15,6 +16,7 @@
       "default": "./lib/client.js"
     },
     "./src/*": "./src/*",
+    "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
   "dsh": {
@@ -57,6 +59,8 @@
     "vitest": "^4.1.8"
   },
   "files": [
+    "locale",
+    "assets",
     "lib",
     "cordis.patch.yml",
     "README.md"

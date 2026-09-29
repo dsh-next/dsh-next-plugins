@@ -13,7 +13,7 @@ function idFromName(name) {
 
 async function render(file, vars) {
   const source = await readFile(join(TEMPLATE, file), 'utf8')
-  return source.replace(/__NAME__/g, vars.name)
+  return source.replace(/__NAME__/g, vars.name).replace(/__TITLE__/g, vars.title)
 }
 
 async function copyTemplate(name) {
@@ -28,9 +28,12 @@ async function copyTemplate(name) {
     console.error(`package already exists: ${dir}`)
     process.exit(1)
   }
-  const vars = { name: id }
+  const vars = { name: id, title: id.split('-').filter(Boolean).map(word => word[0].toUpperCase() + word.slice(1)).join(' ') }
   const files = [
     'package.json',
+    'locale/en.json',
+    'locale/zh.json',
+    'assets/icon.svg',
     'tsconfig.json',
     'tsconfig.build.json',
     'tsconfig.vitest.json',

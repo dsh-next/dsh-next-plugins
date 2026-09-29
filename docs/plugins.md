@@ -33,6 +33,30 @@ zones, subdirectories, test layout, package `AGENTS.md`, and conditional
 tsconfig tiering) is governed by
 [package-structure.md](package-structure.md).
 
+## Plugin display metadata
+
+Installed-plugin display metadata belongs to the installed **bundle root**, not
+its React client icon or client registration. Keep the npm package name and
+Cordis identity unchanged; a friendly title is display copy only.
+
+- Add root `locale/en.json` and `locale/zh.json` (Simplified Chinese), each
+  shaped as `{ "meta": { "title": "…", "description": "…" } }`. These describe
+  the plugin in the installed-plugin list; they are separate from the runtime
+  UI dictionaries under `src/client/dictionaries/` (see
+  [i18n.md](i18n.md#plugin-ui-strings)).
+- Extend the root package manifest's existing `exports` with
+  `"./locale/*.json": "./locale/*.json"` and
+  `"./package.json": "./package.json"`; preserve all existing entry points.
+- Set the root manifest's `"icon": "./assets/icon.svg"` and include `locale`
+  and `assets` in its existing `files` allowlist so packed installs contain
+  the metadata and artwork.
+- Icons may be SVG, PNG, JPEG, or WebP, at most **256 KiB**. The icon path must
+  be relative and resolve inside the installed package; do not use an absolute
+  path, remote URL, or a path escaping the package.
+- A standalone SVG loaded through an `img` cannot inherit host CSS tokens.
+  For this static artwork only, use explicit colors sampled from the native
+  artwork palette; browser UI continues to use the host design tokens.
+
 ## Testing
 
 ### The completeness contract
@@ -193,7 +217,9 @@ Browser UI follows the harness design system. The `dsh-next-design` skill
 the page scaffold, tab strip, button grammar, and token rules copied from the
 shell's own settings pages, with copy-paste scaffolds in its `snippets.md`.
 Upstream references: DSH's `docs/web-styling.md` and the `ui-theme` /
-`ui-primitives` package docs.
+`ui-primitives` package docs. Feature ownership, React lifecycle, and
+behavior-preserving UI refactors belong to
+[package-structure.md](package-structure.md#browser-ui-composition).
 
 ## Scope and access
 

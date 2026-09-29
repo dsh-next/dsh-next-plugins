@@ -181,6 +181,7 @@ function inspect(bytes, expected) {
   collect(manifest.exports);
   collect(manifest.main); collect(manifest.module); collect(manifest.types); collect(manifest.typings); collect(manifest.bin);
   collect(manifest.dsh?.bundle?.patch);
+  collect(manifest.icon);
   if (!manifest.main && !manifest.exports) throw new Error('Package lacks runtime entry points');
   for (const target of targets) {
     const path = target.replace(/^\.\//, '');
@@ -193,7 +194,7 @@ function inspect(bytes, expected) {
     } else if (!files.has(path)) throw new Error(`Missing exported file: ${target}`);
   }
   for (const path of files.keys()) {
-    if (!/^(?:package\.json|cordis\.patch\.ya?ml|(?:README|LICENSE|LICENCE|NOTICE|CHANGELOG)(?:\.[^/]+)?|lib\/[^]+|media\/[^]+\.(?:png|jpe?g|webp|gif|svg|woff2?|ttf|ico))$/.test(path)
+    if (!/^(?:package\.json|cordis\.patch\.ya?ml|(?:README|LICENSE|LICENCE|NOTICE|CHANGELOG)(?:\.[^/]+)?|locale\/[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*\.json|assets\/[^]+\.(?:svg|png|jpe?g|webp)|lib\/[^]+|media\/[^]+\.(?:png|jpe?g|webp|gif|svg|woff2?|ttf|ico))$/.test(path)
       || /(?:^|\/)(?:node_modules|\.git|\.env[^/]*|\.npmrc|__tests__)(?:\/|$)/.test(path)
       || /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path)) throw new Error(`Unexpected published file: ${path}`);
   }

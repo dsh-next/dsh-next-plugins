@@ -1,17 +1,17 @@
 /**
  * jsdom render test for the in-page toast layer: polls the Host queue for
  * toast-channel events, renders the capsule cards, opens the session on
- * click, dismisses on close, auto-dismisses after the TTL, replaces toasts
- * per session, caps the stack, falls back to a web notification when the
+ * its native action, dismisses on close, auto-dismisses after the TTL, shows
+ * only the latest toast, falls back to a web notification when the
  * user stopped looking, and serves the settings card's test-toast bus.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as React from 'react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import type { ISessions } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { TimerLike } from '../src/core/timer.ts'
-import { ToastLayer, enqueueTestToast } from '../src/client/toasts.tsx'
+import { ToastLayer, enqueueTestToast, type ToastLayerProps } from '../src/client/toasts.tsx'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -62,6 +62,24 @@ function event(overrides: Record<string, unknown> = {}): Record<string, unknown>
   }
 }
 
+function soundRpc() {
+  let accepted = false
+  return vi.fn(async (method: string) => {
+    if (method === 'getPendingNotifications') return [event()]
+    if (method === 'acknowledgeNotifications' && !accepted) {
+      accepted = true
+      return { ok: true, sound: { id: 'ping', volume: 37 } }
+    }
+    return { ok: false }
+  })
+}
+
+function action(label: string): HTMLButtonElement {
+  const button = [...document.querySelectorAll<HTMLButtonElement>('[role="alert"] button')].find(node => node.textContent === label)
+  expect(button, `native action ${label}`).toBeDefined()
+  return button!
+}
+
 describe('ToastLayer', () => {
   const container = document.createElement('div')
   let root: Root | undefined
@@ -73,11 +91,11 @@ describe('ToastLayer', () => {
     mockFocus(false)
   })
 
-  function renderLayer(rpc: (method: string) => Promise<unknown>, sessions?: ISessions, timer?: TimerLike): void {
+  function renderLayer(rpc: (method: string) => Promise<unknown>, sessions?: ISessions, timer?: TimerLike, extra: Partial<ToastLayerProps> = {}): void {
     document.body.appendChild(container)
     root = createRoot(container)
     act(() => {
-      root!.render(React.createElement(ToastLayer, { rpc, sessions, timer }))
+      root!.render(React.createElement(ToastLayer, { rpc, sessions, timer, ...extra }))
     })
   }
 
@@ -90,7 +108,7 @@ describe('ToastLayer', () => {
     const rpc = vi.fn(async () => [])
     renderLayer(rpc)
     await flush()
-    expect(container.querySelector('[data-testid="dsh-next-notifier-toasts"]')).toBeNull()
+    expect(document.querySelector('[role="alert"]')).toBeNull()
   })
 
   it('renders a toast-channel event with the shared headline and session title', async () => {
@@ -99,9 +117,9 @@ describe('ToastLayer', () => {
     const sessions = ({ list: { getSnapshot: () => ({ byId: { s5: { id: 's5', displayTitle: 'Design spec' } } }) } }) as unknown as ISessions
     renderLayer(rpc, sessions, fakeTimer())
     await flush()
-    const toast = container.querySelector('[data-testid="dsh-next-notifier-toast"]')
+    const toast = document.querySelector('[role="alert"]')
     expect(toast).not.toBeNull()
-    expect(toast!.textContent).toContain('\u26a0\ufe0f Approval needed')
+    expect(toast!.textContent).toContain('Approval needed')
     expect(toast!.textContent).toContain('Design spec')
   })
 
@@ -110,7 +128,7 @@ describe('ToastLayer', () => {
     const rpc = vi.fn(async () => [event({ sessionId: 'ghost' })])
     renderLayer(rpc)
     await flush()
-    expect(container.querySelector('[data-testid="dsh-next-notifier-toast"]')!.textContent)
+    expect(document.querySelector('[role="alert"]')!.textContent)
       .toContain('Waiting for your approval: bash')
   })
 
@@ -122,58 +140,70 @@ describe('ToastLayer', () => {
     ])
     renderLayer(rpc)
     await flush()
-    expect(container.querySelector('[data-testid="dsh-next-notifier-toast"]')).toBeNull()
+    expect(document.querySelector('[role="alert"]')).toBeNull()
   })
 
-  it('opens the session when the toast is clicked', async () => {
+  it('opens the session only through the native Open session action', async () => {
     mockFocus(true)
-    const open = vi.fn()
+    const openSession = vi.fn()
     const rpc = vi.fn(async () => [event()])
-    const sessions = { open } as unknown as ISessions
-    renderLayer(rpc, sessions, fakeTimer())
+    const sessions = {} as ISessions
+    renderLayer(rpc, sessions, fakeTimer(), { navigation: { openSession } })
     await flush()
-    const toast = container.querySelector('[data-testid="dsh-next-notifier-toast"]') as HTMLElement
+    const toast = document.querySelector('[role="alert"]') as HTMLElement
     act(() => { toast.click() })
-    expect(open).toHaveBeenCalledWith('s5')
-    expect(container.querySelector('[data-testid="dsh-next-notifier-toast"]')).toBeNull()
+    expect(openSession).not.toHaveBeenCalled()
+    act(() => { action('Open session').click() })
+    expect(openSession).toHaveBeenCalledWith('s5')
+    expect(document.querySelector('[role="alert"]')).toBeNull()
   })
 
-  it('opens the session from the keyboard without dismissing on other keys', async () => {
+  it('uses a native button for keyboard activation without making the toast a clickable container', async () => {
     mockFocus(true)
-    const open = vi.fn()
+    const openSession = vi.fn()
     const rpc = vi.fn(async () => [event()])
-    const sessions = { open } as unknown as ISessions
-    renderLayer(rpc, sessions, fakeTimer())
+    const sessions = {} as ISessions
+    renderLayer(rpc, sessions, fakeTimer(), { navigation: { openSession } })
     await flush()
-    const toast = container.querySelector('[data-testid="dsh-next-notifier-toast"]') as HTMLElement
+    const toast = document.querySelector('[role="alert"]') as HTMLElement
     act(() => { toast.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
-    expect(open).not.toHaveBeenCalled()
-    act(() => { toast.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })) })
-    expect(open).toHaveBeenCalledWith('s5')
+    expect(openSession).not.toHaveBeenCalled()
+    const button = action('Open session')
+    expect(button.tagName).toBe('BUTTON')
+    expect(button.type).toBe('button')
+    act(() => { button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })) })
+    expect(openSession).not.toHaveBeenCalled()
+    // jsdom does not synthesize native keyboard click activation.
+    act(() => button.click())
+    expect(openSession).toHaveBeenCalledWith('s5')
   })
 
   it('dismisses on close without opening the session', async () => {
     mockFocus(true)
-    const open = vi.fn()
+    const openSession = vi.fn()
     const rpc = vi.fn(async () => [event()])
-    const sessions = { open } as unknown as ISessions
-    renderLayer(rpc, sessions, fakeTimer())
+    const sessions = {} as ISessions
+    renderLayer(rpc, sessions, fakeTimer(), { navigation: { openSession } })
     await flush()
-    const close = container.querySelector('[data-testid="dsh-next-notifier-toast-close"]') as HTMLButtonElement
+    const close = action('Dismiss') as HTMLButtonElement
     act(() => { close.click() })
-    expect(open).not.toHaveBeenCalled()
-    expect(container.querySelector('[data-testid="dsh-next-notifier-toast"]')).toBeNull()
+    expect(openSession).not.toHaveBeenCalled()
+    expect(document.querySelector('[role="alert"]')).toBeNull()
   })
 
-  it('auto-dismisses after the 12s TTL', async () => {
-    mockFocus(true)
-    const timer = fakeTimer()
-    const rpc = vi.fn(async () => [event()])
-    renderLayer(rpc, undefined, timer)
-    await flush()
-    expect(container.querySelector('[data-testid="dsh-next-notifier-toast"]')).not.toBeNull()
-    act(() => { timer.fireTimeouts() })
-    expect(container.querySelector('[data-testid="dsh-next-notifier-toast"]')).toBeNull()
+  it('lets the native toast finish its twelve-second hold and one-second fade', async () => {
+    vi.useFakeTimers()
+    try {
+      mockFocus(true)
+      renderLayer(vi.fn(async () => [event()]), undefined, fakeTimer())
+      await flush()
+      await act(async () => { await vi.advanceTimersByTimeAsync(12000) })
+      expect(document.querySelector('[role="alert"]')).not.toBeNull()
+      await act(async () => { await vi.advanceTimersByTimeAsync(999) })
+      expect(document.querySelector('[role="alert"]')).not.toBeNull()
+      await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+      expect(document.querySelector('[role="alert"]')).toBeNull()
+    } finally { vi.useRealTimers() }
   })
 
   it('keeps one toast per session: a newer event replaces its predecessor', async () => {
@@ -185,19 +215,19 @@ describe('ToastLayer', () => {
     const rpc = vi.fn(async () => queue)
     renderLayer(rpc, undefined, fakeTimer())
     await flush()
-    const toasts = container.querySelectorAll('[data-testid="dsh-next-notifier-toast"]')
+    const toasts = document.querySelectorAll('[role="alert"]')
     expect(toasts).toHaveLength(1)
     expect(toasts[0].textContent).toContain('Question asked')
   })
 
-  it('caps the stack at five, dropping the oldest', async () => {
+  it('keeps only the latest toast even across different sessions', async () => {
     mockFocus(true)
-    const queue = ['a', 'b', 'c', 'd', 'e', 'f'].map((s, i) => event({ id: String(i), sessionId: 's-' + s, title: 'Event ' + s }))
+    const queue = ['a', 'b', 'c', 'd', 'e', 'f'].map((s, i) => event({ id: String(i), sessionId: 's-' + s, kind: 'custom', title: 'Event ' + s }))
     const rpc = vi.fn(async () => queue)
     renderLayer(rpc, undefined, fakeTimer())
     await flush()
-    const toasts = container.querySelectorAll('[data-testid="dsh-next-notifier-toast"]')
-    expect(toasts).toHaveLength(5)
+    const toasts = document.querySelectorAll('[role="alert"]')
+    expect(toasts).toHaveLength(1)
     const titles = [...toasts].map((t) => t.textContent ?? '')
     expect(titles.join()).not.toContain('Event a')
     expect(titles.join()).toContain('Event f')
@@ -209,9 +239,9 @@ describe('ToastLayer', () => {
     const rpc = vi.fn(async () => [event()])
     renderLayer(rpc)
     await flush()
-    expect(container.querySelector('[data-testid="dsh-next-notifier-toast"]')).toBeNull()
+    expect(document.querySelector('[role="alert"]')).toBeNull()
     expect(ctor).toHaveLength(1)
-    expect(ctor[0].title).toBe('\u26a0\ufe0f Approval needed')
+    expect(ctor[0].title).toBe('Approval needed')
   })
 
   it('releases a focus-loss fallback when web permission is denied without acknowledging', async () => {
@@ -221,7 +251,7 @@ describe('ToastLayer', () => {
     const rpc = vi.fn(async (method: string) => method === 'getPendingNotifications' ? [event()] : {})
     renderLayer(rpc)
     await flush()
-    expect(container.querySelector('[data-testid="dsh-next-notifier-toast"]')).toBeNull()
+    expect(document.querySelector('[role="alert"]')).toBeNull()
     expect(rpc.mock.calls.some(([method]) => method === 'releaseNotification')).toBe(true)
     expect(rpc.mock.calls.some(([method]) => method === 'acknowledgeNotifications')).toBe(false)
   })
@@ -230,7 +260,7 @@ describe('ToastLayer', () => {
     mockFocus(true)
     const rpc = vi.fn(async (method: string) => {
       if (method === 'getPendingNotifications') return [event()]
-      if (method === 'acknowledgeNotifications') expect(container.querySelector('[data-testid="dsh-next-notifier-toast"]')).not.toBeNull()
+      if (method === 'acknowledgeNotifications') expect(document.querySelector('[role="alert"]')).not.toBeNull()
       return {}
     })
     renderLayer(rpc)
@@ -240,18 +270,18 @@ describe('ToastLayer', () => {
 
   it('does not navigate when the close button receives Enter or Space', async () => {
     mockFocus(true)
-    const open = vi.fn()
-    renderLayer(vi.fn(async () => [event()]), { open } as unknown as ISessions)
+    const openSession = vi.fn()
+    renderLayer(vi.fn(async () => [event()]), {} as ISessions, undefined, { navigation: { openSession } })
     await flush()
-    const close = container.querySelector('[data-testid="dsh-next-notifier-toast-close"]') as HTMLButtonElement
+    const close = action('Dismiss') as HTMLButtonElement
     for (const key of ['Enter', ' ']) {
       const e = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
       act(() => { close.dispatchEvent(e) })
       expect(e.defaultPrevented).toBe(false)
     }
     act(() => close.click())
-    expect(open).not.toHaveBeenCalled()
-    expect(container.querySelector('[data-testid="dsh-next-notifier-toast"]')).toBeNull()
+    expect(openSession).not.toHaveBeenCalled()
+    expect(document.querySelector('[role="alert"]')).toBeNull()
   })
 
   it('serves the settings card test-toast bus', async () => {
@@ -260,8 +290,105 @@ describe('ToastLayer', () => {
     renderLayer(rpc, undefined, fakeTimer())
     await flush()
     act(() => { enqueueTestToast({ id: 9, title: 'Test toast', body: 'In-page toasts work', sessionId: 's5' }) })
-    const toast = container.querySelector('[data-testid="dsh-next-notifier-toast"]')
+    const toast = document.querySelector('[role="alert"]')
     expect(toast).not.toBeNull()
-    expect(toast!.textContent).toContain('\ud83d\udd14 Test toast')
+    expect(toast!.textContent).toContain('Test toast')
   })
+  it('plays delivery sound once only after the visible toast commits, not for synthetic tests', async () => {
+    mockFocus(true)
+    const playSound = vi.fn(async () => {
+      expect(document.querySelector('[role="alert"]')).not.toBeNull()
+      return true
+    })
+    const rpc = soundRpc()
+    const timer = fakeTimer()
+    renderLayer(rpc, undefined, timer, { playSound })
+    expect(playSound).not.toHaveBeenCalled()
+    await flush()
+    expect(playSound).toHaveBeenCalledExactlyOnceWith('ping', 37)
+    act(() => timer.fireInterval())
+    await flush()
+    expect(playSound).toHaveBeenCalledOnce()
+    act(() => enqueueTestToast({ title: 'Test' }))
+    expect(playSound).toHaveBeenCalledOnce()
+  })
+
+  it('acknowledges visible delivery even when sound playback rejects', async () => {
+    mockFocus(true)
+    const rpc = soundRpc()
+    const playSound = vi.fn().mockRejectedValue(new Error('audio blocked'))
+    renderLayer(rpc, undefined, undefined, { playSound })
+    await flush()
+    expect(playSound).toHaveBeenCalledOnce()
+    expect(rpc.mock.calls.some(([method]) => method === 'acknowledgeNotifications')).toBe(true)
+    expect(rpc.mock.calls.some(([method]) => method === 'releaseNotification')).toBe(false)
+  })
+
+  it('does not play sound for denied browser fallback', async () => {
+    mockFocus(false)
+    class Denied { static permission = 'denied' }
+    Object.defineProperty(globalThis, 'Notification', { value: Denied, configurable: true })
+    const playSound = vi.fn().mockResolvedValue(true)
+    const rpc = soundRpc()
+    renderLayer(rpc, undefined, undefined, { playSound })
+    await flush()
+    expect(playSound).not.toHaveBeenCalled()
+    expect(rpc.mock.calls.some(([method]) => method === 'releaseNotification')).toBe(true)
+  })
+
+  it('releases without sound when focus is lost before the toast commits', async () => {
+    let checks = 0
+    Object.defineProperty(document, 'hasFocus', { value: () => ++checks === 1, configurable: true })
+    const playSound = vi.fn().mockResolvedValue(true)
+    const rpc = soundRpc()
+    renderLayer(rpc, undefined, undefined, { playSound })
+    await flush()
+    expect(document.querySelector('[role="alert"]')).toBeNull()
+    expect(playSound).not.toHaveBeenCalled()
+    expect(rpc.mock.calls.some(([method]) => method === 'releaseNotification')).toBe(true)
+    expect(rpc.mock.calls.some(([method]) => method === 'acknowledgeNotifications')).toBe(false)
+  })
+
+  it('does not replay sound for a claim resolving after unmount', async () => {
+    mockFocus(true)
+    let resolve!: (events: unknown[]) => void
+    const pending = new Promise<unknown[]>(done => { resolve = done })
+    const rpc = vi.fn(async (method: string) => method === 'getPendingNotifications' ? pending : {})
+    const playSound = vi.fn().mockResolvedValue(true)
+    renderLayer(rpc, undefined, undefined, { playSound })
+    act(() => root!.unmount())
+    root = undefined
+    resolve([event({ sound: { id: 'ping', volume: 37 } })])
+    await flush()
+    expect(playSound).not.toHaveBeenCalled()
+    expect(document.querySelector('[role="alert"]')).toBeNull()
+    expect(rpc.mock.calls.some(([method]) => method === 'releaseNotification')).toBe(true)
+  })
+
+  it('opens through optional navigation without needing a session-list service', async () => {
+    mockFocus(true)
+    const openSession = vi.fn()
+    renderLayer(vi.fn(async () => [event()]), undefined, undefined, { navigation: { openSession } })
+    await flush()
+    act(() => action('Open session').click())
+    expect(openSession).toHaveBeenCalledWith('s5')
+    expect(document.querySelector('[role="alert"]')).toBeNull()
+  })
+
+  it('omits the Open session action when optional navigation is unavailable', async () => {
+    mockFocus(true)
+    renderLayer(vi.fn(async () => [event()]), {} as ISessions)
+    await flush()
+    expect([...document.querySelectorAll('[role="alert"] button')].map(button => button.textContent)).toEqual(['Dismiss'])
+  })
+
+  it('removes its synthetic-toast subscription on unmount', async () => {
+    renderLayer(vi.fn(async () => []))
+    await flush()
+    act(() => root!.unmount())
+    root = undefined
+    act(() => enqueueTestToast({ title: 'After disposal' }))
+    expect(document.querySelector('[role="alert"]')).toBeNull()
+  })
+
 })

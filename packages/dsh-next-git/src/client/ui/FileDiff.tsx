@@ -25,11 +25,13 @@ export function FileDiff({ file, t }: { file: DiffFile; t: Translate }): React.R
       labels={{
         copy: t('diffBlock.copy'),
         copied: t('diffBlock.copied'),
+        codeLabel: t('diffBlock.codeLabel'),
+        wrapLabel: t('diffBlock.wrapLabel'),
+        unwrapLabel: t('diffBlock.unwrapLabel'),
         collapseAria: t('diffBlock.collapseAria'),
         expandAria: (hidden: number) => t('diffBlock.expandAria', { count: hidden }),
         collapse: t('diffBlock.collapse'),
         expand: (hidden: number) => t('diffBlock.expand', { count: hidden }),
-        files: (count: number) => t('diffBlock.files', { count }),
       }}
     /> : <pre className={classes.patchBlock}>{file.patch}</pre>)}
   </>

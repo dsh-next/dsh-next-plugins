@@ -16,7 +16,9 @@ const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
   'dsh-next-notifier': async page => {
     await openNotifierCard(page)
     await expect(page.getByText('Enable notifications')).toBeVisible()
-    await expect(page.getByText('Test browser notification')).toBeVisible()
+    await expect(page.getByText('System notifications', { exact: true })).toBeVisible()
+    await expect(page.locator('[data-plugin-detail="@dsh-next/dsh-next-notifier"]').getByTestId('dsh-next-notifier-settings')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0)
   },
   'dsh-next-oauth-providers': async page => {
     await dismissOnboarding(page)

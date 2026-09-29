@@ -14,6 +14,9 @@
  * dictionaries against this namespace's `LocaleNamespaceMap` entry and
  * requires every shipped locale in one call.
  */
+import type { MessageKey } from './dictionaries/en.ts'
+export type Translate = (key: MessageKey, params?: Record<string, string | number>) => string
+
 export { en, NS, type MessageKey } from './dictionaries/en.ts'
 export { zh } from './dictionaries/zh.ts'
 export { englishTranslate, interpolate } from './dictionaries/helpers.ts'

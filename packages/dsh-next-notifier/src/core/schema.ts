@@ -2,7 +2,7 @@
  * The Schemastery config schema for the `dsh-next-notifier` plugin. It is the
  * single source of truth for defaults and UI metadata. Every top-level field is
  * volatile, so a `configEditor.edit` write commits into the running fiber
- * without a restart and the notifier re-synthesizes its sound set in place.
+ * without a restart; the next delivery reads the current preferences.
  */
 import Schema from '@deepseek-ai/schemastery'
 import { DEFAULT_SOUNDS, SOUND_IDS } from './sounds.ts'

@@ -1,7 +1,8 @@
 import { describe, expect, it, vi, afterEach } from 'vitest'
-import type { ISessions } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+import { englishTranslate, zh } from '../src/client/dictionaries.ts'
 import type { TimerLike } from '../src/core/timer.ts'
-import { createDrainer, showWebNotification, webPermission } from '../src/client/drainer.ts'
+import { createDrainer, eventTitle, eventBody, sessionTitleOf, showWebNotification, webPermission } from '../src/client/drainer.ts'
 
 /**
  * Client web-notification drainer: polls the Host queue and renders browser
@@ -46,7 +47,7 @@ function uninstallNotification(): void {
   fakeCtors.length = 0
 }
 
-afterEach(uninstallNotification)
+afterEach(() => { uninstallNotification(); vi.useRealTimers(); vi.restoreAllMocks() })
 
 describe('webPermission', () => {
   it('returns unsupported when Notification is undefined', () => {
@@ -80,53 +81,49 @@ describe('showWebNotification', () => {
     showWebNotification({ id: 7, title: 'Hello', body: 'World' }, undefined)
     expect(fakeCtors).toHaveLength(1)
     const n = fakeCtors[0]
-    expect(n.title).toBe('\ud83d\udd14 Hello')
+    expect(n.title).toBe('Hello')
     expect(n.body).toBe('World')
     expect(n.icon).toMatch(/^data:image\/png;base64,/)
     expect(n.tag).toBe('dsh-next-notifier-7')
   })
 
-  it('uses the kind emoji and the session title as the body', () => {
+  it('uses the localized kind title and the session title as the body', () => {
     installNotification('granted')
     const sessions = ({ list: { getSnapshot: () => ({ byId: { s5: { id: 's5', displayTitle: 'Design spec' } } }) } }) as unknown as ISessions
     showWebNotification({ id: 1, kind: 'approval', sessionId: 's5', title: 'Approval needed', body: 'Waiting for approval: bash' }, sessions)
-    expect(fakeCtors[0].title).toBe('\u26a0\ufe0f Approval needed')
+    expect(fakeCtors[0].title).toBe('Approval needed')
     expect(fakeCtors[0].body).toBe('Design spec')
   })
 
-  it('uses a distinct emoji per kind', () => {
-    const kinds: Record<string, string> = {
-      finished: '\u2705',
-      question: '\u2753',
-      subagent: '\ud83d\udc65',
-      'goal-complete': '\ud83c\udfc6',
-      'goal-blocked': '\ud83d\udeab',
-    }
-    for (const [kind, emoji] of Object.entries(kinds)) {
-      installNotification('granted')
-      showWebNotification({ id: 1, kind, title: 'Type' }, undefined)
-      expect(fakeCtors[fakeCtors.length - 1].title).toBe(emoji + ' Type')
-    }
+  it.each([
+    ['finished', 'event.finished'], ['approval', 'event.approval'], ['question', 'event.question'],
+    ['subagent', 'event.subagent'], ['goal-complete', 'event.goalComplete'], ['goal-blocked', 'event.goalBlocked'],
+    ['error', 'event.error'], ['blocked', 'event.blocked'], ['max-tokens', 'event.maxTokens'],
+  ] as const)('localizes %s rather than using the host title', (kind, key) => {
+    installNotification('granted')
+    showWebNotification({ kind, title: 'Host title' }, undefined, undefined, k => zh[k])
+    expect(fakeCtors[0].title).toBe(zh[key])
+    expect(eventTitle({ kind, title: 'Host title' })).toBe(englishTranslate(key))
   })
 
   it('falls back to the detail body when the session is unknown', () => {
     installNotification('granted')
     const sessions = ({ list: { getSnapshot: () => ({ byId: {} }) } }) as unknown as ISessions
     showWebNotification({ id: 1, kind: 'approval', sessionId: 'ghost', title: 'Approval needed', body: 'Waiting for approval: bash' }, sessions)
-    expect(fakeCtors[0].title).toBe('\u26a0\ufe0f Approval needed')
+    expect(fakeCtors[0].title).toBe('Approval needed')
     expect(fakeCtors[0].body).toBe('Waiting for approval: bash')
   })
 
-  it('uses the default emoji for an unknown kind', () => {
+  it('preserves the supplied title for an unknown kind', () => {
     installNotification('granted')
-    showWebNotification({ id: 1, title: 'Test notification', body: 'Check it' }, undefined)
-    expect(fakeCtors[0].title).toBe('\ud83d\udd14 Test notification')
+    showWebNotification({ id: 1, kind: 'unknown', title: 'Test notification', body: 'Check it' }, undefined)
+    expect(fakeCtors[0].title).toBe('Test notification')
   })
 
   it('falls back to DeepSeek Harness when the type title is empty', () => {
     installNotification('granted')
     showWebNotification({ id: 1, title: '' }, undefined)
-    expect(fakeCtors[0].title).toBe('\ud83d\udd14 DeepSeek Harness')
+    expect(fakeCtors[0].title).toBe('DeepSeek Harness')
   })
 
   it('closes itself on a 12s timer', () => {
@@ -240,10 +237,66 @@ describe('createDrainer', () => {
   })
   it('opens the clicked session and closes its notification', () => {
     installNotification('granted')
-    const open = vi.fn()
-    const handle = showWebNotification({ id: 9, sessionId: 's5', title: 't' }, { open } as never)
+    const openSession = vi.fn()
+    vi.spyOn(window, 'focus').mockImplementation(() => {})
+    const handle = showWebNotification({ id: 9, sessionId: 's5', title: 't' }, {} as ISessions, undefined, undefined, { openSession })
     fakeCtors[0].onclick?.()
-    expect(open).toHaveBeenCalledWith('s5')
+    expect(openSession).toHaveBeenCalledWith('s5')
+    expect(fakeCtors[0].close).toHaveBeenCalledOnce()
     handle?.close()
+  })
+})
+
+
+describe('notification presentation fallbacks', () => {
+  it.each(['__proto__', 'constructor', 'toString'])('does not treat prototype key %s as an event kind', kind => {
+    expect(eventTitle({ kind, title: 'Custom' })).toBe('Custom')
+  })
+  it.each([['error', 'event.subagentError'], ['blocked', 'event.subagentBlocked'], ['max-tokens', 'event.subagentMaxTokens']] as const)
+    ('localizes child failure kind %s without labelling it as the main agent', (kind, key) => {
+      expect(eventTitle({ kind, isSubagent: true }, key => zh[key])).toBe(zh[key])
+    })
+  it('handles missing, malformed, and throwing session titles safely', () => {
+    for (const displayTitle of ['', undefined, 42]) {
+      const sessions = { list: { getSnapshot: () => ({ byId: { s: { displayTitle } } }) } } as unknown as ISessions
+      expect(sessionTitleOf(sessions, 's')).toBe('')
+      expect(eventBody({ sessionId: 's', body: 'Detail' }, sessions)).toBe('Detail')
+    }
+    const sessions = { list: { getSnapshot: () => { throw new Error('unavailable') } } } as unknown as ISessions
+    expect(eventBody({ sessionId: 's' }, sessions)).toBe('')
+    expect(sessionTitleOf(sessions, null)).toBe('')
+    expect(eventTitle({}, key => zh[key])).toBe(zh['event.default'])
+  })
+
+  it('returns unsupported for a throwing permission getter and null for constructor failure', () => {
+    class Broken {
+      static get permission(): string { throw new Error('permission') }
+    }
+    vi.stubGlobal('Notification', Broken)
+    expect(webPermission()).toBe('unsupported')
+    class Failed { static permission = 'granted'; constructor() { throw new Error('constructor') } }
+    vi.stubGlobal('Notification', Failed)
+    expect(showWebNotification({}, undefined)).toBeNull()
+    vi.unstubAllGlobals()
+  })
+
+  it('navigates without requiring the optional session-list service', () => {
+    installNotification('granted')
+    vi.spyOn(window, 'focus').mockImplementation(() => {})
+    const openSession = vi.fn()
+    showWebNotification({ sessionId: 's' }, undefined, undefined, undefined, { openSession })
+    fakeCtors[0].onclick?.()
+    expect(openSession).toHaveBeenCalledWith('s')
+    expect(fakeCtors[0].close).toHaveBeenCalledOnce()
+  })
+
+  it('closes safely without optional navigation and never calls the legacy sessions.open', () => {
+    installNotification('granted')
+    vi.spyOn(window, 'focus').mockImplementation(() => {})
+    const open = vi.fn()
+    showWebNotification({ sessionId: 's' }, { open } as unknown as ISessions)
+    expect(() => fakeCtors[0].onclick?.()).not.toThrow()
+    expect(open).not.toHaveBeenCalled()
+    expect(fakeCtors[0].close).toHaveBeenCalledOnce()
   })
 })

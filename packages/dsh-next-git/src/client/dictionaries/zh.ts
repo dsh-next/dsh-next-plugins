@@ -753,6 +753,9 @@ export const zh: Record<MessageKey, string> = {
   // DiffBlock chrome -------------------------------------------------------
   'diffBlock.copy': '复制',
   'diffBlock.copied': '已复制',
+  'diffBlock.codeLabel': '代码',
+  'diffBlock.wrapLabel': '自动换行',
+  'diffBlock.unwrapLabel': '不自动换行',
   'diffBlock.collapseAria': '折叠差异',
   'diffBlock.expandAria': '展开隐藏的 {count} 行',
   'diffBlock.collapse': '折叠',

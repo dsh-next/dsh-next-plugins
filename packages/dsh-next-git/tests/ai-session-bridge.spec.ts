@@ -42,7 +42,7 @@ function observable<T>(initial: T) {
 
 function fixture() {
   const catalog = observable<SessionListState>({
-    ids: [sourceId, otherId], phase: 'ready', subagentsByParent: {}, jobsBySession: {},
+    ids: [sourceId, otherId], phase: 'ready', projectionsBySession: {},
     byId: {
       [sourceId]: { id: sourceId, displayTitle: 'Source title', cwd, blank: true, running: false, retainedBy: {}, updatedAt: 0 },
       [otherId]: { id: otherId, displayTitle: 'Other title', cwd: '/other', blank: true, running: false, retainedBy: {}, updatedAt: 0 },
@@ -52,7 +52,7 @@ function fixture() {
     workspaceId, title: 'Checkout title', path: cwd, sessionIds: [sourceId], createdAt: '', updatedAt: '',
   }
   const workspaces = observable<WorkspaceSnapshot>({
-    items: [workspace], archivedSessionIds: [], phase: 'ready', state: 'idle', error: null,
+    items: [workspace], archivedSessionIds: [], pinnedSessionIds: [], phase: 'ready', state: 'idle', error: null,
   })
   const events = observable<SessionEventWindow>({ entries: [], hasMore: false, revision: 0, change: { kind: 'replace', entries: [] } })
   const prompt = vi.fn<SessionFace['prompt']>().mockResolvedValue({ ok: true, value: { accepted: true } })

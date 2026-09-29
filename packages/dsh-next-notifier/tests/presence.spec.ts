@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { ISessions } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { TimerLike } from '../src/core/timer.ts'
 import { createPresenceReporter, currentSessionId, isLookingNow, type PresenceReporter } from '../src/client/presence.ts'
 import type { ClientPresence } from '../src/core/notifications.ts'
@@ -9,62 +9,30 @@ import type { ClientPresence } from '../src/core/notifications.ts'
  * the session" and page-alive gating real. These tests pin the pure helpers
  * and the event/timer wiring under jsdom (document/window exist).
  */
-function isoString(key: string, value: unknown): unknown {
-  return value === undefined ? '<<undef>>' : value
+function snapshot(id: string) {
+  return { byId: { [id]: { id, retainedBy: { mainView: 1 } } } }
 }
 
 describe('currentSessionId', () => {
-  it('returns null when sessions is undefined', () => {
+  it('returns null for absent services, missing lists, or throwing snapshots', () => {
     expect(currentSessionId(undefined)).toBeNull()
-  })
-
-  it('returns null when both channels are absent', () => {
     expect(currentSessionId({} as ISessions)).toBeNull()
+    expect(currentSessionId({ list: { getSnapshot: () => { throw new Error('unavailable') } } } as unknown as ISessions)).toBeNull()
   })
 
-  it('returns the list snapshot current id (the 0.1.2 shell channel)', () => {
-    const sessions = {
-      list: { getSnapshot: () => ({ current: 's-list' }) },
-    } as unknown as ISessions
-    expect(currentSessionId(sessions)).toBe('s-list')
+  it('uses positive mainView retention, not background retention or legacy selection fields', () => {
+    const sessions = { list: { getSnapshot: () => ({ current: 'legacy', byId: {
+      background: { id: 'background', retainedBy: { sidebar: 1 } },
+      zero: { id: 'zero', retainedBy: { mainView: 0 } },
+      negative: { id: 'negative', retainedBy: { mainView: -1 } },
+      active: { id: 'active', retainedBy: { mainView: 2 } },
+    } }) }, currentProvideInfo: { getSnapshot: () => ({ sessionId: 'legacy' }) } } as unknown as ISessions
+    expect(currentSessionId(sessions)).toBe('active')
   })
 
-  it('prefers the list snapshot over the legacy channel', () => {
-    const sessions = {
-      list: { getSnapshot: () => ({ current: 's-list' }) },
-      currentProvideInfo: { getSnapshot: () => ({ sessionId: 's-legacy' }) },
-    } as unknown as ISessions
-    expect(currentSessionId(sessions)).toBe('s-list')
-  })
-
-  it('falls back to the legacy channel when the list has no current', () => {
-    const sessions = {
-      list: { getSnapshot: () => ({}) },
-      currentProvideInfo: { getSnapshot: () => ({ sessionId: 's-legacy' }) },
-    } as unknown as ISessions
-    expect(currentSessionId(sessions)).toBe('s-legacy')
-  })
-
-  it('returns null when list.current is absent and no legacy channel exists', () => {
-    const sessions = {
-      list: { getSnapshot: () => ({ current: undefined }) },
-    } as unknown as ISessions
-    expect(currentSessionId(sessions)).toBeNull()
-  })
-
-  it('falls back to the legacy channel when the list snapshot throws', () => {
-    const sessions = {
-      list: { getSnapshot: () => { throw new Error('boom') } },
-      currentProvideInfo: { getSnapshot: () => ({ sessionId: 's-legacy' }) },
-    } as unknown as ISessions
-    expect(currentSessionId(sessions)).toBe('s-legacy')
-  })
-
-  it('returns null on a throwing legacy getSnapshot with no list current', () => {
-    const sessions = {
-      list: { getSnapshot: () => ({}) },
-      currentProvideInfo: { getSnapshot: () => { throw new Error('boom') } },
-    } as unknown as ISessions
+  it('returns null when no row is retained in the main view, without a legacy fallback', () => {
+    const sessions = { list: { getSnapshot: () => ({ current: 'legacy', byId: {} }) },
+      currentProvideInfo: { getSnapshot: () => ({ sessionId: 'legacy' }) } } as unknown as ISessions
     expect(currentSessionId(sessions)).toBeNull()
   })
 })
@@ -143,39 +111,47 @@ describe('createPresenceReporter', () => {
     expect(off).toHaveBeenCalledTimes(1)
   })
 
-  it('subscribes to currentProvideInfo when present and unsubscribes on dispose', () => {
-    const unsub = vi.fn()
-    const subscribe = vi.fn(() => unsub)
-    const sessions = {
-      currentProvideInfo: { getSnapshot: () => ({ sessionId: 's1' }), subscribe },
-    } as unknown as ISessions
-    const send = vi.fn().mockResolvedValue({})
-    const reporter = createPresenceReporter(sessions, undefined, send)
-    expect(subscribe).toHaveBeenCalledTimes(1)
+  it('subscribes only to the modern list and unsubscribes on disposal', () => {
+    const unsubscribe = vi.fn()
+    const legacySubscribe = vi.fn()
+    const subscribe = vi.fn(() => unsubscribe)
+    const sessions = { list: { getSnapshot: () => snapshot('s1'), subscribe },
+      currentProvideInfo: { subscribe: legacySubscribe } } as unknown as ISessions
+    const reporter = createPresenceReporter(sessions, undefined, vi.fn().mockResolvedValue({}))
+    expect(subscribe).toHaveBeenCalledOnce()
+    expect(legacySubscribe).not.toHaveBeenCalled()
     reporter.dispose()
-    expect(unsub).toHaveBeenCalledTimes(1)
+    expect(unsubscribe).toHaveBeenCalledOnce()
   })
 
-  it('prefers the list subscription over the legacy channel', () => {
-    const unsubList = vi.fn()
-    const unsubLegacy = vi.fn()
-    const sessions = {
-      list: { getSnapshot: () => ({ current: 's1' }), subscribe: vi.fn(() => unsubList) },
-      currentProvideInfo: { getSnapshot: () => ({ sessionId: 's1' }), subscribe: vi.fn(() => unsubLegacy) },
-    } as unknown as ISessions
+  it('masks session presence while a global panel is active and reports panel changes immediately', () => {
+    let current = 's1'
+    const sessions = { list: { getSnapshot: () => snapshot(current) } } as unknown as ISessions
     const send = vi.fn().mockResolvedValue({})
     const reporter = createPresenceReporter(sessions, undefined, send)
-    expect((sessions.list.subscribe as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(1)
-    expect((sessions.currentProvideInfo.subscribe as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled()
+    expect(send.mock.calls.at(-1)![1]).toMatchObject({ sessionId: 's1' })
+    reporter.setPanelActive(true)
+    expect(send.mock.calls.at(-1)![1]).toMatchObject({ sessionId: null, open: true })
+    expect(reporter.snapshot().sessionId).toBeNull()
+    const count = send.mock.calls.length
+    reporter.setPanelActive(true)
+    expect(send).toHaveBeenCalledTimes(count)
+    current = 's2'
+    reporter.setPanelActive(false)
+    expect(send.mock.calls.at(-1)![1]).toMatchObject({ sessionId: 's2' })
+    reporter.setPanelActive(false)
+    expect(send).toHaveBeenCalledTimes(count + 1)
     reporter.dispose()
-    expect(unsubList).toHaveBeenCalledTimes(1)
-    expect(unsubLegacy).not.toHaveBeenCalled()
+    reporter.setPanelActive(true)
+    reporter.setPanelActive(false)
+    expect(send).toHaveBeenCalledTimes(count + 2)
+    expect(reporter.snapshot()).toMatchObject({ sessionId: null, open: false })
   })
 
   it('reports a fresh sessionId from the list snapshot on every report()', () => {
     const send = vi.fn().mockResolvedValue({})
     const sessions = {
-      list: { getSnapshot: () => ({ current: 's-current' }), subscribe: vi.fn(() => vi.fn()) },
+      list: { getSnapshot: () => snapshot('s-current'), subscribe: vi.fn(() => vi.fn()) },
     } as unknown as ISessions
     const reporter = createPresenceReporter(sessions, undefined, send)
     expect((send.mock.calls[0][1] as { sessionId: string | null }).sessionId).toBe('s-current')
@@ -228,7 +204,7 @@ describe('sequenced presence lifecycle', () => {
     vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visible as DocumentVisibilityState)
     const notification = { permission: 'granted' }
     vi.stubGlobal('Notification', notification)
-    const sessions = { list: { getSnapshot: () => ({ current }) } } as unknown as ISessions
+    const sessions = { list: { getSnapshot: () => snapshot(current) } } as unknown as ISessions
     const { reporter } = create(undefined, sessions)
     expect(reporter.snapshot()).toEqual({ clientId: reporter.clientId, sequence: 2, focused: true, visible: true, open: true, sessionId: 'first', permission: 'granted' })
     focused = false
@@ -268,7 +244,7 @@ describe('sequenced presence lifecycle', () => {
     const off = vi.fn()
     const unsubscribe = vi.fn()
     const timer = { interval: vi.fn((callback: () => void) => { tick = callback; return off }), timeout: vi.fn() } as TimerLike
-    const sessions = { list: { getSnapshot: () => ({ current: 'session' }), subscribe: (callback: () => void) => { change = callback; return unsubscribe } } } as unknown as ISessions
+    const sessions = { list: { getSnapshot: () => snapshot('session'), subscribe: (callback: () => void) => { change = callback; return unsubscribe } } } as unknown as ISessions
     const { reporter, send } = create(undefined, sessions, timer)
     const before = reporter.snapshot()
     reporter.dispose()
@@ -307,7 +283,7 @@ describe('sequenced presence lifecycle', () => {
   it('reports session and visibility changes immediately and survives rejected sends', async () => {
     let current = 'first'
     let change!: () => void
-    const sessions = { list: { getSnapshot: () => ({ current }), subscribe: (callback: () => void) => { change = callback; return vi.fn() } } } as unknown as ISessions
+    const sessions = { list: { getSnapshot: () => snapshot(current), subscribe: (callback: () => void) => { change = callback; return vi.fn() } } } as unknown as ISessions
     const send = vi.fn().mockRejectedValue(new Error('network failed'))
     const { reporter } = create(send, sessions)
     current = 'second'

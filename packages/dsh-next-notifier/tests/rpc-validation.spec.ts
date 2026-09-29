@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { describe, expect, it, vi } from 'vitest'
-import type { SettingsScope } from '@deepseek-ai/dsh-settings'
+import type { ConfigScope } from '../src/host/config-scope.ts'
 import { registerRpc } from '../src/host/rpc.ts'
 import type { Notifier } from '../src/host/notifier.ts'
 import type { NotifierConfig } from '../src/core/types.ts'
@@ -24,11 +24,10 @@ function harness(options: { writable?: boolean; noScope?: boolean; noSettings?: 
     state: vi.fn(() => ({ config: { volume: 70 }, platform: null, webPermission: null, sounds: [] })),
     getPresence: vi.fn(() => ({ clientId: 'tab-a' })),
     reportPresence: vi.fn(), claimPending: vi.fn(() => []),
-    acknowledge: vi.fn(() => true), release: vi.fn(),
-    preview: vi.fn(async () => true), onConfigChanged: vi.fn(async () => {}),
+    acknowledge: vi.fn(() => ({ ok: true })), release: vi.fn(),
   }
   const update = vi.fn(async (_patch: unknown) => ({}))
-  const scope = { update } as unknown as SettingsScope<NotifierConfig>
+  const scope = { update } as unknown as ConfigScope
   let handler!: (req: IncomingMessage, res: ServerResponse) => void
   const off = vi.fn()
   const register = vi.fn((spec: { handler: typeof handler }) => { handler = spec.handler; return off })
@@ -163,15 +162,15 @@ describe('RPC route ownership and transport', () => {
 
   it('does not respond after a request aborts during an asynchronous operation', async () => {
     const h = harness()
-    const ready = deferred<boolean>()
-    h.notifier.preview.mockReturnValue(ready.promise)
+    const ready = deferred<object>()
+    h.update.mockReturnValue(ready.promise)
     const r = h.request()
-    r.req.emit('data', JSON.stringify({ method: 'preview', args: { id: 'chime' } }))
+    r.req.emit('data', JSON.stringify({ method: 'setConfig', args: { volume: 30 } }))
     r.req.emit('end')
     await flush()
-    expect(h.notifier.preview).toHaveBeenCalledTimes(1)
+    expect(h.update).toHaveBeenCalledTimes(1)
     r.req.emit('aborted')
-    ready.resolve(true)
+    ready.resolve({})
     await flush()
     expect(r.res.end).not.toHaveBeenCalled()
   })
@@ -188,14 +187,14 @@ describe('RPC route ownership and transport', () => {
 
   it.each(['close', 'error'])('abandons pending responses on response-stream %s', async (event) => {
     const h = harness()
-    const ready = deferred<boolean>()
-    h.notifier.preview.mockReturnValue(ready.promise)
+    const ready = deferred<object>()
+    h.update.mockReturnValue(ready.promise)
     const r = h.request()
-    r.req.emit('data', JSON.stringify({ method: 'preview', args: { id: 'chime' } }))
+    r.req.emit('data', JSON.stringify({ method: 'setConfig', args: { volume: 30 } }))
     r.req.emit('end')
     await flush()
     expect(() => r.res.emit(event, new Error('peer disconnected'))).not.toThrow()
-    ready.resolve(true)
+    ready.resolve({})
     await flush()
     expect(r.res.end).not.toHaveBeenCalled()
   })
@@ -290,34 +289,12 @@ describe('RPC argument validation and dispatch', () => {
 
   it('returns a rejected acknowledgment as ok:false, not a successful sound acknowledgment', async () => {
     const h = harness()
-    h.notifier.acknowledge.mockReturnValue(false)
+    h.notifier.acknowledge.mockReturnValue({ ok: false })
     expect((await h.post('acknowledgeNotifications', validReceipt)).json).toEqual({ ok: false })
   })
 
-  it('rejects missing, malformed, or unknown preview sounds', async () => {
-    const h = harness()
-    for (const args of [undefined, null, [], {}, { id: 1 }, { id: '' }, { id: '../escape' }, { id: 'unknown' }]) {
-      expect((await h.post('preview', args)).status).toBe(400)
-    }
-    expect(h.notifier.preview).not.toHaveBeenCalled()
-  })
-
-  it('awaits preview completion and returns its boolean rather than serializing a promise', async () => {
-    const h = harness()
-    const ready = deferred<boolean>()
-    h.notifier.preview.mockReturnValue(ready.promise)
-    let completed = false
-    const result = h.post('preview', { id: 'chime' }).then((v) => { completed = true; return v })
-    await flush()
-    expect(completed).toBe(false)
-    ready.resolve(false)
-    expect(await result).toEqual({ status: 200, json: { ok: false } })
-  })
-
-  it('returns 500 on rejected preview without leaking internal details', async () => {
-    const h = harness()
-    h.notifier.preview.mockRejectedValue(new Error('private filesystem path'))
-    expect(await h.post('preview', { id: 'chime' })).toEqual({ status: 500, json: { error: 'request failed' } })
+  it('does not expose host-machine sound playback', async () => {
+    expect((await harness().post('preview', { id: 'chime' })).status).toBe(404)
   })
 })
 
@@ -326,43 +303,25 @@ describe('RPC settings persistence failures and ordering', () => {
     const h = harness(options)
     expect((await h.post('setConfig', { volume: 25 })).status).toBe(403)
     expect(h.update).not.toHaveBeenCalled()
-    expect(h.notifier.onConfigChanged).not.toHaveBeenCalled()
   })
 
   it('reports failed persistence rather than claiming success', async () => {
     const h = harness()
     h.update.mockRejectedValue(new Error('disk full'))
     expect((await h.post('setConfig', { volume: 25 })).status).toBe(500)
-    expect(h.notifier.onConfigChanged).not.toHaveBeenCalled()
     expect(h.notifier.state).not.toHaveBeenCalled()
   })
 
-  it('reports failed sound regeneration rather than claiming the new settings are ready', async () => {
-    const h = harness()
-    h.notifier.onConfigChanged.mockRejectedValue(new Error('write failed'))
-    expect((await h.post('setConfig', { volume: 25 })).status).toBe(500)
-    expect(h.update).toHaveBeenCalledTimes(1)
-    expect(h.notifier.state).not.toHaveBeenCalled()
-  })
-
-  it('awaits persistence and regenerated sounds before responding with client state', async () => {
+  it('awaits persistence before responding with client state', async () => {
     const h = harness()
     const persisted = deferred<object>()
-    const generated = deferred<void>()
     h.update.mockReturnValue(persisted.promise)
-    h.notifier.onConfigChanged.mockReturnValue(generated.promise)
     let completed = false
     const result = h.post('setConfig', { volume: 25, clientId: 'tab-a' }).then((v) => { completed = true; return v })
     await flush()
     expect(h.update).toHaveBeenCalledWith({ volume: 25 })
-    expect(h.notifier.onConfigChanged).not.toHaveBeenCalled()
     expect(completed).toBe(false)
     persisted.resolve({})
-    await flush()
-    expect(h.notifier.onConfigChanged).toHaveBeenCalledTimes(1)
-    expect(h.notifier.state).not.toHaveBeenCalled()
-    expect(completed).toBe(false)
-    generated.resolve()
     expect((await result).status).toBe(200)
     expect(h.notifier.state).toHaveBeenCalledWith('tab-a')
   })

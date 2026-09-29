@@ -761,6 +761,9 @@ export const en = {
   // DiffBlock chrome -------------------------------------------------------
   'diffBlock.copy': 'Copy',
   'diffBlock.copied': 'Copied',
+  'diffBlock.codeLabel': 'Code',
+  'diffBlock.wrapLabel': 'Wrap lines',
+  'diffBlock.unwrapLabel': 'Do not wrap lines',
   'diffBlock.collapseAria': 'Collapse diff',
   'diffBlock.expandAria': 'Expand {count} hidden line(s)',
   'diffBlock.collapse': 'Collapse',

@@ -1,5 +1,5 @@
 /**
- * The curated sound catalog. Every sound is synthesized at startup as a WAV;
+ * The curated sound catalog. Every sound is synthesized on demand on the client;
  * no binary assets ship in the package. The 17-id subset keeps one
  * representative of each distinct timbre from the original 24.
  */

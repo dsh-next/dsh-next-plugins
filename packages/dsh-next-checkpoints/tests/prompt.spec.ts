@@ -19,15 +19,15 @@ describe('promptTooltip', () => {
 })
 
 describe('promptPreviewFromEvents', () => {
-  it('takes the last user prompt in the seq window and skips plugin notices', () => {
+  it('takes the last user prompt in the seq window and skips checkpoints notices', () => {
     expect(userPromptText({
-      source: { kind: 'plugin' },
+      source: { kind: 'checkpoints' },
       content: [{ type: 'text', text: 'Rewound' }],
     })).toBeNull()
     expect(promptPreviewFromEvents([
       { type: 'user/message', seq: 1, data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'first' }] } },
       { type: 'user/message', seq: 4, data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'second turn prompt here' }] } },
-      { type: 'user/message', seq: 9, data: { source: { kind: 'plugin' }, content: [{ type: 'text', text: 'notice' }] } },
+      { type: 'user/message', seq: 9, data: { source: { kind: 'checkpoints' }, content: [{ type: 'text', text: 'notice' }] } },
     ], 2, 10)).toBe('second turn prompt here')
   })
 })

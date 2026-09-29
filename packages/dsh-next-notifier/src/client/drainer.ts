@@ -1,15 +1,15 @@
-/**
- * Browser web-notification drainer: polls the Host queue and renders web
- * notifications with an in-page click-to-open handler. No OS banners.
- */
-import type { ISessions } from '@deepseek-ai/dsh-client-runtime/client'
+/** Renderer notifications and single-flight host delivery polling. */
+import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { UiWorkspace } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type { TimerLike } from '../core/timer.ts'
 import type { Delivery } from '../core/notifications.ts'
 import { DEEPSEEK_ICON } from './deepseek-icon.ts'
+import { englishTranslate, type Translate, type MessageKey } from './dictionaries.ts'
 
 interface PendingEvent {
   id?: number | string
   kind?: string
+  isSubagent?: boolean
   title?: string
   body?: string
   sessionId?: string | null
@@ -17,31 +17,20 @@ interface PendingEvent {
   channel?: 'toast' | 'web'
 }
 
-/**
- * Emoji glyph per notification kind, used as the title's leading icon. Kept as
- * unicode escapes so the source file stays ASCII (repository convention) while
- * the browser renders the actual emoji.
- */
-const KIND_EMOJI: Record<string, string> = {
-  finished: '\u2705',
-  approval: '\u26a0\ufe0f',
-  question: '\u2753',
-  subagent: '\ud83d\udc65',
-  'goal-complete': '\ud83c\udfc6',
-  'goal-blocked': '\ud83d\udeab',
+const TITLES: Record<string, MessageKey> = {
+  finished: 'event.finished', approval: 'event.approval', question: 'event.question',
+  subagent: 'event.subagent', 'goal-complete': 'event.goalComplete', 'goal-blocked': 'event.goalBlocked',
+  error: 'event.error', blocked: 'event.blocked', 'max-tokens': 'event.maxTokens',
 }
-const DEFAULT_EMOJI = '\ud83d\udd14'
 
-/**
- * The notification headline: an emoji icon for the kind plus the type (the
- * Host-supplied `title`, e.g. "Approval needed"). The session title moves to
- * the body. Shared by the web-notification drainer and the in-page toast
- * layer, so both channels speak the same glance language.
- */
-export function eventTitle(event: PendingEvent): string {
-  const base = typeof event.title === 'string' && event.title.length > 0 ? event.title : 'DeepSeek Harness'
-  const emoji = (typeof event.kind === 'string' && KIND_EMOJI[event.kind]) || DEFAULT_EMOJI
-  return emoji + ' ' + base
+/** Known event kinds are localized on the receiving client. */
+export function eventTitle(event: PendingEvent, t: Translate = englishTranslate): string {
+  if (event.isSubagent && event.kind === 'error') return t('event.subagentError')
+  if (event.isSubagent && event.kind === 'blocked') return t('event.subagentBlocked')
+  if (event.isSubagent && event.kind === 'max-tokens') return t('event.subagentMaxTokens')
+  const key = event.kind && Object.hasOwn(TITLES, event.kind) ? TITLES[event.kind] : undefined
+  if (key) return t(key)
+  return event.title || t('event.default')
 }
 
 /**
@@ -78,10 +67,10 @@ export interface WebNotificationHandle {
 }
 
 /** Only a browser show event confirms acceptance; a constructor alone does not. */
-export function showWebNotification(event: PendingEvent, sessions: ISessions | undefined, onClose?: () => void): WebNotificationHandle | null {
+export function showWebNotification(event: PendingEvent, sessions: ISessions | undefined, onClose?: () => void, t: Translate = englishTranslate, navigation?: Pick<UiWorkspace, 'openSession'>): WebNotificationHandle | null {
   if (webPermission() !== 'granted') return null
   try {
-    const notification = new Notification(eventTitle(event), {
+    const notification = new Notification(eventTitle(event, t), {
       body: eventBody(event, sessions), icon: DEEPSEEK_ICON,
       tag: 'dsh-next-notifier-' + (event.id ?? 'unknown'), silent: true,
     })
@@ -105,8 +94,8 @@ export function showWebNotification(event: PendingEvent, sessions: ISessions | u
     notification.onclose = close
     notification.onclick = () => {
       try { window.focus() } catch {}
-      if (sessions && typeof event.sessionId === 'string' && event.sessionId) {
-        try { void Promise.resolve(sessions.open(event.sessionId as never)).catch(() => {}) } catch {}
+      if (typeof event.sessionId === 'string' && event.sessionId) {
+        try { navigation?.openSession(event.sessionId as never) } catch {}
       }
       close()
     }

@@ -47,7 +47,7 @@ describe('skill detail folder opener integration', () => {
   it.each([
     ['bundle', installed],
     ['flat', { ...installed, kind: 'flat' as const, path: '/global/skills/review.md', directory: '/global/skills' }],
-    ['external', { ...installed, ownership: { owner: 'cc-plugins', pluginKey: 'k', marketplaceId: 'm', skillName: 'review' } }],
+    ['external', { ...installed, ownership: { owner: 'external-provider', pluginKey: 'k', marketplaceId: 'm', skillName: 'review' } }],
   ])('opens the selected %s copy directory, not its SKILL.md or session workspace', async (_kind, row) => {
     const fetcher = await renderDetail(row)
     const button = container!.querySelector<HTMLButtonElement>('[data-testid="skills-open-folder"]')!

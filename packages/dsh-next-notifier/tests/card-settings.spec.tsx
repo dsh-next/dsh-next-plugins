@@ -2,9 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as React from 'react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
+import type { ConfigPageForm } from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 import { NotifierCard, type CardDeps } from '../src/client/card.tsx'
 import { defaultConfig } from '../src/core/config.ts'
-import type { NotifierConfig, NotifierConfigPatch } from '../src/core/types.ts'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -14,294 +14,403 @@ function deferred<T>() {
   const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no })
   return { promise, resolve, reject }
 }
-
-function snapshot(config = defaultConfig()) {
-  return { config, sounds: ['chime', 'bell'].map(id => ({ id, name: id, group: 'Sounds' })) }
+type MockForm = Omit<ConfigPageForm, 'state'> & { state: ConfigPageForm['state']; publish?: () => void }
+function form(overrides: Partial<ConfigPageForm['state']> = {}): MockForm {
+  const settings: MockForm = {
+    state: { mode: 'host', status: 'ready', value: { ...defaultConfig() }, base: {}, user: {}, writable: true, revision: 7, ...overrides },
+    mutate: vi.fn<ConfigPageForm['mutate']>(async ops => {
+      // The native host publishes its accepted snapshot before resolving mutate.
+      const value = { ...settings.state.value } as Record<string, unknown>
+      for (const op of ops) {
+        const [field, child] = op.path
+        if (child) value[field] = { ...(value[field] as object), [child]: op.op === 'set' ? op.value : undefined }
+        else value[field] = op.op === 'set' ? op.value : (settings.state.base as Record<string, unknown> | undefined)?.[field]
+      }
+      settings.state = { ...settings.state, value, revision: (settings.state.revision ?? 0) + 1 }
+      settings.publish?.()
+      return true
+    }),
+  }
+  return settings
 }
 
-function merge(config: NotifierConfig, patch: NotifierConfigPatch): NotifierConfig {
-  return { ...config, ...patch, finished: { ...config.finished, ...patch.finished }, approval: { ...config.approval, ...patch.approval }, question: { ...config.question, ...patch.question } }
-}
-
-describe('NotifierCard settings lifecycle', () => {
+describe('NotifierCard automatic settings', () => {
   let root: Root | undefined
   let container: HTMLDivElement
   let props: CardDeps
-  afterEach(() => {
-    act(() => { root?.unmount() })
+  let strict = false
+  let pageMounted = false
+  afterEach(async () => {
+    pageMounted = false
+    await act(async () => { root?.unmount() })
     root = undefined
     container?.remove()
     vi.useRealTimers()
     vi.unstubAllGlobals()
   })
-
-  async function mount(rpc: CardDeps['rpc']) {
+  async function mount(settings = form(), extra: Partial<CardDeps> = {}, strictMode = false) {
+    strict = strictMode
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
-    props = { rpc, showWebNotification: vi.fn() }
-    await act(async () => { root!.render(React.createElement(NotifierCard, props)) })
-    await click(container.querySelector('button[aria-expanded]')!)
+    props = { form: settings, preview: vi.fn(async () => true), reportPermission: vi.fn(), testSystem: vi.fn(async () => true), testToast: vi.fn(), ...extra }
+    settings.publish = () => {
+      props = { ...props, form: { state: settings.state, mutate: settings.mutate } }
+      if (pageMounted) paint()
+    }
+    await render()
+    return settings
   }
-  async function click(element: Element) {
-    await act(async () => { (element as HTMLElement).click() })
+  function paint() { root!.render(strict ? <React.StrictMode><NotifierCard {...props} /></React.StrictMode> : <NotifierCard {...props} />) }
+  async function render() { pageMounted = true; await act(async () => { paint() }) }
+  async function unmountPage() { pageMounted = false; await act(async () => { root!.render(null) }) }
+  async function snapshot(settings: MockForm, state: Partial<ConfigPageForm['state']>) {
+    await act(async () => { settings.state = { ...settings.state, ...state }; settings.publish!() })
   }
-  function checkbox(label: string): HTMLInputElement {
-    return [...container.querySelectorAll('label')].find(el => el.textContent?.startsWith(label))!.querySelector('input')!
-  }
-  function slider() { return container.querySelector<HTMLInputElement>('input[type="range"]')! }
+  const button = (label: string) => [...container.querySelectorAll('button')].find(el => el.textContent === label)!
+  const toggle = (label: string) => container.querySelector<HTMLButtonElement>(`[role="switch"][aria-label="${label}"]`)!
+  const slider = () => container.querySelector<HTMLInputElement>('input[type="range"]')!
+  const group = (label = 'Agent finished') => container.querySelector<HTMLElement>(`section[aria-label="${label}"]`)!
+  async function click(el: HTMLElement) { await act(async () => { el.click() }) }
   async function volume(value: number) {
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(slider(), String(value))
       slider().dispatchEvent(new Event('input', { bubbles: true }))
     })
   }
-  async function select(value: string) {
+  async function sound(value: string, label = 'Agent finished') {
     await act(async () => {
-      const el = container.querySelector('select')!
-      el.value = value
-      el.dispatchEvent(new Event('change', { bubbles: true }))
+      const select = group(label).querySelector('select')!
+      select.value = value
+      select.dispatchEvent(new Event('change', { bubbles: true }))
     })
   }
-  function server() {
-    let config = defaultConfig()
-    return vi.fn(async (method: string, args?: unknown) => {
-      if (method === 'setConfig') config = merge(config, args as NotifierConfigPatch)
-      return snapshot(config)
-    })
-  }
+  async function advance(ms: number) { await act(async () => { vi.advanceTimersByTime(ms) }) }
 
-  it('debounces rapid slider inputs across renders to one save and preview', async () => {
-    vi.useFakeTimers()
-    const rpc = server()
-    await mount(rpc)
-    await volume(20)
-    await act(async () => { vi.advanceTimersByTime(400) })
-    await act(async () => { root!.render(React.createElement(NotifierCard, { ...props })) })
-    await volume(40)
-    await act(async () => { vi.advanceTimersByTime(400) })
-    expect(rpc.mock.calls.filter(([method]) => method === 'setConfig')).toHaveLength(0)
-    expect(slider().value).toBe('40')
-    await act(async () => { vi.advanceTimersByTime(200) })
-    expect(rpc.mock.calls.filter(([method]) => method === 'setConfig')).toEqual([['setConfig', { volume: 40 }]])
-    expect(rpc.mock.calls.filter(([method]) => method === 'preview')).toHaveLength(1)
+  it('renders settings directly without a disclosure or Save button', async () => {
+    await mount()
+    expect(container.querySelector('[data-testid="dsh-next-notifier-settings"]')).not.toBeNull()
+    expect(container.querySelector('button[aria-expanded]')).toBeNull()
+    expect(toggle('Enable notifications').getAttribute('aria-checked')).toBe('true')
+    expect(button('Save')).toBeUndefined()
+    expect(container.querySelectorAll('select')).toHaveLength(3)
   })
 
-  it('cancels pending volume persistence on unmount', async () => {
-    vi.useFakeTimers()
-    const rpc = server()
-    await mount(rpc)
-    await volume(30)
-    act(() => { root!.unmount(); root = undefined })
-    await act(async () => { vi.advanceTimersByTime(1000) })
-    expect(rpc.mock.calls.filter(([method]) => ['setConfig', 'preview'].includes(method))).toEqual([])
-  })
-
-  it('serializes saves and preserves newer optimistic nested fields during delayed responses', async () => {
-    const first = deferred<ReturnType<typeof snapshot>>()
-    const second = deferred<ReturnType<typeof snapshot>>()
-    const rpc = vi.fn(async (method: string) => {
-      if (method === 'setConfig') return rpc.mock.calls.filter(([m]) => m === 'setConfig').length === 1 ? first.promise : second.promise
-      return snapshot()
-    })
-    await mount(rpc)
-    await click(checkbox('Subagent finished'))
-    await click(checkbox('Only notify when the goal completes'))
-    expect(checkbox('Subagent finished').checked).toBe(true)
-    expect(checkbox('Only notify when the goal completes').checked).toBe(false)
-    expect(container.querySelector('select')!.disabled).toBe(false)
-    expect(rpc.mock.calls.filter(([m]) => m === 'setConfig')).toEqual([['setConfig', { finished: { subagent: true } }]])
-    const saved = merge(defaultConfig(), { finished: { subagent: true } })
-    await act(async () => { first.resolve(snapshot(saved)) })
-    expect(checkbox('Only notify when the goal completes').checked).toBe(false)
-    expect(rpc.mock.calls.filter(([m]) => m === 'setConfig')).toEqual([['setConfig', { finished: { subagent: true } }], ['setConfig', { finished: { goalOnly: false } }]])
-    await act(async () => { second.resolve(snapshot(merge(saved, { finished: { goalOnly: false } }))) })
-    expect(checkbox('Subagent finished').checked).toBe(true)
-    expect(checkbox('Mute while viewing the session').checked).toBe(true)
-  })
-
-  it('keeps a volume draft visible when another save resolves during debounce', async () => {
-    vi.useFakeTimers()
-    const save = deferred<ReturnType<typeof snapshot>>()
-    const rpc = vi.fn(async (method: string) => method === 'setConfig' ? save.promise : snapshot())
-    await mount(rpc)
-    await click(checkbox('Subagent finished'))
-    await volume(35)
-    await act(async () => { save.resolve(snapshot(merge(defaultConfig(), { finished: { subagent: true } }))) })
-    expect(slider().value).toBe('35')
-  })
-
-  it('flushes a pending volume draft before saving and previewing a sound selection', async () => {
-    vi.useFakeTimers()
-    const rpc = server()
-    await mount(rpc)
-    await volume(25)
-    await select('bell')
-    expect(rpc.mock.calls.filter(([m]) => ['setConfig', 'preview'].includes(m))).toEqual([
-      ['setConfig', { volume: 25, finished: { soundName: 'bell' } }],
-      ['preview', { id: 'bell' }],
+  it('immediately persists switches and selects as leaf operations without automatic previews', async () => {
+    const settings = await mount()
+    await click(toggle('Subagent finished'))
+    await click(toggle('Only notify when the goal completes'))
+    await click(toggle('Mute while viewing the session'))
+    await sound('bell')
+    await sound('ping', 'Approval needed')
+    await sound('chime', 'Question asked')
+    expect(vi.mocked(settings.mutate).mock.calls).toEqual([
+      [[{ op: 'set', path: ['finished', 'subagent'], value: true }]],
+      [[{ op: 'set', path: ['finished', 'goalOnly'], value: false }]],
+      [[{ op: 'set', path: ['suppressFocused'], value: false }]],
+      [[{ op: 'set', path: ['finished', 'soundName'], value: 'bell' }]],
+      [[{ op: 'set', path: ['approval', 'soundName'], value: 'ping' }]],
+      [[{ op: 'set', path: ['question', 'soundName'], value: 'chime' }]],
     ])
-    await act(async () => { vi.advanceTimersByTime(1000) })
-    expect(rpc.mock.calls.filter(([m]) => m === 'preview')).toHaveLength(1)
-    expect(slider().value).toBe('25')
+    expect(settings.state.value).toMatchObject({ finished: { subagent: true, goalOnly: false, soundName: 'bell' }, suppressFocused: false })
+    expect(props.preview).not.toHaveBeenCalled()
   })
 
-  it('waits for saved sound state before previewing', async () => {
-    const save = deferred<ReturnType<typeof snapshot>>()
-    const rpc = vi.fn(async (method: string) => method === 'setConfig' ? save.promise : snapshot())
-    await mount(rpc)
-    await select('bell')
-    expect(rpc.mock.calls.filter(([m]) => m === 'preview')).toEqual([])
-    await act(async () => { save.resolve(snapshot(merge(defaultConfig(), { finished: { soundName: 'bell' } }))) })
-    expect(rpc.mock.calls.filter(([m]) => m === 'preview')).toEqual([['preview', { id: 'bell' }]])
-  })
-
-  it.each(['resolve', 'reject'] as const)('does not preview, recover, or start queued saves after unmount (%s)', async (outcome) => {
+  it('optimistically coalesces slider changes for 250ms after the latest edit', async () => {
     vi.useFakeTimers()
-    const save = deferred<ReturnType<typeof snapshot>>()
-    const rpc = vi.fn(async (method: string) => method === 'setConfig' ? save.promise : snapshot())
-    await mount(rpc)
+    const settings = await mount()
+    await volume(20)
+    expect(slider().value).toBe('20')
+    await advance(200)
+    await volume(40)
+    await advance(249)
+    expect(settings.mutate).not.toHaveBeenCalled()
+    expect(slider().value).toBe('40')
+    await advance(1)
+    expect(settings.mutate).toHaveBeenCalledExactlyOnceWith([{ op: 'set', path: ['volume'], value: 40 }])
+    expect(settings.state.value).toMatchObject({ volume: 40 })
+  })
+
+  it('serializes in-flight writes while coalescing pending edits in their latest order', async () => {
+    const first = deferred<boolean>()
+    const second = deferred<boolean>()
+    const settings = form()
+    vi.mocked(settings.mutate).mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+    await mount(settings)
+    await click(toggle('Subagent finished'))
+    await sound('bell')
+    await click(toggle('Only notify when the goal completes'))
+    await sound('ping')
+    expect(settings.mutate).toHaveBeenCalledTimes(1)
+    expect(slider().disabled).toBe(false)
+    expect(toggle('Enable notifications').disabled).toBe(false)
+    expect(button('Restore inherited settings').disabled).toBe(false)
+    expect(group().querySelector('select')!.value).toBe('ping')
+    await snapshot(settings, { revision: 8, value: { ...defaultConfig(), volume: 42, finished: { ...defaultConfig().finished, subagent: true } } })
+    expect(slider().value).toBe('42')
+    expect(group().querySelector('select')!.value).toBe('ping')
+    await act(async () => { first.resolve(true) })
+    expect(settings.mutate).toHaveBeenNthCalledWith(2, [
+      { op: 'set', path: ['finished', 'goalOnly'], value: false },
+      { op: 'set', path: ['finished', 'soundName'], value: 'ping' },
+    ])
+    await snapshot(settings, { revision: 9, value: { ...settings.state.value, finished: { ...defaultConfig().finished, subagent: true, goalOnly: false, soundName: 'ping' } } })
+    await act(async () => { second.resolve(true) })
+    expect(toggle('Subagent finished').getAttribute('aria-checked')).toBe('true')
+    expect(group().querySelector('select')!.value).toBe('ping')
+  })
+
+  it.each(['before', 'after'] as const)('drains pending volume when the in-flight write settles %s the debounce deadline', async timing => {
+    vi.useFakeTimers()
+    const pending = deferred<boolean>()
+    const settings = form()
+    vi.mocked(settings.mutate).mockReturnValueOnce(pending.promise)
+    await mount(settings)
+    await sound('bell')
+    await volume(20)
+    await volume(38)
+    await advance(249)
+    expect(settings.mutate).toHaveBeenCalledOnce()
+    if (timing === 'before') {
+      await act(async () => { pending.resolve(true) })
+      expect(settings.mutate).toHaveBeenCalledOnce()
+      await advance(1)
+    } else {
+      await advance(1)
+      expect(settings.mutate).toHaveBeenCalledOnce()
+      await act(async () => { pending.resolve(true) })
+    }
+    expect(settings.mutate).toHaveBeenNthCalledWith(2, [{ op: 'set', path: ['volume'], value: 38 }])
+    expect(slider().value).toBe('38')
+  })
+
+  it.each(['refused', 'rejected'] as const)('rolls back to the latest authoritative snapshot on %s and recovers on the next edit', async outcome => {
+    const pending = deferred<boolean>()
+    const settings = form()
+    vi.mocked(settings.mutate).mockReturnValueOnce(pending.promise)
+    await mount(settings)
+    await sound('bell')
+    expect(group().querySelector('select')!.value).toBe('bell')
+    await snapshot(settings, { revision: 12, value: { ...defaultConfig(), volume: 33, finished: { ...defaultConfig().finished, soundName: 'chime' } } })
+    await act(async () => { outcome === 'refused' ? pending.resolve(false) : pending.reject(new Error('offline')) })
+    expect(container.textContent).toContain('The change was not saved')
+    expect(group().querySelector('select')!.value).toBe('chime')
+    expect(slider().value).toBe('33')
+    await sound('ping')
+    expect(settings.mutate).toHaveBeenLastCalledWith([{ op: 'set', path: ['finished', 'soundName'], value: 'ping' }])
+    expect(group().querySelector('select')!.value).toBe('ping')
+    expect(container.textContent).not.toContain('The change was not saved')
+  })
+
+  it.each(['loading', 'unavailable'] as const)('renders %s without editable settings but keeps device tests', async status => {
+    const settings = await mount(form({ status }))
+    expect(container.textContent).toContain(status === 'loading' ? 'Loading notification settings' : 'Notification settings are unavailable')
+    expect(container.querySelector('[role="switch"]')).toBeNull()
+    expect(button('Save')).toBeUndefined()
+    await click(button('Show'))
+    expect(props.testToast).toHaveBeenCalledOnce()
+    expect(settings.mutate).not.toHaveBeenCalled()
+  })
+
+  it('handles an absent form and a later ready snapshot', async () => {
+    await mount(form(), { form: undefined })
+    expect(container.textContent).toContain('Notification settings are unavailable')
+    props = { ...props, form: form() }
+    await render()
+    expect(slider().value).toBe('70')
+  })
+
+  it('renders readonly values and disables settings without disabling device tests', async () => {
+    const settings = await mount(form({ writable: false }))
+    expect(container.textContent).toContain('Settings are read-only')
+    for (const el of container.querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLSelectElement>('[role="switch"], input, select')) expect(el.disabled).toBe(true)
+    expect(button('Restore inherited settings').disabled).toBe(true)
+    expect(button('Save')).toBeUndefined()
+    await click(button('Show'))
+    expect(props.testToast).toHaveBeenCalledOnce()
+    expect(settings.mutate).not.toHaveBeenCalled()
+  })
+
+  it('automatically restores inherited fields rather than hardcoded defaults', async () => {
+    vi.useFakeTimers()
+    const base = { ...defaultConfig(), volume: 33, finished: { ...defaultConfig().finished, soundName: 'bell', subagent: true } }
+    const settings = await mount(form({ base }))
+    await volume(22)
+    await click(button('Restore inherited settings'))
+    expect(slider().value).toBe('33')
+    expect(group().querySelector('select')!.value).toBe('bell')
+    expect(toggle('Subagent finished').getAttribute('aria-checked')).toBe('true')
+    expect(settings.mutate).toHaveBeenCalledExactlyOnceWith(Object.keys(defaultConfig()).map(field => ({ op: 'unset', path: [field] })))
+    await advance(250)
+    expect(settings.mutate).toHaveBeenCalledOnce()
+  })
+
+  it('orders queued reset before a later leaf override and preserves inherited siblings', async () => {
+    const pending = deferred<boolean>()
+    const settings = form({ base: { finished: { ...defaultConfig().finished, subagent: true } } })
+    vi.mocked(settings.mutate).mockReturnValueOnce(pending.promise)
+    await mount(settings)
+    await click(toggle('Mute while viewing the session'))
+    await sound('ping')
+    await click(button('Restore inherited settings'))
+    await sound('bell')
+    expect(toggle('Subagent finished').getAttribute('aria-checked')).toBe('true')
+    expect(settings.mutate).toHaveBeenCalledOnce()
+    await act(async () => { pending.resolve(true) })
+    expect(settings.mutate).toHaveBeenNthCalledWith(2, [
+      ...Object.keys(defaultConfig()).map(field => ({ op: 'unset', path: [field] })),
+      { op: 'set', path: ['finished', 'soundName'], value: 'bell' },
+    ])
+    expect(group().querySelector('select')!.value).toBe('bell')
+    expect(toggle('Subagent finished').getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('disables dependent controls for the master, group, sound, and zero-volume states', async () => {
+    await mount()
+    await click(toggle('Agent finished'))
+    expect(group().querySelector('select')!.disabled).toBe(true)
+    expect(toggle('Subagent finished').disabled).toBe(true)
+    expect(group('Approval needed').querySelector('select')!.disabled).toBe(false)
+    await click(toggle('Agent finished'))
+    await click(group().querySelector<HTMLButtonElement>('[aria-label="Play sound"]')!)
+    expect(group().querySelector('select')!.disabled).toBe(true)
+    await click(group().querySelector<HTMLButtonElement>('[aria-label="Play sound"]')!)
+    await volume(0)
+    expect(button('Preview').disabled).toBe(true)
+    await click(toggle('Enable notifications'))
+    expect(slider().disabled).toBe(true)
+    expect(toggle('Mute while viewing the session').disabled).toBe(true)
+    expect(toggle('Approval needed').disabled).toBe(true)
+    expect(toggle('Enable notifications').disabled).toBe(false)
+  })
+
+  it('previews optimistic sound and volume without an extra settings write', async () => {
+    vi.useFakeTimers()
+    const pending = deferred<boolean>()
+    const settings = form()
+    vi.mocked(settings.mutate).mockReturnValueOnce(pending.promise)
+    await mount(settings)
+    await sound('bell')
+    await volume(29)
+    await click(button('Preview'))
+    expect(props.preview).toHaveBeenCalledExactlyOnceWith('bell', 29)
+    expect(settings.mutate).toHaveBeenCalledOnce()
+    await act(async () => { pending.resolve(true) })
+  })
+
+  it.each(['false', 'reject'] as const)('shows audio failure on %s and clears it on successful retry', async outcome => {
+    const preview = vi.fn(async () => true)
+    if (outcome === 'false') preview.mockResolvedValueOnce(false)
+    else preview.mockRejectedValueOnce(new Error('blocked'))
+    const settings = await mount(form(), { preview })
+    await click(button('Preview'))
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('Sound could not play')
+    await click(button('Preview'))
+    expect(container.querySelector('[role="alert"]')).toBeNull()
+    expect(settings.mutate).not.toHaveBeenCalled()
+  })
+
+  it.each([true, false])('only the latest preview result controls the error (latest=%s)', async latest => {
+    const old = deferred<boolean>()
+    const current = deferred<boolean>()
+    const preview = vi.fn().mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise)
+    await mount(form(), { preview })
+    await click(button('Preview'))
+    await click(button('Preview'))
+    await act(async () => { current.resolve(latest) })
+    await act(async () => { old.resolve(!latest) })
+    expect(container.textContent!.includes('Sound could not play')).toBe(!latest)
+  })
+
+  it('ignores an older rejected preview after a newer preview succeeds', async () => {
+    const old = deferred<boolean>()
+    const preview = vi.fn().mockReturnValueOnce(old.promise).mockResolvedValueOnce(true)
+    await mount(form(), { preview })
+    await click(button('Preview'))
+    await click(button('Preview'))
+    await act(async () => { old.reject(new Error('stale audio failure')) })
+    expect(container.querySelector('[role="alert"]')).toBeNull()
+  })
+
+  it.each(['readonly', 'unavailable'] as const)('does not flush pending volume after the host becomes %s', async state => {
+    vi.useFakeTimers()
+    const settings = await mount()
+    await volume(24)
+    await snapshot(settings, state === 'readonly' ? { writable: false } : { status: 'unavailable' })
+    await advance(250)
+    expect(settings.mutate).not.toHaveBeenCalled()
+    if (state === 'readonly') {
+      expect(slider().disabled).toBe(true)
+      expect(slider().value).toBe('70')
+    } else expect(container.querySelector('[role="switch"]')).toBeNull()
+  })
+
+  it.each(['resolve', 'reject'] as const)('ignores late save and preview results after StrictMode remount (%s)', async outcome => {
+    vi.useFakeTimers()
+    const save = deferred<boolean>()
+    const audio = deferred<boolean>()
+    const settings = form()
+    vi.mocked(settings.mutate).mockReturnValue(save.promise)
+    await mount(settings, { preview: vi.fn(() => audio.promise) }, true)
+    await sound('bell')
+    await click(button('Preview'))
+    await unmountPage()
+    props = { ...props, form: form(), preview: vi.fn(async () => true) }
+    await render()
     await volume(45)
-    await act(async () => { vi.advanceTimersByTime(600) })
-    await click(checkbox('Subagent finished'))
-    const calls = rpc.mock.calls.length
-    act(() => { root!.unmount(); root = undefined })
-    await act(async () => { outcome === 'resolve' ? save.resolve(snapshot()) : save.reject(new Error('save failed')) })
-    expect(rpc.mock.calls).toHaveLength(calls)
-  })
-
-  it('surfaces save errors, recovers before queued edits, and clears errors on later success', async () => {
-    const save = deferred<ReturnType<typeof snapshot>>()
-    const recovery = deferred<ReturnType<typeof snapshot>>()
-    let saves = 0
-    let reads = 0
-    const rpc = vi.fn(async (method: string, args?: unknown) => {
-      if (method === 'getState') return ++reads === 1 ? snapshot() : recovery.promise
-      if (method === 'setConfig') return ++saves === 1 ? save.promise : snapshot(merge(defaultConfig(), args as NotifierConfigPatch))
-      return {}
+    await act(async () => {
+      if (outcome === 'resolve') { save.resolve(false); audio.resolve(false) }
+      else { save.reject(new Error('late')); audio.reject(new Error('late')) }
     })
-    await mount(rpc)
-    await select('bell')
-    await click(checkbox('Subagent finished'))
-    await act(async () => { save.reject(new Error('save failed')) })
-    expect(container.textContent).toContain('save failed')
-    expect(saves).toBe(1)
-    expect(rpc.mock.calls.filter(([m]) => m === 'preview')).toEqual([])
-    await act(async () => { recovery.resolve(snapshot()) })
-    expect(saves).toBe(2)
-    expect(checkbox('Subagent finished').checked).toBe(true)
-    expect(container.querySelector('select')!.value).toBe('chime')
-    expect(container.textContent).not.toContain('save failed')
+    expect(slider().value).toBe('45')
+    expect(container.querySelector('[role="alert"]')).toBeNull()
+    expect(container.textContent).not.toContain('The change was not saved')
+    expect(settings.mutate).toHaveBeenCalledOnce()
+    expect(props.form!.mutate).not.toHaveBeenCalled()
   })
 
-  it('suppresses stale volume previews while preserving the newest in-flight draft', async () => {
+  it('flushes pending volume exactly once on unmount, including StrictMode', async () => {
     vi.useFakeTimers()
-    const first = deferred<ReturnType<typeof snapshot>>()
-    let saves = 0
-    const rpc = vi.fn(async (method: string, args?: unknown) => {
-      if (method === 'setConfig') return ++saves === 1 ? first.promise : snapshot(merge(defaultConfig(), args as NotifierConfigPatch))
-      return snapshot()
-    })
-    await mount(rpc)
-    await volume(20)
-    await act(async () => { vi.advanceTimersByTime(600) })
-    await volume(80)
-    await act(async () => { first.resolve(snapshot(merge(defaultConfig(), { volume: 20 }))) })
-    expect(slider().value).toBe('80')
-    expect(rpc.mock.calls.filter(([m]) => m === 'preview')).toEqual([])
-    await act(async () => { vi.advanceTimersByTime(600) })
-    expect(slider().value).toBe('80')
-    expect(rpc.mock.calls.filter(([m]) => m === 'preview')).toHaveLength(1)
+    const settings = await mount(form(), {}, true)
+    expect(settings.mutate).not.toHaveBeenCalled()
+    await volume(18)
+    await unmountPage()
+    expect(settings.mutate).toHaveBeenCalledExactlyOnceWith([{ op: 'set', path: ['volume'], value: 18 }])
+    await advance(1000)
+    expect(settings.mutate).toHaveBeenCalledOnce()
+    await render()
+    expect(slider().value).toBe('18')
   })
 
-  it('recovers from failed recovery reads without dropping unrelated queued edits', async () => {
-    const first = deferred<ReturnType<typeof snapshot>>()
-    let saves = 0
-    let reads = 0
-    const rpc = vi.fn(async (method: string, args?: unknown) => {
-      if (method === 'getState' && ++reads > 1) throw new Error('read failed')
-      if (method === 'setConfig') return ++saves === 1 ? first.promise : snapshot(merge(defaultConfig(), args as NotifierConfigPatch))
-      return snapshot()
-    })
-    await mount(rpc)
-    await click(checkbox('Subagent finished'))
-    await click(checkbox('Mute while viewing the session'))
-    await act(async () => { first.reject(new Error('save failed')) })
-    expect(checkbox('Subagent finished').checked).toBe(false)
-    expect(checkbox('Mute while viewing the session').checked).toBe(false)
-    expect(container.textContent).not.toContain('save failed')
-    expect(saves).toBe(2)
-  })
-
-  it('surfaces preview errors without rolling back saved settings and continues saving', async () => {
-    const rpc = server()
-    rpc.mockImplementationOnce(async () => snapshot())
-    await mount(rpc)
-    const original = rpc.getMockImplementation()!
-    rpc.mockImplementation(async (method, args) => {
-      if (method === 'preview') throw new Error('preview failed')
-      return original(method, args)
-    })
-    await select('bell')
-    expect(container.textContent).toContain('preview failed')
-    expect(container.querySelector('select')!.value).toBe('bell')
-    expect(rpc.mock.calls.filter(([m]) => m === 'getState')).toHaveLength(1)
-    await click(checkbox('Subagent finished'))
-    expect(container.textContent).not.toContain('preview failed')
-    expect(container.querySelector('select')!.value).toBe('bell')
-  })
-
-  it('ignores old saves and cancels debounce when the RPC lifecycle is replaced', async () => {
+  it('flushes queued volume after the in-flight write finishes even after unmount', async () => {
     vi.useFakeTimers()
-    const save = deferred<ReturnType<typeof snapshot>>()
-    const rpc = vi.fn(async (method: string) => method === 'setConfig' ? save.promise : snapshot())
-    await mount(rpc)
-    await select('bell')
-    await volume(20)
-    const replacement = server()
-    await act(async () => { root!.render(React.createElement(NotifierCard, { ...props, rpc: replacement })) })
-    await act(async () => { save.resolve(snapshot(merge(defaultConfig(), { volume: 20, finished: { soundName: 'bell' } }))); vi.advanceTimersByTime(1000) })
-    expect(slider().value).toBe('70')
-    expect(container.querySelector('select')!.value).toBe('chime')
-    expect(rpc.mock.calls.filter(([m]) => m === 'preview')).toEqual([])
-    expect(replacement.mock.calls.filter(([m]) => m === 'setConfig')).toEqual([])
+    const pending = deferred<boolean>()
+    const settings = form()
+    vi.mocked(settings.mutate).mockReturnValueOnce(pending.promise)
+    await mount(settings)
+    await sound('bell')
+    await volume(18)
+    await unmountPage()
+    expect(settings.mutate).toHaveBeenCalledOnce()
+    await act(async () => { pending.resolve(true) })
+    expect(settings.mutate).toHaveBeenNthCalledWith(2, [{ op: 'set', path: ['volume'], value: 18 }])
   })
 
-  it('shows initial load errors and clears them after a successful reload', async () => {
-    await mount(vi.fn(async () => { throw new Error('load failed') }))
-    expect(container.textContent).toContain('load failed')
-    await act(async () => { root!.render(React.createElement(NotifierCard, { ...props, rpc: server() })) })
-    expect(container.textContent).not.toContain('load failed')
-    expect(slider().value).toBe('70')
-  })
-
-  it('deduplicates permission prompts and permits retry after rejection', async () => {
-    const permission = deferred<NotificationPermission>()
-    const request = vi.fn(() => permission.promise)
-    vi.stubGlobal('Notification', { permission: 'default', requestPermission: request })
-    const rpc = server()
-    await mount(rpc)
-    const enable = [...container.querySelectorAll('button')].find(el => el.textContent === 'Enable')!
-    await click(enable)
-    await click(enable)
-    expect(request).toHaveBeenCalledTimes(1)
-    await act(async () => { permission.reject(new Error('permission failed')) })
-    expect(container.textContent).toContain('permission failed')
-    request.mockResolvedValue('granted')
-    await click(enable)
-    expect(request).toHaveBeenCalledTimes(2)
-    expect(rpc.mock.calls.filter(([m]) => m === 'reportWebPermission')).toEqual([['reportWebPermission', { status: 'granted' }]])
-    expect(container.textContent).not.toContain('permission failed')
-  })
-
-  it('does not report a permission request that resolves after unmount', async () => {
-    const permission = deferred<NotificationPermission>()
-    vi.stubGlobal('Notification', { permission: 'default', requestPermission: vi.fn(() => permission.promise) })
-    const rpc = server()
-    await mount(rpc)
-    await click([...container.querySelectorAll('button')].find(el => el.textContent === 'Enable')!)
-    act(() => { root!.unmount(); root = undefined })
-    await act(async () => { permission.resolve('granted') })
-    expect(rpc.mock.calls.filter(([m]) => m === 'reportWebPermission')).toEqual([])
+  it('uses button keyboard semantics without implicit submit or extra device-test writes', async () => {
+    const settings = await mount()
+    for (const el of [toggle('Subagent finished'), button('Preview'), button('Restore inherited settings'), button('Show')]) {
+      expect(el.type).toBe('button')
+      el.focus()
+      await act(async () => {
+        el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+        // Supply the browser activation that jsdom does not implement.
+        el.click()
+        el.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', bubbles: true }))
+      })
+    }
+    expect(settings.mutate).toHaveBeenCalledTimes(2)
+    expect(props.preview).toHaveBeenCalledOnce()
+    expect(props.testToast).toHaveBeenCalledOnce()
+    expect(button('Save')).toBeUndefined()
   })
 })

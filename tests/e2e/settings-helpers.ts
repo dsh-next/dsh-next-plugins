@@ -24,7 +24,12 @@ export async function openPluginCard(page: Page, title: string): Promise<void> {
 }
 
 export async function openNotifierCard(page: Page): Promise<void> {
-  await openPluginCard(page, 'Notifier')
+  await dismissOnboarding(page)
+  await page.getByRole('navigation', { name: 'Global panels' })
+    .getByRole('button', { name: 'Plugins', exact: true }).click()
+  const card = page.locator('[data-plugin-package="@dsh-next/dsh-next-notifier"]')
+  await card.getByRole('button').first().click()
+  await page.getByTestId('dsh-next-notifier-settings').waitFor({ state: 'visible' })
 }
 
 export async function openSkillsSection(page: Page): Promise<void> {

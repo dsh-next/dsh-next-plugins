@@ -4,7 +4,7 @@
  */
 import { mkdir, unlink, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, type ContextFormed, type MessageSourceMap } from '@deepseek-ai/dsh-llm'
 import type { SessionSeq } from '@deepseek-ai/dsh-session/types'
 import { confineToCwd, headMoved, relativeToCwd } from '../core/paths.ts'
 import { sumDiffs } from '../core/diffstat.ts'
@@ -28,7 +28,6 @@ import {
   turnsShadowedAfter,
 } from '../core/store.ts'
 import {
-  PLUGIN_ID,
   type Checkpoint,
   type CheckpointDiffs,
   type CheckpointList,
@@ -44,6 +43,22 @@ import type { GitPorts } from './git.ts'
 import { inspectPath, type InspectFn } from './inspect.ts'
 import { listFilesUnder } from './walk.ts'
 import { loadState, saveState } from './persist.ts'
+
+/**
+ * The shared `plugin` source kind is gone from 0.1.7's `MessageSourceMap`: every
+ * context producer declares its own kind by module augmentation now (core's
+ * `dsh-hooks-claude-code` package does the same with `hooks-claude-code`). The
+ * rewind notice keeps its notice shape through `ContextFormed`, so the session
+ * row renders exactly as it did under the shared kind.
+ */
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    checkpoints: { kind: 'checkpoints' } & ContextFormed
+  }
+}
+
+/** The source every checkpoints notice carries. */
+const CHECKPOINTS_NOTICE_SOURCE: MessageSourceMap['checkpoints'] = { kind: 'checkpoints' }
 
 /** Structured flow error crossing the RPC boundary as `{ error: { code } }`. */
 export class CheckpointsError extends Error {
@@ -628,8 +643,7 @@ export class CheckpointsService {
         text: `Rewound to turn ${turn}. Later messages are not sent to the model.`,
       }],
       source: {
-        kind: 'plugin',
-        plugin: PLUGIN_ID,
+        ...CHECKPOINTS_NOTICE_SOURCE,
         form: 'notice',
         summary: `Rewound to turn ${turn}`,
       },

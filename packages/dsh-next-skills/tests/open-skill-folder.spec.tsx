@@ -63,6 +63,11 @@ async function key(key: string, target: EventTarget = document) {
 beforeEach(() => {
   fetcher.mockReset()
   vi.stubGlobal('fetch', fetcher)
+  vi.stubGlobal('ResizeObserver', class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  })
   animationFrames = new Map()
   let frameId = 0
   vi.stubGlobal('requestAnimationFrame', vi.fn((callback: FrameRequestCallback) => {
@@ -300,15 +305,16 @@ describe('OpenSkillFolder launch and preference', () => {
     await activate(toggle())
     expect(document.activeElement).toBe(toggle())
     const queued = [...animationFrames.entries()]
-    expect(queued).toHaveLength(1)
+    expect(queued.length).toBeGreaterThanOrEqual(1)
     const focus = vi.spyOn(rows()[0]!, 'focus')
     if (retirement === 'close') await click(toggle())
     else if (retirement === 'unmount') await unmount()
     else await render('/retired-menu')
-    expect(cancelAnimationFrame).toHaveBeenCalledWith(queued[0]![0])
-    expect(animationFrames.size).toBe(0)
-    // Even a callback already handed to the renderer cannot focus a retired menu.
-    await act(async () => { queued[0]![1](0) })
+    // The newer native menu also schedules a placement frame; only the
+    // component's own focus frame must be cancelled on retirement.
+    expect(queued.some(([id]) => vi.mocked(cancelAnimationFrame).mock.calls.some(([cancelled]) => cancelled === id))).toBe(true)
+    // Even callbacks already handed to the renderer cannot focus a retired menu.
+    await act(async () => { queued.forEach(([, callback]) => callback(0)) })
     expect(focus).not.toHaveBeenCalled()
     expect(rows()).toHaveLength(0)
   })

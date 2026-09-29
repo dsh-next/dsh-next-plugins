@@ -5,12 +5,43 @@
  * a missing or extra key a compile error. Terminology follows this package's
  * bilingual README (启用通知/查看会话时静音/音量/浏览器/声音/需要批准/
  * 焦点跟踪); "Agent"/"Subagent" and product proper nouns (DSH Next Notifier,
- * macOS, afplay) stay English per the repo's cc-plugins reference tone.
+ * macOS, afplay) stay English per the repository's English host-string convention.
  */
 import type { MessageKey } from './en.ts'
 
 /** The zh mirror: same keys, Simplified Chinese copy. */
 export const zh: Record<MessageKey, string> = {
+  'settings.loading': '正在加载通知设置……',
+  'settings.unavailable': '通知设置不可用。请启用插件并重新打开此页面。',
+  'settings.readOnly': '当前连接中的设置为只读。',
+  'settings.saveFailed': '更改未保存。请检查连接，然后再次修改此设置。',
+  'settings.automatic': '更改会自动应用。',
+  'settings.saving': '正在保存……',
+  'settings.reset': '恢复继承的设置',
+  'sound.chime': '风铃', 'sound.ping': '轻响', 'sound.bell': '铃铛',
+  'sound.alert': '警报', 'sound.error': '错误', 'sound.success': '成功',
+  'sound.chirp': '啁啾', 'sound.pop': '爆破', 'sound.knock': '敲击',
+  'sound.whoosh': '呼啸', 'sound.magic': '魔法', 'sound.blip': '短音',
+  'sound.ring': '铃声', 'sound.gong': '锣声',
+  'sound.fart-classic': '屁声 · 经典', 'sound.fart-deep': '屁声 · 低沉', 'sound.fart-squeaky': '屁声 · 尖细',
+  'sound.preview': '试听',
+  'sound.failed': '无法播放声音。请检查此设备的音频设置，然后再次试听。',
+  'delivery.title': '此设备上的通知',
+  'delivery.failed': '系统未确认此通知。请检查通知权限并重试。',
+  'toast.openSession': '打开会话',
+  'event.default': 'DeepSeek Harness',
+  'event.finished': 'Agent 完成',
+  'event.approval': '需要批准',
+  'event.question': '提出问题',
+  'event.subagent': 'Subagent 完成',
+  'event.subagentError': 'Subagent 遇到错误',
+  'event.subagentBlocked': 'Subagent 受阻',
+  'event.subagentMaxTokens': 'Subagent 已达到响应限制',
+  'event.goalComplete': '目标已完成',
+  'event.goalBlocked': '目标受阻',
+  'event.error': 'Agent 遇到错误',
+  'event.blocked': 'Agent 受阻',
+  'event.maxTokens': '已达到响应限制',
   'card.title': 'Notifier',
   'card.tagline': 'Agent 完成任务或需要你时发出提醒',
 
@@ -20,14 +51,14 @@ export const zh: Record<MessageKey, string> = {
   'toggle.muteViewing.hint': '你正在查看的会话不会发出提醒',
 
   'volume.label': '音量',
-  'volume.hint': '所有通知的声音大小——松开滑块后立即应用并预览',
+  'volume.hint': '在此设备上播放。更改会自动应用，点击试听以启用音频。',
   'volume.value': '{count}%',
 
-  'web.test': '测试浏览器通知',
-  'web.hint.granted': '显示 DeepSeek 图标，点击可打开会话——即使窗口最小化或在其他标签页后面也会显示',
-  'web.hint.denied': '已被浏览器阻止——通知将不会显示',
-  'web.hint.unsupported': '此浏览器不支持——通知将不会显示',
-  'web.hint.default': '显示 DeepSeek 图标，点击后打开对应会话',
+  'web.test': '系统通知',
+  'web.hint.granted': '已在此设备上允许通知。系统权限或勿扰模式仍可能隐藏提醒。',
+  'web.hint.denied': '通知已被阻止。请在浏览器或系统设置中允许通知，然后返回此处。',
+  'web.hint.unsupported': '此客户端无法显示系统通知，应用内提醒仍然可用。',
+  'web.hint.default': '允许此客户端在 Harness 处于后台时通知你。',
   'web.button.test': '测试',
   'web.button.enable': '启用',
   'web.status.blocked': '已阻止',

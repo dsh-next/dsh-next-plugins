@@ -1,137 +1,67 @@
-/**
- * Browser-half entry for the notifier plugin — runs inside the dsh web GUI.
- *
- * Registers the Notifier configuration in the Plugins page, wires presence
- * reporting and the web notification drainer, and reports the browser
- * permission to the Host.
- *
- * Localization rides the platform `locale` service: the dictionaries register
- * under this package's namespace through `register` (both locales in one
- * call), `bind` returns a stable translator reading the active locale at call
- * time, and the Plugins-page label re-resolves per call.
- * Without the service the page renders English unchanged
- * (`englishTranslate`). The Plugins page owns the title and asks this plugin
- * separately for its summary and expanded configuration body.
- */
 import * as React from 'react'
 import type { Context } from '@deepseek-ai/cordis'
-import type { ISessions } from '@deepseek-ai/dsh-client-runtime/client'
-// Pulls the plugin-manager SlotMap merge, declaring `plugins.item`, plus the
-// locale plugin's Context merge (typed `ctx.get('locale')`).
+import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-import type { PluginConfigViewProps } from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
-import { NotifierCard, type Translate } from './card.tsx'
+import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { UsePanelInfo } from '@deepseek-ai/dsh-client-ui-layout/client'
+import { NotifierSettings } from './card.tsx'
+import { PresenceView } from './PresenceView.tsx'
 import { showWebNotification, type WebNotificationHandle } from './drainer.ts'
-import { createPresenceReporter } from './presence.ts'
+import { createPresenceReporter, currentSessionId } from './presence.ts'
 import { createRpc } from './rpc.ts'
+import { createAudioPlayer } from './audio.ts'
 import { ToastLayer, enqueueTestToast } from './toasts.tsx'
 import { en, englishTranslate, NS, zh, type MessageKey } from './dictionaries.ts'
 import type { TimerLike } from '../core/timer.ts'
 
-// Merge this package's namespace into the locale namespace table: any
-// compilation that also sees the locale service's declarations (the dsh web
-// shell) accepts 'notifier' in its typed register/bind overloads.
 declare module '@deepseek-ai/dsh-client-ui-slots' {
-  interface LocaleNamespaceMap {
-    'notifier': MessageKey
-  }
-  // The frame-wide floating layer above every column, outside their scroll
-  // containers. Declared at runtime by the shell's layout package
-  // (@deepseek-ai/dsh-client-ui-layout, verified against the installed shell
-  // 0.1.6-alpha.2); merged here so `slots.register` type-checks without pulling
-  // the layout package into this plugin's dependency graph. The layer itself
-  // is click-through — entries opt back into pointer events.
-  interface SlotMap {
-    'shell.overlay': {
-      kind: 'list'
-      scope: 'root'
-    }
-  }
+  interface LocaleNamespaceMap { notifier: MessageKey }
 }
 
-const RPC_PATH = '/dsh-next-notifier/rpc'
-
-// Required services (fiber inject waiting — the renderer owns the slot
-// registry since 0.1.2, and the session controller applies later, so both
-// must be up before the card registers and reports presence).
-export const inject = ['slots', 'locale', 'sessions', 'timer'] as const
+export const inject = ['slots', 'locale', 'sessions', 'uiWorkspace', 'configForms', 'layout', 'timer'] as const
 
 export function apply(ctx: Context): void {
   const slots = ctx.get('slots')
   const sessions = ctx.get('sessions') as ISessions | undefined
+  const navigation = ctx.get('uiWorkspace')
   const timer = ctx.get('timer') as TimerLike | undefined
-
-  // The optional service read goes through ctx.get (a ctx.locale property
-  // access requires the service in `inject` and fails at runtime otherwise).
   const locale = ctx.get('locale')
-
-  // Register both dictionaries under this package's namespace in one call.
-  // A duplicate registration throws (aggregate bundles can double-apply); the
-  // first registration's dictionaries then win.
-  if (locale !== undefined) {
-    ctx.effect(() => {
-      try {
-        return locale.register(NS, { en, zh })
-      } catch {
-        return () => {}
-      }
-    }, 'dsh-next-notifier: dictionaries')
-  }
-
-  // bind returns a stable translator reading the active locale at call time;
-  // without the service, English keeps the card fully functional.
-  const t: Translate = locale !== undefined ? locale.bind(NS) : englishTranslate
-
-  // The RPC wrapper closes over the translator: transport failures surface
-  // in the card's error line, so the message rides the locale like every
-  // other string (the skills page's `rpc.failed` pattern).
-  const transport = createRpc(RPC_PATH, t)
-  const request = transport.request
-  const presence = createPresenceReporter(sessions, timer, request)
+  if (locale) ctx.effect(() => locale.register(NS, { en, zh }))
+  const t = locale?.bind(NS) ?? englishTranslate
+  const transport = createRpc('/dsh-next-notifier/rpc', t)
+  const presence = createPresenceReporter(sessions, timer, transport.request)
+  const audio = createAudioPlayer()
   const rpc = (method: string, args?: unknown): Promise<unknown> => {
-    if (method === 'getPendingNotifications' || method === 'reportWebPermission') {
-      return request(method, presence.snapshot())
-    }
-    const fields = args && typeof args === 'object' ? args : {}
-    return request(method, { ...fields, clientId: presence.clientId })
+    if (method === 'getPendingNotifications') return transport.request(method, presence.snapshot())
+    return transport.request(method, { ...(args && typeof args === 'object' ? args : {}), clientId: presence.clientId })
   }
   const web = new Set<WebNotificationHandle>()
-
-  if (slots && typeof slots.inject === 'function') {
-    // The Plugins page owns the card title and requests a summary or full page.
-    slots.inject('plugins.item', () => slots.register(
-      {
-        name: 'plugins.item', id: 'dsh-next-notifier', order: 10,
-        label: () => t('card.title'), locale: NS,
-      },
-      ({ view }: PluginConfigViewProps) => view === 'summary'
-        ? React.createElement('span', null, t('card.tagline'))
-        : React.createElement(NotifierCard, {
-          page: true,
-          rpc,
-          sessions,
-          timer,
-          t,
-          showWebNotification: (e) => {
-            const handle = showWebNotification(e, sessions, () => { if (handle) web.delete(handle) })
-            if (handle) web.add(handle)
-          },
-          enqueueTestToast: (e) => enqueueTestToast(e),
-        }),
-    ))
-
-    // The in-page toast layer lives in the shell's floating overlay (declared
-    // by the shell's layout package at boot; the local SlotMap merge above
-    // covers the typing). Alert-only capsules: click opens the session.
-    slots.inject('shell.overlay', () => slots.register(
-      { name: 'shell.overlay', id: 'dsh-next-notifier-toasts', order: 10, label: () => t('toast.layerLabel') },
-      () => React.createElement(ToastLayer, { rpc, sessions, timer, t }),
-    ))
+  const testSystem = async (): Promise<boolean> => {
+    const handle = showWebNotification({ id: Date.now(), title: t('web.testTitle'), body: t('web.testBody'),
+      sessionId: currentSessionId(sessions) }, sessions, () => { if (handle) web.delete(handle) }, t, navigation)
+    if (!handle) return false
+    web.add(handle)
+    return handle.shown
   }
+  const testToast = (): void => enqueueTestToast({ title: t('toast.testTitle'), body: t('toast.testBody'),
+    sessionId: currentSessionId(sessions) })
+
+  const form = ctx.get('configForms')!.get<Record<string, unknown>>('dsh-next-notifier')
+  slots.inject('plugins.bundle.config', () => slots.register({
+    name: 'plugins.bundle.config', key: '@dsh-next/dsh-next-notifier', locale: NS,
+  }, () => React.createElement(NotifierSettings, { form, t, preview: audio.play,
+    testSystem, testToast, reportPermission: presence.report })))
+  slots.inject('shell.overlay', () => slots.register({
+    name: 'shell.overlay', id: 'dsh-next-notifier-toasts', order: 10, label: () => t('toast.layerLabel'),
+  }, ({ usePanelInfo }: { usePanelInfo: UsePanelInfo }) => React.createElement(PresenceView, { usePanelInfo, onChange: presence.setPanelActive,
+    children: React.createElement(ToastLayer, { rpc, sessions, navigation, timer, t, playSound: audio.play }) })))
 
   ctx.effect(() => () => {
     presence.dispose()
     transport.dispose()
+    audio.dispose()
     for (const handle of web) handle.close()
   })
 }

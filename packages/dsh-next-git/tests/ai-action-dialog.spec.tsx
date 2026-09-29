@@ -61,7 +61,7 @@ function fixture() {
   const store = new PanelStore(api, sourceId)
   const queued = vi.spyOn(store, 'agentQueued')
   const catalog: SessionListState = {
-    ids: [sourceId], phase: 'ready', subagentsByParent: {}, jobsBySession: {},
+    ids: [sourceId], phase: 'ready', projectionsBySession: {},
     byId: { [sourceId]: { id: sourceId, displayTitle: 'Pane source', cwd, blank: true, running: false, retainedBy: {}, updatedAt: 0 } },
   }
   const prompt = vi.fn<SessionFace['prompt']>().mockResolvedValue({ ok: true, value: { accepted: true } })
@@ -73,7 +73,7 @@ function fixture() {
       async using(_target, _options, operation) { return operation({ binding: { session: { prompt } } }) },
       retain() { throw new Error('Dialog must not subscribe to task completion') },
     },
-    workspaces: { list: { getSnapshot: () => ({ items: [], archivedSessionIds: [], phase: 'ready', state: 'idle', error: null }), subscribe: () => () => {} } },
+    workspaces: { list: { getSnapshot: () => ({ items: [], archivedSessionIds: [], pinnedSessionIds: [], phase: 'ready', state: 'idle', error: null }), subscribe: () => () => {} } },
     uiWorkspace: { openSession },
   }
   const using = vi.spyOn(deps.sessions, 'using')

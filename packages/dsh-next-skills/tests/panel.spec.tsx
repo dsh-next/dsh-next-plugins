@@ -1,6 +1,6 @@
 /**
  * jsdom render test for the Skills settings panel: proves the panel renders
- * the cc-plugins-style page (Skills / Providers tabs over a card grid) from
+ * the settings page (Skills / Providers tabs over a card grid) from
  * the Host envelope and that the interactive controls dispatch the right RPC
  * calls — direct global installation, the source switcher (Providers button,
  * overwrite confirm, detach),
@@ -37,10 +37,10 @@ const STATE: SkillsState = {
   ],
 }
 
-/** An externally-owned copy (cc-plugins) — its source is the owning plugin's. */
+/** An externally-owned copy — its source is the owning plugin's. */
 const ownedCopy: InstalledSkill = {
   ...skill, provider: undefined, sources: undefined,
-  ownership: { owner: 'cc-plugins', pluginKey: 'github:o/r/team-tools', marketplaceId: 'github:o/r', skillName: 'security-review' },
+  ownership: { owner: 'external-provider', pluginKey: 'github:o/r/team-tools', marketplaceId: 'github:o/r', skillName: 'security-review' },
 }
 
 /** One installed copy (from o/r) whose name is offered by three providers. */

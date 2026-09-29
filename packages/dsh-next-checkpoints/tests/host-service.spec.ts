@@ -168,7 +168,8 @@ describe('CheckpointsService', () => {
     expect(new TextDecoder().decode(disk.files.get('/repo/a.ts'))).toBe('v1\n')
     expect(disk.files.has('/repo/b.ts')).toBe(false)
     expect(sess.appends).toHaveLength(1)
-    const append = sess.appends[0] as { opts: { surfaceOp: { op: string; start: number; end: number } } }
+    const append = sess.appends[0] as { data: { source: unknown }; opts: { surfaceOp: { op: string; start: number; end: number } } }
+    expect(append.data.source).toEqual({ kind: 'checkpoints', form: 'notice', summary: 'Rewound to turn 1' })
     expect(append.opts.surfaceOp.op).toBe('replace')
     expect(append.opts.surfaceOp.start).toBe(5)
     expect(append.opts.surfaceOp.end).toBe(8)

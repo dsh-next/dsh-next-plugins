@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { describe, expect, it } from 'vitest'
-import type { SettingsScope } from '@deepseek-ai/dsh-settings'
+import type { ConfigScope } from '../src/host/config-scope.ts'
 import { Notifier } from '../src/host/notifier.ts'
 import { registerRpc } from '../src/host/rpc.ts'
 import { defaultConfig } from '../src/core/config.ts'
@@ -23,11 +23,11 @@ function fakeScope() {
       stored = next
       return stored
     },
-  } as unknown as SettingsScope<NotifierConfig>
+  } as unknown as ConfigScope
   return { scope, lastPatch: () => lastPatch }
 }
 
-function registerAndCapture(scope: SettingsScope<NotifierConfig>) {
+function registerAndCapture(scope: ConfigScope) {
   const notifier = new Notifier({
     ctx: { get: () => undefined } as never, scope,
     timer: { timeout: () => () => {}, interval: () => () => {} }, goals: undefined,
@@ -67,7 +67,7 @@ describe('registerRpc settings round-trip', () => {
     const { post } = registerAndCapture(scope)
     const result = await post('setConfig', { volume: 35, finished: { soundName: 'bell' } })
     expect(result.status).toBe(200)
-    expect(Object.keys(result.json).sort()).toEqual(['config', 'platform', 'sounds', 'webPermission'])
+    expect(Object.keys(result.json).sort()).toEqual(['config', 'sounds', 'webPermission'])
     expect(result.json.config.volume).toBe(35)
     expect(result.json.config.finished.soundName).toBe('bell')
     const reread = await post('getState', null)

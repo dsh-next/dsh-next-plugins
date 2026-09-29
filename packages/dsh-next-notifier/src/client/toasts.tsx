@@ -1,26 +1,18 @@
-/**
- * In-page toast layer for the notifier: fixed, top-center capsule cards shown
- * while the user is looking at the page (focused + visible), for events the
- * Host routed to the toast channel. Clicking a toast opens its session; the
- * close button dismisses it, and every toast auto-dismisses after the same
- * TTL the web notifications use. Web-channel events never render here — the
- * web drainer owns them — and a toast-channel event that arrives after the
- * user stopped looking falls back to a web notification instead.
- */
+/** Render leased events through Harness Toast or the system Notification API. */
 import * as React from 'react'
-import type { ISessions } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { UiWorkspace } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type { TimerLike } from '../core/timer.ts'
 import { createDrainer, eventBody, eventTitle, showWebNotification, type WebNotificationHandle } from './drainer.ts'
 import { isLookingNow } from './presence.ts'
-import { englishTranslate, type MessageKey } from './dictionaries.ts'
-import styles from './toasts.module.css'
+import { englishTranslate, type Translate } from './dictionaries.ts'
+import { Toast, IconWarningOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 
-export type Translate = (key: MessageKey, params?: Record<string, string | number>) => string
-
-/** A queued event as the Host's drain returns it (channel is what matters here). */
+/** A host delivery or a local preview, with presentation fields only. */
 export interface ToastEvent {
   id?: number | string
   kind?: string
+  isSubagent?: boolean
   title?: string
   body?: string
   sessionId?: string | null
@@ -31,11 +23,13 @@ export interface ToastEvent {
 export interface ToastLayerProps {
   rpc: (method: string, args?: unknown) => Promise<unknown>
   sessions?: ISessions
+  navigation?: Pick<UiWorkspace, 'openSession'>
   timer?: TimerLike
   t?: Translate
+  playSound?: (id: string, volume: number) => Promise<boolean>
 }
 
-const MAX_TOASTS = 5
+const MAX_TOASTS = 1
 const TOAST_TTL_MS = 12000
 
 interface ToastItem {
@@ -61,15 +55,12 @@ function subscribeBus(fn: (event: ToastEvent) => void): () => void {
 }
 
 
-export function ToastLayer({ rpc, sessions, timer, t = englishTranslate }: ToastLayerProps): React.ReactElement | null {
+export function ToastLayer({ rpc, sessions, timer, t = englishTranslate, playSound, navigation }: ToastLayerProps): React.ReactElement | null {
   const [toasts, setToasts] = React.useState<ToastItem[]>([])
   const items = React.useRef<ToastItem[]>([])
-  const ttlDisposers = React.useRef(new Map<number, () => void>())
   const confirmations = React.useRef(new Map<number, (shown: boolean) => void>())
 
   const cleanupItem = React.useCallback((key: number) => {
-    ttlDisposers.current.get(key)?.()
-    ttlDisposers.current.delete(key)
     confirmations.current.get(key)?.(false)
     confirmations.current.delete(key)
   }, [])
@@ -92,13 +83,7 @@ export function ToastLayer({ rpc, sessions, timer, t = englishTranslate }: Toast
     items.current = next
     if (confirm) confirmations.current.set(key, confirm)
     setToasts(next)
-    const expire = () => remove(key)
-    if (timer) ttlDisposers.current.set(key, timer.timeout(expire, TOAST_TTL_MS))
-    else {
-      const timeout = setTimeout(expire, TOAST_TTL_MS)
-      ttlDisposers.current.set(key, () => clearTimeout(timeout))
-    }
-  }, [timer, remove, cleanupItem])
+  }, [cleanupItem])
 
   // Confirm only committed, visible DOM. If focus changed during React's
   // render, release the event instead of playing sound for an unseen toast.
@@ -121,13 +106,27 @@ export function ToastLayer({ rpc, sessions, timer, t = englishTranslate }: Toast
       claim: () => rpc('getPendingNotifications'),
       show: async (event) => {
         if (!alive) return false
-        if (isLookingNow()) return new Promise<boolean>((resolve) => enqueue(event, resolve))
-        const handle = showWebNotification(event, sessions, () => { if (handle) web.delete(handle) })
-        if (!handle) return false
-        web.add(handle)
-        return handle.shown
+        let shown: boolean
+        if (isLookingNow()) shown = await new Promise<boolean>((resolve) => enqueue(event, resolve))
+        else {
+          const handle = showWebNotification(event, sessions, () => { if (handle) web.delete(handle) }, t, navigation)
+          if (!handle) return false
+          web.add(handle)
+          shown = await handle.shown
+        }
+        return shown
       },
-      acknowledge: (event) => rpc('acknowledgeNotifications', { id: event.id, lease: event.lease }),
+      acknowledge: async (event) => {
+        const result = await rpc('acknowledgeNotifications', { id: event.id, lease: event.lease }) as
+          { ok?: boolean; sound?: { id?: unknown; volume?: unknown } } | null
+        // The host rechecks cancellation, lease expiry, and current sound preferences.
+        // Only its first accepted receipt carries sound; retries never replay audio.
+        if (alive && result?.ok === true && typeof result.sound?.id === 'string'
+          && typeof result.sound.volume === 'number' && Number.isFinite(result.sound.volume)) {
+          void playSound?.(result.sound.id, result.sound.volume).catch(() => {})
+        }
+        return result
+      },
       release: (event) => rpc('releaseNotification', { id: event.id, lease: event.lease }),
     })
     const onFocus = () => { void drainer.poll() }
@@ -143,37 +142,24 @@ export function ToastLayer({ rpc, sessions, timer, t = englishTranslate }: Toast
       for (const item of items.current) cleanupItem(item.key)
       items.current = []
     }
-  }, [rpc, timer, sessions, enqueue, cleanupItem])
+  }, [rpc, timer, sessions, enqueue, cleanupItem, t, playSound, navigation])
 
   const openSession = (item: ToastItem): void => {
     remove(item.key)
-    if (sessions && typeof item.event.sessionId === 'string' && item.event.sessionId) {
-      try { void Promise.resolve(sessions.open(item.event.sessionId as never)).catch(() => {}) } catch {}
+    if (typeof item.event.sessionId === 'string' && item.event.sessionId) {
+      try { navigation?.openSession(item.event.sessionId as never) } catch {}
     }
   }
 
-  if (toasts.length === 0) return null
-  return React.createElement('div', {
-    className: styles.layer, 'data-testid': 'dsh-next-notifier-toasts', 'aria-live': 'polite',
-  }, toasts.map((item) => React.createElement('div', {
-    key: item.key, className: styles.toast, 'data-testid': 'dsh-next-notifier-toast',
-    role: 'button', tabIndex: 0, 'aria-label': eventTitle(item.event),
-    onClick: () => openSession(item),
-    onKeyDown: (e: React.KeyboardEvent) => {
-      if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
-        e.preventDefault()
-        openSession(item)
-      }
-    },
-  },
-    React.createElement('span', { className: styles.dot, 'data-kind': item.event.kind ?? 'unknown' }),
-    React.createElement('span', { className: styles.text },
-      React.createElement('span', { className: styles.title }, eventTitle(item.event)),
-      React.createElement('span', { className: styles.body }, eventBody(item.event, sessions))),
-    React.createElement('button', {
-      type: 'button', className: styles.close, 'aria-label': t('toast.close'), title: t('toast.close'),
-      'data-testid': 'dsh-next-notifier-toast-close',
-      onClick: (e: React.MouseEvent) => { e.stopPropagation(); remove(item.key) },
-    }, '\u00d7'),
-  )))
+  const item = toasts.at(-1)
+  if (!item) return null
+  const success = ['finished', 'subagent', 'goal-complete'].includes(item.event.kind ?? '')
+  const body = eventBody(item.event, sessions)
+  return <Toast key={item.key} text={eventTitle(item.event, t) + (body ? ' · ' + body : '')}
+    tone={success ? 'success' : undefined} icon={<IconWarningOutlineRegular size={16} />}
+    holdMs={TOAST_TTL_MS} onDone={() => remove(item.key)}
+    actions={[
+      ...(item.event.sessionId && navigation ? [{ label: t('toast.openSession'), onClick: () => openSession(item) }] : []),
+      { label: t('toast.close'), onClick: () => remove(item.key) },
+    ]} />
 }

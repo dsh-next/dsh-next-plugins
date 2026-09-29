@@ -1,6 +1,6 @@
 /** Validated, client-scoped JSON RPC on the app's own web server. */
 import type { Context } from '@deepseek-ai/cordis'
-import type { SettingsScope } from '@deepseek-ai/dsh-settings'
+import type { ConfigScope } from './config-scope.ts'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { NotifierConfig } from '../core/types.ts'
 import type { ClientPresence, DeliveryReceipt } from '../core/notifications.ts'
@@ -71,7 +71,7 @@ function configPatch(args: unknown): Record<string, unknown> {
   return patch
 }
 
-export function registerRpc(ctx: Context, notifier: Notifier, scope: SettingsScope<NotifierConfig> | null): void {
+export function registerRpc(ctx: Context, notifier: Notifier, scope: ConfigScope | null): void {
   const webServer = ctx.get('webServer')
   if (!webServer || typeof webServer.register !== 'function') return
 
@@ -83,21 +83,15 @@ export function registerRpc(ctx: Context, notifier: Notifier, scope: SettingsSco
       notifier.reportPresence(report)
       return notifier.claimPending(report.clientId)
     }],
-    ['acknowledgeNotifications', (args) => ({ ok: notifier.acknowledge(receipt(args)) })],
+    ['acknowledgeNotifications', (args) => notifier.acknowledge(receipt(args))],
     ['releaseNotification', (args) => { notifier.release(receipt(args)); return { ok: true } }],
     ['reportPresence', (args) => { notifier.reportPresence(presence(args)); return { ok: true } }],
     ['reportWebPermission', (args) => { notifier.reportPresence(presence(args)); return { ok: true } }],
-    ['preview', async (args) => {
-      const id = nonempty(object(args).id, 'id')
-      if (!SOUND_IDS.includes(id)) throw new RpcError(400, 'unknown sound')
-      return { ok: await notifier.preview(id) }
-    }],
     ['setConfig', async (args) => {
       const patch = configPatch(args)
       const id = clientId(args, true)
       if (!scope || !ctx.get('settings')?.writable) throw new RpcError(403, 'settings are read-only')
       await scope.update(patch)
-      await notifier.onConfigChanged()
       return notifier.state(id)
     }],
   ])

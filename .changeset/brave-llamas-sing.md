@@ -1,8 +1,5 @@
 ---
-"@dsh-next/dsh-next-skills": patch
+"@dsh-next/dsh-next-skills": major
 ---
 
-Skills works again on DeepSeek Harness `0.1.7-alpha.1`, which replaced the
-plugin settings API this plugin stored its provider and installation records
-through. DeepSeek Harness imports the old section into the active profile once,
-so an existing setup keeps its providers, provenance, and installed skills.
+**Breaking:** Skills requires DeepSeek Harness 0.1.7-alpha.1 or newer and stores provider and installation records in the plugin's profile configuration rather than the legacy settings section. Harness imports existing records into the active profile; installed skill files are preserved.

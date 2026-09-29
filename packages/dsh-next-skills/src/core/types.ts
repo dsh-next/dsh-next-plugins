@@ -174,7 +174,7 @@ export interface FetchResponse {
 export type FetchLike = (url: string, init?: { signal?: AbortSignal; headers?: Record<string, string> }) => Promise<FetchResponse>
 
 // ---------------------------------------------------------------------------
-// External skill handoff (cc-plugins bridge consumes this service surface)
+// External skill handoff
 // ---------------------------------------------------------------------------
 
 /** One external skill's file set handed from the owning plugin, with paths

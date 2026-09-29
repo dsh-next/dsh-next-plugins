@@ -169,15 +169,13 @@ Keep domain-specific rendering local. The current Git work already uses a small 
 
 ### Share small transport behavior, not every RPC envelope
 
-The [Skills RPC client](/Users/rokgrabnar/Projects/dsh-next-plugins/packages/dsh-next-skills/src/client/index.ts#L41-L60) and [Claude Plugins RPC client](/Users/rokgrabnar/Projects/dsh-next-plugins/packages/dsh-next-cc-plugins/src/client/index.ts#L44-L63) duplicate request and error parsing. Both catch branches rethrow any nonempty Error, including JSON parsing errors. Therefore an HTML or malformed-JSON HTTP failure exposes a parser error rather than the intended HTTP fallback. This is a concrete error-path gap, not merely duplicate formatting.
+The [Skills RPC client](/Users/rokgrabnar/Projects/dsh-next-plugins/packages/dsh-next-skills/src/client/index.ts#L41-L60) catches and rethrows nonempty errors, including JSON parsing errors. An HTML or malformed-JSON HTTP failure can therefore expose a parser error rather than the intended HTTP fallback. Test the error path before extracting shared transport behavior.
 
 Fix and test the behavior first: JSON success, JSON server error, empty/HTML/malformed error body, network failure, and cancellation. Once the shared TypeScript build seam is solved, a small request/parse helper with injected fetch and error mapping can remove repetition. Keep Git failure/degraded results, OAuth error codes, and notifier keepalive/disposal semantics in their owners. A universal RPC client with a flag for every plugin would increase interface complexity.
 
-### Replace synchronized CSS copies with one authoring source
+### Share CSS only when multiple active panels need the same pattern
 
-[Skills styling](/Users/rokgrabnar/Projects/dsh-next-plugins/packages/dsh-next-skills/src/client/card.module.css#L1-L15) and [Claude Plugins styling](/Users/rokgrabnar/Projects/dsh-next-plugins/packages/dsh-next-cc-plugins/src/client/card.module.css#L1-L15) explicitly require coordinated edits; the design skill makes that a rule. This is maintained duplication, not an inherent Cordis requirement.
-
-Start with settings-page chrome only. Use a local build-time CSS source inlined into each independent plugin, or a generated mirror if that better fits current tooling. Keep plugin-specific rules separate. Do not add a globally mounted `dsh-next-ui` service just to share CSS.
+[Skills styling](/Users/rokgrabnar/Projects/dsh-next-plugins/packages/dsh-next-skills/src/client/card.module.css#L1-L15) currently owns its settings-page chrome. If another independent plugin adopts it, prefer a build-time authoring source over a globally mounted UI service. Keep plugin-specific rules separate.
 
 Two build details need tests before this extraction:
 

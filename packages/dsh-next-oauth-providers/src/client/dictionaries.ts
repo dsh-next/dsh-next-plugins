@@ -5,7 +5,7 @@
  * mirror, and this file re-exports both plus the no-locale fallback helpers.
  * Register through the platform's typed `ctx.locale.register(NS, { en, zh })`
  * inside `ctx.effect`, and translate through `ctx.locale.bind(NS)`.
- * Reference implementation: packages/dsh-next-cc-plugins/src/client/.
+ * Reference implementation: packages/dsh-next-skills/src/client/.
  */
 import { en, type MessageKey } from './dictionaries/en.ts'
 

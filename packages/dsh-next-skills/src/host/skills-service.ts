@@ -224,7 +224,7 @@ export class SkillsService {
       // only the differing ones, because the modal must show "matches" too
       // (a same-spec switch is an adopt, not a no-op). The Update button
       // stays provenance-pinned client-side: it fires only for the copy's
-      // recorded provider. Externally-owned skills (the cc-plugins bridge)
+      // recorded provider. Externally-owned skills
       // get no options — their source is the owning plugin's business. Only
       // bundle skills fingerprint; flat skills are DSH-native single files
       // with no directory to switch (they are edited by hand).
@@ -697,7 +697,7 @@ export class SkillsService {
   }
 
   /**
-   * Install externally-managed skills (the cc-plugins bridge) into the global
+   * Install externally-managed skills into the global
    * root, global-only, each with an ownership sidecar. The owning plugin
    * rewrites plugin-level references before handing files off; this service
    * only places them. Collisions with an existing

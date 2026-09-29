@@ -3,16 +3,11 @@ import { type Page } from '@playwright/test'
 import { test, expect, BASE_URL, pluginIds } from './browser-fixture.ts'
 import { bareId, requireCheckpointsPanel, requirePluginMarkers } from '../../scripts/e2e-guards.mjs'
 import { dismissOnboarding, closeDialogs, openWorkspaceSession, unblank } from './checkpoints-helpers.ts'
-import { openCcSection, openNotifierCard, openSkillsSection } from './settings-helpers.ts'
+import { openNotifierCard, openSkillsSection } from './settings-helpers.ts'
 import { openGitPanel } from './git-helpers.ts'
 
 /** Every browser bundle needs a visible marker or an explicit non-UI reason. */
 const pluginMarkers: Record<string, (page: Page) => Promise<void>> = {
-  'dsh-next-cc-plugins': async page => {
-    await openCcSection(page)
-    await expect(page.getByRole('heading', { name: 'Claude Plugins', exact: true })).toBeVisible()
-    await expect(page.getByTestId('cc-search')).toBeVisible()
-  },
   'dsh-next-skills': async page => {
     await openSkillsSection(page)
     await expect(page.getByRole('heading', { name: 'Skills', exact: true })).toBeVisible()

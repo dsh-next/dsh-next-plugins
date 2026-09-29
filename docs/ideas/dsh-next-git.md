@@ -78,19 +78,11 @@ deprecated, and the README documents the profile swap to
 dsh-next-checkpoints resolves structurally (`dsh-next-reset`, the other
 original consumer, was retired on 2026-09-22).
 
-Worktree awareness in the other two packages is **removed, not ported** (user
-decision 2026-09-18). `dsh-next-skills` has none left in source: commit 8139302
+Worktree awareness in `dsh-next-skills` was **removed, not ported** (user
+decision 2026-09-18). Commit 8139302
 `feat(skills)!: make skill management global-only` already dropped workspace
-scopes, so the only ghost is a stale local `lib/` build output (untracked and
-ignored; `pnpm build` clears it). `dsh-next-cc-plugins` still carries it, and
-the removal is small: delete `WORKTREES_MARKER`, `isWorktreeWorkspacePath` and
-`harborBasename` from `src/core/path.ts` (the last has no production caller —
-tests only), drop the worktree filter in `src/client/workspaces.ts`, and remove
-the two worktree blocks in `tests/path.spec.ts`.
-
-Consequence to accept: until the retirement landed, that filter was what kept
-`.dsh/worktrees/<slug>` rows out of the cc-plugins workspace checklist, so the
-removal shipped inside the retirement change rather than early.
+scopes; a stale local `lib/` build output (untracked and ignored) is cleared by
+`pnpm build`.
 Scope inheritance for worktree sessions is deliberately deferred to a separate
 follow-up designed around the in-repo `.worktrees/` layout; this release does
 not re-implement it.
@@ -141,7 +133,7 @@ v0.1.0 ships all of it, built in this internal order:
    retired plugin.
 6. Retirement: delete dsh-next-worktrees, move its service key to
    dsh-next-git, update [mount.e2e.ts](../../tests/e2e/mount.e2e.ts), reset,
-   checkpoints, and the cc-plugins worktree helpers plus workspace filter;
+   checkpoints;
    `dsh-next-skills` needs nothing but a rebuild; migrate the worktrees.
    Executed 2026-09-18: the package, the worktrees-sidebar e2e suite, the
    README capture script and its alias are gone; the shared e2e helpers moved
@@ -335,9 +327,8 @@ can never pass while operations silently do nothing.
 - Git LFS and submodule editing — out of reach and out of demand.
 - Keeping the retired `.dsh/worktrees` path, or writing ignore rules into a
   user's committed `.gitignore` — the plugin uses `.git/info/exclude`.
-- Re-implementing worktree scope inheritance for skills or cc-plugins — the
-  existing code is removed with the retirement and redesigned separately around
-  the in-repo `.worktrees/` layout; this release does not carry it forward.
+- Re-implementing worktree scope inheritance for skills — the existing code
+  is removed with the retirement; this release does not carry it forward.
 
 ## Open Questions
 
@@ -368,9 +359,8 @@ Retirement coupling inventory found by reading this repository:
 `packages/dsh-next-reset/src/core/handoff.ts` (service key; that package was
 retired on 2026-09-22),
 `packages/dsh-next-checkpoints/src/index.ts` (structural reclaim lookup),
-`packages/dsh-next-cc-plugins/src/core/path.ts` (worktree marker, filter
-caller and tests — to be deleted), `packages/dsh-next-skills` (already clean
-since 8139302; stale local `lib/` only),
+`packages/dsh-next-skills` (already clean since 8139302; stale local `lib/`
+only),
 `tests/e2e/mount.e2e.ts` (per-plugin DOM marker and family fixture),
 `tests/e2e/worktrees-helpers.ts` (refresh event and disk helpers). Publish
 state: `@dsh-next/dsh-next-worktrees` is at 0.4.0, not private.

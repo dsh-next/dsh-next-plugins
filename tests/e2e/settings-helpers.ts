@@ -46,23 +46,3 @@ export async function openSkillsSection(page: Page): Promise<void> {
   }
   throw new Error('could not open the Skills settings section after retries')
 }
-
-export async function openCcSection(page: Page): Promise<void> {
-  for (let attempt = 0; attempt < 5; attempt++) {
-    await dismissOnboarding(page)
-    try {
-      const nav = page.getByRole('button', { name: 'Claude Plugins', exact: true }).first()
-      if (!(await nav.isVisible().catch(() => false))) {
-        await page.getByText('Settings', { exact: true }).first().click({ force: true })
-        await page.waitForTimeout(600)
-      }
-      await nav.waitFor({ state: 'visible', timeout: 4000 })
-      await nav.click({ force: true })
-      await page.waitForTimeout(400)
-      if (await page.getByText('Marketplaces', { exact: true }).first().isVisible().catch(() => false)) return
-    } catch {
-      await page.waitForTimeout(500)
-    }
-  }
-  throw new Error('could not open the Claude Plugins settings section after retries')
-}

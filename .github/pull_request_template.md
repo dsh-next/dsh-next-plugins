@@ -12,7 +12,6 @@
 
 - [ ] `packages/dsh-next-notifier`
 - [ ] `packages/dsh-next-skills`
-- [ ] `packages/dsh-next-cc-plugins`
 - [ ] Shared / scripts / docs
 
 ## PR Type

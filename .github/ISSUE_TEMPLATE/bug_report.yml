@@ -25,7 +25,6 @@ body:
       options:
         - dsh-next-notifier
         - dsh-next-skills
-        - dsh-next-cc-plugins
         - shared / scripts
         - other / unknown
     validations:

@@ -18,8 +18,7 @@ step-by-step procedure.
 - Publishing happens only through `.github/workflows/release.yml` using the
   repository secret `NPM_TOKEN`. The root `package.json` and `shared/` are
   private and are not published.
-- Packages marked `"private": true` in their own manifest (currently
-  `@dsh-next/dsh-next-cc-plugins`, under active development) are never
+- Packages marked `"private": true` in their own manifest are never
   published: npm refuses a private publish and changesets skips them. Their
   changes need no change file, and they must never appear in one (a mixed
   changeset breaks `changeset version`; the CI gate rejects it). Remove

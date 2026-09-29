@@ -8,10 +8,8 @@
  * Values may carry `{name}` placeholders — the platform's `t(key, params)`
  * substitutes them.
  *
- * Keys follow the Claude Plugins page's conventions (`tab.*`, `search.*`,
- * `provider.*`, `filter.*`, `card.*`, `sync.*`, `modal.*`,
- * `detail.*`) so the two settings pages stay grep-compatible; values adopt
- * the cc-plugins wording wherever the two surfaces share a concept.
+ * Keys group the settings panel by tabs, search, providers, filters, cards,
+ * synchronization, dialogs, and details.
  */
 
 /** Dictionary namespace this panel owns (also the slot label's namespace). */
@@ -21,7 +19,7 @@ export const en = {
   'nav': 'Skills',
 
   // Page scaffold (the shell's settings-section pattern: title, intro, tab
-  // strip aria-label), mirroring the cc-plugins page's key set.
+  // strip aria-label).
   'title': 'Skills',
   'intro': 'Install and manage skills globally.',
   'tabs': 'Skill views',

@@ -56,9 +56,8 @@ manifest churn).
 
 ## Private packages
 
-A package marked `"private": true` (currently `@dsh-next/dsh-next-cc-plugins`)
-is not published: its changes merge with no change file, and it must **never**
-appear in one. A changeset mixing a private package with a released one makes
+A package marked `"private": true` is not published: its changes merge with
+no change file, and it must **never** appear in one. A changeset mixing a private package with a released one makes
 `changeset version` fail. Remove `"private": true` from its manifest when the
 package is ready to release.
 

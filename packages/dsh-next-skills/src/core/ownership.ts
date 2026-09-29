@@ -1,6 +1,6 @@
 /**
- * Ownership provenance for skills managed by an external plugin (the
- * cc-plugins bridge). A sidecar JSON file written next to a skill's SKILL.md
+ * Ownership provenance for skills managed by an external plugin.
+ * A sidecar JSON file written next to a skill's SKILL.md
  * marks that skill as externally-owned: the Skills UI renders it read-only
  * and the service refuses ordinary delete, detach, or update calls, so a plugin's
  * skill cannot be orphaned while the rest of the plugin is still installed.
@@ -12,12 +12,9 @@
 /** Sidecar filename written beside an externally-managed skill. */
 export const OWNERSHIP_SIDECAR = '.dsh-next-skill-owner.json'
 
-/** The identifying owner constant for skills installed by cc-plugins. */
-export const CC_OWNER = 'cc-plugins'
-
 /** One parsed ownership record (undefined when absent or malformed). */
 export interface SkillOwnership {
-  /** The owning plugin (e.g. `cc-plugins`). */
+  /** The owning plugin. */
   owner: string
   /** The owning plugin's stable key for this install (`<marketplaceId>/<pluginName>`). */
   pluginKey: string
@@ -44,11 +41,6 @@ export function parseOwnership(raw: unknown): SkillOwnership | undefined {
     marketplaceId: r.marketplaceId as string,
     skillName: r.skillName as string,
   }
-}
-
-/** Whether a parsed record is owned by the cc-plugins bridge. */
-export function isCcOwned(ownership: SkillOwnership | undefined): boolean {
-  return ownership?.owner === CC_OWNER
 }
 
 /** The JSON text persisted as the sidecar for one externally-owned skill. */

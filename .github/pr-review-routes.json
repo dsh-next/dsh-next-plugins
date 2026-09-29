@@ -21,13 +21,6 @@
       "assignees": ["sitegroove"]
     },
     {
-      "name": "cc-plugins",
-      "label": "packages/dsh-next-cc-plugins",
-      "paths": ["packages/dsh-next-cc-plugins/**"],
-      "reviewers": ["sitegroove"],
-      "assignees": ["sitegroove"]
-    },
-    {
       "name": "shared",
       "label": "shared build infrastructure",
       "paths": ["shared/**", "scripts/**"],

@@ -1,7 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { SkillCandidate, SkillProvider, SkillProviderControl } from '@deepseek-ai/dsh-skill'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { apply, Config, EXTERNAL_SKILLS_SERVICE, inject, type ExternalSkillsService } from '../src/index.ts'
+import { apply, Config, inject } from '../src/index.ts'
 import { skillsConfigSchema } from '../src/core/schema.ts'
 import { DEFAULT_PROVIDER_SPECS } from '../src/core/defaults.ts'
 import { SkillsService } from '../src/host/skills-service.ts'
@@ -55,20 +55,12 @@ beforeEach(() => {
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks() })
 
 describe('host apply global-only wiring', () => {
-  it('registers settings and install/remove only, never overriding native skill discovery', async () => {
+  it('registers settings and RPC without overriding native skill discovery', async () => {
     const h = harness()
     expect(inject).toEqual(['webServer', 'settings'])
     expect(Config).toBe(skillsConfigSchema)
     expect(h.registerRoute).toHaveBeenCalledOnce()
-    const surface = h.provided.get(EXTERNAL_SKILLS_SERVICE) as ExternalSkillsService
-    expect(Object.keys(surface).sort()).toEqual(['installExternalSkills', 'removeExternalSkills'])
-    const install = vi.spyOn(SkillsService.prototype, 'installExternalSkills').mockResolvedValue({ ok: true })
-    const remove = vi.spyOn(SkillsService.prototype, 'removeExternalSkills').mockResolvedValue({ ok: false, error: 'failed' })
-    const args = { owner: 'cc', pluginKey: 'k', marketplaceId: 'm', skills: [] }
-    expect(await surface.installExternalSkills(args)).toEqual({ ok: true })
-    expect(install).toHaveBeenCalledWith(args)
-    expect(await surface.removeExternalSkills({ owner: 'cc', pluginKey: 'k' })).toEqual({ ok: false, error: 'failed' })
-    expect(remove).toHaveBeenCalledWith({ owner: 'cc', pluginKey: 'k' })
+    expect(h.provided.size).toBe(0)
     await vi.advanceTimersByTimeAsync(3000)
     expect(h.get).not.toHaveBeenCalledWith('workspaces')
     expect(h.registerProvider).toHaveBeenCalledOnce()
@@ -80,24 +72,10 @@ describe('host apply global-only wiring', () => {
     expect(h.section).toEqual({ providers: [], installations: [] })
   })
 
-  it('forwards filesystem changes to the registry only while mounted', async () => {
-    vi.spyOn(SkillsService.prototype, 'installExternalSkills').mockImplementation(async function (this: SkillsService) {
-      // Trigger the injected callback without touching the actual user filesystem.
-      const service = this as unknown as { opts: { onInstalledChanged?: () => void } }
-      service.opts.onInstalledChanged?.()
-      return { ok: true }
-    })
-    const h = harness()
-    const surface = h.provided.get(EXTERNAL_SKILLS_SERVICE) as ExternalSkillsService
-    const args = { owner: 'cc', pluginKey: 'k', marketplaceId: 'm', skills: [] }
-    await surface.installExternalSkills(args)
-    expect(h.invalidate).toHaveBeenCalledOnce()
-    h.disposers.forEach((dispose) => dispose())
-    await surface.installExternalSkills(args)
-    expect(h.invalidate).toHaveBeenCalledOnce()
+  it('does not require the native skill registry', () => {
     const optional = harness(true, false)
-    await (optional.provided.get(EXTERNAL_SKILLS_SERVICE) as ExternalSkillsService).installExternalSkills(args)
     expect(optional.registerProvider).not.toHaveBeenCalled()
+    expect(optional.registerRoute).toHaveBeenCalledOnce()
   })
 
   it('runs default seeding, provider refresh, and reconciliation in order after mount', async () => {

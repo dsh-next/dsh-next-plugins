@@ -386,7 +386,7 @@ describe('updateSkill (in place, explicit copy target)', () => {
     await seedCatalog(h)
     await seedSecondProvider(h, candidateB, fingerprintVersion([{ path: 'SKILL.md', content: candidateB }]))
     await h.service.installExternalSkills({
-      owner: 'cc-plugins', pluginKey: 'github:o/r/team-tools', marketplaceId: 'github:o/r',
+      owner: 'external-provider', pluginKey: 'github:o/r/team-tools', marketplaceId: 'github:o/r',
       skills: [{ name: 'find-skills', files: { 'SKILL.md': SKILL('find-skills', 'cc: true\n') } }],
     })
     const row = (await h.service.state()).installed.find((s) => s.name === 'find-skills')!
@@ -481,10 +481,10 @@ describe('detachSkill (config-only provenance drop)', () => {
       .toEqual({ ok: false, error: 'invalid skill name "not a name"' })
     // An owned copy cannot be detached out from under its owning plugin.
     await h.service.installExternalSkills({
-      owner: 'cc-plugins', pluginKey: 'github:o/r/team-tools', marketplaceId: 'github:o/r',
-      skills: [{ name: 'cc-skill', files: { 'SKILL.md': SKILL('cc-skill') } }],
+      owner: 'external-provider', pluginKey: 'github:o/r/team-tools', marketplaceId: 'github:o/r',
+      skills: [{ name: 'external-skill', files: { 'SKILL.md': SKILL('external-skill') } }],
     })
-    const owned = await h.service.detachSkill({ name: 'cc-skill', directory: '/home/u/.agents/skills/cc-skill' })
+    const owned = await h.service.detachSkill({ name: 'external-skill', directory: '/home/u/.agents/skills/external-skill' })
     expect(owned.ok).toBe(false)
     if (!owned.ok) expect(owned.error).toContain('detach it through that plugin')
   })
@@ -764,8 +764,8 @@ describe('detail payloads', () => {
   })
 })
 
-describe('external skill handoff (cc-plugins bridge)', () => {
-  const owner = 'cc-plugins'
+describe('external skill handoff', () => {
+  const owner = 'external-provider'
 
   it('installs skills global-only with an ownership sidecar without settings writes', async () => {
     const h = makeHarness()

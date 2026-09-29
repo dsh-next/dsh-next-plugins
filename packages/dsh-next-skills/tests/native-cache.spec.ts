@@ -19,7 +19,7 @@ function harness() {
   const invalidate = vi.fn(() => { cached = undefined })
   const service = new SkillsService({ fs, config, fetch: gh.fetch, dshHome: '/d', agentsHome: '/a', onInstalledChanged: invalidate })
   const install = () => service.installSkill({ providerId: 'o-r', skillPath: 'skills/foo' })
-  const external = (names: string[]) => service.installExternalSkills({ owner: 'cc', pluginKey: 'k', marketplaceId: 'm', skills: names.map((name) => ({ name, files: { 'SKILL.md': skill(name) } })) })
+  const external = (names: string[]) => service.installExternalSkills({ owner: 'external-provider', pluginKey: 'k', marketplaceId: 'm', skills: names.map((name) => ({ name, files: { 'SKILL.md': skill(name) } })) })
   return { fs, config, gh, service, nativeList, invalidate, install, external }
 }
 
@@ -55,11 +55,11 @@ describe('native catalog invalidation before mutation responses', () => {
     expect(await h.nativeList()).toEqual([])
     expect(await h.external(['one', 'two'])).toEqual({ ok: true })
     expect((await h.nativeList()).map((r) => r.name)).toEqual(['one', 'two'])
-    await h.service.installExternalSkills({ owner: 'cc', pluginKey: 'k', marketplaceId: 'm', skills: [{ name: 'one', files: { 'SKILL.md': skill('one', 'disable-model-invocation: true\n') } }] })
+    await h.service.installExternalSkills({ owner: 'external-provider', pluginKey: 'k', marketplaceId: 'm', skills: [{ name: 'one', files: { 'SKILL.md': skill('one', 'disable-model-invocation: true\n') } }] })
     expect((await h.nativeList())[0].fileModelInvocable).toBe(false)
-    await h.service.removeExternalSkills({ owner: 'cc', pluginKey: 'k', skillNames: ['one'] })
+    await h.service.removeExternalSkills({ owner: 'external-provider', pluginKey: 'k', skillNames: ['one'] })
     expect((await h.nativeList()).map((r) => r.name)).toEqual(['two'])
-    await h.service.removeExternalSkills({ owner: 'cc', pluginKey: 'k' })
+    await h.service.removeExternalSkills({ owner: 'external-provider', pluginKey: 'k' })
     expect(await h.nativeList()).toEqual([])
   })
 
@@ -116,7 +116,7 @@ describe('native catalog invalidation before mutation responses', () => {
     expect((await h.nativeList()).map((r) => r.name)).toEqual(['one'])
     const rename = h.fs.rename
     h.fs.rename = async (from, to) => { await rename(from, to); throw new Error('rename reported failure') }
-    await expect(h.service.removeExternalSkills({ owner: 'cc', pluginKey: 'k' })).rejects.toThrow('rename reported failure')
+    await expect(h.service.removeExternalSkills({ owner: 'external-provider', pluginKey: 'k' })).rejects.toThrow('rename reported failure')
     expect(await h.nativeList()).toEqual([])
   })
 
@@ -125,7 +125,7 @@ describe('native catalog invalidation before mutation responses', () => {
     const onInstalledChanged = vi.fn(() => { throw new Error('observer failed') })
     const logWarn = vi.fn(() => { throw new Error('logger failed') })
     const service = new SkillsService({ fs, config: new MemConfigFace(), fetch: createGhDouble({ files: {} }).fetch, dshHome: '/d', agentsHome: '/a', onInstalledChanged, logWarn })
-    const args = { owner: 'cc', pluginKey: 'k', marketplaceId: 'm', skills: [{ name: 'foo', files: { 'SKILL.md': skill('foo') } }] }
+    const args = { owner: 'external-provider', pluginKey: 'k', marketplaceId: 'm', skills: [{ name: 'foo', files: { 'SKILL.md': skill('foo') } }] }
     expect(await service.installExternalSkills(args)).toEqual({ ok: true })
     expect(fs.has(root + '/foo/SKILL.md')).toBe(true)
     expect(logWarn).toHaveBeenCalledWith(expect.stringContaining('observer failed'))

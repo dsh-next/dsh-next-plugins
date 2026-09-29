@@ -5,7 +5,7 @@
  * in the browser half is added here as a dotted key (English is the platform
  * fallback locale and this repo's language); zh.ts mirrors the key set and
  * the compiler enforces parity. Reference implementation:
- * packages/dsh-next-cc-plugins/src/client/dictionaries/.
+ * packages/dsh-next-skills/src/client/dictionaries/.
  */
 
 /** Locale namespace this plugin owns (also the slot label's namespace). */

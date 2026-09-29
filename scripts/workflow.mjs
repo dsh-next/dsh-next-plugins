@@ -16,7 +16,6 @@ const GROUPS = {
   checkpoints: { name: 'checkpoints', spec: 'tests/e2e/checkpoints.e2e.ts', plugins: ['checkpoints'], fixtures: false },
   git: { name: 'git', spec: 'tests/e2e/git.e2e.ts', plugins: ['git'], fixtures: false },
   skills: { name: 'skills', spec: 'tests/e2e/skills.e2e.ts', plugins: ['skills'], fixtures: true },
-  'cc-plugins': { name: 'cc-plugins', spec: 'tests/e2e/cc-plugins.e2e.ts', plugins: ['cc-plugins'], fixtures: false },
   notifier: { name: 'notifier', spec: 'tests/e2e/notifier.e2e.ts', plugins: ['notifier'], fixtures: false },
   'oauth-providers': { name: 'oauth-providers', spec: 'tests/e2e/oauth-providers.e2e.ts', plugins: ['oauth-providers'], fixtures: false },
 }

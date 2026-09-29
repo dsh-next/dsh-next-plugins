@@ -219,7 +219,7 @@ function writePairs(slugs) {
 function main() {
   if (writeMode) {
     if (namedSlugs.length === 0) {
-      console.error('usage: node scripts/verify-docs.mjs --write <slug>...   e.g. --write cc-plugins')
+      console.error('usage: node scripts/verify-docs.mjs --write <slug>...   e.g. --write skills')
       process.exit(1)
     }
     writePairs(namedSlugs)

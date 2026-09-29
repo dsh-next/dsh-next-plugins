@@ -5,9 +5,9 @@
   worktrees plugin is retired in favor of one Git tab in the right sidebar;
   this document stays as the record of the shipped 0.1.x line.
 - status: implemented — nested named cluster under the harbor, git on
-  the folder menu, extra sessions, invisible skill/cc-plugin inheritance
+  the folder menu, extra sessions, invisible skill inheritance
 - scope: `packages/dsh-next-worktrees`, plus harbor matching in
-  `packages/dsh-next-skills` and `packages/dsh-next-cc-plugins`
+  `packages/dsh-next-skills`
 - companion: [dsh-next-worktrees.md](dsh-next-worktrees.md) (product),
   [dsh-next-worktrees-sidebar-ux.md](dsh-next-worktrees-sidebar-ux.md)
   (current session-row grammar; this doc supersedes its "one session per
@@ -54,7 +54,7 @@ title, the slug in `.dsh/worktrees/<name>`, and the branch suffix in
 Session rows under the cluster go back to stock `...` (Rename / Fork /
 Archive). Git leaves those menus.
 
-**Invisible inheritance:** skills and cc-plugins never list the cluster.
+**Invisible inheritance:** skills never list the cluster.
 A skill scoped to `dsh-next-plugins` still applies in the worktree
 session. Runtime maps `/.dsh/worktrees/<slug>` to the harbor basename.
 No `parent--child` names, no auto-ticking copies into settings.
@@ -81,7 +81,7 @@ inject folder-menu items.
 - [x] **Folder `+` (`startSession` on the worktree workspace) creates
       another session in the same cwd** without a new git worktree.
       Extra sessions get the sandbox knob without stealing the bind.
-- [x] **Skills / cc-plugins matching on harbor basename is correct** for
+- [x] **Skills matching on harbor basename is correct** for
       session cwd inside `/.dsh/worktrees/`. Hide those paths from
       checklists. Existing scopes keep working with no settings
       migration.
@@ -109,9 +109,8 @@ identity, git on the folder.
   dirty `Remove anyway`, archive sessions, drop git checkout).
 - Folder `+` / `startSession` for extra sessions. Registry one-writer
   for Merge/Update: any running session in the folder blocks.
-- Skills + cc-plugins: hide `/.dsh/worktrees/` workspace rows;
-  `isScopeEnabled` (and cc-plugin workspace match) resolve cwd to the
-  harbor.
+- Skills: hide `/.dsh/worktrees/` workspace rows;
+  `isScopeEnabled` resolves cwd to the harbor.
 - Existing Merge / Update / setup / include / sweeper / sandbox bind
   stay.
 

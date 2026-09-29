@@ -74,7 +74,6 @@ Run those independently with a named suite:
 | `smoke` | All client bundles and short UI mount checks; explicit non-UI exemptions |
 | `git` | History dialogs, staging/commit, worktree creation, conflict recovery |
 | `skills` | Source selection, search, install/delete, folder UI, native catalog refresh |
-| `cc-plugins` | Marketplace, install/uninstall, dependencies, scopes, model aliases |
 | `notifier` | Settings, client identity, keyboard dismissal, failed-turn notification |
 | `oauth-providers` | Provider/model editing, validation, persistence, deletion |
 | `checkpoints` | Capture, inspect, preview, rewind, and RPC errors |

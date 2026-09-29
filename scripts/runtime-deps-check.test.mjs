@@ -4,7 +4,7 @@
  * The pure helpers `importSpecifiers` and `checkRuntimeImports` are exercised
  * directly. `checkRuntimeImports` resolves `@deepseek-ai/*` specifiers from a
  * package directory, so the "resolves" assertions point the resolver at the
- * real cc-plugins package dir (whose devDeps are installed); the "does not
+ * real skills package dir (whose devDeps are installed); the "does not
  * resolve" and "undeclared dep" assertions use a non-existent specifier, which
  * is independent of any install state.
  */
@@ -18,7 +18,7 @@ import { tmpdir } from 'node:os'
 const { importSpecifiers, checkRuntimeImports } = await import('./runtime-deps-check.mjs')
 
 // A real package dir under node_modules so `@deepseek-ai/*` resolution works.
-const PKG_DIR = join(import.meta.dirname, '..', 'packages', 'dsh-next-cc-plugins')
+const PKG_DIR = join(import.meta.dirname, '..', 'packages', 'dsh-next-skills')
 
 // Copy the CLI so its root points at an isolated temporary Git repo.
 function cliFixture(t) {

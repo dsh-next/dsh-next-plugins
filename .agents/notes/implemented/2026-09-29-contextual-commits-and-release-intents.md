@@ -35,8 +35,9 @@ Reviewed older pending release entries as well as the new intents:
 - Private Git, Decisions, and OpenCode packages have no release intents. The
   removed marketplace package was private and is not named by a changeset.
 
-`pnpm changeset status` previews a patch for Checkpoints and majors for
-Notifications, OAuth providers, and Skills. `node scripts/verify-changeset.mjs
+Under the maintainer's clarified [0.x release policy](<../../../.changeset/README.md#bump-kinds>),
+`pnpm changeset status` previews a patch for Checkpoints and minors for
+Notifications, OAuth providers, and Skills. Breaking-change warnings are retained. `node scripts/verify-changeset.mjs
 --base eedab6a` confirms intent coverage for every releasable package touched by
 this batch. All eight subsequent source boundaries passed isolated frozen
 installation, full typecheck/build, repository scripts, docs/i18n, and the

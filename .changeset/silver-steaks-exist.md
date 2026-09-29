@@ -1,5 +1,5 @@
 ---
-"@dsh-next/dsh-next-notifier": major
+"@dsh-next/dsh-next-notifier": minor
 ---
 
 **Breaking:** Requires DeepSeek Harness 0.1.7-rc.1 or newer. Notification settings now live directly on the installed Notifications page and save automatically. Configuration uses the plugin's profile entry; legacy preferences are imported into the active profile. Sounds play on the receiving desktop or browser device instead of the host, so keep a client open and use Preview if that device requires an audio gesture.

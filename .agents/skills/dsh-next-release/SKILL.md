@@ -71,11 +71,15 @@ intents, not manual edits.
 
 ## Choosing the bump kind
 
-- **major**: a breaking change — a public API, defaults, settings schema, or
-  CLI surface that existing consumers must migrate for.
-- **minor**: a new backward-compatible feature.
-- **patch**: a bug fix or non-behavioral change (documentation-only changes
-  need no change file at all — the gate exempts READMEs and manifests).
+Follow [Bump kinds](<../../../.changeset/README.md#bump-kinds>), the owning policy.
+Plugins stay on `0.x`: use **minor** for new features and breaking changes, and
+**patch** for fixes or non-behavioral maintenance. Keep `**Breaking**` warnings
+and migration instructions even when the numerical bump is minor.
+
+Never select **major** for a `0.x` plugin unless the maintainer explicitly
+approves its `1.0.0` graduation. Preview with `pnpm changeset status` and confirm
+no plugin crosses into `1.x` unintentionally. Documentation-only changes need
+no change file (the gate exempts READMEs and manifests).
 
 A change file can name several packages at once when one PR touches all of
 them; otherwise write one change file per package so each can version on its

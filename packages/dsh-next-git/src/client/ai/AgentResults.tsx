@@ -3,7 +3,7 @@ import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { AiTaskRecord, AiTaskResults } from './task-results.ts'
 import type { AgentSessionControls } from './action-dialog.tsx'
 import type { PanelStore } from '../controller.ts'
-import type { Translate } from '../GitPanel.tsx'
+import type { Translate } from '../dictionaries.ts'
 import { useDialogFocus } from '../ui/dialog-focus.ts'
 import classes from './action-dialog.module.css'
 

@@ -12,10 +12,11 @@ import {
 import type { CommitDetails } from '../../core/history-view.ts'
 import type { CommitSummary } from '../../core/types.ts'
 import { asApiError, type GitApi } from '../api.ts'
-import type { Translate } from '../GitPanel.tsx'
+import type { Translate } from '../dictionaries.ts'
 import type { AgentSessionControls } from '../ai/action-dialog.tsx'
 import { HistoryMessageAI } from './HistoryMessageAI.tsx'
 import { useDialogFocus } from '../ui/dialog-focus.ts'
+import { IconTooltip } from '../ui/IconTooltip.tsx'
 import classes from './commit-details.module.css'
 
 /** Message edits wait this long before they ask the host for a fresh preview. */
@@ -198,8 +199,12 @@ function Action({ sessionId, action, commits, t, api, root, cwd, onClose, onChan
             return <li key={id}>
               <span className={classes.orderSubject} title={id}>{commit?.subject ?? id.slice(0, 7)}</span>
               {reorderable && <span className={classes.row}>
-                <button type="button" className={classes.orderMove} disabled={!editable || index === 0} aria-label={t('history.moveUp', { hash: id.slice(0, 7) })} title={t('history.moveUp', { hash: id.slice(0, 7) })} onClick={() => move(index, -1)}><IconChevronUpOutlineRegular size={14} /></button>
-                <button type="button" className={classes.orderMove} disabled={!editable || index === order.length - 1} aria-label={t('history.moveDown', { hash: id.slice(0, 7) })} title={t('history.moveDown', { hash: id.slice(0, 7) })} onClick={() => move(index, 1)}><IconChevronDownOutlineRegular size={14} /></button>
+                <IconTooltip label={t('history.moveUp', { hash: id.slice(0, 7) })}>
+                  <button type="button" className={classes.orderMove} disabled={!editable || index === 0} aria-label={t('history.moveUp', { hash: id.slice(0, 7) })} onClick={() => move(index, -1)}><IconChevronUpOutlineRegular size={14} /></button>
+                </IconTooltip>
+                <IconTooltip label={t('history.moveDown', { hash: id.slice(0, 7) })}>
+                  <button type="button" className={classes.orderMove} disabled={!editable || index === order.length - 1} aria-label={t('history.moveDown', { hash: id.slice(0, 7) })} onClick={() => move(index, 1)}><IconChevronDownOutlineRegular size={14} /></button>
+                </IconTooltip>
               </span>}
             </li>
           })}

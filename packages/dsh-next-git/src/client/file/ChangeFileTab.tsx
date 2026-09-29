@@ -1,11 +1,13 @@
 import * as React from 'react'
-import { CodeBlock, IconRefreshOutlineRegular, IconWrapLinesOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { CodeBlock, IconRefreshOutlineRegular, IconWrapLinesOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconTooltip } from '../ui/IconTooltip.tsx'
 import type { FileChanges } from '../../core/types.ts'
 import type { HunkPreview } from '../../core/repository-actions.ts'
 import { parseChangeFileAddress } from '../../core/address.ts'
 import { hiddenLineNumbers } from '../../core/file-view.ts'
 import { asApiError, type GitApi } from '../api.ts'
-import { failureFix, failureTitleKey, type Translate } from '../GitPanel.tsx'
+import { failureFix, failureTitleKey } from '../panel/failure-copy.ts'
+import type { Translate } from '../dictionaries.ts'
 import classes from './change-file.module.css'
 
 /** What the tab needs from the shell: one API and one translation function. */
@@ -167,12 +169,11 @@ function ToolbarAction(props: {
   onClick: () => void
 }): React.ReactElement {
   return (
-    <Tooltip label={props.label} side="bottom">
+    <IconTooltip label={props.label}>
       <button
         type="button"
         className={classes.tool}
         aria-label={props.label}
-        title={props.label}
         data-dsh-git={props.marker}
         {...(props.disabled === undefined ? {} : { disabled: props.disabled })}
         {...(props.pressed === undefined ? {} : { 'aria-pressed': props.pressed })}
@@ -180,7 +181,7 @@ function ToolbarAction(props: {
       >
         {props.glyph === undefined ? props.icon : <span aria-hidden="true" className={classes.glyph}>{props.glyph}</span>}
       </button>
-    </Tooltip>
+    </IconTooltip>
   )
 }
 

@@ -1,11 +1,12 @@
 import * as React from 'react'
 import { IconChevronLeftOutlineRegular, IconEllipsisOutlineRegular, Menu, type MenuEntry, type MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PanelState } from '../../core/types.ts'
-import type { Translate } from '../GitPanel.tsx'
+import type { Translate } from '../dictionaries.ts'
 import { commandLabels, type RepositoryMenuCommand } from './commands.ts'
 import classes from '../panel.module.css'
 import menuClasses from './repository-menu.module.css'
 import { useRepositoryMenuPlacement } from './menu-placement.ts'
+import { IconTooltip } from '../ui/IconTooltip.tsx'
 
 /** Commands share the same handlers as the panel; opening the menu never writes. */
 export function RepositoryMenu({ t, disabled, state, onAction }: {
@@ -47,11 +48,13 @@ export function RepositoryMenu({ t, disabled, state, onAction }: {
       setOpen(false)
       onAction(id as RepositoryMenuCommand)
     }}
-    anchor={<button type="button" className={classes.iconButton}
-      aria-label={t('repository.title')} title={t('repository.title')}
-      aria-haspopup="menu" aria-expanded={open && !disabled}
-      data-dsh-git="repository-menu" disabled={disabled}
-      onClick={() => setOpen(value => !value)}>
-      <IconEllipsisOutlineRegular size={16} />
-    </button>} />
+    anchor={<IconTooltip label={t('repository.title')}>
+      <button type="button" className={classes.iconButton}
+        aria-label={t('repository.title')}
+        aria-haspopup="menu" aria-expanded={open && !disabled}
+        data-dsh-git="repository-menu" disabled={disabled}
+        onClick={() => setOpen(value => !value)}>
+        <IconEllipsisOutlineRegular size={16} />
+      </button>
+    </IconTooltip>} />
 }

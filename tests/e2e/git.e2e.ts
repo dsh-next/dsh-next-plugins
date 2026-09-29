@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import { existsSync, readFileSync } from 'node:fs'
 import { test, expect, BASE_URL, requireMountedPlugin } from './browser-fixture.ts'
+import type { Locator } from '@playwright/test'
 import { dismissOnboarding, closeDialogs, openWorkspaceSession } from './checkpoints-helpers.ts'
 import { git, gitOk, openGitPanel } from './git-helpers.ts'
 import { createFixture } from '../../packages/dsh-next-git/tests/git-fixture.ts'
@@ -49,6 +50,27 @@ test('Git history, changes, worktrees and conflict recovery reflect real reposit
 
     await openGitPanel(page)
     const panel = page.locator('[data-dsh-git="panel"]')
+    let tooltipClass: string | null = null
+    const checkIconTooltip = async (button: Locator, label: string, screenshot?: string, accessibleName = label): Promise<void> => {
+      await expect(button).toHaveAttribute('aria-label', accessibleName)
+      await expect(button).not.toHaveAttribute('title', /.+/)
+      await (await button.isDisabled() ? button.locator('..') : button).hover()
+      const tooltip = page.getByRole('tooltip', { name: label, exact: true })
+      await expect(tooltip).toBeVisible()
+      if (screenshot !== undefined) await expect(tooltip).toHaveCSS('opacity', '1')
+      const appearance = await tooltip.evaluate(element => ({
+        className: element.className,
+        portal: element.getAttribute('data-portal'),
+        align: element.getAttribute('data-align'),
+      }))
+      expect(appearance.portal).toBe('true')
+      expect(appearance.align).toBe('end')
+      if (tooltipClass === null) tooltipClass = appearance.className
+      else expect(appearance.className).toBe(tooltipClass)
+      if (screenshot !== undefined) await page.screenshot({ path: test.info().outputPath(screenshot) })
+      await page.mouse.move(0, 0)
+      await expect(tooltip).toHaveCount(0)
+    }
     await expect(page.locator('[data-dsh-git="branch-button"]')).toContainText('main', { timeout: 20_000 })
     // The tab chip never goes blank, however early the seat renders.
     await expect(page.locator('[data-dsh-git="chip-title"]')).toHaveText(/\S/, { timeout: 20_000 })
@@ -68,6 +90,15 @@ test('Git history, changes, worktrees and conflict recovery reflect real reposit
     const syncBox = (await syncShortcut.boundingBox())!
     const branchBox = (await panel.locator('[data-dsh-git="branch-button"]').boundingBox())!
     expect(syncBox.x + syncBox.width).toBeLessThanOrEqual(branchBox.x)
+    for (const [name, label] of [
+      ['sync', 'Sync'],
+      ['new-worktree', 'New worktree'],
+      ['agent-menu', 'Ask the agent'],
+      ['refresh', 'Re-read the repository'],
+      ['repository-menu', 'Repository actions'],
+    ] as const) {
+      await checkIconTooltip(panel.locator(`[data-dsh-git="${name}"]`), label, undefined, name === 'refresh' ? 'Refresh' : label)
+    }
     await page.emulateMedia({ colorScheme: 'dark' })
     await panel.locator('header').screenshot({ path: test.info().outputPath('git-header-sync.png') })
     await syncShortcut.click()
@@ -116,6 +147,11 @@ test('Git history, changes, worktrees and conflict recovery reflect real reposit
     const composerChip = page.locator('[data-dsh-git="composer-branch"]')
     await expect(composerChip).toBeVisible({ timeout: 20_000 })
     await expect(composerChip).toHaveText('main')
+    await composerChip.hover()
+    const composerTooltip = page.getByRole('tooltip', { name: 'Branch main. Choose another branch.', exact: true })
+    await expect(composerTooltip).toBeVisible()
+    await expect(composerTooltip).toHaveAttribute('data-portal', 'true')
+    await page.mouse.move(0, 0)
     await composerChip.click()
     await expect(page.locator('[data-dsh-git="ref-picker"]')).toBeVisible()
     await page.keyboard.press('Escape')
@@ -291,6 +327,7 @@ test('Git history, changes, worktrees and conflict recovery reflect real reposit
     const reloadHistory = history.locator('[data-dsh-git="history-refresh"]')
     await expect(reloadHistory).toHaveAccessibleName('Refresh history')
     await expect(reloadHistory).toHaveText('')
+    await checkIconTooltip(reloadHistory, 'Refresh history')
     await reloadHistory.click()
     await expect(reloadHistory).toBeEnabled()
     await expect(commitRows.first()).toBeVisible()
@@ -298,10 +335,14 @@ test('Git history, changes, worktrees and conflict recovery reflect real reposit
     // Ordinary clicks build the selection, and a row's checkout icon reveals
     // on hover or keyboard focus rather than sitting on screen at all times.
     const selects = history.locator('[data-dsh-git="commit-select"]')
-    const rowActions = commitRows.nth(0).locator('[data-dsh-git="commit-checkout"]').locator('..')
+    const rowActions = commitRows.nth(0).locator('[data-dsh-git="commit-checkout"]').locator('..').locator('..')
     await expect(rowActions).toHaveCSS('opacity', '0')
     await commitRows.nth(0).hover()
     await expect(rowActions).toHaveCSS('opacity', '1')
+    const checkout = commitRows.nth(0).locator('[data-dsh-git="commit-checkout"]')
+    const checkoutLabel = await checkout.getAttribute('aria-label')
+    expect(checkoutLabel).toMatch(/^Check out [a-f0-9]+$/)
+    await checkIconTooltip(checkout, checkoutLabel!, 'history-checkout-tooltip.png')
     // Reading a commit is the Inspect command's job, not a second row icon.
     await expect(history.locator('[data-dsh-git="commit-details"]')).toHaveCount(0)
     await selects.nth(0).click()
@@ -351,6 +392,16 @@ test('Git history, changes, worktrees and conflict recovery reflect real reposit
     await expect(actionModal.locator('code')).toHaveCount(0)
     await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click()
     await expect(actionModal).toHaveCount(0)
+    await history.getByRole('button', { name: 'Reorder', exact: true }).click()
+    const reorderModal = page.locator('[data-dsh-git="history-action-modal"][data-action="reorder"]')
+    await expect(reorderModal.getByRole('alert')).toContainText('Commit or stash your changes')
+    const firstOrderRow = reorderModal.locator('[data-dsh-git="action-order"] li').first()
+    const moveEarlier = firstOrderRow.getByRole('button', { name: /^Move .* earlier$/ })
+    const moveLater = firstOrderRow.getByRole('button', { name: /^Move .* later$/ })
+    await expect(moveEarlier).toBeDisabled()
+    await checkIconTooltip(moveEarlier, (await moveEarlier.getAttribute('aria-label'))!)
+    await checkIconTooltip(moveLater, (await moveLater.getAttribute('aria-label'))!, 'history-reorder-tooltip.png')
+    await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click()
     await history.getByRole('button', { name: 'Squash', exact: true }).click()
     const squashModal = page.locator('[data-dsh-git="history-action-modal"][data-action="squash"]')
     await expect(squashModal.getByLabel('Summary', { exact: true })).toBeEnabled()
@@ -360,6 +411,7 @@ test('Git history, changes, worktrees and conflict recovery reflect real reposit
     await squashModal.getByLabel('Summary', { exact: true }).fill('Old summary')
     await squashModal.getByLabel('Description', { exact: true }).fill('Old description')
     await expect(ai.getByRole('button')).toBeEnabled()
+    await checkIconTooltip(ai.getByRole('button'), 'Draft message')
     await ai.getByRole('button').click()
     await expect(squashModal.getByLabel('Summary', { exact: true })).toHaveValue('Generated summary')
     await expect(squashModal.getByLabel('Description', { exact: true })).toHaveValue('Generated description')
@@ -390,7 +442,18 @@ test('Git history, changes, worktrees and conflict recovery reflect real reposit
     await openSection('changes')
     const row = page.locator('[data-dsh-git="row"][data-path="src/git-panel/store.ts"]')
     await expect(row).toBeVisible({ timeout: 20_000 })
+    for (const [name, label] of [
+      ['stage-all', 'Stage all'],
+      ['discard-all', 'Discard all changes'],
+    ] as const) await checkIconTooltip(panel.locator(`[data-dsh-git="${name}"]`), label)
+    await row.hover()
+    await checkIconTooltip(row.getByRole('button', { name: 'Stage', exact: true }), 'Stage')
+    await row.hover()
+    await checkIconTooltip(row.getByRole('button', { name: 'Discard', exact: true }), 'Discard', 'changes-row-tooltip.png')
     await capture('changes')
+    await page.emulateMedia({ colorScheme: 'light' })
+    await capture('changes-light')
+    await page.emulateMedia({ colorScheme: 'dark' })
     // A row opens the change view in a tab of its own: the whole file,
     // highlighted, with the changed lines marked and its own refresh action.
     await row.click()
@@ -410,6 +473,14 @@ test('Git history, changes, worktrees and conflict recovery reflect real reposit
     await expect(changeTab.locator('span.line[data-change="added"]').first()).toBeVisible()
     await expect(changeTab.locator('[data-dsh-git="change-file-changed-only"]')).toHaveAttribute('aria-pressed', 'true')
     await expect(changeTab.locator('[data-dsh-git="change-file-hunks"]')).toBeEnabled()
+    for (const [name, label] of [
+      ['change-file-hunks', 'Stage these changes'],
+      ['change-file-refresh', 'Read the file again'],
+      ['change-file-changed-only', 'Changed lines only'],
+      ['change-file-wrap', 'Wrap lines'],
+    ] as const) {
+      await checkIconTooltip(changeTab.locator(`[data-dsh-git="${name}"]`), label, name === 'change-file-wrap' ? 'change-file-toolbar-tooltip.png' : undefined)
+    }
     // This file is new, so every line changed and none is hidden; the toggle
     // still reports the mode it is in.
     await changeTab.locator('[data-dsh-git="change-file-changed-only"]').click()
@@ -552,6 +623,38 @@ test('Git history, changes, worktrees and conflict recovery reflect real reposit
     await expect(worktreeRow.locator('[data-dsh-git="worktree-meta"]')).toContainText('Merged into')
     await expect(page.locator('[data-dsh-git="worktree-base"]')).toContainText('main')
     await expect(page.locator('[data-dsh-git="worktree-source"]')).toBeVisible()
+    // The merge control stays compact even with a long branch name. Actions
+    // consume only the heading line; the path and status use the full row.
+    const mergeWorktree = worktreeRow.locator('[data-dsh-git="worktree-merge"]')
+    await expect(mergeWorktree).toHaveAttribute('aria-label', 'Merge into main')
+    const worktreeLayout = await worktreeRow.evaluate((row) => {
+      const path = row.querySelector('[data-dsh-git="worktree-path"]')!
+      const meta = row.querySelector('[data-dsh-git="worktree-meta"]')!
+      const actions = row.querySelector('[data-dsh-git="worktree-actions"]')!
+      return {
+        row: row.getBoundingClientRect().width,
+        path: path.getBoundingClientRect().width,
+        meta: meta.getBoundingClientRect().width,
+        actions: actions.getBoundingClientRect().width,
+      }
+    })
+    expect(worktreeLayout.actions).toBeLessThanOrEqual(112)
+    expect(worktreeLayout.path).toBeGreaterThanOrEqual(worktreeLayout.row - 21)
+    expect(worktreeLayout.meta).toBeGreaterThanOrEqual(worktreeLayout.row - 21)
+    for (const [name, label] of [
+      ['worktree-open-session', 'Open a session in this folder'],
+      ['worktree-update', 'Update from main'],
+      ['worktree-merge', 'Merge into main'],
+      ['worktree-delete', 'Delete worktree'],
+    ] as const) {
+      await worktreeRow.hover()
+      await checkIconTooltip(worktreeRow.locator(`[data-dsh-git="${name}"]`), label, name === 'worktree-delete' ? 'worktree-delete-tooltip.png' : undefined)
+    }
+    await mergeWorktree.hover()
+    const mergeTooltip = page.getByRole('tooltip', { name: 'Merge into main' })
+    await expect(mergeTooltip).toBeVisible()
+    await expect(mergeTooltip).toHaveCSS('opacity', '1')
+    await page.screenshot({ path: test.info().outputPath('worktree-merge-tooltip.png') })
 
     // Every trailing control shares one right line: the section pill, a row's
     // status letter and a row's action button must land within 2px of each
@@ -591,6 +694,9 @@ test('Git history, changes, worktrees and conflict recovery reflect real reposit
 
     await worktreeRow.scrollIntoViewIfNeeded()
     await capture('worktrees')
+    await page.emulateMedia({ colorScheme: 'light' })
+    await capture('worktrees-light')
+    await page.emulateMedia({ colorScheme: 'dark' })
     await worktreeRow.hover()
     await worktreeRow.getByRole('button', { name: 'Delete worktree', exact: true }).click()
     await page.locator('[data-dsh-git="confirm-proceed"]').click()

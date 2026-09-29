@@ -24,13 +24,14 @@ function button(text: string): HTMLButtonElement { return [...container.querySel
 async function render(overrides: Partial<HistorySectionViewProps> = {}): Promise<void> { props = { ...props, ...overrides }; await act(async () => root.render(<HistorySectionView {...props} />)) }
 async function click(node: HTMLElement): Promise<void> { await act(async () => { node.dispatchEvent(new MouseEvent('click', { bubbles: true })) }) }
 beforeEach(() => {
+  vi.stubGlobal('ResizeObserver', class { observe() {}; disconnect() {} })
   container = document.createElement('div'); document.body.append(container); root = createRoot(container)
   const commits = [commit(3), commit(2), commit(1)]
   const state: PanelState = { root: '/repo', gitDir: '/repo/.git', cwd: '/repo', bare: false, head: { branch: 'main', oid: oid(3), upstream: null, ahead: 0, behind: 0, detached: false, unborn: false }, operation: { kind: null, step: null, message: null, conflicts: [] }, branches: [{ name: 'main', remote: false, current: true, oid: oid(3), upstream: null, author: 'A', committedAt: 1, ahead: 0, behind: 0, subject: 'tip' }], tags: [{ name: 'v1', oid: oid(3), author: 'Author', committedAt: 1, subject: 'tip' }], identity: { name: 'Author', email: null }, worktrees: [], worktreeBase: { name: 'main', source: 'default-branch', candidates: ['main'] }, changes: { staged: [], unstaged: [], untracked: [], ignored: [], conflicts: [], ignoredCount: 0, ignoredTruncated: false } }
   props = { snapshot: { ...new PanelStore({ call: vi.fn() }, 'source').getSnapshot(), state, phase: 'ready', collapsed: { changes: true, history: false, worktrees: true }, history: { commits, lanes: computeGraphLanes(commits), hasMore: true } },
     t, onToggle: vi.fn(), onRefresh: vi.fn(), onLoadMore: vi.fn(), onCheckout: vi.fn(), onInspect: vi.fn(), onCompare: vi.fn(), onAction: vi.fn() }
 })
-afterEach(async () => { await act(async () => root.unmount()); container.remove() })
+afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals() })
 
 describe('history section', () => {
   it('renders an accessible icon-only reload beside the collapsible header', async () => {
@@ -41,7 +42,10 @@ describe('history section', () => {
     expect(toggle.className).toBe(panelClasses.sectionToggle)
     expect(refresh.className).toBe(panelClasses.iconButton)
     expect(refresh.textContent).toBe('')
-    expect(refresh.title).toBe(t('history.refresh'))
+    expect(refresh.title).toBe('')
+    await act(async () => refresh.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(t('history.refresh'))
+    await act(async () => refresh.dispatchEvent(new MouseEvent('mouseout', { bubbles: true })))
     expect(refresh.querySelector('svg')).not.toBeNull()
     expect(toggle.querySelector('svg')).not.toBeNull()
     expect(toggle.getAttribute('aria-expanded')).toBe('true')
@@ -60,7 +64,9 @@ describe('history section', () => {
     expect(container.querySelector('#dsh-git-section-history')).toBeNull()
     await render({ t: (key, params) => interpolate(zh[key], params) })
     expect(refresh.getAttribute('aria-label')).toBe(zh['history.refresh'])
-    expect(refresh.title).toBe(zh['history.refresh'])
+    expect(refresh.title).toBe('')
+    await act(async () => refresh.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(zh['history.refresh'])
   })
   it('keeps a commit list multi-selectable by ordinary clicks', async () => {
     await render()
@@ -109,7 +115,7 @@ describe('history section', () => {
   it('keeps the row layout and reveals its one action from the shared hover rule', async () => {
     await render()
     const checkout = checkouts()[0]!
-    expect(checkout.parentElement?.className).toBe(classes.actions)
+    expect(checkout.parentElement?.parentElement?.className).toBe(classes.actions)
     expect(selects()[0]!.className).toBe(classes.commit)
     expect(rows()[0]!.className).toBe(classes.row)
     expect(rows()[0]!.querySelector(`.${classes.graph}`)).not.toBeNull()
@@ -122,8 +128,11 @@ describe('history section', () => {
     await render()
     const checkout = checkouts()[0]!
     expect(checkout.textContent).toBe('')
-    expect(checkout.title).toBe(t('history.checkout'))
+    expect(checkout.title).toBe('')
     expect(checkout.getAttribute('aria-label')).toBe(t('history.checkoutHash', { hash: 'c3' }))
+    await act(async () => checkout.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(t('history.checkoutHash', { hash: 'c3' }))
+    await act(async () => checkout.dispatchEvent(new MouseEvent('mouseout', { bubbles: true })))
     expect(checkout.querySelector('svg')).not.toBeNull()
     await click(checkout)
     expect(props.onCheckout).toHaveBeenCalledWith(commit(3))
@@ -140,8 +149,10 @@ describe('history section', () => {
     // Reading history stays available while a write is locked out.
     expect(button(t('history.inspect')).disabled).toBe(false)
     await render({ t: (key, params) => interpolate(zh[key], params) })
-    expect(checkout.title).toBe(zh['history.checkout'])
+    expect(checkout.title).toBe('')
     expect(checkout.getAttribute('aria-label')).toBe(interpolate(zh['history.checkoutHash'], { hash: 'c3' }))
+    await act(async () => checkout.parentElement?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(interpolate(zh['history.checkoutHash'], { hash: 'c3' }))
   })
   it('retains immutable rows across pagination and delegates load-more beyond 500', async () => {
     await render()

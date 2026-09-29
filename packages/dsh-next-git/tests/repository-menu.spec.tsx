@@ -44,6 +44,7 @@ const groups: [MessageKey, [RepositoryAction, MessageKey][]][] = [
 const rebaseState = { operation: { kind: 'rebase' }, head: { unborn: false } } as PanelState
 
 beforeEach(() => {
+  vi.stubGlobal('ResizeObserver', class { observe() {}; disconnect() {} })
   container = document.createElement('div')
   document.body.append(container)
   root = createRoot(container)
@@ -52,6 +53,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => { root.unmount() })
   document.body.replaceChildren()
+  vi.unstubAllGlobals()
 })
 
 describe('repository native menu', () => {
@@ -97,6 +99,10 @@ describe('repository native menu', () => {
     expect(trigger().getAttribute('aria-label')).toBe(t('repository.title'))
     expect(trigger().getAttribute('aria-haspopup')).toBe('menu')
     expect(trigger().getAttribute('aria-expanded')).toBe('false')
+    expect(trigger().getAttribute('title')).toBeNull()
+    await act(async () => trigger().dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(t('repository.title'))
+    await act(async () => trigger().dispatchEvent(new MouseEvent('mouseout', { bubbles: true })))
     expect(document.querySelector('[role="menu"]')).toBeNull()
     await click(trigger())
     expect(trigger().getAttribute('aria-expanded')).toBe('true')
@@ -140,7 +146,7 @@ describe('repository native menu', () => {
 
   it('dismisses nested menus with Escape and restores trigger focus', async () => {
     await render()
-    trigger().focus()
+    await act(async () => trigger().focus())
     await click(trigger())
     await click(item('repository.branches'))
     await key('Escape')
@@ -178,7 +184,7 @@ describe('repository native menu', () => {
 
   it('supports native arrow navigation into a submenu and keyboard selection', async () => {
     await render()
-    trigger().focus()
+    await act(async () => trigger().focus())
     await click(trigger())
     expect(document.activeElement).toBe(item('commands.pull'))
     await key('ArrowDown')

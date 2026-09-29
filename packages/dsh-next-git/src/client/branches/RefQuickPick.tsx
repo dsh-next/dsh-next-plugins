@@ -19,8 +19,9 @@ import {
   Modal,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { RefGroup, RefKind, RefOption } from '../../core/refs.ts'
-import type { Translate } from '../GitPanel.tsx'
+import type { Translate } from '../dictionaries.ts'
 import { useDialogFocus } from '../ui/dialog-focus.ts'
+import { IconTooltip } from '../ui/IconTooltip.tsx'
 import { refAge } from './ref-time.ts'
 import classes from './refs.module.css'
 
@@ -150,11 +151,13 @@ export function RefQuickPick(props: RefQuickPickProps): React.ReactElement {
     <Modal open headless title={props.title} onClose={props.onClose} className={classes.card}>
       {/* One marker for the whole card: the field and the rows it drives. */}
       <div className={classes.picker} data-dsh-git={marker}>
-        <div ref={body} className={classes.head} onKeyDown={onKeyDown}>
+        <div ref={body} className={classes.head}>
           {props.onBack === undefined ? null : (
-            <button type="button" className={classes.back} data-dsh-git="ref-back" aria-label={t('picker.back')} onClick={props.onBack}>
-              <IconChevronLeftOutlineRegular size={14} />
-            </button>
+            <IconTooltip label={t('picker.back')}>
+              <button type="button" className={classes.back} data-dsh-git="ref-back" aria-label={t('picker.back')} onClick={props.onBack}>
+                <IconChevronLeftOutlineRegular size={14} />
+              </button>
+            </IconTooltip>
           )}
           <Input
             className={classes.field}
@@ -169,6 +172,7 @@ export function RefQuickPick(props: RefQuickPickProps): React.ReactElement {
             placeholder={props.placeholder}
             value={query}
             onChange={(event) => props.onQuery(event.target.value)}
+            onKeyDown={onKeyDown}
           />
         </div>
         <ul className={classes.list} id={listId} role="listbox" aria-label={props.title}>
@@ -221,9 +225,11 @@ export function RefQuickPick(props: RefQuickPickProps): React.ReactElement {
                     <span className={classes.top}>
                       <span className={classes.name}>{option.name}</span>
                       {!marked ? null : option.current ? (
-                        <span className={classes.current} aria-label={t('picker.current')} title={t('picker.current')}>
-                          <IconCheckOutlineRegular size={12} />
-                        </span>
+                        <IconTooltip label={t('picker.current')}>
+                          <span className={classes.current} aria-label={t('picker.current')}>
+                            <IconCheckOutlineRegular size={12} />
+                          </span>
+                        </IconTooltip>
                       ) : (
                         <span className={classes.current} aria-hidden="true">
                           <IconCheckOutlineRegular size={12} />

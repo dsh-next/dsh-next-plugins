@@ -69,21 +69,25 @@ async function render(api: GitApi): Promise<void> {
 }
 
 beforeEach(() => {
+  vi.stubGlobal('ResizeObserver', class { observe() {}; disconnect() {} })
   root = createRoot(document.body.appendChild(document.createElement('div')))
 })
 afterEach(async () => {
   await act(async () => root.unmount())
   document.body.replaceChildren()
+  vi.unstubAllGlobals()
   vi.useRealTimers()
 })
 
 describe('composer branch chip', () => {
-  it('shows the branch the session checkout is on', async () => {
+  it('shows the branch the session checkout is on with a consistent tooltip', async () => {
     await render(apiDouble().api)
     expect(chip()).not.toBeNull()
     expect(chip()?.textContent).toBe('main')
     expect(chip()?.getAttribute('aria-haspopup')).toBe('dialog')
-    expect(chip()?.getAttribute('title')).toBe('Branch main. Choose another branch.')
+    expect(chip()?.getAttribute('title')).toBeNull()
+    await act(async () => chip()?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(t('composer.branchTitle', { branch: 'main' }))
     // A narrow composer hides the label, so the name is the accessible name
     // whether or not it is on screen.
     expect(chip()?.getAttribute('aria-label')).toBe('main')

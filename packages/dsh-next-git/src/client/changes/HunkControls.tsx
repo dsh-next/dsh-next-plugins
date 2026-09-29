@@ -3,7 +3,7 @@ import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { HunkPreview, RepositoryActionResult } from '../../core/repository-actions.ts'
 import type { DiffSide } from '../../core/types.ts'
 import type { GitApi } from '../api.ts'
-import type { Translate } from '../GitPanel.tsx'
+import type { Translate } from '../dictionaries.ts'
 import classes from './hunks.module.css'
 
 export interface HunkControlsProps {

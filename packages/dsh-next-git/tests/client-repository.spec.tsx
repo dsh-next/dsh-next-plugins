@@ -130,10 +130,11 @@ function apiDouble(script: Record<string, unknown>): {
   }
 }
 
-function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
+function deferred<T>(): { promise: Promise<T>; resolve(value: T): void; reject(error: Error): void } {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>((yes) => { resolve = yes })
-  return { promise, resolve }
+  let reject!: (error: Error) => void
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no })
+  return { promise, resolve, reject }
 }
 
 let root: Root
@@ -231,7 +232,8 @@ describe('single-action repository dialogs', () => {
       [...label.childNodes].filter(node => node.nodeType === Node.TEXT_NODE).map(node => node.textContent).join(''))).toEqual(labels.map(key => t(key)))
     const actionButtons = buttons().filter(button => [t('branches.create'), t('branches.rename'), t('branches.delete'), t('repository.preview')].includes(button.textContent!.trim()))
     expect(actionButtons).toHaveLength(1)
-    expect(double.calls).toEqual([{ method: 'repositoryInventory', args: { sessionId: 's1' } }])
+    // Branch forms already have their refs in panel state; only transfers need inventory.
+    expect(double.calls).toEqual(action.startsWith('branch-') ? [] : [{ method: 'repositoryInventory', args: { sessionId: 's1' } }])
   })
 
   it('remounts on action changes, clearing inputs, approval, result, errors and branch confirmation', async () => {
@@ -306,6 +308,31 @@ describe('repository workspace inventory', () => {
     expect([...stash.options].map((option) => option.textContent)).toEqual(['WIP on main', 'WIP on feature'])
     expect(stash.value).toBe('stash-1')
     expect(double.calls.some((call) => call.method === 'executeRepositoryAction')).toBe(false)
+  })
+
+  it('ignores a stale inventory success after a newer read', async () => {
+    const first = deferred<RepositoryInventory>()
+    const initial = apiDouble({ repositoryInventory: first.promise })
+    const latest = apiDouble({ repositoryInventory: inventory({ remotes: [inventory().remotes[1]!] }) })
+    await render({ api: initial.api })
+    props = { ...props, api: latest.api }
+    await act(async () => { root.render(<RepositoryWorkspaceView {...props} />) })
+    expect(selectByLabel('repository.remote').value).toBe('mirror')
+    await act(async () => { first.resolve(inventory()) })
+    expect([...selectByLabel('repository.remote').options].map(option => option.value)).toEqual(['mirror'])
+    expect(alertText()).toBeNull()
+  })
+
+  it('ignores a stale inventory failure after a successful refresh', async () => {
+    const first = deferred<RepositoryInventory>()
+    const initial = apiDouble({ repositoryInventory: first.promise })
+    const latest = apiDouble({ repositoryInventory: inventory() })
+    await render({ api: initial.api })
+    props = { ...props, api: latest.api }
+    await act(async () => { root.render(<RepositoryWorkspaceView {...props} />) })
+    await act(async () => { first.reject(new Error('old read failed')) })
+    expect(alertText()).toBeNull()
+    expect(selectByLabel('repository.remote').value).toBe('origin')
   })
 
   it('surfaces an inventory read failure instead of crashing', async () => {
@@ -421,6 +448,22 @@ describe('repository action preview and execution', () => {
     expect(buttonText(t('repository.preview')).disabled).toBe(false)
   })
 
+  it('ignores a rejected preview invalidated by an input change', async () => {
+    const pending = deferred<RepositoryActionPreview>()
+    const double = apiDouble({ repositoryInventory: inventory(), previewRepositoryAction: () => pending.promise })
+    await render({ api: double.api })
+    await act(async () => {
+      buttonText(t('repository.preview')).click()
+      const remote = selectByLabel('repository.remote')
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(remote, 'mirror')
+      remote.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    await act(async () => { pending.reject(new Error('old preview')); try { await pending.promise } catch {} })
+    expect(selectByLabel('repository.remote').value).toBe('mirror')
+    expect(alertText()).toBeNull()
+    expect(buttonText(t('repository.preview')).disabled).toBe(false)
+  })
+
   it('drops an approved preview when an input changes', async () => {
     const double = apiDouble({ repositoryInventory: inventory(), previewRepositoryAction: preview(fetchRequest) })
     await render({ api: double.api })
@@ -448,6 +491,24 @@ describe('repository action preview and execution', () => {
     await render({ api: double.api })
     expect(double.calls.filter((call) => call.method === 'repositoryInventory')).toHaveLength(2)
     expect(props.onChanged).not.toHaveBeenCalled()
+  })
+
+  it('ignores an initial inventory failure that arrives after a successful action refresh', async () => {
+    const initial = deferred<RepositoryInventory>()
+    let reads = 0
+    const request: RepositoryActionRequest = { action: 'stash-save', includeUntracked: false, message: '' }
+    const double = apiDouble({
+      repositoryInventory: () => ++reads === 1 ? initial.promise : inventory(),
+      previewRepositoryAction: preview(request),
+      executeRepositoryAction: result({ refresh: false }),
+    })
+    await render({ api: double.api, action: 'stash-save' })
+    await clickText(t('repository.preview'))
+    await clickText(t('repository.apply'))
+    expect(reads).toBe(2)
+    expect(document.body.textContent).toContain('Host result message')
+    await act(async () => { initial.reject(new Error('old read failed')) })
+    expect(alertText()).toBeNull()
   })
 
   it('reports a failed post-action refresh without unmounting the dialog', async () => {

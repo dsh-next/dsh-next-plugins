@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { GitApi } from '../api.ts'
-import type { Translate } from '../GitPanel.tsx'
+import type { Translate } from '../dictionaries.ts'
 import styles from './settings.module.css'
 
 interface DraftingConfig { draftingProvider: string; draftingModel: string; draftingInstructions: string }

@@ -1,5 +1,5 @@
 import type { MessageKey } from '../dictionaries.ts'
-import type { RepositoryAction } from './RepositoryWorkspace.tsx'
+import type { RepositoryAction } from './workspace-types.ts'
 
 /** Menu IDs describe user intent, not arbitrary Git arguments. */
 export type RepositoryMenuCommand = RepositoryAction

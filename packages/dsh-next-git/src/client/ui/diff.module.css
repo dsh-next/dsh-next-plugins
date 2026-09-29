@@ -1,0 +1,52 @@
+/* Diff view: keep the existing panel geometry and token colors. */
+.diffHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l3);
+}
+
+.diffTitle {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.diffMeta {
+  display: flex;
+  gap: 8px;
+  padding: 6px 10px 2px 10px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.added {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.removed {
+  color: var(--dsw-alias-label-error);
+}
+
+.diffBody {
+  padding: 4px 10px 12px 10px;
+}
+
+.patchBlock {
+  margin: 0;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 18px;
+  overflow: auto;
+  max-height: 320px;
+  white-space: pre;
+}

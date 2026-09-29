@@ -1,11 +1,13 @@
 import * as React from 'react'
-import { Button, IconBranchOutlineRegular, IconChevronDownOutlineRegular, IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconBranchOutlineRegular, IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { CommitSummary } from '../../core/types.ts'
 import type { HistoryAction } from '../../core/history-plan.ts'
 import { graphWidth, MAX_GRAPH_LANES } from '../../core/log.ts'
 import type { PanelSnapshot } from '../controller.ts'
-import type { Translate } from '../GitPanel.tsx'
+import type { Translate } from '../dictionaries.ts'
 import panelClasses from '../panel.module.css'
+import { IconTooltip } from '../ui/IconTooltip.tsx'
+import { Section } from '../ui/Section.tsx'
 import classes from './history-section.module.css'
 
 export interface HistorySectionViewProps {
@@ -59,20 +61,14 @@ function HistorySection({ snapshot, t, onToggle, onRefresh, onLoadMore, onChecko
     return null
   }
   const compare = selected.length === 2 ? null : t('history.reason.two')
-  return <section className={`${panelClasses.section} ${classes.section}`} data-dsh-git="history">
-    <div className={panelClasses.sectionHeader} onClick={event => {
-      if (!(event.target as Element).closest('button')) onToggle()
-    }}>
-      <button type="button" className={panelClasses.sectionToggle} data-dsh-git="section-toggle" data-section="history" aria-controls="dsh-git-section-history" aria-expanded={!snapshot.collapsed.history} onClick={onToggle}>
-        <IconChevronDownOutlineRegular size={12} className={snapshot.collapsed.history ? panelClasses.sectionChevronCollapsed : panelClasses.sectionChevron} />
-        <span className={panelClasses.sectionTitle}>{t('history.title')}</span>
-      </button>
-      <span className={panelClasses.sectionSpacer} />
-      <button type="button" className={panelClasses.iconButton} aria-label={t('history.refresh')} title={t('history.refresh')} data-dsh-git="history-refresh" disabled={snapshot.historyLoading || locked} onClick={onRefresh}>
+  return <Section id="history" title={t('history.title')} className={classes.section} bodyClassName={classes.body}
+    collapsed={snapshot.collapsed.history} onToggle={onToggle}
+    actions={<IconTooltip label={t('history.refresh')}>
+      <button type="button" className={panelClasses.iconButton} aria-label={t('history.refresh')} data-dsh-git="history-refresh" disabled={snapshot.historyLoading || locked} onClick={onRefresh}>
         <IconRefreshOutlineRegular size={16} className={snapshot.historyLoading ? panelClasses.spinning : undefined} />
       </button>
-    </div>
-    {!snapshot.collapsed.history && <div id="dsh-git-section-history" className={classes.body} data-dsh-git="section-body" data-section="history">
+    </IconTooltip>}>
+    {!snapshot.collapsed.history && <>
       <div className={classes.toolbar} aria-label={t('history.selectionActions')}>
         <Button variant="ghost" disabled={selected.length === 0} onClick={() => onInspect(selected)}>{t('history.inspect')}</Button>
         <span title={compare ?? undefined}><Button variant="ghost" disabled={compare !== null} onClick={() => onCompare(selected)}>{t('history.compare')}</Button></span>
@@ -96,14 +92,16 @@ function HistorySection({ snapshot, t, onToggle, onRefresh, onLoadMore, onChecko
             </span>
           </button>
           <div className={classes.actions}>
-            <button type="button" className={panelClasses.iconButton} data-dsh-git="commit-checkout" disabled={locked || !!snapshot.state?.operation.kind} title={t('history.checkout')} aria-label={t('history.checkoutHash', { hash: commit.short })} onClick={() => onCheckout(commit)}>
-              <IconBranchOutlineRegular size={16} />
-            </button>
+            <IconTooltip label={t('history.checkoutHash', { hash: commit.short })}>
+              <button type="button" className={panelClasses.iconButton} data-dsh-git="commit-checkout" disabled={locked || !!snapshot.state?.operation.kind} aria-label={t('history.checkoutHash', { hash: commit.short })} onClick={() => onCheckout(commit)}>
+                <IconBranchOutlineRegular size={16} />
+              </button>
+            </IconTooltip>
           </div>
         </div>
       })}
       {snapshot.historyLoading && <p role="status" className={classes.hint}>{t('history.loading')}</p>}
       {snapshot.history?.hasMore && <Button variant="ghost" disabled={snapshot.historyLoading || locked} onClick={onLoadMore}>{t('history.loadMore')}</Button>}
-    </div>}
-  </section>
+    </>}
+  </Section>
 }

@@ -28,8 +28,8 @@ async function click(node: HTMLElement): Promise<void> { await act(async () => {
 let root: Root
 let container: HTMLDivElement
 
-beforeEach(() => { container = document.createElement('div'); document.body.append(container); root = createRoot(container) })
-afterEach(async () => { await act(async () => root.unmount()); document.body.replaceChildren(); vi.restoreAllMocks() })
+beforeEach(() => { vi.stubGlobal('ResizeObserver', class { observe() {}; disconnect() {} }); container = document.createElement('div'); document.body.append(container); root = createRoot(container) })
+afterEach(async () => { await act(async () => root.unmount()); document.body.replaceChildren(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
 it('uses the platform error token for both the error text and border', () => {
   const css = readFileSync('src/client/history/commit-details.module.css', 'utf8')
@@ -91,7 +91,15 @@ describe('history command modal', () => {
     await act(async () => { root.render(<HistoryActionModal {...props} action="reorder" />) })
     await act(async () => { await Promise.resolve() })
     expect(document.querySelector('[data-dsh-git="history-summary"]')).toBeNull()
-    await click(button(t('history.moveDown', { hash: oid(1).slice(0, 7) })))
+    const up = button(t('history.moveUp', { hash: oid(1).slice(0, 7) }))
+    expect(up.disabled).toBe(true)
+    await act(async () => up.parentElement?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(up.getAttribute('aria-label'))
+    await act(async () => up.parentElement?.dispatchEvent(new MouseEvent('mouseout', { bubbles: true })))
+    const down = button(t('history.moveDown', { hash: oid(1).slice(0, 7) }))
+    await act(async () => down.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(down.getAttribute('aria-label'))
+    await click(down)
     expect(call).toHaveBeenLastCalledWith('previewHistory', { sessionId: 'session-1', action: 'reorder', commits: [oid(2), oid(1)], order: [oid(2), oid(1)] }, expect.anything())
     await act(async () => { root.render(<HistoryActionModal {...props} action="fixup" api={{ call } as GitApi} />) })
     await act(async () => { await Promise.resolve() })

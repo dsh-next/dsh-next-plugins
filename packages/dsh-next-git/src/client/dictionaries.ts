@@ -13,6 +13,9 @@ import { zh } from './dictionaries/zh.ts'
 export { en, NS, type MessageKey } from './dictionaries/en.ts'
 export { zh } from './dictionaries/zh.ts'
 
+/** Translator bound to this plugin's locale namespace. */
+export type Translate = (key: MessageKey, params?: Record<string, string | number>) => string
+
 // Merge this package's namespace into the locale table. Declaration merging
 // targets the module that owns the interface, and every consumer of `t` in
 // this package imports the barrel, so this is the one place it belongs.

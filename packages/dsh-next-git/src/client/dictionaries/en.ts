@@ -5,7 +5,7 @@
  * in the browser half is added here as a dotted key (English is the platform
  * fallback locale and this repo's language); zh.ts mirrors the key set and
  * the compiler enforces parity. Reference implementation:
- * packages/dsh-next-cc-plugins/src/client/dictionaries/.
+ * packages/dsh-next-skills/src/client/dictionaries/.
  *
  * Keys are grouped by surface, in the order the panel renders them: chrome,
  * scroll and commit, worktrees, history, dialogs, agent verbs, then the named

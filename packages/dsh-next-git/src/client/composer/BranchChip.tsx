@@ -15,12 +15,14 @@
 
 import * as React from 'react'
 import { IconBranchOutlineRegular, IconChevronDownOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconTooltip } from '../ui/IconTooltip.tsx'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { RefOption } from '../../core/refs.ts'
 import type { RefSummary } from '../../core/types.ts'
 import { asApiError, GitApiError, type GitApi } from '../api.ts'
 import { BranchPicker } from '../branches/BranchPicker.tsx'
-import { failureTitleKey, type Translate } from '../GitPanel.tsx'
+import { failureTitleKey } from '../panel/failure-copy.ts'
+import type { Translate } from '../dictionaries.ts'
 import classes from './branch-chip.module.css'
 
 /** Re-reads of a session the host has not loaded yet, at {@link RETRY_MS} apart. */
@@ -135,25 +137,26 @@ export function BranchChip(props: BranchChipProps): React.ReactElement | null {
   const label = head.unborn ? t('header.unborn') : head.branch ?? t('header.detached')
   return (
     <React.Fragment>
-      <button
-        type="button"
-        className={classes.chip}
-        data-dsh-git="composer-branch"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        // The visible label disappears on a narrow composer, so the name is
-        // carried explicitly and stays the button's accessible name either way.
-        aria-label={label}
-        title={t('composer.branchTitle', { branch: label })}
-        onClick={() => {
-          setError(null)
-          setOpen(true)
-        }}
-      >
-        <IconBranchOutlineRegular size={14} className={classes.glyph} />
-        <span className={classes.name}>{label}</span>
-        <IconChevronDownOutlineRegular size={12} className={classes.glyph} />
-      </button>
+      <IconTooltip label={t('composer.branchTitle', { branch: label })}>
+        <button
+          type="button"
+          className={classes.chip}
+          data-dsh-git="composer-branch"
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          // The visible label disappears on a narrow composer, so the name is
+          // carried explicitly and stays the button's accessible name either way.
+          aria-label={label}
+          onClick={() => {
+            setError(null)
+            setOpen(true)
+          }}
+        >
+          <IconBranchOutlineRegular size={14} className={classes.glyph} />
+          <span className={classes.name}>{label}</span>
+          <IconChevronDownOutlineRegular size={12} className={classes.glyph} />
+        </button>
+      </IconTooltip>
       {open ? (
         <BranchPicker
           state={summary}

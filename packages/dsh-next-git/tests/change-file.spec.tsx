@@ -34,6 +34,7 @@ let root: Root
 let container: HTMLDivElement
 
 beforeEach(() => {
+  vi.stubGlobal('ResizeObserver', class { observe() {}; disconnect() {} })
   container = document.createElement('div')
   document.body.append(container)
   root = createRoot(container)
@@ -41,6 +42,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount())
   document.body.replaceChildren()
+  vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
 
@@ -74,6 +76,23 @@ async function render(double: { api: GitApi }, target = address) {
 const lines = (): HTMLElement[] => [...container.querySelectorAll<HTMLElement>('span.line')]
 
 describe('change file tab', () => {
+  it('shows the shared tooltip on every file toolbar icon', async () => {
+    await render(api({ getFileChanges: changes() }))
+    for (const [marker, label] of [
+      ['change-file-hunks', t('fileChanges.stage')],
+      ['change-file-refresh', t('fileChanges.refresh')],
+      ['change-file-changed-only', t('fileChanges.changedOnly')],
+      ['change-file-wrap', t('fileChanges.wrap')],
+    ] as const) {
+      const button = container.querySelector<HTMLButtonElement>(`[data-dsh-git="${marker}"]`)!
+      expect(button.getAttribute('aria-label')).toBe(label)
+      expect(button.getAttribute('title')).toBeNull()
+      await act(async () => button.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
+      expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(label)
+      await act(async () => button.dispatchEvent(new MouseEvent('mouseout', { bubbles: true })))
+    }
+  })
+
   it('reads the address, shows the file path and marks the changed lines', async () => {
     const double = api({ getFileChanges: changes() })
     await render(double)

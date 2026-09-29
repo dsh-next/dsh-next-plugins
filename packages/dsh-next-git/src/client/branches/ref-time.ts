@@ -8,8 +8,7 @@
  */
 
 import { relativeTime } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { MessageKey } from '../dictionaries.ts'
-import type { Translate } from '../GitPanel.tsx'
+import type { MessageKey, Translate } from '../dictionaries.ts'
 
 /** Singular dictionary key per `relativeTime` bucket. */
 const SINGULAR: Record<string, MessageKey> = {

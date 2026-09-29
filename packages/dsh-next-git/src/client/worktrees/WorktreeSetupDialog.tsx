@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { WorktreeSetupPreview } from '../../core/worktree-create.ts'
-import type { Translate } from '../GitPanel.tsx'
+import type { Translate } from '../dictionaries.ts'
 import { useDialogFocus } from '../ui/dialog-focus.ts'
 import classes from './worktree-setup.module.css'
 

@@ -2,7 +2,7 @@ import * as React from 'react'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { CommitSummary } from '../../core/types.ts'
 import type { GitApi } from '../api.ts'
-import type { Translate } from '../GitPanel.tsx'
+import type { Translate } from '../dictionaries.ts'
 import type { AgentSessionControls } from '../ai/action-dialog.tsx'
 import { InlineMessageDraft } from '../ai/InlineMessageDraft.tsx'
 

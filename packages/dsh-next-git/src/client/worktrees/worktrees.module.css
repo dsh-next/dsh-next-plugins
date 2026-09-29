@@ -1,0 +1,85 @@
+/* Only the branch shares a line with actions; folder and status use the row. */
+.worktreeHeading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.worktreeHeading .headingPath {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+@media (hover: none) {
+  .worktreeHeading .worktreeActions {
+    opacity: 1;
+  }
+}
+
+.worktreePath {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.formRow {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 10px 8px 10px;
+}
+
+/* The create row sits under the section band; other rows keep footer spacing. */
+.formRowTop {
+  padding-top: 10px;
+}
+
+.contextRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px 6px 10px;
+}
+
+.contextButton {
+  display: inline-flex;
+  /* The Menu primitive wraps its anchor in a shrink-to-fit box. */
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  cursor: pointer;
+}
+
+.contextButtonLabel {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contextButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.contextButton:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: -1px;
+}
+
+.contextButton:disabled {
+  opacity: 0.4;
+  cursor: default;
+}

@@ -1,0 +1,68 @@
+/* Commit and stash forms share one local field grammar. */
+.commitAction {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.dialogBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.messageEditor {
+  position: relative;
+}
+
+.messageEditor textarea {
+  display: block;
+  padding-right: 44px;
+}
+
+.messageEditor [data-dsh-git="draft-message"] {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+}
+
+.messageEditor [data-dsh-git="inline-message-ai"] {
+  max-width: none;
+  align-items: flex-start;
+}
+
+.fieldLabel {
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+}
+
+.fieldInput {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.fieldInput::placeholder {
+  color: var(--dsw-alias-label-dimmed);
+}
+
+.fieldBody {
+  min-height: 120px;
+  resize: vertical;
+}
+
+.fieldInput:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 0;
+}

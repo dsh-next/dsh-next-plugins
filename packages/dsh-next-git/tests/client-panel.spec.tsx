@@ -136,6 +136,7 @@ let session = 0
 let renders = 0
 
 beforeEach(() => {
+  vi.stubGlobal('ResizeObserver', class { observe() {}; disconnect() {} })
   openResourceSpy.mockClear()
   container = document.createElement('div')
   document.body.appendChild(container)
@@ -148,6 +149,7 @@ afterEach(() => {
     root.unmount()
   })
   container.remove()
+  vi.unstubAllGlobals()
 })
 
 /**
@@ -260,6 +262,18 @@ const all = (name: string): HTMLElement[] =>
 const byText = (text: string, tag = 'button'): HTMLElement | undefined =>
   [...container.querySelectorAll(tag)].find((element) => element.textContent?.includes(text)) as HTMLElement | undefined
 
+async function expectIconTooltip(button: HTMLButtonElement, label: string): Promise<void> {
+  expect(button, label).not.toBeNull()
+  expect(button.getAttribute('title')).toBeNull()
+  const target = button.disabled ? button.parentElement! : button
+  await act(async () => target.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
+  const bubble = document.querySelector<HTMLElement>('[role="tooltip"]')
+  expect(bubble?.textContent).toBe(label)
+  expect(bubble?.dataset.portal).toBe('true')
+  await act(async () => target.dispatchEvent(new MouseEvent('mouseout', { bubbles: true })))
+  expect(document.querySelector('[role="tooltip"]')).toBeNull()
+}
+
 describe('git panel body', () => {
   it('omits the redundant Review hunks action from change rows', async () => {
     await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } })
@@ -290,9 +304,47 @@ describe('git panel body', () => {
     // Nothing trails the three dots: they are the row's last control.
     expect(order.at(-1)!.nextElementSibling).toBeNull()
   })
-  it('disables Sync when the repository is unavailable', async () => {
+  it('gives every panel header, Changes row, and Worktrees icon the same tooltip', async () => {
+    await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } }, {
+      sendPrompt: () => {},
+      openWorktreeSession: async () => {},
+    })
+    for (const [name, label] of [
+      ['sync', t('commands.sync')],
+      ['update', t('header.updateTitle')],
+      ['new-worktree', t('header.newWorktree')],
+      ['agent-menu', t('agent.title')],
+      ['refresh', t('header.refreshTitle')],
+      ['repository-menu', t('repository.title')],
+      ['stage-all', t('changes.stageAll')],
+      ['unstage-all', t('changes.unstageAll')],
+      ['discard-all', t('changes.discardAll')],
+      ['history-refresh', t('history.refresh')],
+    ] as const) {
+      await expectIconTooltip(marker(name) as HTMLButtonElement, label)
+    }
+    await expectIconTooltip(pathRow('src/staged.ts').querySelector<HTMLButtonElement>('button[aria-label="Unstage"]')!, t('changes.unstage'))
+    await expectIconTooltip(pathRow('src/app.ts').querySelector<HTMLButtonElement>('button[aria-label="Stage"]')!, t('changes.stage'))
+    await expectIconTooltip(pathRow('src/app.ts').querySelector<HTMLButtonElement>('button[aria-label="Discard"]')!, t('changes.discard'))
+    await openSection('worktrees')
+    for (const [name, label] of [
+      ['worktree-open-session', t('worktrees.openSession')],
+      ['worktree-update', t('worktrees.update', { branch: 'origin/main' })],
+      ['worktree-merge', t('worktrees.merge', { branch: 'main' })],
+      ['worktree-delete', t('worktrees.delete')],
+    ] as const) {
+      await expectIconTooltip(marker(name) as HTMLButtonElement, label)
+    }
+  })
+
+  it('keeps disabled header icons explainable without activating them', async () => {
     await renderPanel({ getState: new GitApiError({ code: 'not-a-repository', detail: '' }, null) })
-    expect((marker('sync') as HTMLButtonElement).disabled).toBe(true)
+    const sync = marker('sync') as HTMLButtonElement
+    expect(sync.disabled).toBe(true)
+    expect(sync.parentElement?.getAttribute('role')).toBe('note')
+    await expectIconTooltip(sync, t('commands.sync'))
+    await act(async () => sync.parentElement?.focus())
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(t('commands.sync'))
   })
   it('renders the panel, header and sections from the envelope', async () => {
     await renderPanel({ getHistory: { commits: [], lanes: [], hasMore: false } })
@@ -528,6 +580,8 @@ describe('git panel body', () => {
       side: 'unstaged',
     })
     const back = marker('diff-back') as HTMLButtonElement
+    await expectIconTooltip(back, t('diff.back'))
+    await expectIconTooltip(marker('diff-copy-patch') as HTMLButtonElement, t('diff.copyPatch'))
     await act(async () => {
       back.click()
     })
@@ -595,6 +649,7 @@ describe('git panel body', () => {
     })
     const row = pathRow('src/app.ts')
     await clickFile(row)
+    await expectIconTooltip(marker('diff-open-file') as HTMLButtonElement, t('changes.open'))
     await act(async () => {
       ;(marker('diff-open-file') as HTMLButtonElement).click()
     })
@@ -1005,6 +1060,7 @@ describe('git panel body', () => {
     expect(container.textContent).toContain('aaaabbb')
     // The section loads history on first render.
     expect(double.calls.some((call) => call.method === 'getHistory')).toBe(true)
+    await expectIconTooltip(marker('commit-checkout') as HTMLButtonElement, t('history.checkoutHash', { hash: 'aaaabbb' }))
   })
 
   it('refreshes on the manual button', async () => {
@@ -1244,7 +1300,29 @@ describe('worktrees section', () => {
     expect(marker('worktree-base')?.textContent).toContain('origin/main')
   })
 
-  it('merges only a row whose branch differs from the checkout', async () => {
+  it('keeps worktree paths and status outside the branch action strip, and merges from an accessible icon', async () => {
+    const { double } = await renderPanel({ ...readState, preflight: { verdict: 'allow' }, worktreeMerge: panelState() })
+    await openSection('worktrees')
+    const row = all('worktree')[1]!
+    const merge = row.querySelector<HTMLButtonElement>('[data-dsh-git="worktree-merge"]')!
+    const label = t('worktrees.merge', { branch: 'main' })
+    expect(merge.getAttribute('aria-label')).toBe(label)
+    expect(merge.textContent).toBe('')
+    expect(merge.querySelector('svg[aria-hidden="true"]')).not.toBeNull()
+    expect(merge.closest('[data-dsh-git="worktree-actions"]')?.parentElement?.querySelector('[title="dsh-git/feature"]')).not.toBeNull()
+    expect(row.querySelector('[data-dsh-git="worktree-path"]')?.parentElement).toBe(row.querySelector('[data-dsh-git="worktree-meta"]')?.parentElement)
+    await act(async () => merge.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(label)
+    await act(async () => {
+      merge.click()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(double.calls.find((call) => call.method === 'preflight')?.args).toMatchObject({ action: 'merge', target: '/repo/.worktrees/feature' })
+    expect(double.calls.find((call) => call.method === 'worktreeMerge')?.args).toMatchObject({ path: '/repo/.worktrees/feature' })
+  })
+
+  it('omits merge for a worktree on the current branch or without a branch', async () => {
     const base = panelState()
     await renderPanel({
       ...readState,
@@ -1253,14 +1331,15 @@ describe('worktrees section', () => {
           worktrees: [
             base.worktrees[0]!,
             { ...base.worktrees[1]!, branch: 'main', slug: 'on-main' },
+            { ...base.worktrees[1]!, path: '/repo/.worktrees/detached', branch: null, slug: 'detached' },
           ],
         }),
         notice: null,
       },
     })
     await openSection('worktrees')
-    expect(all('worktree')).toHaveLength(2)
-    expect(byText(en['worktrees.merge'].replace('{branch}', 'main'))).toBeUndefined()
+    expect(all('worktree')).toHaveLength(3)
+    expect(all('worktree').every((row) => row.querySelector('[data-dsh-git="worktree-merge"]') === null)).toBe(true)
   })
 
   it('switches the comparison base through the base menu', async () => {

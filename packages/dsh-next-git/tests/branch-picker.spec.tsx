@@ -89,11 +89,13 @@ async function render(overrides: Partial<PanelState> = {}, domProps: Partial<Bra
 }
 
 beforeEach(() => {
+  vi.stubGlobal('ResizeObserver', class { observe() {}; disconnect() {} })
   root = createRoot(document.body.appendChild(document.createElement('div')))
 })
 afterEach(async () => {
   await act(async () => root.unmount())
   document.body.replaceChildren()
+  vi.unstubAllGlobals()
 })
 
 describe('checkout picker', () => {
@@ -134,7 +136,11 @@ describe('checkout picker', () => {
 
   it('marks the current branch and starts on the first quick action', async () => {
     await render()
-    expect(row('branch:main')?.querySelector(`[aria-label="${en['picker.current']}"]`)).not.toBeNull()
+    const current = row('branch:main')?.querySelector<HTMLElement>(`[aria-label="${en['picker.current']}"]`)!
+    expect(current).not.toBeNull()
+    expect(current.title).toBe('')
+    await act(async () => current.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(en['picker.current'])
     expect(row('branch:feature/alpha')?.querySelector(`[aria-label="${en['picker.current']}"]`)).toBeNull()
     expect(activeRow()).toBe('create')
   })
@@ -290,11 +296,29 @@ describe('create branch flow', () => {
     expect(document.querySelector('[role="alert"]')?.textContent).toBe(en['failure.branchExists'])
   })
 
+  it('keeps Enter on Back from activating the selected ref', async () => {
+    await render()
+    await click(action('create-from'))
+    const back = marker('ref-back') as HTMLButtonElement
+    await act(async () => {
+      const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+      expect(back.dispatchEvent(event)).toBe(true)
+      // jsdom does not synthesize the native button click after keydown.
+      back.click()
+    })
+    expect(filter().placeholder).toBe(en['picker.placeholder'])
+    expect(props.onSwitch).not.toHaveBeenCalled()
+    expect(props.onCreate).not.toHaveBeenCalled()
+  })
+
   it('creates from a picked base ref through the base list', async () => {
     await render()
     await click(action('create-from'))
     expect(filter().placeholder).toBe(en['picker.basePlaceholder'])
-    await click(marker('ref-back'))
+    const back = marker('ref-back') as HTMLButtonElement
+    await act(async () => back.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(en['picker.back'])
+    await click(back)
     expect(filter().placeholder).toBe(en['picker.placeholder'])
     await click(action('create-from'))
     await click(row('tag:v1.0.0'))

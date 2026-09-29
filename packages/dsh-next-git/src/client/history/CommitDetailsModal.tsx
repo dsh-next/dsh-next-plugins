@@ -3,7 +3,7 @@ import { Button, FileTypeIcon, Modal } from '@deepseek-ai/dsh-client-ui-primitiv
 import type { CommitDetails, CommitFile } from '../../core/history-view.ts'
 import type { CommitSummary, DiffResult } from '../../core/types.ts'
 import type { GitApi } from '../api.ts'
-import type { Translate } from '../GitPanel.tsx'
+import type { Translate } from '../dictionaries.ts'
 import { FileDiff } from '../ui/FileDiff.tsx'
 import { useDialogFocus } from '../ui/dialog-focus.ts'
 import panelClasses from '../panel.module.css'

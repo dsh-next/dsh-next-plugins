@@ -30,6 +30,7 @@ test-results/
 docs/screenshots/
 
 # Local artifacts and GUI design session drafts
+/.artifacts/
 /artifacts/
 /tmp/
 /design/session-*/

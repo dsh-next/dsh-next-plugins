@@ -2,10 +2,10 @@
  * Stock Models catalog: editable rows, Fetch available models picker, Add model.
  */
 import * as React from 'react'
-import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Checkbox, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { formatCapacity, parseCapacity } from '../core/capacity.ts'
 import type { FamilyId } from '../core/catalog.ts'
-import type { ModelDraft } from '../core/settings.ts'
+import { MODALITIES, THINKING_LEVELS, type ModelDraft, type ModelInput, type ReasoningEfforts } from '../core/settings.ts'
 import { ClientRpcError, type RpcCall, subscriptionsApi } from './api.ts'
 import { resolveTranslate, type MessageKey } from './dictionaries.ts'
 import { IconChevron, IconTrash } from './icons.tsx'
@@ -18,6 +18,8 @@ export interface EditorModel {
   name?: string
   contextWindow?: number
   maxTokens?: number
+  input?: readonly ModelInput[]
+  reasoningEfforts?: ReasoningEfforts | false
 }
 
 export interface ModelListEditorProps {
@@ -33,6 +35,19 @@ export interface ModelListEditorProps {
   signedIn: boolean
 }
 
+/** Optional row fields a control can clear; the others are always present. */
+const CLEARABLE = ['name', 'contextWindow', 'maxTokens', 'input', 'reasoningEfforts'] as const
+
+/** How the reasoning control reads the row's declared efforts. */
+type ReasoningMode = 'inherit' | 'none' | 'custom'
+
+/**
+ * Levels the "choose levels" seed declares: the base ladder pi-ai dispatches
+ * by name, with `off` supported and sending nothing. `xhigh` and `max` stay
+ * undeclared (and therefore unsupported) until the author says otherwise.
+ */
+const REASONING_SEED: ReasoningEfforts = { off: null, minimal: 'minimal', low: 'low', medium: 'medium', high: 'high' }
+
 function textOf(model: EditorModel, field: 'id' | 'name'): string {
   const value = model[field]
   return typeof value === 'string' ? value : ''
@@ -47,12 +62,31 @@ function capacitySpelling(value: number | undefined): string {
   return value === undefined || Number.isNaN(value) ? '' : formatCapacity(value)
 }
 
+function reasoningMode(model: EditorModel): ReasoningMode {
+  if (model.reasoningEfforts === undefined) return 'inherit'
+  return model.reasoningEfforts === false ? 'none' : 'custom'
+}
+
+function effortDict(model: EditorModel): Record<string, string | null> {
+  return model.reasoningEfforts !== undefined && model.reasoningEfforts !== false
+    ? { ...model.reasoningEfforts }
+    : {}
+}
+
+/** A declared level's wire spelling as typed; `null` (only valid on `off`) reads blank. */
+function effortSpelling(efforts: Record<string, string | null>, level: string): string {
+  const wire = (efforts as Record<string, string | null | undefined>)[level]
+  return typeof wire === 'string' ? wire : ''
+}
+
 function adopt(candidate: ModelDraft): EditorModel {
   return {
     id: candidate.id,
     ...candidate.name === undefined ? {} : { name: candidate.name },
     ...candidate.contextWindow === undefined ? {} : { contextWindow: candidate.contextWindow },
     ...candidate.maxTokens === undefined ? {} : { maxTokens: candidate.maxTokens },
+    ...candidate.input === undefined ? {} : { input: candidate.input },
+    ...candidate.reasoningEfforts === undefined ? {} : { reasoningEfforts: candidate.reasoningEfforts },
   }
 }
 
@@ -87,11 +121,19 @@ export function ModelListEditor(props: ModelListEditorProps): React.ReactElement
       if (at !== index) return model
       const merged: EditorModel = { ...model, ...next }
       rowKeys.current.set(merged, rowKey(model))
-      if (next.name === undefined && 'name' in next) delete merged.name
-      if (next.contextWindow === undefined && 'contextWindow' in next) delete merged.contextWindow
-      if (next.maxTokens === undefined && 'maxTokens' in next) delete merged.maxTokens
+      // A control that clears an optional field passes it explicitly as
+      // undefined; the spread would otherwise leave the stored value behind.
+      for (const field of CLEARABLE) {
+        if (field in next && next[field] === undefined) delete merged[field]
+      }
       return merged
     }))
+  }
+
+  /** Drop every text buffer belonging to one row (used when it is deleted). */
+  const clearBuffers = (model: EditorModel): void => {
+    const prefix = `${String(rowKey(model))}:`
+    setEditing((current) => new Map([...current].filter(([key]) => !key.startsWith(prefix))))
   }
 
   const editCapacity = (index: number, field: 'contextWindow' | 'maxTokens', text: string): void => {
@@ -99,9 +141,12 @@ export function ModelListEditor(props: ModelListEditorProps): React.ReactElement
     patch(index, { [field]: parseCapacity(text) })
   }
 
+  const defaultRow = (model: EditorModel): EditorModel | undefined =>
+    (props.defaults ?? []).find((row) => row.id === model.id)
+
   const fallbackCapacity = (model: EditorModel, field: 'contextWindow' | 'maxTokens'): number | undefined => {
     if (numberOf(model, field) !== undefined) return undefined
-    const match = (props.defaults ?? []).find((row) => row.id === model.id)
+    const match = defaultRow(model)
     return match === undefined ? undefined : numberOf(match, field)
   }
 
@@ -113,6 +158,45 @@ export function ModelListEditor(props: ModelListEditorProps): React.ReactElement
 
   const capacityText = (model: EditorModel, field: 'contextWindow' | 'maxTokens'): string =>
     editing.get(bufferKey(model, field)) ?? capacitySpelling(numberOf(model, field))
+
+  // The row's modalities: its own declaration, otherwise the default row's
+  // (which is what the resolver would keep), otherwise text-only.
+  const modalities = (model: EditorModel): readonly ModelInput[] => {
+    if (model.input !== undefined && model.input.length > 0) return model.input
+    const fallback = defaultRow(model)?.input
+    return fallback !== undefined && fallback.length > 0 ? fallback : ['text']
+  }
+
+  const setModality = (index: number, modality: ModelInput, checked: boolean): void => {
+    const next = MODALITIES.filter((value) => value === modality ? checked : modalities(models[index]!).includes(value))
+    patch(index, { input: next })
+  }
+
+  const setReasoningMode = (index: number, mode: ReasoningMode): void => {
+    if (mode === 'inherit') patch(index, { reasoningEfforts: undefined })
+    else if (mode === 'none') patch(index, { reasoningEfforts: false })
+    else patch(index, { reasoningEfforts: { ...REASONING_SEED } })
+  }
+
+  const setLevel = (index: number, level: string, declared: boolean): void => {
+    const next = effortDict(models[index]!)
+    if (declared) next[level] = level === 'off' ? null : level
+    else delete next[level]
+    patch(index, { reasoningEfforts: next })
+  }
+
+  const editEffort = (index: number, level: string, text: string): void => {
+    const model = models[index]!
+    setEditing((current) => new Map(current).set(bufferKey(model, `effort:${level}`), text))
+    const next = effortDict(model)
+    // Blank means "send nothing" on `off` (the one level allowed to leave the
+    // map), and an empty spelling everywhere else so the row reports it.
+    next[level] = level === 'off' && text === '' ? null : text
+    patch(index, { reasoningEfforts: next })
+  }
+
+  const effortText = (model: EditorModel, level: string): string =>
+    editing.get(bufferKey(model, `effort:${level}`)) ?? effortSpelling(effortDict(model), level)
 
   const fetchModels = async (): Promise<void> => {
     setBusy(true)
@@ -243,12 +327,7 @@ export function ModelListEditor(props: ModelListEditorProps): React.ReactElement
                   next.delete(rowKey(model))
                   return next
                 })
-                setEditing((current) => {
-                  const next = new Map(current)
-                  next.delete(bufferKey(model, 'contextWindow'))
-                  next.delete(bufferKey(model, 'maxTokens'))
-                  return next
-                })
+                clearBuffers(model)
               }}
             >
               <IconTrash />
@@ -282,6 +361,70 @@ export function ModelListEditor(props: ModelListEditorProps): React.ReactElement
                   onChange={(event) => { editCapacity(index, 'maxTokens', event.target.value) }}
                 />
               </label>
+              <fieldset
+                className={styles.modelInputTypes}
+                aria-label={`${t('modelInputTypes')} ${String(index + 1)}`}
+              >
+                <legend className={styles.modelFieldLabel}>{t('modelInputTypes')}</legend>
+                <div className={styles.modelInputChoices}>
+                  {MODALITIES.map((modality) => {
+                    const selected = modalities(model)
+                    return (
+                      <Checkbox
+                        key={modality}
+                        label={t(modality === 'text' ? 'modelInputText' : 'modelInputImage')}
+                        checked={selected.includes(modality)}
+                        disabled={disabled || (selected.length === 1 && selected.includes(modality))}
+                        onChange={(checked) => { setModality(index, modality, checked) }}
+                      />
+                    )
+                  })}
+                </div>
+              </fieldset>
+              <fieldset
+                className={styles.modelReasoning}
+                aria-label={`${t('modelReasoning')} ${String(index + 1)}`}
+              >
+                <legend className={styles.modelFieldLabel}>{t('modelReasoning')}</legend>
+                <select
+                  className={`${styles.input} ${styles.selectInput}`}
+                  value={reasoningMode(model)}
+                  aria-label={`${t('modelReasoningMode')} ${String(index + 1)}`}
+                  disabled={disabled}
+                  onChange={(event) => { setReasoningMode(index, event.target.value as ReasoningMode) }}
+                >
+                  <option value="inherit">{t('modelReasoningInherit')}</option>
+                  <option value="none">{t('modelReasoningNone')}</option>
+                  <option value="custom">{t('modelReasoningCustom')}</option>
+                </select>
+                {reasoningMode(model) === 'custom' ? (
+                  <div className={styles.modelEfforts}>
+                    {THINKING_LEVELS.map((level) => {
+                      const efforts = effortDict(model)
+                      const declared = (efforts as Record<string, string | null | undefined>)[level] !== undefined
+                      return (
+                        <div className={styles.modelEffort} key={level}>
+                          <Checkbox
+                            label={level}
+                            checked={declared}
+                            disabled={disabled}
+                            onChange={(checked) => { setLevel(index, level, checked) }}
+                          />
+                          <input
+                            className={styles.input}
+                            type="text"
+                            value={effortText(model, level)}
+                            placeholder={level === 'off' ? t('modelReasoningOffHint') : level}
+                            aria-label={`${t('modelReasoningWire')} ${level} ${String(index + 1)}`}
+                            disabled={disabled || !declared}
+                            onChange={(event) => { editEffort(index, level, event.target.value) }}
+                          />
+                        </div>
+                      )
+                    })}
+                  </div>
+                ) : null}
+              </fieldset>
             </div>
           ) : null}
         </div>

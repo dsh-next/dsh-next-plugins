@@ -23,14 +23,32 @@
  */
 import Schema from '@deepseek-ai/schemastery'
 import { SETTINGS_NS } from './ids.ts'
+import { MODALITIES, THINKING_LEVELS } from './settings.ts'
 
 export { SETTINGS_NS }
+
+/**
+ * A declared level to wire spelling, or `false` for a non-reasoning model —
+ * the same shape official llm-pi-ai accepts on a `models` entry. The dict's
+ * key union is what keeps a level the route cannot serve out of the map; the
+ * value union admits `null` (unsupported, and on `off` "send nothing") next to
+ * a wire string. Semantic mistakes inside that shape (an empty dict, no level
+ * above `off`, a blank spelling) pass the schema on purpose: they are reported
+ * per row by `validateModels` with a localized message instead of failing the
+ * whole section.
+ */
+const reasoningEffortsSchema = Schema.dict(
+  Schema.union([Schema.string(), Schema.const(null)]),
+  Schema.union(THINKING_LEVELS),
+)
 
 const modelSchema = Schema.object({
   id: Schema.string(),
   name: Schema.string(),
   contextWindow: Schema.number(),
   maxTokens: Schema.number(),
+  input: Schema.array(Schema.union(MODALITIES)),
+  reasoningEfforts: Schema.union([Schema.const(false), reasoningEffortsSchema]),
 })
 
 const profileSchema = Schema.object({

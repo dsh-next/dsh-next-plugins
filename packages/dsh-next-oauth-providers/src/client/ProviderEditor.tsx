@@ -5,7 +5,7 @@
 import * as React from 'react'
 import { validateModels } from '../core/capacity.ts'
 import type { Family } from '../core/catalog.ts'
-import type { AttemptView, ProviderState } from '../core/types.ts'
+import type { AttemptView, ModelView, ProviderState } from '../core/types.ts'
 import { ClientRpcError, type RpcCall, subscriptionsApi } from './api.ts'
 import { resolveTranslate, type MessageKey } from './dictionaries.ts'
 import { ModelListEditor, type EditorModel } from './ModelListEditor.tsx'
@@ -29,12 +29,14 @@ export interface ProviderEditorProps {
   onClose: (changed: boolean) => void
 }
 
-function draftsOf(rows: readonly { id: string; name: string; contextWindow?: number; maxTokens?: number }[]): EditorModel[] {
+function draftsOf(rows: readonly ModelView[]): EditorModel[] {
   return rows.map((row) => ({
     id: row.id,
     ...row.name === row.id ? {} : { name: row.name },
     ...row.contextWindow === undefined ? {} : { contextWindow: row.contextWindow },
     ...row.maxTokens === undefined ? {} : { maxTokens: row.maxTokens },
+    ...row.input === undefined ? {} : { input: row.input },
+    ...row.reasoningEfforts === undefined ? {} : { reasoningEfforts: row.reasoningEfforts },
   }))
 }
 

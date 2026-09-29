@@ -1,5 +1,5 @@
 import type { AliasRoute, FamilyId, NativeId } from './catalog.ts'
-import type { ModelDraft } from './settings.ts'
+import type { ModelDraft, ModelInput, ReasoningEfforts } from './settings.ts'
 import type { ErrorCode } from './errors.ts'
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected'
@@ -9,6 +9,8 @@ export interface ModelView {
   readonly name: string
   readonly contextWindow?: number
   readonly maxTokens?: number
+  readonly input?: readonly ModelInput[]
+  readonly reasoningEfforts?: ReasoningEfforts | false
 }
 
 export interface ProviderState {
@@ -73,4 +75,4 @@ export interface RpcFail {
 
 export type RpcEnvelope<T> = RpcOk<T> | RpcFail
 
-export type { ModelDraft }
+export type { ModelDraft, ModelInput, ReasoningEfforts }

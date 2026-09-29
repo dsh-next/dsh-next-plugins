@@ -561,12 +561,14 @@ export class SubscriptionsService {
   }
 }
 
-function modelView(model: { id: string; name?: string; contextWindow?: number; maxTokens?: number }): ModelView {
+function modelView(model: ModelDraft): ModelView {
   return {
     id: model.id,
     name: model.name ?? model.id,
     ...model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow },
     ...model.maxTokens === undefined ? {} : { maxTokens: model.maxTokens },
+    ...model.input === undefined ? {} : { input: model.input },
+    ...model.reasoningEfforts === undefined ? {} : { reasoningEfforts: model.reasoningEfforts },
   }
 }
 
@@ -576,5 +578,8 @@ function nativeModels(family: Family): ModelDraft[] {
     name: model.name,
     contextWindow: model.contextWindow,
     maxTokens: model.maxTokens,
+    // The catalog's own modalities: a default row states what the adapter
+    // would serve, which is what the editor's input-type boxes show.
+    input: model.input,
   }))
 }

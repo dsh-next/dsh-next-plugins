@@ -49,4 +49,49 @@ describe('openai-codex native catalog', () => {
     const [model] = applyModelCatalog(nativeFactory('openai-codex'), [{ id: 'gpt-7-future' }]).getModels()
     expect(model).toMatchObject({ id: 'gpt-7-future', contextWindow: 1_050_000, maxTokens: 128_000 })
   })
+
+  it('adds images to a text-only Codex id the row declares them for', () => {
+    const spark = nativeFactory('openai-codex').getModels().find((model) => model.id === 'gpt-5.3-codex-spark')
+    expect(spark?.input).toEqual(['text'])
+    const [model] = applyModelCatalog(nativeFactory('openai-codex'), [{
+      id: 'gpt-5.3-codex-spark',
+      input: ['text', 'image'],
+      reasoningEfforts: { off: 'none', low: 'low', medium: 'medium', high: 'high' },
+    }]).getModels()
+    expect(model).toMatchObject({
+      id: 'gpt-5.3-codex-spark',
+      contextWindow: 128_000,
+      maxTokens: 128_000,
+      input: ['text', 'image'],
+      reasoning: true,
+    })
+    expect(model?.thinkingLevelMap).toEqual({
+      off: 'none', minimal: null, low: 'low', medium: 'medium', high: 'high', xhigh: null, max: null,
+    })
+  })
+
+  it('keeps the Codex fallback capacities on a declared unlisted id', () => {
+    const [model] = applyModelCatalog(nativeFactory('openai-codex'), [{
+      id: 'gpt-7-vision',
+      input: ['text', 'image'],
+      reasoningEfforts: { low: 'low' },
+    }]).getModels()
+    expect(model).toMatchObject({
+      id: 'gpt-7-vision',
+      contextWindow: 1_050_000,
+      maxTokens: 128_000,
+      input: ['text', 'image'],
+    })
+  })
+
+  it('turns Codex reasoning off without keeping the shipped level map', () => {
+    const base = nativeFactory('openai-codex').getModels().find((model) => model.id === 'gpt-6-astra')
+    expect(base?.thinkingLevelMap).toBeDefined()
+    const [model] = applyModelCatalog(nativeFactory('openai-codex'), [{
+      id: 'gpt-6-astra',
+      reasoningEfforts: false,
+    }]).getModels()
+    expect(model).toMatchObject({ id: 'gpt-6-astra', reasoning: false })
+    expect(model?.thinkingLevelMap).toBeUndefined()
+  })
 })

@@ -165,6 +165,30 @@ describe('SubscriptionsService', () => {
     expect(service.configValue().providers['openai-codex']?.models).toBeUndefined()
   })
 
+  it('round-trips declared modalities and reasoning through the settings scope', async () => {
+    const config = memoryConfig()
+    const service = new SubscriptionsService({
+      store: memoryStore({ xai: grant }),
+      config,
+      fetch: async () => new Response('{}'),
+    })
+    await service.hydrate()
+    const declared = {
+      id: 'custom-grok',
+      input: ['text', 'image'] as const,
+      reasoningEfforts: { off: null, low: 'low', high: 'HIGH' },
+    }
+    const state = await service.setModels('xai-oauth', [declared])
+    expect(state.providers[0]?.models).toEqual([{ ...declared, name: 'custom-grok' }])
+    expect(config.get()).toEqual({
+      providers: { xai: { displayName: 'Grok', models: [declared] } },
+    })
+    // The stored shape is what the adapter materializes.
+    const [model] = service.profiles().get('xai')!.piProvider!.getModels()
+    expect(model).toMatchObject({ id: 'custom-grok', input: ['text', 'image'], reasoning: true })
+    expect(model?.thinkingLevelMap).not.toHaveProperty('off')
+  })
+
   it('lists only added or connected families and can remove them', async () => {
     const service = new SubscriptionsService({
       store: memoryStore({ 'kimi-coding': grant }),

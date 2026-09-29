@@ -1,6 +1,8 @@
 /**
- * Model capacity fields — same K/M spelling as the stock Models editor.
+ * Model capacity fields — same K/M spelling as the stock Models editor — plus
+ * the declared capability fields (`input`, `reasoningEfforts`).
  */
+import { THINKING_LEVELS, type ModelDraft, type ReasoningEfforts } from './settings.ts'
 
 const CAPACITY_PATTERN = /^(\d+(?:\.\d+)?)([km])?$/i
 
@@ -39,6 +41,10 @@ export type ModelValidationKey =
   | 'modelNameInvalid'
   | 'modelContextInvalid'
   | 'modelMaxTokensInvalid'
+  | 'modelReasoningEmpty'
+  | 'modelReasoningWireEmpty'
+  | 'modelReasoningWireMissing'
+  | 'modelReasoningOffOnly'
 
 export interface ModelValidation {
   readonly index: number
@@ -49,8 +55,36 @@ function positiveCount(value: number | undefined): boolean {
   return value === undefined || (Number.isInteger(value) && value > 0)
 }
 
+/** The declared levels a dict names, in escalation order. */
+function declaredLevels(efforts: ReasoningEfforts): string[] {
+  const source = efforts as Record<string, unknown>
+  return THINKING_LEVELS.filter((level) => source[level] !== undefined)
+}
+
+/**
+ * First semantic mistake in a declared `reasoningEfforts`, in the order the
+ * official resolver reports them: an empty declaration, then a level with no
+ * usable wire spelling, then a declaration that offers nothing above `off`.
+ * `undefined` (inherit) and `false` (not a reasoning model) are decisions, not
+ * mistakes. Only `off` may leave its wire empty, and an empty `off` stays out
+ * of the map, which pi-ai reads as "supported, send nothing".
+ */
+function reasoningFailure(efforts: ReasoningEfforts): ModelValidationKey | undefined {
+  const levels = declaredLevels(efforts)
+  if (levels.length === 0) return 'modelReasoningEmpty'
+  const source = efforts as Record<string, string | null | undefined>
+  for (const level of levels) {
+    const wire = source[level]
+    if (wire === null) {
+      if (level !== 'off') return 'modelReasoningWireMissing'
+    } else if (wire === '') return 'modelReasoningWireEmpty'
+  }
+  if (!levels.some((level) => level !== 'off')) return 'modelReasoningOffOnly'
+  return undefined
+}
+
 /** First invalid drafted row, matching the stock Models Apply gate. */
-export function validateModels(models: readonly { id: string; name?: string; contextWindow?: number; maxTokens?: number }[]): ModelValidation | undefined {
+export function validateModels(models: readonly ModelDraft[]): ModelValidation | undefined {
   const seen = new Set<string>()
   for (const [index, model] of models.entries()) {
     const id = model.id.trim()
@@ -63,6 +97,10 @@ export function validateModels(models: readonly { id: string; name?: string; con
     }
     if (!positiveCount(model.maxTokens) || (model.maxTokens !== undefined && Number.isNaN(model.maxTokens))) {
       return { index, key: 'modelMaxTokensInvalid' }
+    }
+    if (model.reasoningEfforts !== undefined && model.reasoningEfforts !== false) {
+      const key = reasoningFailure(model.reasoningEfforts)
+      if (key !== undefined) return { index, key }
     }
   }
   return undefined

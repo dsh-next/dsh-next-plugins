@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AddSubscription } from '../src/client/AddSubscription.tsx'
 import { SubscriptionCard } from '../src/client/SubscriptionCard.tsx'
 import { ClientRpcError } from '../src/client/api.ts'
+import { en } from '../src/client/dictionaries.ts'
 import type { AttemptView, PluginState } from '../src/core/types.ts'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -144,6 +145,167 @@ describe('model editor regressions', () => {
     await click('[data-testid="oauth-apply"]')
     expect(rpc).toHaveBeenCalledWith('setModels', expect.objectContaining({
       models: expect.arrayContaining([expect.objectContaining({ id: 'first', contextWindow: 129_000 })]),
+    }))
+  })
+})
+
+describe('model capability controls', () => {
+  /** One checkbox inside a capability fieldset, addressed by its visible label. */
+  function box(scope: string, label: string): HTMLInputElement {
+    const fieldset = host.querySelector(`fieldset[aria-label^="${scope}"]`)
+    expect(fieldset, scope).not.toBeNull()
+    const node = Array.from(fieldset!.querySelectorAll('label')).find((item) => item.textContent === label)
+    expect(node, `${scope} / ${label}`).toBeTruthy()
+    return node!.querySelector('input')!
+  }
+
+  async function toggle(scope: string, label: string): Promise<void> {
+    await act(async () => { box(scope, label).click() })
+  }
+
+  async function openCapabilities(position = 1): Promise<void> {
+    await openEditor()
+    await click(`[aria-label="Capacities ${position}"]`)
+  }
+
+  it('declares images from a text-only inherited row and writes the declaration', async () => {
+    const rpc = stateRpc()
+    await render(rpc)
+    await openCapabilities()
+    expect(box('Input types 1', 'Text').checked).toBe(true)
+    expect(box('Input types 1', 'Text').disabled).toBe(true)
+    expect(box('Input types 1', 'Image').checked).toBe(false)
+    await toggle('Input types 1', 'Image')
+    await click('[data-testid="oauth-apply"]')
+    expect(rpc).toHaveBeenCalledWith('setModels', {
+      alias: 'kimi-coding-oauth',
+      models: [
+        { id: 'first', name: 'First', contextWindow: 128_000, input: ['text', 'image'] },
+        { id: 'second', name: 'Second', contextWindow: 256_000 },
+      ],
+    })
+  })
+
+  it('shows the catalog modalities an inherited row already carries and narrows them', async () => {
+    const capable: PluginState = {
+      writable: true,
+      providers: [{
+        ...connected.providers[0]!,
+        defaultModels: [
+          { id: 'first', name: 'First', contextWindow: 128_000, input: ['text'] },
+          { id: 'second', name: 'Second', contextWindow: 256_000, input: ['text', 'image'] },
+        ],
+      }],
+    }
+    const rpc = stateRpc(capable)
+    await render(rpc)
+    await openCapabilities(2)
+    expect(box('Input types 2', 'Image').checked).toBe(true)
+    await toggle('Input types 2', 'Image')
+    await click('[data-testid="oauth-apply"]')
+    expect(rpc).toHaveBeenCalledWith('setModels', expect.objectContaining({
+      models: expect.arrayContaining([expect.objectContaining({ id: 'second', input: ['text'] })]),
+    }))
+  })
+
+  it('states a non-reasoning model with the none mode and restores inheritance', async () => {
+    const rpc = stateRpc()
+    await render(rpc)
+    await openCapabilities()
+    expect(host.querySelector('[aria-label="Wire value low 1"]')).toBeNull()
+    await change('[aria-label="Reasoning mode 1"]', 'none')
+    await click('[data-testid="oauth-apply"]')
+    expect(rpc).toHaveBeenCalledWith('setModels', expect.objectContaining({
+      models: expect.arrayContaining([expect.objectContaining({ id: 'first', reasoningEfforts: false })]),
+    }))
+  })
+
+  it('seeds the base ladder in the custom mode and edits one wire value', async () => {
+    const rpc = stateRpc()
+    await render(rpc)
+    await openCapabilities()
+    await change('[aria-label="Reasoning mode 1"]', 'custom')
+    for (const level of ['off', 'minimal', 'low', 'medium', 'high']) {
+      expect(box('Reasoning 1', level).checked, level).toBe(true)
+    }
+    for (const level of ['xhigh', 'max']) {
+      expect(box('Reasoning 1', level).checked, level).toBe(false)
+    }
+    // An undeclared level has no wire to type.
+    expect((host.querySelector('[aria-label="Wire value xhigh 1"]') as HTMLInputElement).disabled).toBe(true)
+    await change('[aria-label="Wire value low 1"]', 'lowest')
+    await click('[data-testid="oauth-apply"]')
+    expect(rpc).toHaveBeenCalledWith('setModels', expect.objectContaining({
+      models: expect.arrayContaining([expect.objectContaining({
+        id: 'first',
+        reasoningEfforts: { off: null, minimal: 'minimal', low: 'lowest', medium: 'medium', high: 'high' },
+      })]),
+    }))
+  })
+
+  it('drops the declaration when the mode goes back to inherited', async () => {
+    const rpc = stateRpc()
+    await render(rpc)
+    await openCapabilities()
+    await change('[aria-label="Reasoning mode 1"]', 'custom')
+    await change('[aria-label="Reasoning mode 1"]', 'inherit')
+    expect(host.querySelector('[aria-label="Wire value low 1"]')).toBeNull()
+    await click('[data-testid="oauth-apply"]')
+    const [, args] = rpc.mock.calls.find(([method]) => method === 'setModels')!
+    expect((args as { models: Record<string, unknown>[] }).models[0]).not.toHaveProperty('reasoningEfforts')
+  })
+
+  it.each([
+    [en.modelReasoningEmpty, ['off', 'minimal', 'low', 'medium', 'high']],
+    [en.modelReasoningOffOnly, ['minimal', 'low', 'medium', 'high']],
+  ])('reports %s and blocks Apply', async (message, unchecked) => {
+    const rpc = stateRpc()
+    await render(rpc)
+    await openCapabilities()
+    await change('[aria-label="Reasoning mode 1"]', 'custom')
+    for (const level of unchecked) await toggle('Reasoning 1', level)
+    expect(host.textContent).toContain(`${en.model} 1: ${message}`)
+    expect(element<HTMLButtonElement>('[data-testid="oauth-apply"]').disabled).toBe(true)
+    // Declaring a level above off again clears the report (both cases clear low).
+    await toggle('Reasoning 1', 'low')
+    expect(host.textContent).not.toContain(`${en.model} 1: ${message}`)
+    expect(element<HTMLButtonElement>('[data-testid="oauth-apply"]').disabled).toBe(false)
+    expect(rpc.mock.calls.map(([method]) => method)).not.toContain('setModels')
+  })
+
+  it('reports a blank wire spelling above off while a blank off stays valid', async () => {
+    const rpc = stateRpc()
+    await render(rpc)
+    await openCapabilities()
+    await change('[aria-label="Reasoning mode 1"]', 'custom')
+    await toggle('Reasoning 1', 'low')
+    await toggle('Reasoning 1', 'low')
+    await change('[aria-label="Wire value low 1"]', '')
+    expect(host.textContent).toContain(`${en.model} 1: ${en.modelReasoningWireEmpty}`)
+    expect(element<HTMLButtonElement>('[data-testid="oauth-apply"]').disabled).toBe(true)
+    await change('[aria-label="Wire value low 1"]', 'low')
+    // The seeded blank off is the one level allowed to send nothing.
+    expect((host.querySelector('[aria-label="Wire value off 1"]') as HTMLInputElement).value).toBe('')
+    expect(element<HTMLButtonElement>('[data-testid="oauth-apply"]').disabled).toBe(false)
+  })
+
+  it('keeps a surviving row\u2019s reasoning buffers when an earlier row is deleted', async () => {
+    const rpc = stateRpc()
+    await render(rpc)
+    await openCapabilities(1)
+    await openCapabilities(2)
+    await change('[aria-label="Reasoning mode 1"]', 'custom')
+    await change('[aria-label="Reasoning mode 2"]', 'custom')
+    await change('[aria-label="Wire value low 1"]', 'first-wire')
+    await change('[aria-label="Wire value low 2"]', 'second-wire')
+    await click('[aria-label="Delete model 1"]')
+    expect((host.querySelector('[aria-label="Wire value low 1"]') as HTMLInputElement).value).toBe('second-wire')
+    await click('[data-testid="oauth-apply"]')
+    expect(rpc).toHaveBeenCalledWith('setModels', expect.objectContaining({
+      models: [expect.objectContaining({
+        id: 'second',
+        reasoningEfforts: expect.objectContaining({ low: 'second-wire' }),
+      })],
     }))
   })
 })

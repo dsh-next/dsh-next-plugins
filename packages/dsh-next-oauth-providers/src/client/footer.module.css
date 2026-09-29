@@ -482,6 +482,61 @@
   display: flex;
 }
 
+/* Model-row capability controls, at the geometry the installed Models section
+   (dsh-client-ui-settings-models 0.1.7) uses for its input-type fieldset. */
+.modelInputTypes {
+  border: none;
+  grid-column: 1 / -1;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.modelInputTypes legend {
+  margin-bottom: 4px;
+  padding: 0;
+}
+
+.modelInputChoices {
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  min-height: 32px;
+  display: flex;
+}
+
+.modelReasoning {
+  border: none;
+  grid-column: 1 / -1;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.modelReasoning legend {
+  margin-bottom: 4px;
+  padding: 0;
+}
+
+.modelEfforts {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 6px;
+  margin-top: 6px;
+  display: grid;
+}
+
+.modelEffort {
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  display: flex;
+}
+
+.modelEffort .input {
+  flex: 1;
+  min-width: 0;
+}
+
 .modelFieldLabel {
   color: var(--dsw-alias-label-tertiary);
   font-size: 12px;

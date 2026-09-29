@@ -1,8 +1,9 @@
 // @vitest-environment node
+import Schema from '@deepseek-ai/schemastery'
 import { describe, expect, it } from 'vitest'
 import { classifyLoginError, RpcError } from '../src/core/errors.ts'
 import { pluginConfigSchema, SETTINGS_NS } from '../src/core/schema.ts'
-import { EMPTY_CONFIG, normalizeConfig, normalizeModelDraft, normalizeProfile, profileOf, withModels, withProvider, withoutProvider } from '../src/core/settings.ts'
+import { EMPTY_CONFIG, normalizeConfig, normalizeModelDraft, normalizeProfile, profileOf, withModels, withProvider, withoutProvider, type ModelDraft } from '../src/core/settings.ts'
 import { formatCapacity, parseCapacity, validateModels } from '../src/core/capacity.ts'
 import { grantAccountLabel, grantExpiryMs, isOauthGrant, jsonImage } from '../src/core/records.ts'
 import { ALL_ALIASES, ALL_NATIVES, FAMILIES, familyByNative, isNativeId } from '../src/core/catalog.ts'
@@ -62,6 +63,73 @@ describe('settings boundaries', () => {
     expect(normalizeProfile({ models: [{ id: '' }], displayName: 4 })).toEqual({})
   })
 
+  it('round-trips declared modalities and drops what pi-ai cannot serve', () => {
+    expect(normalizeModelDraft({ id: 'm', input: ['text', 'image'] })).toEqual({ id: 'm', input: ['text', 'image'] })
+    expect(normalizeModelDraft({ id: 'm', input: ['image', 'text'] })).toEqual({ id: 'm', input: ['image', 'text'] })
+    // Absent and empty mean the same thing, exactly as the official resolver reads them.
+    expect(normalizeModelDraft({ id: 'm', input: [] })).toEqual({ id: 'm' })
+    for (const value of [undefined, null, 'text', {}, ['vision'], ['text', 5], [['text']]]) {
+      expect(normalizeModelDraft({ id: 'm', input: value })).toEqual({ id: 'm' })
+    }
+  })
+
+  it('round-trips declared reasoning efforts and keeps the shapes a card must report', () => {
+    for (const value of [false, { off: null, low: 'low' }, { off: 'none' }, { low: 'low', high: 'HIGH' }]) {
+      expect(normalizeModelDraft({ id: 'm', reasoningEfforts: value })).toEqual({ id: 'm', reasoningEfforts: value })
+    }
+    // Semantic mistakes survive so validateModels can name them per row.
+    for (const value of [{}, { off: null }, { low: '' }, { low: null }]) {
+      expect(normalizeModelDraft({ id: 'm', reasoningEfforts: value })).toEqual({ id: 'm', reasoningEfforts: value })
+    }
+    // A level outside the pi-ai ladder never reaches the thinking-level map;
+    // a dict naming only such levels is an empty declaration.
+    expect(normalizeModelDraft({ id: 'm', reasoningEfforts: { low: 'low', bogus: 'x' } })).toEqual({ id: 'm', reasoningEfforts: { low: 'low' } })
+    expect(normalizeModelDraft({ id: 'm', reasoningEfforts: { bogus: 'x' } })).toEqual({ id: 'm', reasoningEfforts: {} })
+    for (const value of [undefined, null, true, 'low', 5, [], { low: 5 }, { low: {} }]) {
+      expect(normalizeModelDraft({ id: 'm', reasoningEfforts: value })).toEqual({ id: 'm' })
+    }
+  })
+
+  it('keeps profile rows addressed through the block-list form too', () => {
+    const config = normalizeConfig({
+      providers: [{ id: 'xai', models: [{ id: 'm', input: ['text', 'image'], reasoningEfforts: { low: 'low' } }] }],
+    })
+    expect(config.providers.xai?.models).toEqual([{ id: 'm', input: ['text', 'image'], reasoningEfforts: { low: 'low' } }])
+  })
+
+  it('accepts the two new fields through the Cordis config schema', () => {
+    const stored = pluginConfigSchema({
+      providers: {
+        xai: {
+          models: [{
+            id: 'm',
+            input: ['text', 'image'],
+            reasoningEfforts: { off: null, low: 'low' },
+          }, {
+            id: 'n',
+            reasoningEfforts: false,
+          }],
+        },
+      },
+    })
+    expect(stored.providers.get()).toEqual({
+      xai: {
+        models: [
+          { id: 'm', input: ['text', 'image'], reasoningEfforts: { off: null, low: 'low' } },
+          // The schema materializes an absent input array, which the resolver
+          // reads as "no answer" and normalizeModelDraft drops.
+          { id: 'n', input: [], reasoningEfforts: false },
+        ],
+      },
+    })
+    expect(Schema(pluginConfigSchema)({
+      providers: { xai: { models: [{ id: 'm', input: ['text'], reasoningEfforts: { off: 'none', low: 'low' } }] } },
+    })).toBeDefined()
+    // A level outside the ladder is refused by the dict's key union.
+    expect(pluginConfigSchema({ providers: { xai: { models: [{ id: 'm', reasoningEfforts: { bogus: 'x' } }] } } }).providers.get())
+      .toEqual({})
+  })
+
   it('handles invalid provider rows and uses the last recognized list row', () => {
     expect(normalizeConfig({ providers: [null, {}, { id: 5 }, { id: 'unknown' }, { id: 'xai', displayName: 'First' }, { id: 'xai-oauth', displayName: 'Last' }] })).toEqual({ providers: { xai: { displayName: 'Last' } } })
     expect(normalizeConfig({ providers: { 'xai-oauth': { displayName: 'Alias' }, 'subscription-grok': { displayName: 'Legacy' } } }).providers.xai?.displayName).toBe('Alias')
@@ -105,6 +173,33 @@ describe('capacity validation boundaries', () => {
     }
     expect(validateModels([])).toBeUndefined()
     expect(validateModels([{ id: 'm', contextWindow: 1, maxTokens: 1 }])).toBeUndefined()
+  })
+
+  it('reports each invalid reasoning declaration, in the official resolver order', () => {
+    const accepted: ModelDraft[] = [
+      { id: 'm' },
+      { id: 'm', reasoningEfforts: false },
+      { id: 'm', reasoningEfforts: { off: null, low: 'low' } },
+      { id: 'm', reasoningEfforts: { off: 'none', low: 'low' } },
+      { id: 'm', reasoningEfforts: { low: 'low', high: 'HIGH' } },
+      { id: 'm', input: ['text', 'image'] },
+    ]
+    for (const row of accepted) expect(validateModels([row]), JSON.stringify(row)).toBeUndefined()
+    for (const [efforts, key] of [
+      [{}, 'modelReasoningEmpty'],
+      [{ bogus: 'x' }, 'modelReasoningEmpty'],
+      [{ off: null }, 'modelReasoningOffOnly'],
+      [{ off: 'none' }, 'modelReasoningOffOnly'],
+      [{ off: '', low: 'low' }, 'modelReasoningWireEmpty'],
+      [{ off: null, low: '' }, 'modelReasoningWireEmpty'],
+      [{ off: null, low: null }, 'modelReasoningWireMissing'],
+      [{ off: null, low: 'low', high: null }, 'modelReasoningWireMissing'],
+    ] as const) {
+      expect(validateModels([{ id: 'next', reasoningEfforts: efforts }]), JSON.stringify(efforts)).toEqual({ index: 0, key })
+    }
+    // The first offending row wins, like every other field.
+    expect(validateModels([{ id: 'm', reasoningEfforts: false }, { id: 'n', reasoningEfforts: {} }]))
+      .toEqual({ index: 1, key: 'modelReasoningEmpty' })
   })
 })
 

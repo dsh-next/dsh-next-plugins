@@ -1,5 +1,24 @@
 # @dsh-next/dsh-next-skills
 
+## 0.4.0
+
+### Minor Changes
+
+- **Breaking:** Skills requires DeepSeek Harness 0.1.7-alpha.1 or newer and stores provider and installation records in the plugin's profile configuration rather than the legacy settings section. Harness imports existing records into the active profile; installed skill files are preserved.
+- Open an installed skill’s folder from its detail dialog using DSH’s detected applications and native launch support. The control is hidden when no supported applications are available or the skill is not installed.
+- **Breaking:** Removed the `cc-external-skills` service and its exported integration interface. Plugins that used this service must stop calling it. Existing skill files and ownership safeguards are preserved; ordinary skill browsing, installation, and updates remain available.
+- **Breaking:** Skills management is global-only. Legacy workspace restrictions, disabled entries, scope settings, and skill-scope methods no longer apply. Installs ignore scope fields; native skill discovery and each skill's invocation settings control availability. Existing files, providers, and installation records are preserved.
+
+### Patch Changes
+
+- Show readable English and Chinese plugin names, concise descriptions, and distinct icons in the Harness plugin manager.
+- Fixed rendering of OAuth provider controls and the Skills folder menu on the current Harness interface.
+- The Skills panel now reports a failed host request with a readable message, such
+  as `Skills request "getState" failed (HTTP 405)`, instead of showing the
+  browser's raw JSON parser error when the response carried no JSON body. A
+  response whose body parses but is not a skills payload is reported the same way
+  rather than leaving the page blank.
+
 ## 0.3.0
 
 ### Minor Changes

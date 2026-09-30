@@ -1,5 +1,13 @@
 # @dsh-next/dsh-next-checkpoints
 
+## 0.2.2
+
+### Patch Changes
+
+- Fixed checkpoint session navigation on current DSH clients so opening and switching sessions continues to work with the live workspace API.
+- Show readable English and Chinese plugin names, concise descriptions, and distinct icons in the Harness plugin manager.
+- Keep checkpoint rewind notices compatible with the current DeepSeek Harness SDK without treating them as new user prompts.
+
 ## 0.2.1
 
 ### Patch Changes

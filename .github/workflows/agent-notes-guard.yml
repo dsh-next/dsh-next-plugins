@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   guard-agent-notes:
@@ -19,8 +20,27 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
           SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+          EXPECTED_FILES: ${{ github.event.pull_request.changed_files }}
         run: |
-          files="$(gh api "repos/$REPO/pulls/$PR_NUMBER/files" --paginate --jq '.[].filename' | grep '^\.agents/notes/' || true)"
+          set -euo pipefail
+          # The list-files API cannot return more than 3,000 files. A successful
+          # request above that cap still cannot prove the protected path absent.
+          if ! [[ "$EXPECTED_FILES" =~ ^[0-9]+$ ]] || [ "${#EXPECTED_FILES}" -gt 4 ] || [ "$EXPECTED_FILES" -gt 3000 ]; then
+            echo "::error::PR file inventory exceeds the verifiable API limit or lacks a valid count; Agent Notes guard fails closed."
+            exit 1
+          fi
+          # Check retrieval before filtering: an API failure is not an empty diff.
+          # Include old paths so renaming a protected note out still needs access.
+          if ! inventory="$(gh api "repos/$REPO/pulls/$PR_NUMBER/files" --paginate --slurp --jq 'map(.[]) | map({filename, previous_filename})')"; then
+            echo "::error::Could not retrieve all PR files; Agent Notes guard fails closed."
+            exit 1
+          fi
+          if ! listed_files="$(printf '%s' "$inventory" | jq -er 'if type == "array" and all(.[]; (.filename | type) == "string" and (.previous_filename == null or (.previous_filename | type) == "string")) then length else error("invalid file inventory") end')" || [ "$listed_files" -ne "$EXPECTED_FILES" ]; then
+            echo "::error::PR file inventory is malformed or incomplete; Agent Notes guard fails closed."
+            exit 1
+          fi
+          changed_files="$(printf '%s' "$inventory" | jq -r '.[] | .filename, (.previous_filename // empty)')"
+          files="$(printf '%s\n' "$changed_files" | sed -n '/^\.agents\/notes\//p')"
           if [ -z "$files" ]; then
             echo "Agent Notes tree untouched; guard passed."
             exit 0

@@ -10,7 +10,12 @@
 
 <!-- Check the packages this PR touches. -->
 
+- [ ] `packages/dsh-next-checkpoints`
+- [ ] `packages/dsh-next-decisions`
+- [ ] `packages/dsh-next-git`
 - [ ] `packages/dsh-next-notifier`
+- [ ] `packages/dsh-next-oauth-providers`
+- [ ] `packages/dsh-next-opencode-session-patch`
 - [ ] `packages/dsh-next-skills`
 - [ ] Shared / scripts / docs
 
@@ -26,16 +31,14 @@
 
 ## Latest Codebase Confirmation
 
-- [ ] I have based this PR on the latest `main` branch, or rebased / merged latest `main` before submitting.
+- [ ] I have based this PR on the latest target branch (`main` or `dev`), or rebased / merged that branch before submitting.
 
 ## Local Validation
 
-<!-- Commands executed and the result summary. Do not leave blank. -->
+<!-- Replace the sample with commands actually run. If none ran, explain why. -->
 
 ```bash
-pnpm typecheck
-pnpm test
-pnpm build
+pnpm run ci
 ```
 
 Result summary:
@@ -53,5 +56,5 @@ changes may state N/A. -->
 - [ ] I have not modified DSH source; changes are based only on the official `@deepseek-ai/*` SDK.
 - [ ] No tsconfig `extends` / `paths` / `references` points at a DSH source checkout.
 - [ ] New packages are named `dsh-next-<slug>` under the `@dsh-next` scope.
-- [ ] No file contains emoji.
-- [ ] Documentation is English-only and `pnpm docs:check` passes.
+- [ ] Source code, code comments, commit messages, and changeset entries follow the no-emoji rule in AGENTS.md.
+- [ ] Repository documentation is English-only, package README pairs stay bilingual, and `pnpm docs:check` passes.

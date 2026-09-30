@@ -14,80 +14,17 @@ jobs:
     name: Validate PR contribution evidence
     runs-on: ubuntu-latest
     if: ${{ !github.event.pull_request.draft }}
-
     steps:
+      # Privileged PR policies load only code from the trusted immutable base.
+      - name: Checkout trusted policy source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
       - name: Validate pull request body
         uses: actions/github-script@v8
         with:
           script: |
-            const pr = context.payload.pull_request;
-            const author = pr.user || {};
-            // Changesets "Version Packages" and other bot PRs do not use the
-            // human template. Failing them blocks the release merge.
-            if (author.type === 'Bot' || author.login === 'github-actions[bot]') {
-              console.log('PR #' + pr.number + ': bot author, skipping contribution checklist.');
-              return;
-            }
-            const body = pr.body || '';
-
-            const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const readSection = (label) => {
-              const heading = escapeRegExp(label);
-              const pattern = new RegExp(`(?:^|\\n)##\\s+${heading}\\s*\\n+([\\s\\S]*?)(?=\\n##\\s+|$)`, 'i');
-              const match = body.match(pattern);
-              return match ? match[1].replace(/<!--[\s\S]*?-->/g, '').trim() : '';
-            };
-
-            const isBlank = (value) => {
-              const normalized = value.replace(/\s+/g, ' ').trim().toLowerCase();
-              return normalized === '' || normalized === 'no response' || normalized === '_no response_';
-            };
-
-            const hasCheckedLine = (value, label) => {
-              const pattern = new RegExp(`^-\\s*\\[[xX]\\]\\s*${escapeRegExp(label)}\\s*$`, 'm');
-              return pattern.test(value);
-            };
-
-            const hasAnyCheckedBox = (value) => /^-\s*\[[xX]\]\s+\S+/m.test(value);
-
-            const prType = readSection('PR Type');
-            const latest = readSection('Latest Codebase Confirmation');
-            const localValidation = readSection('Local Validation');
-
-            const errors = [];
-            if (!hasAnyCheckedBox(prType)) {
-              errors.push('Check at least one item in `PR Type`.');
-            }
-            if (!hasCheckedLine(latest, 'I have based this PR on the latest `main` branch, or rebased / merged latest `main` before submitting.')) {
-              errors.push('Confirm `Latest Codebase Confirmation` (based on latest `main`).');
-            }
-            if (isBlank(localValidation)) {
-              errors.push('Fill in `Local Validation` (commands executed and result summary).');
-            }
-
-            if (errors.length === 0) {
-              return;
-            }
-
-            const comment = [
-              'This PR is missing required contribution information.',
-              '',
-              'Update the PR description and keep the template complete:',
-              '',
-              ...errors.map((error) => `- ${error}`),
-            ].join('\n');
-
-            if (context.payload.action !== 'synchronize') {
-              try {
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: pr.number,
-                  body: comment,
-                });
-              } catch (error) {
-                core.warning('failed to post checklist comment: ' + String((error && error.message) || error));
-              }
-            }
-
-            core.setFailed(errors.join('\n'));
+            const { pathToFileURL } = require('node:url');
+            const policy = await import(pathToFileURL(process.env.GITHUB_WORKSPACE + '/scripts/github-pr-contribution.mjs').href);
+            await policy.enforcePrContribution({ github, context, core });

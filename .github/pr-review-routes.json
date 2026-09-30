@@ -7,6 +7,41 @@
   },
   "routes": [
     {
+      "name": "checkpoints",
+      "label": "packages/dsh-next-checkpoints",
+      "paths": ["packages/dsh-next-checkpoints/**"],
+      "reviewers": ["sitegroove"],
+      "assignees": ["sitegroove"]
+    },
+    {
+      "name": "decisions",
+      "label": "packages/dsh-next-decisions",
+      "paths": ["packages/dsh-next-decisions/**"],
+      "reviewers": ["sitegroove"],
+      "assignees": ["sitegroove"]
+    },
+    {
+      "name": "git",
+      "label": "packages/dsh-next-git",
+      "paths": ["packages/dsh-next-git/**"],
+      "reviewers": ["sitegroove"],
+      "assignees": ["sitegroove"]
+    },
+    {
+      "name": "oauth-providers",
+      "label": "packages/dsh-next-oauth-providers",
+      "paths": ["packages/dsh-next-oauth-providers/**"],
+      "reviewers": ["sitegroove"],
+      "assignees": ["sitegroove"]
+    },
+    {
+      "name": "opencode-session-patch",
+      "label": "packages/dsh-next-opencode-session-patch",
+      "paths": ["packages/dsh-next-opencode-session-patch/**"],
+      "reviewers": ["sitegroove"],
+      "assignees": ["sitegroove"]
+    },
+    {
       "name": "notifier",
       "label": "packages/dsh-next-notifier",
       "paths": ["packages/dsh-next-notifier/**"],

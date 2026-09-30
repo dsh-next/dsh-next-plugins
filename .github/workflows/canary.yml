@@ -1,16 +1,11 @@
 name: Canary
 
-# On-demand prerelease publishing. Runs `changeset version --snapshot canary`
-# to derive a temporary `0.0.0-canary-<timestamp>` version for every package
-# named by a pending change file (without consuming the change files), then
-# `changeset publish --tag canary` to publish them under the npm `canary`
-# dist-tag. A plain `npm install @dsh-next/dsh-next-<slug>` still resolves the
-# stable `latest` tag; beta testers opt in with `@canary`.
-#
-# Unlike the stable `release.yml` lane, this does NOT bump manifest versions,
-# write CHANGELOGs, open the "Version Packages" PR, or create GitHub Releases —
-# it only makes the current pending work installable for early testing. Run it
-# manually from the Actions tab when you want to hand a build to a beta tester.
+# On-demand prerelease publishing from main after same-SHA keyless CI passes.
+# Snapshot versioning changes runner manifests and CHANGELOGs and consumes the
+# runner's pending change files. None of those mutations are committed or pushed;
+# the repository's pending changes remain available for the stable release.
+# Publish only under canary, beta, or rc; never replace the stable latest tag.
+# This lane creates no release PR, GitHub Release, or git tags.
 #
 # Requires the repository secret `NPM_TOKEN` (npm automation token for the
 # @dsh-next scope).
@@ -19,28 +14,57 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'npm dist-tag for the prerelease (e.g. canary, beta, rc)'
-        required: false
-        default: 'canary'
+        description: npm dist-tag for the prerelease
+        type: choice
+        required: true
+        default: canary
+        options:
+          - canary
+          - beta
+          - rc
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: canary-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  validation:
+    name: Validate publishing SHA
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+    # No inherited secrets or live-model inputs; only the keyless CI gates run.
+
   canary:
     name: Publish canary prerelease
+    if: github.ref == 'refs/heads/main'
+    needs: validation
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      TAG: ${{ inputs.tag }}
 
     steps:
+      # A choice control is not a security boundary: validate API input too,
+      # before installing dependencies, configuring auth, or versioning files.
+      - name: Validate prerelease tag
+        shell: bash
+        run: |
+          case "$TAG" in
+            canary|beta|rc) ;;
+            *) printf '%s\n' 'Invalid prerelease tag: expected canary, beta, or rc.' >&2; exit 1 ;;
+          esac
+
       - name: Checkout
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          ref: ${{ github.sha }}
+          persist-credentials: false
 
       - name: Lint GitHub Actions workflows
         uses: docker://rhysd/actionlint:latest
@@ -62,8 +86,9 @@ jobs:
 
       - name: Configure npm auth
         run: |
-          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" >> ~/.npmrc
-          echo "registry=https://registry.npmjs.org/" >> ~/.npmrc
+          printf '//registry.npmjs.org/:_authToken=%s\n' "${NPM_TOKEN}" > ~/.npmrc
+          printf 'registry=https://registry.npmjs.org/\n' >> ~/.npmrc
+          printf '@dsh-next:registry=https://registry.npmjs.org/\n' >> ~/.npmrc
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -71,7 +96,6 @@ jobs:
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          # Derive a snapshot version for each pending package without
-          # consuming the change files, then publish under the chosen dist-tag.
-          pnpm exec changeset version --snapshot "${{ github.event.inputs.tag }}"
-          pnpm exec changeset publish --tag "${{ github.event.inputs.tag }}" --no-git-tag
+          # Snapshot mutations and consumed change files stay on this runner.
+          pnpm exec changeset version --snapshot "$TAG"
+          pnpm exec changeset publish --tag "$TAG" --no-git-tag

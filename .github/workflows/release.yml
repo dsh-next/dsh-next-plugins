@@ -28,16 +28,26 @@ on:
       - main
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  validation:
+    name: Validate publishing SHA
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+    # Local workflow reuse checks the caller's SHA, without inheriting secrets.
+
   release:
     name: Version and publish changed packages
+    needs: validation
+    permissions:
+      contents: write
+      pull-requests: write
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
@@ -48,6 +58,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          ref: ${{ github.sha }}
 
       - name: Lint GitHub Actions workflows
         uses: docker://rhysd/actionlint:latest
@@ -112,6 +123,8 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          ref: ${{ github.sha }}
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6

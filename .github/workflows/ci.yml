@@ -6,6 +6,9 @@ on:
     branches:
       - main
       - dev
+  # Publishing callers reuse the keyless gates on their triggering SHA.
+  # No caller inputs or secrets are needed.
+  workflow_call:
   workflow_dispatch:
     inputs:
       live_checkpoints:
@@ -17,7 +20,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # Called workflows see the caller's github.workflow/event_name. Isolate their
+  # gates by run ID; direct CI keeps cancelling superseded checks on the ref.
+  # The ci- prefix also keeps this group distinct from each publishing caller.
+  group: ci-${{ github.workflow }}-${{ github.workflow == 'CI' && (github.event.pull_request.number || github.ref) || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -33,6 +39,8 @@ jobs:
           # The changeset gate diffs against origin/main; a shallow clone must
           # still carry that ref.
           fetch-depth: 0
+          ref: ${{ github.sha }}
+          persist-credentials: false
 
       - name: Lint GitHub Actions workflows
         uses: docker://rhysd/actionlint:latest
@@ -118,6 +126,9 @@ jobs:
       DSH_TELEMETRY_DISABLED: '1'
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
 
       - uses: pnpm/action-setup@v6
 
@@ -159,13 +170,17 @@ jobs:
 
   live-checkpoints:
     name: Opt-in live-model checkpoint test
-    # Never expose live credentials to pull requests or arbitrary branch code.
-    if: github.event_name == 'workflow_dispatch' && inputs.live_checkpoints && github.ref == 'refs/heads/main'
+    # Reusable calls retain the caller's event_name, so dispatch alone cannot
+    # distinguish a manual CI run from Canary. Only direct CI may spend credits.
+    if: github.workflow == 'CI' && github.event_name == 'workflow_dispatch' && inputs.live_checkpoints && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: live-tests
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:

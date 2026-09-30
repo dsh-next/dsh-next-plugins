@@ -26,6 +26,14 @@ pnpm plugin:new <slug>
 See [AGENTS.md](AGENTS.md) and [CONTRIBUTING.md](CONTRIBUTING.md) for repository
 rules and conventions.
 
+## Contributors
+
+Thanks to everyone who contributes. The synchronized list excludes bot accounts.
+
+<!-- contributors:start -->
+Contributor profiles will appear after the first successful synchronization.
+<!-- contributors:end -->
+
 ## License
 
 MIT. Copyright (c) 2026 Rok Grabnar.

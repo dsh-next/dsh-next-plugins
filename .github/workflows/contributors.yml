@@ -13,14 +13,16 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
+# Every event proposes a main-targeted PR; serialize even events from dev.
 concurrency:
-  group: contributors-${{ github.ref }}
-  cancel-in-progress: true
+  group: contributors-${{ github.repository }}-main
+  cancel-in-progress: false
 
 jobs:
   update-contributors:
-    name: Sync contributor list into READMEs
+    name: Sync contributor list into root README
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -30,28 +32,42 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+          # Trusted scheduled writer needs credentials only to update its bot branch.
+          persist-credentials: true
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
           node-version: 22
 
-      - name: Regenerate contributor sections
+      - name: Regenerate root README contributor section
         run: |
           node scripts/update-contributors.mjs
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Commit and push if changed
+      # Do not bypass protected main. Standard-token PR checks may need manual approval.
+      - name: Propose contributor update if changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
+          set -euo pipefail
           if git diff --quiet -- README.md; then
-            echo "Contributor list unchanged; nothing to commit."
+            echo "Contributor list unchanged; nothing to propose."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # This dedicated generated branch is owned by contributor automation.
+          git switch -C automation/contributors
           git add README.md
           git commit -m "docs(readme): sync contributor list from GitHub API"
-          git pull --rebase origin main
-          git push origin HEAD:main
+          git push --force-with-lease origin HEAD:refs/heads/automation/contributors
+          number="$(gh pr list --state open --head automation/contributors --base main --json number --jq '.[0].number // empty')"
+          if [ -z "$number" ]; then
+            gh pr create --base main --head automation/contributors --title "docs(readme): sync contributor list" --body "Automated update of the root README contributor block. Review and approve any required checks before merging."
+          else
+            echo "Updated existing contributor PR #$number."
+          fi

@@ -15,7 +15,12 @@ body:
       label: Affected plugin
       description: Which plugin or area this concerns; choose "other" if unsure.
       options:
+        - dsh-next-checkpoints
+        - dsh-next-decisions
+        - dsh-next-git
         - dsh-next-notifier
+        - dsh-next-oauth-providers
+        - dsh-next-opencode-session-patch
         - dsh-next-skills
         - shared / scripts
         - other / unknown
@@ -50,7 +55,7 @@ body:
     id: details-reproduction
     attributes:
       label: Details / context
-      description: For bugs give reproduction steps; for requests describe the use case and constraints.
+      description: Describe the use case and constraints. Use the bug report form for reproduction steps and screenshot evidence.
     validations:
       required: true
   - type: textarea

@@ -23,7 +23,12 @@ body:
       label: Affected plugin
       description: Which plugin or area this bug affects.
       options:
+        - dsh-next-checkpoints
+        - dsh-next-decisions
+        - dsh-next-git
         - dsh-next-notifier
+        - dsh-next-oauth-providers
+        - dsh-next-opencode-session-patch
         - dsh-next-skills
         - shared / scripts
         - other / unknown

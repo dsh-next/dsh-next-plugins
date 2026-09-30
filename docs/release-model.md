@@ -43,6 +43,14 @@ exist:
 `pull_request` events do **not** trigger the release workflow (only the CI
 gate). Merging a feature PR into `main` is the trigger; opening it is not.
 
+Before versioning or publishing, Release calls the reusable CI workflow on the
+same triggering SHA. Both ordered static checks and all keyless browser suites
+must succeed. The validation jobs receive read-only repository permissions and
+no inherited secrets; npm authentication is configured only in the subsequent
+publishing job. The paid live-test job cannot activate through this reusable
+call. Protect `main` with required CI checks too; this workflow gate does not
+configure GitHub branch protection.
+
 ## One PR covers every pending package
 
 The Version Packages PR is **repo-wide, not per-package**. When it opens, it
@@ -79,6 +87,11 @@ changeset publish ──▶ npm (new-on-registry versions) + GitHub Releases + p
 
 The PR is authored by the `github-actions` bot, which is why the repository
 needs "Allow GitHub Actions to create and approve pull requests" enabled.
+GitHub-token-created PR checks may require a maintainer to select **Approve
+workflows to run** before merging. For unattended PR checks, use a reviewed
+GitHub App installation token through the action's `github-token` input; a
+human PAT can cause the repository's human contribution checklist to apply.
+Do not provision additional tokens or change permissions implicitly.
 
 ## Git tags
 

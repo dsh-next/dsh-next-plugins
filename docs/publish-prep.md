@@ -88,18 +88,30 @@ Tag rules (do not deviate):
 
 ## Canary (snapshot) prereleases
 
-`.github/workflows/canary.yml` (manual, from the Actions tab) publishes the
-current pending changes as prereleases under a dist-tag without affecting the
-stable `latest` tag: it runs `changeset version --snapshot <tag>` then
-`changeset publish --tag <tag>`. Snapshot versions look like
-`0.0.0-<tag>-<timestamp>` and leave the real change files in place for the next
-stable release. Testers opt in with `npm install @dsh-next/dsh-next-<slug>@canary`;
-a plain `npm install` still resolves `latest`.
+[Canary](<../.github/workflows/canary.yml>) is a manual **publishing** workflow,
+not a dry run. Run it on `main` and choose `canary`, `beta`, or `rc`; `latest`
+and arbitrary tag strings are rejected. Same-SHA reusable keyless CI must pass
+before npm authentication or snapshot publication.
+
+It runs `changeset version --snapshot <tag>` then
+`changeset publish --tag <tag> --no-git-tag`. Snapshot versions look like
+`0.0.0-<tag>-<timestamp>`. Versioning changes manifests/CHANGELOGs and consumes
+used changeset files **in the runner checkout**. No snapshot edits are committed
+or pushed, so the repository's pending intents remain available for stable release.
+
+The local `pnpm release:canary` command makes those same destructive versioning
+changes in its working directory and performs a real publish. Use the GitHub
+workflow instead, or a clean disposable local checkout you are prepared to discard;
+never treat it as validation of your normal checkout.
+
+Testers install `@dsh-next/dsh-next-<slug>@canary` (or the selected tag).
+An ordinary install still resolves stable `latest`.
 
 ## Pre-release checks
 
-- `pnpm typecheck && pnpm test && pnpm build` is green (or `mise run ci`, which
-  adds the runtime-deps and docs checks).
+- `pnpm run ci` (or `mise run ci`) is green: ordered static checks, including
+  the 0.x release policy, followed by all keyless browser suites. Release and
+  Canary enforce this through the reusable workflow before publishing.
 - `pnpm runtime-deps:check` passes (no published bundle imports a
   devDependencies-only package).
 - `pnpm docs:check` passes.
@@ -108,9 +120,30 @@ a plain `npm install` still resolves `latest`.
 - Plugin source changes have a change file: `node scripts/verify-changeset.mjs --base origin/main`
   is green (CI enforces this on pull requests).
 
+## GitHub setup before enabling automation
+
+- Protect `main` and require the normal CI checks. The publishing workflow's
+  validation dependency checks its SHA; it does not install branch protections.
+- Allow Actions to create release PRs. With the default bot token, approve any
+  approval-required PR workflows and wait for green checks before merging.
+- Contributor synchronization proposes an `automation/contributors` bot PR
+  instead of pushing to `main`. Review that generated branch; don't use it for
+  hand-edited work. Standard-token PR checks may require the same approval step.
+- Paid checkpoint tests remain opt-in through direct CI dispatch on `main`.
+  Configure `live-tests` with a required reviewer, allowed `main` branch, and
+  environment-scoped `DEEPSEEK_API_KEY`. Reusable publishing validation never
+  inherits that secret or enables the paid job.
+
 ## npm tokens
 
-Publishing uses the repository secret `NPM_TOKEN` (an npm automation token for
-the `@dsh-next` scope). The release action writes it into the runner's
-`~/.npmrc`; never commit token configuration — keep it in the user `~/.npmrc`
-or CI secrets.
+Publishing uses the repository secret `NPM_TOKEN`. It must be a current,
+unexpired granular token with publish/write access to the `@dsh-next` packages
+and the appropriate 2FA-bypass permission for token publishing. A stage-only
+token or package policy that disallows tokens will not work. Secret presence
+alone does not prove these permissions; review the
+[npm token requirements](https://docs.npmjs.com/about-access-tokens/).
+
+Authentication is written into the publisher runner's `~/.npmrc`; never commit
+it. Validation jobs do not inherit publishing credentials. Trusted publishing
+would instead need explicit per-package setup and OIDC permissions; adding an
+`id-token` permission alone does not configure it.

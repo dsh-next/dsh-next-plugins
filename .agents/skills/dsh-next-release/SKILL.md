@@ -116,15 +116,18 @@ the Version Packages PR merges.
 
 ## Canary (snapshot) prerelease
 
-To hand a build to external testers without a stable release, run the
-`.github/workflows/canary.yml` workflow manually (Actions tab), optionally
-choosing a dist-tag (default `canary`). It runs `changeset version --snapshot
-<tag>` then `changeset publish --tag <tag>`, publishing each pending package as
-`0.0.0-<tag>-<timestamp>` under that dist-tag, with git tags disabled
-(snapshot prereleases intentionally push no tags). This consumes nothing
-permanent: the real change files stay for the next stable release, and the
-snapshot mutations are never committed. Testers install with
-`npm install @dsh-next/dsh-next-<slug>@canary`; a plain `npm install` keeps
-resolving the stable `latest`. Locally this maps to `pnpm release:canary`
-(which uses tag `canary`); the CI workflow accepts an override via its
-`tag` input for other labels such as `beta` or `rc`.
+Follow the owning [snapshot procedure](<../../../docs/publish-prep.md#canary-snapshot-prereleases>).
+Run [Canary](<../../../.github/workflows/canary.yml>) manually from `main`, using
+only `canary`, `beta`, or `rc`. It publishes after the same-SHA keyless CI gate;
+it does not run paid tests, write the stable `latest` tag, or push git tags.
+
+Snapshot versioning mutates manifests/CHANGELOGs and consumes changeset files
+in its working directory. CI is safe for the stable branch because its checkout
+is disposable and those edits are never committed/pushed. The local
+`pnpm release:canary` performs a real publish and is destructive to local release
+inputs: never run it in a normal working checkout or describe it as a dry run.
+Use a disposable checkout only with explicit publishing authorization.
+
+`pnpm run release:check` rejects major/stable graduation under the current 0.x
+policy. New features and breaking pre-1.0 changes use minor intents; retain
+migration warnings. Testers install with the selected prerelease dist-tag.

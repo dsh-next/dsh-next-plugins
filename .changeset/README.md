@@ -95,11 +95,13 @@ and never hand-write attribution into change files. Branch coverage lives in
 
 ## Canary (snapshot) prereleases
 
-`changeset version --snapshot <tag>` and `changeset publish --tag <tag>` produce
-a temporary prerelease without touching the stable `latest` dist-tag: it
-rewrites each pending package to `0.0.0-<tag>-<timestamp>`, publishes it under
-`<tag>` (conventionally `canary`), and never consumes the change files for the
-real release. The `.github/workflows/canary.yml` workflow runs this on demand
-(prereleases push no git tags).
-A plain `npm install @dsh-next/dsh-next-<slug>` still resolves the stable
-`latest`; testers opt in with `npm install @dsh-next/dsh-next-<slug>@canary`.
+Use the main-only [Canary workflow](<../.github/workflows/canary.yml>) after its
+same-SHA validation succeeds; allowed dist-tags are `canary`, `beta`, and `rc`,
+never `latest`. The owning [snapshot procedure](<../docs/publish-prep.md#canary-snapshot-prereleases>)
+explains that versioning mutates manifests/CHANGELOGs and removes used change
+files in its working directory. CI preserves the stable branch by discarding
+those uncommitted runner edits, not by leaving snapshot inputs untouched.
+
+The local `pnpm release:canary` is a real publish and consumes local change files;
+use only a disposable checkout. Snapshots push no git tags. An ordinary install
+still resolves stable `latest`; testers select a prerelease tag explicitly.

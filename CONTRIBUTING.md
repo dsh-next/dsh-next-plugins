@@ -45,7 +45,8 @@ that forward arguments. Use `--` before arguments to a mise task.
 | `pnpm run test:unit` | Every package's unit tests (`pnpm -r test`) |
 | `pnpm run test:scripts` | Repository workflow/script tests |
 | `pnpm test` / `mise run test` | Both unit and script tests |
-| `pnpm run check` / `mise run check` | Ordered typecheck, test, build, runtime-deps, docs, i18n |
+| `pnpm run check` / `mise run check` | Ordered typecheck, test, build, runtime-deps, docs, i18n, and 0.x release-policy check |
+| `pnpm run release:check` | Validate all pending intents without versioning or publishing |
 | `pnpm run test:e2e` / `mise run e2e` | All keyless browser suites |
 | `pnpm run ci` / `mise run ci` | Static check followed by all keyless browser suites |
 

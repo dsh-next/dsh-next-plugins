@@ -31,7 +31,7 @@ rules and conventions.
 Thanks to everyone who contributes. The synchronized list excludes bot accounts.
 
 <!-- contributors:start -->
-Contributor profiles will appear after the first successful synchronization.
+- [@sitegroove](https://github.com/sitegroove)
 <!-- contributors:end -->
 
 ## License
